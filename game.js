@@ -289,7 +289,7 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
   const ironM = M(0x3a3d44, { metalness: 0.9, roughness: 0.4, envMapIntensity: 1 });
   const goldM = M(0xf4c24d, { metalness: 1, roughness: 0.26, envMapIntensity: 1.6, emissive: 0x6a3d00, emissiveIntensity: 0.5 });
   const coinM = M(0xffd35a, { metalness: 1, roughness: 0.22, envMapIntensity: 1.8, emissive: 0x8a5200, emissiveIntensity: 0.7 });
-  const clothM = M(0x7a1018, { roughness: 0.95, side: THREE.DoubleSide, emissive: 0x2a0408, emissiveIntensity: 0.6 });
+  const clothM = M(0x7a1018, { roughness: 0.95, side: THREE.DoubleSide, emissive: 0x2a0408, emissiveIntensity: 0.25 });
   const stoneTex = canvasTex(256, 256, (g, w, h) => {
     g.fillStyle = '#9a948a'; g.fillRect(0, 0, w, h); speckle(g, w, h, 3500, 6, 0.18);
     g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 3; g.strokeRect(0, 0, w, h); g.beginPath(); g.moveTo(0, h / 2); g.lineTo(w, h / 2); g.stroke();
@@ -320,7 +320,7 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
   const skirtM = M(0x4a2c18, { roughness: 0.6, envMapIntensity: 0.5 });
   const flameM = new THREE.MeshBasicMaterial({ color: 0xffa030, toneMapped: false }), flame2M = new THREE.MeshBasicMaterial({ color: 0xfff0a8, toneMapped: false });
   const shaftTex = (() => { const c = document.createElement('canvas'); c.width = 16; c.height = 256; const g = c.getContext('2d'); const gr = g.createLinearGradient(0, 0, 0, 256); gr.addColorStop(0, 'rgba(255,215,120,0)'); gr.addColorStop(0.7, 'rgba(255,200,90,.1)'); gr.addColorStop(1, 'rgba(255,225,140,.6)'); g.fillStyle = gr; g.fillRect(0, 0, 16, 256); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
-  const shaftM = new THREE.MeshBasicMaterial({ map: shaftTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false });
+  const shaftM = new THREE.MeshBasicMaterial({ map: shaftTex, opacity: 0.6, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false });
   const gemCols = [0xe0203a, 0x20c860, 0x3a7bff, 0xb04cff, 0x30e0e0];
   const gemMs = gemCols.map(c => new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.9, metalness: 0.2, roughness: 0.15, flatShading: true }));
 
@@ -430,7 +430,7 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
     },
   ];
   const RARITY = [0xcfd8e0, 0xff5a4a, 0xc08bff, 0xff9a3c, 0x6aa8ff, 0x6dff8a];
-  const WSCALE = [1.15, 0.95, 0.72, 1.2, 1.0, 1.9], WLIFT = [0, 0, 0, 0, 0, 0];
+  const WSCALE = [1.5, 1.25, 0.95, 1.55, 1.3, 2.4], WLIFT = [0, 0, 0, 0, 0, 0];
   const weaponProtos = [];
   const getWeapon = i => {
     if (!weaponProtos[i]) { const g = new THREE.Group(); builders[i](g); g.scale.setScalar(WSCALE[i]); const w = new THREE.Group(); w.add(g); weaponProtos[i] = w; }
@@ -446,7 +446,7 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
     const g = new THREE.Group(); g.position.set(cr.cx, 0, cr.cz); g.rotation.y = Math.atan2(-cr.dx, -cr.dz); scene.add(g);  // local +z faces the door
     bx(g, CS, 0.4, CS, 0, -0.2, 0, cFloorM, CS);
     ceilings.push(bx(g, CS + T, 0.3, CS + T, 0, H + 0.15, 0, cCeilM));
-    for (const z of [-1.8, 1.4]) { bx(g, 2.4, 0.05, 1.2, 0, H - 0.03, z, cPanelM); bx(g, 2.64, 0.04, 1.44, 0, H - 0.015, z, skirtM); }
+    for (const z of [-1.8, 1.4]) { ceilings.push(bx(g, 2.4, 0.05, 1.2, 0, H - 0.03, z, cPanelM), bx(g, 2.64, 0.04, 1.44, 0, H - 0.015, z, skirtM)); }
     const L = CS + T / 2;
     bx(g, CS + T, H, T, 0, H / 2, -CW, cWallM); bx(g, T, H, L, -CW, H / 2, -T / 4, cWallM); bx(g, T, H, L, CW, H / 2, -T / 4, cWallM);
     // skirting, gold band, cornice
@@ -468,12 +468,12 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
     const chest = chestProto.clone(); chest.position.set(0, 0, -1.2); g.add(chest);
     const pool = new THREE.Mesh(new THREE.PlaneGeometry(5.5, 5.5), new THREE.MeshBasicMaterial({ map: glowTex, color: 0xffb040, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false, fog: false })); pool.rotation.x = -Math.PI / 2; pool.position.set(0, 0.02, 0.8); chest.add(pool);
     const sh = new THREE.Group(); sh.position.set(0, 1.0, 0); chest.add(sh);
-    for (let k = 0; k < 2; k++) { const pl = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 3.4), shaftM); pl.position.y = 1.7; pl.rotation.y = k * Math.PI / 2; pl.renderOrder = 3; sh.add(pl); }
+    for (let k = 0; k < 2; k++) { const pl = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 3.4), shaftM); pl.position.y = 1.7; pl.rotation.y = k * Math.PI / 2; pl.renderOrder = 3; sh.add(pl); }
     const glow = addGlow(chest, 0xffd060, 1.9, 0.6, 0, 1.2, 0); chestDyn.add(glow);
-    const holder = new THREE.Group(); holder.position.set(0, 1.85, 0); chest.add(holder); chestDyn.add(holder);
-    const wglow = addGlow(chest, 0xffffff, 1.8, 0.28, 0, 1.85, 0); chestDyn.add(wglow);
-    const label = new THREE.Sprite(getLabel(0).clone()); label.scale.set(2.3, 0.43, 1); label.position.set(0, 3.1, 0); label.renderOrder = 5; chest.add(label); chestDyn.add(label); label.visible = false;
-    chestSlots.push({ holder, glow, wglow, label, cur: -1, ph: cr.id * 1.7, base: 1.85, chest });
+    const holder = new THREE.Group(); holder.position.set(0, 2.0, 0); chest.add(holder); chestDyn.add(holder);
+    const wglow = addGlow(chest, 0xffffff, 1.8, 0.28, 0, 2.0, 0); chestDyn.add(wglow);
+    const label = new THREE.Sprite(getLabel(0).clone()); label.scale.set(2.3, 0.43, 1); label.position.set(0, 3.75, 0); label.renderOrder = 5; chest.add(label); chestDyn.add(label); label.visible = false;
+    chestSlots.push({ holder, glow, wglow, label, cur: -1, ph: cr.id * 1.7, base: 2.0, chest });
     roomTick.push(flames);
   }
   // static world: freeze matrices of everything we built except animated pieces

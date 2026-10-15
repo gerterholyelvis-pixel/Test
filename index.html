@@ -25,6 +25,10 @@ body.menu #rr{display:none!important}
 #menu{position:fixed;inset:0;z-index:5;display:flex;align-items:center;padding:0 clamp(20px,7vw,110px);pointer-events:none;transition:opacity .5s,transform .5s}
 #menu.gone{opacity:0;transform:translateX(-40px);visibility:hidden}
 #menu>*{pointer-events:auto}
+#menu.sub .foot,#menu.sub .tag,#menu.sub .eyebrow{display:none}
+#menu.sub h1.title{font-size:clamp(30px,min(6vw,9vh),64px);margin-bottom:clamp(10px,2.4vh,22px)}
+#menu.sub h1.title span{display:inline}
+#menu.sub h1.title span+span{margin-left:.25em;font-size:1em}
 #menu::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:linear-gradient(90deg,rgba(5,4,8,.88) 0%,rgba(5,4,8,.55) 34%,transparent 62%)}
 .col{width:min(520px,92vw);max-height:100vh;display:flex;flex-direction:column}
 .eyebrow{font-weight:600;letter-spacing:.42em;text-transform:uppercase;font-size:clamp(11px,1.9vh,15px);color:var(--ember);text-shadow:0 0 14px rgba(255,106,42,.6);margin:0 0 1.2vh .2em}
@@ -54,7 +58,7 @@ h1.title span+span{font-size:1.12em;letter-spacing:.06em}
 .foot{position:fixed;left:clamp(20px,7vw,110px);bottom:2.2vh;font-size:12px;letter-spacing:.2em;color:#6d6a60;text-transform:uppercase;pointer-events:none}
 h2.ph{margin:0 0 1.4vh;font-family:var(--disp);font-weight:700;font-size:clamp(22px,4.4vh,38px);color:var(--gold);letter-spacing:.06em;text-shadow:0 0 18px rgba(245,170,50,.35)}
 .sheet{background:linear-gradient(180deg,rgba(18,15,12,.82),rgba(10,8,8,.82));border:1px solid rgba(245,196,81,.25);padding:clamp(10px,2vh,20px) clamp(14px,2vw,24px);margin-bottom:clamp(10px,2vh,18px);
- max-height:calc(100vh - 30vh - 70px);overflow:auto;box-shadow:0 18px 50px rgba(0,0,0,.6)}
+ max-height:calc(100vh - 36vh - 60px);overflow:auto;box-shadow:0 18px 50px rgba(0,0,0,.6)}
 .row{display:grid;grid-template-columns:minmax(110px,150px) 1fr 54px;align-items:center;gap:14px;padding:clamp(5px,1.2vh,11px) 0;border-bottom:1px solid rgba(255,255,255,.06)}
 .row:last-child{border:0}
 .row label,.row .lb{font-size:clamp(15px,2.5vh,20px);letter-spacing:.1em;text-transform:uppercase;color:var(--txt)}
@@ -82,7 +86,7 @@ table.keys{border-collapse:collapse;width:100%}
 
 /* ---------- wheel screen ---------- */
 #roll{position:fixed;inset:0;z-index:8;display:none;align-items:center;justify-content:center;gap:clamp(18px,4vw,64px);padding:2vh 4vw;opacity:0;transition:opacity .6s;
- background:radial-gradient(ellipse at 50% 50%,rgba(14,10,8,.55),rgba(3,2,4,.93) 80%)}
+ background:radial-gradient(ellipse at 50% 50%,rgba(10,8,8,.8),rgba(3,2,4,.95) 80%)}
 #roll.show{display:flex}
 #roll.vis{opacity:1}
 #roll.out{opacity:0;pointer-events:none}

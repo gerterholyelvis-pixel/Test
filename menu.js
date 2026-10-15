@@ -38,7 +38,7 @@ function show(name) {
   const f = { main: 'b-start', settings: 's-back', controls: 'c-back' }[name];
   setTimeout(() => $(f) && $(f).focus({ preventScroll: true }), 30);
   if (name === 'main') $('b-start').focus();
-  curPanel = name;
+  curPanel = name; document.querySelector('#menu .col').classList.toggle('sub', name !== 'main'); $('menu').classList.toggle('sub', name !== 'main');
 }
 let curPanel = 'main';
 $('b-settings').onclick = () => show('settings'); $('b-controls').onclick = () => show('controls');
@@ -225,11 +225,11 @@ function buildStatic() {
     g.fillStyle = gr; g.fill(); g.strokeStyle = '#e8b64a'; g.lineWidth = Math.max(2, S * .006); g.stroke();
     // content in the segment's local frame (up = -y)
     g.save(); g.rotate(i * A);
-    g.save(); g.translate(0, -R * .6); g.shadowColor = 'rgba(0,0,0,.6)'; g.shadowBlur = S * .02; drawHead(g, type, S * .066); g.restore();
+    g.save(); g.translate(0, -R * .56); g.shadowColor = 'rgba(0,0,0,.6)'; g.shadowBlur = S * .02; drawHead(g, type, S * .058); g.restore();
     g.textAlign = 'center'; g.textBaseline = 'middle';
     const fs = S * .042; g.font = `700 ${fs}px "Barlow Condensed","Arial Narrow",Impact,sans-serif`;
-    g.fillStyle = type === 4 ? '#ffe36a' : '#f4ecd2'; g.shadowColor = '#000'; g.shadowBlur = 4; g.fillText(GK.NAMES[type].toUpperCase(), 0, -R * .86);
-    g.font = `600 ${fs * .8}px "Barlow Condensed","Arial Narrow",sans-serif`; g.fillStyle = type === 4 ? '#ffb43a' : '#9ae6d0'; g.fillText(ODDS[type] + '%', 0, -R * .86 + fs * .95);
+    g.fillStyle = type === 4 ? '#ffe36a' : '#f4ecd2'; g.shadowColor = '#000'; g.shadowBlur = 4; g.fillText(GK.NAMES[type].toUpperCase(), 0, -R * .88);
+    g.font = `600 ${fs * .8}px "Barlow Condensed","Arial Narrow",sans-serif`; g.fillStyle = type === 4 ? '#ffb43a' : '#9ae6d0'; g.fillText(ODDS[type] + '%', 0, -R * .88 + fs * .95);
     g.restore();
   }
   // inner ring
