@@ -331,8 +331,8 @@ function applyChests(weaponIdx) { /* called with an array of 12 weapon indices, 
     g.textAlign = 'left'; g.font = 'bold 34px system-ui, sans-serif'; g.fillStyle = '#e9f3ff';
     g.fillText('LEGEND', 722, 190);
     g.font = '600 32px system-ui, sans-serif';
-    g.fillStyle = '#2f8bff'; g.beginPath(); g.moveTo(744, 262); g.lineTo(730, 294); g.lineTo(744, 286); g.lineTo(758, 294); g.closePath(); g.fill();
-    g.fillStyle = '#e9f3ff'; g.fillText('You', 784, 282);
+    g.fillStyle = '#d81818'; g.fillRect(730, 268, 28, 28); g.strokeStyle = '#ffd0d0'; g.lineWidth = 2; g.strokeRect(730, 268, 28, 28);
+    g.fillStyle = '#e9f3ff'; g.fillText('You are here', 784, 284);
     chestIcon(g, 744, 340, 1.4); g.fillText('Chest', 784, 340);
     lockMark(g, 744, 398, false); g.fillText('Locked door', 784, 398);
     g.fillStyle = '#dfe8f2'; g.fillRect(730, 444, 28, 28); g.fillStyle = '#e9f3ff'; g.fillText('Room', 784, 460);
@@ -340,9 +340,9 @@ function applyChests(weaponIdx) { /* called with an array of 12 weapon indices, 
     g.fillStyle = '#7f95ad'; g.font = '24px system-ui, sans-serif'; g.fillText('All doors sealed', 722, 574);
   }
   const spawnRooms = [0, 1, 2, 3, 5, 6, 7, 8], panels = [];
-  function drawMap(p, live) {
+  function drawMap(p) {
     const g = p.ctx, i = p.room, [cx, cz] = rc(i), x = mx(cx - R / 2), y = my(cz - R / 2), w = R * MS;
-    const ph = live ? 0.5 + 0.5 * Math.sin(performance.now() / 260) : 1;
+    const ph = 0.6;
     g.drawImage(base, 0, 0);
     g.save(); g.fillStyle = 'rgba(255,40,40,' + (0.16 + 0.16 * ph) + ')'; g.fillRect(x, y, w, w);
     g.shadowColor = '#ff2a2a'; g.shadowBlur = 14 + 14 * ph; g.strokeStyle = '#ff3030'; g.lineWidth = 7; g.strokeRect(x + 3, y + 3, w - 6, w - 6); g.restore();
@@ -352,13 +352,6 @@ function applyChests(weaponIdx) { /* called with an array of 12 weapon indices, 
     g.fillStyle = '#d81818'; rr(g, lx - 58, ly - 30, 116, 60, 9); g.fill();
     g.strokeStyle = '#ffd0d0'; g.lineWidth = 2; g.stroke();
     g.fillStyle = '#fff'; g.fillText('YOU ARE', lx, ly - 12); g.fillText('HERE', lx, ly + 14); g.restore();
-    if (live && GK.mode === 'play' && roomAt(P.x, P.z) === i) {
-      const px = clamp(mx(P.x), x + 12, x + w - 12), py = clamp(my(P.z), y + 70, y + w - 12), fx = -Math.sin(P.yaw), fy = -Math.cos(P.yaw);
-      g.save(); g.translate(px, py); g.rotate(Math.atan2(fx, -fy)); // arrow points along heading (map up = -z)
-      g.fillStyle = 'rgba(60,150,255,' + (0.25 + 0.2 * ph) + ')'; g.beginPath(); g.arc(0, 0, 22 + 4 * ph, 0, 7); g.fill();
-      g.shadowColor = '#4aa8ff'; g.shadowBlur = 12; g.fillStyle = '#2f8bff'; g.strokeStyle = '#fff'; g.lineWidth = 3;
-      g.beginPath(); g.moveTo(0, -20); g.lineTo(-13, 14); g.lineTo(0, 7); g.lineTo(13, 14); g.closePath(); g.fill(); g.stroke(); g.restore();
-    }
   }
   const glowTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'), r = g.createRadialGradient(64, 64, 8, 64, 64, 64);
     r.addColorStop(0, 'rgba(120,190,255,0.9)'); r.addColorStop(0.5, 'rgba(70,140,255,0.35)'); r.addColorStop(1, 'rgba(40,100,255,0)'); g.fillStyle = r; g.fillRect(0, 0, 128, 128);
@@ -379,15 +372,9 @@ function applyChests(weaponIdx) { /* called with an array of 12 weapon indices, 
     const cv = document.createElement('canvas'); cv.width = MW; cv.height = MH;
     const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8; tex.generateMipmaps = true;
     const p = { room: i, ctx: cv.getContext('2d'), tex, last: 0 };
-    drawMap(p, false); panels.push(p);
+    drawMap(p); tex.needsUpdate = true; panels.push(p);
     const scr = add(screenGeo, new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.85, roughness: 0.4, metalness: 0 }), px, py, pz + 0.076);
-    scr.onBeforeRender = () => {
-      if (GK.mode !== 'play' || roomAt(P.x, P.z) !== i) return;
-      const now = performance.now(); if (now - p.last < 110) return;
-      p.last = now; drawMap(p, true); tex.needsUpdate = true;
-    };
-    scene.add(grp); grp.traverse(o => { o.updateMatrix(); if (o !== scr) o.matrixAutoUpdate = false; }); grp.updateMatrixWorld(true);
-    scr.matrixAutoUpdate = false;
+    scene.add(grp); grp.traverse(o => { o.updateMatrix(); o.matrixAutoUpdate = false; }); grp.updateMatrixWorld(true);
   }
 }
 // MAP-END
