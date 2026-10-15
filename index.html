@@ -108,7 +108,7 @@ table.keys{border-collapse:collapse;width:100%}
 #rside .mbtn{min-width:0;width:100%}
 #rside .mbtn.small{width:auto}
 </style>
-<script type="importmap">{"imports":{"three":"/three/three.module.js"}}</script>
+<script type="importmap">{"imports":{"three":"/three/three.module.js","three/addons/":"/three/addons/"}}</script>
 </head>
 <body class="menu">
 <div id="vig"></div><div id="dot"></div>
@@ -136,6 +136,7 @@ table.keys{border-collapse:collapse;width:100%}
     <div class="row"><label for="s-scale">Resolution</label><input id="s-scale" type="range" min="0.5" max="2" step="0.05"><output id="o-scale"></output></div>
     <div class="row chk"><label for="s-inv">Invert Y axis</label><input id="s-inv" type="checkbox"></div>
     <div class="row chk"><label for="s-tags">Name tags</label><input id="s-tags" type="checkbox"></div>
+    <div class="row chk"><label for="s-fx">Post effects (bloom)</label><input id="s-fx" type="checkbox"></div>
    </div>
    <div class="brow"><button class="mbtn small" id="s-back">Back</button><button class="mbtn small" id="s-reset">Reset defaults</button></div>
   </div>

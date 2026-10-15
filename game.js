@@ -3,6 +3,8 @@
 const THREE = window.THREE;
 const NAMES = ['Small Goblin', 'Goblin', 'Big Goblin', 'Goblin Wizard', 'GOBLIN KING'];
 const SCALE = [0.75, 1, 1.3, 1.1, 1.2];
+// starting stats per goblin type (the server holds the real values, this is for display)
+const STATS = [{ knowledge: 60, attack: 10, health: 40 }, { knowledge: 40, attack: 15, health: 50 }, { knowledge: 30, attack: 20, health: 80 }, { knowledge: 80, attack: 0, health: 60 }, { knowledge: 40, attack: 20, health: 100 }];
 const R = 12, H = 6.5, T = 0.6;           // room size, ceiling height, wall thickness
 const DW = 4, DHT = 4.4, VW = 4.9, VH = 5; // secure door and vault door openings
 const RAD = 0.45;                          // player radius
@@ -12,7 +14,7 @@ const roomAt = (x, z) => clamp(Math.round(x / R), -1, 1) + 1 + (clamp(Math.round
 const $ = id => document.getElementById(id);
 const GK = window.GK = window.GK || {};
 GK.mode = 'menu';                         // 'menu' (title, settings, wheel) or 'play'
-GK.settings = Object.assign({ sens: 1, fov: 75, scale: 1, invertY: false, tags: true }, GK.settings || {});
+GK.settings = Object.assign({ sens: 1, fov: 75, scale: 1, invertY: false, tags: true, fx: true }, GK.settings || {});
 const CS = 8;                             // chest room size
 const WEAPONS = ['Rusty Sword', 'Battle Axe', 'War Spear', 'Spiked Mace', 'Short Bow', 'Dagger'];
 // One chest room behind every outer wall: edge rooms get 1, corner rooms get 2 (12 in total)
@@ -53,7 +55,29 @@ function speckle(g, w, h, n, size, a) {
   }
 }
 const plasterTex = canvasTex(512, 512, (g, w, h) => { g.fillStyle = '#f0efea'; g.fillRect(0, 0, w, h); speckle(g, w, h, 5000, 10, 0.05); });
-const bumpTex = canvasTex(256, 256, (g, w, h) => { g.fillStyle = '#808080'; g.fillRect(0, 0, w, h); speckle(g, w, h, 4000, 6, 0.5); }, false);
+const bumpTex = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#808080'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 70; i++) {   // soft low-frequency mottling (trowel marks), wraps at the edges
+    const x = Math.random() * w, y = Math.random() * h, r = 14 + Math.random() * 40, v = Math.random() < 0.5 ? 255 : 0;
+    for (const [ox, oy] of [[0, 0], [-w, 0], [w, 0], [0, -h], [0, h]]) {
+      const gr = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r); gr.addColorStop(0, `rgba(${v},${v},${v},.16)`); gr.addColorStop(1, `rgba(${v},${v},${v},0)`); g.fillStyle = gr; g.fillRect(x + ox - r, y + oy - r, 2 * r, 2 * r);
+    }
+  }
+  speckle(g, w, h, 4000, 6, 0.5);
+}, false);
+// floor tile roughness (grout rough, tiles glossy with per-tile variation) and grout bump; same 2x2 layout as floorTex
+const floorRoughTex = canvasTex(512, 512, (g, w, h) => {
+  g.fillStyle = '#2a2a2a'; g.fillRect(0, 0, w, h);
+  for (let ty = 0; ty < 2; ty++) for (let tx = 0; tx < 2; tx++) {
+    const v = 36 + Math.random() * 30; g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(tx * 256 + 6, ty * 256 + 6, 250, 250);
+    for (let i = 0; i < 26; i++) { const x = tx * 256 + 12 + Math.random() * 230, y = ty * 256 + 12 + Math.random() * 230, r = 10 + Math.random() * 38, gr = g.createRadialGradient(x, y, 0, x, y, r), a = 0.12 + Math.random() * 0.2; gr.addColorStop(0, `rgba(${Math.random() < 0.7 ? '150,150,150' : '10,10,10'},${a})`); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, 2 * r, 2 * r); }
+  }
+  g.fillStyle = '#d8d8d8'; g.fillRect(0, 0, w, 6); g.fillRect(0, 0, 6, h); g.fillRect(0, 253, w, 6); g.fillRect(253, 0, 6, h);
+}, false);
+const floorBumpTex = canvasTex(512, 512, (g, w, h) => {
+  g.fillStyle = '#a0a0a0'; g.fillRect(0, 0, w, h); speckle(g, w, h, 2500, 3, 0.08);
+  g.fillStyle = '#303030'; g.fillRect(0, 0, w, 5); g.fillRect(0, 0, 5, h); g.fillRect(0, 253, w, 5); g.fillRect(253, 0, 5, h);
+}, false);
 const floorTex = canvasTex(512, 512, (g, w, h) => {
   g.fillStyle = '#f3f3f0'; g.fillRect(0, 0, w, h);
   for (let ty = 0; ty < 2; ty++) for (let tx = 0; tx < 2; tx++) { g.fillStyle = `rgba(${Math.random() < .5 ? '255,255,255' : '0,0,0'},${Math.random() * .05})`; g.fillRect(tx * 256, ty * 256, 256, 256); }
@@ -107,8 +131,8 @@ function textTex(text, color, bg, w = 512, h = 128, font = 'bold 64px system-ui'
 
 // ---------- materials ----------
 const M = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.7, envMapIntensity: 0.5, ...o });
-const plaster = M(0xffffff, { map: plasterTex, bumpMap: bumpTex, bumpScale: 0.6, roughness: 0.92, envMapIntensity: 0.3 });
-const floorM = M(0xffffff, { map: floorTex, roughness: 0.2, envMapIntensity: 0.9 });
+const plaster = M(0xffffff, { map: plasterTex, bumpMap: bumpTex, bumpScale: 0.9, roughness: 0.92, envMapIntensity: 0.3 });
+const floorM = M(0xffffff, { map: floorTex, roughnessMap: floorRoughTex, bumpMap: floorBumpTex, bumpScale: 1.2, roughness: 1, envMapIntensity: 1.0 });
 const ceilM = M(0xf4f4f1, { map: plasterTex, roughness: 0.95, emissive: 0xdedad2, emissiveIntensity: 0.55 });
 const trimM = M(0xfafafa, { roughness: 0.45 });
 const steelM = M(0xa9b6c6, { map: steelTex, metalness: 0.85, roughness: 0.42, envMapIntensity: 1 });
@@ -116,7 +140,7 @@ const vaultM = M(0x70787f, { map: steelTex, metalness: 0.9, roughness: 0.38, env
 const darkSteel = M(0x2a2e35, { metalness: 0.8, roughness: 0.45, envMapIntensity: 0.9 });
 const hazardM = M(0xffffff, { map: hazardTex, roughness: 0.6 });
 const glassM = new THREE.MeshStandardMaterial({ color: 0x07131c, roughness: 0.05, metalness: 0.2, emissive: 0x0b3a55, emissiveIntensity: 0.8 });
-const panelM = new THREE.MeshBasicMaterial({ color: 0xfff6e6, toneMapped: false });
+const panelM = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xfff6e6).multiplyScalar(2.4), toneMapped: false });   // HDR so the bloom pass picks the ceiling panels up
 const aoM = new THREE.MeshBasicMaterial({ map: aoTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, side: THREE.DoubleSide, fog: false });
 const cornerM = new THREE.MeshBasicMaterial({ map: cornerTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, side: THREE.DoubleSide });
 
@@ -785,8 +809,7 @@ for (const cr of CHEST_ROOMS) {   // chest rooms: 2 m panel on the room's left w
   cpBuild('c' + cr.id, g, 2.0, 1.9, -(CS / 2 - T / 2), 2.6, 0, Math.PI / 2);
 }
 scene.updateMatrixWorld(true);
-for (const p of cpList) p.screen.parent.parent.traverse(o => { if (o.parent) { o.updateMatrix(); o.matrixAutoUpdate = false; } });
-scene.updateMatrixWorld(true);
+for (const p of cpList) { const g = p.screen.parent; g.traverse(o => { o.updateMatrix(); o.matrixAutoUpdate = false; }); g.updateMatrixWorld(true); }
 
 // ----- aiming, clicking, HUD -----
 const cpRay = new THREE.Raycaster(), cpV0 = new THREE.Vector2(0, 0);
@@ -1315,12 +1338,26 @@ function makeNet() {
     return { id: nid++, goblin: roll(), box, x, z, yaw: Math.atan2(-(cx - x), -(cz - z)), bot, tx: cx, tz: cz, wait: Math.random() * 2, seq };
   };
   const emit = () => net.onmessage && net.onmessage({ players: list.map(({ id, goblin, box, x, z, yaw, seq }) => ({ id, goblin, box, x, z, yaw, seq })) });
+  // same round machine as server.js, run locally: 30 s first round, 45 s after; bots pick a door in their room each round
+  const rs = { n: 1, dur: 30000, endsAt: performance.now() + 30000, sel: {}, open: [] };
+  const rmsg = () => ({ round: { n: rs.n, left: Math.max(0, rs.endsAt - performance.now()), dur: rs.dur }, sel: { ...rs.sel }, open: rs.open.slice() });
+  const emitRound = () => net.onmessage && net.onmessage(rmsg());
+  const botPlan = () => { for (const b of list) if (b.bot) b.selAt = performance.now() + 1500 + Math.random() * (rs.dur - 6000); };
   const net = {
     onmessage: null,
-    send(m) { if (m.m && meP) { [meP.x, meP.z, meP.yaw] = m.m; meP.box = roomAt(meP.x, meP.z); } if (m.reroll) { const o = list.indexOf(meP); seq++; meP = mk(false); meP.id = list[o].id; list[o] = meP; } },
+    send(m) {
+      if (Number.isInteger(m.sel) && meP) { const k = roomKeyAt(meP.x, meP.z); if ((ROOM_DOORS[k] || []).includes(m.sel) && rs.sel[k] !== m.sel) { rs.sel[k] = m.sel; emitRound(); } }
+      if (m.m && meP) { [meP.x, meP.z, meP.yaw] = m.m; meP.box = roomAt(meP.x, meP.z); } if (m.reroll) { const o = list.indexOf(meP); seq++; meP = mk(false); meP.id = list[o].id; list[o] = meP; } },
   };
   meP = mk(false); list = [meP, mk(true), mk(true), mk(true), mk(true)];
-  setTimeout(() => { net.onmessage && net.onmessage({ you: meP.id, chests: Array.from({ length: CHEST_ROOMS.length }, () => Math.floor(Math.random() * WEAPONS.length)) }); emit(); }, 50);
+  setTimeout(() => { net.onmessage && net.onmessage({ you: meP.id, chests: Array.from({ length: CHEST_ROOMS.length }, () => Math.floor(Math.random() * WEAPONS.length)), ...rmsg() }); emit(); }, 50);
+  botPlan();
+  setInterval(() => {
+    const now = performance.now();
+    if (now >= rs.endsAt) { rs.open = [...new Set(Object.values(rs.sel))]; rs.sel = {}; rs.n++; rs.dur = 45000; rs.endsAt = now + rs.dur; botPlan(); emitRound(); return; }
+    for (const b of list) if (b.bot && b.selAt && now >= b.selAt) { b.selAt = 0; const k = roomKeyAt(b.x, b.z), ids = ROOM_DOORS[k]; if (ids && rs.sel[k] === undefined) { rs.sel[k] = ids[Math.floor(Math.random() * ids.length)]; emitRound(); } }
+  }, 200);
+  setInterval(emitRound, 1000);
   setInterval(() => {
     for (const b of list) {
       if (!b.bot) continue;
@@ -1372,10 +1409,28 @@ const handleMsg = d => {
   }
   const mine = actors.get(me);
   $('me').textContent = mine ? 'You are: ' + NAMES[mine.goblin] : 'Connecting...';
+  if (mine) showStats(d.players.find(p => p.id === me), mine.goblin);
   $('cnt').textContent = 'Goblin King  ·  ' + actors.size + ' online';
   if (mine && !assigned) { assigned = true; GK.onAssigned && GK.onAssigned(mine.goblin); }
 };
 let assigned = false;
+let statsEl = null;
+function showStats(p, type) {   // small stat panel, bottom-left
+  if (!statsEl) {
+    statsEl = document.createElement('div');
+    statsEl.style.cssText = 'position:fixed;left:2vw;bottom:2.5vh;min-width:190px;padding:10px 14px;border-radius:10px;background:rgba(10,10,16,.62);border:1px solid rgba(255,215,94,.35);color:#f2efe6;font:600 14px/1.5 system-ui,sans-serif;pointer-events:none;display:none;text-shadow:0 1px 4px #000';
+    document.body.appendChild(statsEl);
+  }
+  const st = Object.assign({}, STATS[type], p && p.stats);
+  const max = st.maxHealth || st.health, pct = Math.max(0, Math.min(100, 100 * st.health / max));
+  statsEl.innerHTML = '<div style="color:#ffd75e;letter-spacing:.06em;margin-bottom:4px">' + NAMES[type].toUpperCase() + '</div>'
+    + '<div style="display:flex;justify-content:space-between"><span>Health</span><span>' + st.health + ' / ' + max + '</span></div>'
+    + '<div style="height:6px;border-radius:3px;background:#2a2a34;margin:2px 0 6px"><div style="height:100%;width:' + pct + '%;border-radius:3px;background:linear-gradient(90deg,#c0392b,#e8564a)"></div></div>'
+    + '<div style="display:flex;justify-content:space-between"><span>Attack</span><span>' + st.attack + '</span></div>'
+    + '<div style="display:flex;justify-content:space-between"><span>Knowledge</span><span>' + st.knowledge + '</span></div>';
+  statsEl.style.display = GK.mode === 'play' ? 'block' : 'none';
+}
+GK.showStats = () => { if (statsEl) statsEl.style.display = GK.mode === 'play' ? 'block' : 'none'; };
 function connect() { if (netReal) return; netReal = makeNet(); netReal.onmessage = handleMsg; }
 if (window.GK_OFFLINE) { $('rr').onclick = e => { net.send({ reroll: 1 }); e.stopPropagation(); }; $('rr').onpointerdown = e => e.stopPropagation(); }
 
@@ -1394,8 +1449,107 @@ addEventListener('mousemove', e => {
   if (!lockOk() && !drag) return;
   const k = 0.0022 * GK.settings.sens; P.yaw = wrapPi(P.yaw - e.movementX * k); P.pitch = clamp(P.pitch - e.movementY * k * (GK.settings.invertY ? -1 : 1), -1.45, 1.45);
 });
+// FX-BEGIN (post-processing, dust motes, light shafts, screen pulse: owned by the graphics agent)
+let fx = null;   // { composer, bloom, grain } once the addons have loaded
+const fxMat = { uTime: { value: 0 }, uHeight: { value: 600 } };
+function fxResize() {
+  const pr = renderer.getPixelRatio(); fxMat.uHeight.value = innerHeight * pr;
+  if (fx) { fx.composer.setPixelRatio(pr); fx.composer.setSize(innerWidth, innerHeight); }
+}
+(async () => {
+  try {
+    const [{ EffectComposer }, { RenderPass }, { UnrealBloomPass }, { ShaderPass }, { OutputPass }] = await Promise.all([
+      import('three/addons/postprocessing/EffectComposer.js'), import('three/addons/postprocessing/RenderPass.js'),
+      import('three/addons/postprocessing/UnrealBloomPass.js'), import('three/addons/postprocessing/ShaderPass.js'), import('three/addons/postprocessing/OutputPass.js')]);
+    const pr = renderer.getPixelRatio();
+    const rt = new THREE.WebGLRenderTarget(innerWidth * pr, innerHeight * pr, { type: THREE.HalfFloatType, samples: 4 });   // MSAA kept inside the composer
+    const composer = new EffectComposer(renderer, rt);
+    composer.addPass(new RenderPass(scene, cam));
+    const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.32, 0.55, 1.35);   // strength, radius, threshold (HDR, linear)
+    const bs = bloom.setSize.bind(bloom); bloom.setSize = (w, h) => bs(Math.max(1, w >> 1), Math.max(1, h >> 1));   // bloom at half resolution
+    composer.addPass(bloom);
+    composer.addPass(new OutputPass());   // tone mapping + sRGB
+    const grain = new ShaderPass({
+      uniforms: { tDiffuse: { value: null }, uTime: { value: 0 } },
+      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `uniform sampler2D tDiffuse; uniform float uTime; varying vec2 vUv;
+        float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+        void main(){
+          vec2 d = vUv - 0.5; float r2 = dot(d, d);
+          vec2 o = d * r2 * 0.014;   // tiny chromatic aberration, zero at the centre
+          vec3 c = vec3(texture2D(tDiffuse, vUv + o).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - o).b);
+          c *= 1.0 - 0.34 * smoothstep(0.12, 0.62, r2);   // vignette
+          c += (hash(vUv * 1024.0 + fract(uTime) * 61.0) - 0.5) * 0.022;   // film grain
+          gl_FragColor = vec4(c, 1.0);
+        }`
+    });
+    composer.addPass(grain);
+    fx = { composer, bloom, grain }; fxResize();
+  } catch (e) { console.warn('post effects unavailable, using plain rendering', e); fx = null; }
+})();
+function renderWorld(t) {
+  fxMat.uTime.value = t;
+  for (const s of fxScreens) s.m.emissiveIntensity = s.base * (0.82 + 0.18 * Math.sin(t * 2.1 + s.ph));
+  if (fx && GK.settings.fx) { fx.grain.uniforms.uTime.value = t; fx.composer.render(); }
+  else renderer.render(scene, cam);
+}
+// keypad screens and other status displays pulse gently (found by their material signature, the builders stay untouched)
+const fxScreens = [];
+scene.traverse(o => { const m = o.isMesh && o.material; if (m && m.isMeshStandardMaterial && m.color.getHex() === 0x103020 && m.emissiveIntensity === 1.4) fxScreens.push({ m, base: 1.4, ph: Math.random() * 6.28 }); });
+// floating dust motes (one Points object, animated entirely in the vertex shader) and soft light shafts (one merged mesh)
+{
+  const pos = [], seed = [], col = [];
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const addMotes = (cx, cz, half, n, c) => { for (let i = 0; i < n; i++) { pos.push(cx + rnd(-half, half), 0, cz + rnd(-half, half)); seed.push(Math.random(), rnd(0.4, 1), rnd(0.025, 0.06), Math.random()); col.push(...c); } };
+  for (let i = 0; i < 9; i++) { const [cx, cz] = rc(i); addMotes(cx, cz, 5, 38, [0.62, 0.6, 0.58]); }
+  for (const cr of CHEST_ROOMS) addMotes(cr.cx, cr.cz, 3, 11, [1.0, 0.82, 0.5]);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('aSeed', new THREE.Float32BufferAttribute(seed, 4)); geo.setAttribute('aCol', new THREE.Float32BufferAttribute(col, 3));
+  const mat = new THREE.ShaderMaterial({
+    uniforms: fxMat, transparent: true, depthWrite: false,
+    vertexShader: `attribute vec4 aSeed; attribute vec3 aCol; uniform float uTime; uniform float uHeight; varying vec3 vCol; varying float vA;
+      void main(){
+        float t = uTime * (0.4 + aSeed.y * 0.5); vec3 p = position;
+        p.x += sin(t * 0.7 + aSeed.x * 6.283) * 0.7 + sin(t * 0.37 + aSeed.w * 9.0) * 0.35;
+        p.z += cos(t * 0.6 + aSeed.w * 6.283) * 0.7 + cos(t * 0.31 + aSeed.x * 7.0) * 0.35;
+        float hy = fract(aSeed.x + uTime * 0.006 * (0.4 + aSeed.y)); p.y = 0.4 + hy * 5.4 + sin(t + aSeed.w * 5.0) * 0.12;
+        vec4 mv = modelViewMatrix * vec4(p, 1.0); gl_Position = projectionMatrix * mv;
+        gl_PointSize = clamp(aSeed.z * projectionMatrix[1][1] * uHeight * 0.5 / max(-mv.z, 0.1), 1.5, 22.0);
+        vCol = aCol; vA = smoothstep(0.0, 0.12, hy) * smoothstep(1.0, 0.88, hy) * smoothstep(0.4, 1.6, -mv.z) * 0.5;
+      }`,
+    fragmentShader: `varying vec3 vCol; varying float vA;
+      void main(){ float d = length(gl_PointCoord - 0.5) * 2.0; float a = (1.0 - smoothstep(0.0, 1.0, d)); gl_FragColor = vec4(vCol, a * a * vA);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`
+  });
+  const motes = new THREE.Points(geo, mat); motes.frustumCulled = false; motes.renderOrder = 4; motes.matrixAutoUpdate = false; scene.add(motes);
+  // light shafts: open tapered tubes under the ceiling panels, soft gradient alpha, one draw call
+  const sp = [], su = [], si = [];
+  const addShaft = (cx, cz, rot, ox, oz, w, d) => {   // panel centre (ox, oz) local to the room, rotated by rot about Y
+    const cs = Math.cos(rot), sn = Math.sin(rot), top = H - 0.06, bot = 0.1, grow = 1.5;
+    const corner = (sx, sz, k) => { const lx = ox + sx * w / 2 * k, lz = oz + sz * d / 2 * k; return [cx + lx * cs + lz * sn, -lx * sn + lz * cs + cz]; };
+    const ring = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+    for (let i = 0; i < 4; i++) {
+      const a = ring[i], b = ring[(i + 1) % 4], base = sp.length / 3;
+      const [ax, az] = corner(a[0], a[1], 1), [bx2, bz] = corner(b[0], b[1], 1), [ax2, az2] = corner(a[0], a[1], grow), [bx3, bz3] = corner(b[0], b[1], grow);
+      sp.push(ax, top, az, bx2, top, bz, ax2, bot, az2, bx3, bot, bz3); su.push(0, 1, 1, 1, 0, 0, 1, 0); si.push(base, base + 2, base + 1, base + 1, base + 2, base + 3);
+    }
+  };
+  for (const [ox, oz] of [[-2.8, -2.8], [2.8, -2.8], [-2.8, 2.8], [2.8, 2.8]]) addShaft(0, 0, 0, ox, oz, 2.6, 1.2);
+  for (const cr of CHEST_ROOMS) for (const z of [-1.8, 1.4]) addShaft(cr.cx, cr.cz, Math.atan2(-cr.dx, -cr.dz), 0, z, 2.1, 1.0);
+  const sg = new THREE.BufferGeometry();
+  sg.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3)); sg.setAttribute('uv', new THREE.Float32BufferAttribute(su, 2)); sg.setIndex(si);
+  const c = document.createElement('canvas'); c.width = 32; c.height = 64; const g = c.getContext('2d'), img = g.createImageData(32, 64);
+  for (let y = 0; y < 64; y++) for (let x = 0; x < 32; x++) { const v = 1 - y / 63, u = Math.sin(Math.PI * (x + 0.5) / 32), a = Math.pow(v, 1.7) * Math.pow(u, 0.8); const k = (y * 32 + x) * 4; img.data[k] = 255; img.data[k + 1] = 236; img.data[k + 2] = 200; img.data[k + 3] = Math.round(a * 255); }
+  g.putImageData(img, 0, 0);
+  const st = new THREE.CanvasTexture(c); st.colorSpace = THREE.SRGBColorSpace;
+  const shafts = new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ map: st, transparent: true, opacity: 0.11, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+  shafts.frustumCulled = false; shafts.renderOrder = 2; shafts.matrixAutoUpdate = false; scene.add(shafts);
+}
+// FX-END
 let orbit = 0.4;
-function resize() { renderer.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); }
+function resize() { renderer.setSize(innerWidth, innerHeight); fxResize(); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); }
 addEventListener('resize', resize); resize();
 
 // ---------- simulation ----------
@@ -1442,7 +1596,7 @@ function frame(now) {
     }
     const moving = d.p > 0.02 && d.p < 0.98;
     d.light.emissive.setHex(moving ? 0xffa020 : d.p >= 0.98 ? 0x20ff60 : 0xff1a1a);
-    d.light.emissiveIntensity = moving ? 1.5 + Math.sin(t * 14) : 2;
+    d.light.emissiveIntensity = moving ? 1.5 + Math.sin(t * 14) : 2 + 0.4 * Math.sin(t * 2.4 + d.light.id);
   }
   // goblins
   for (const [id, a] of actors) {
@@ -1481,14 +1635,14 @@ function frame(now) {
     cam.fov = 50; cam.position.set(Math.sin(orbit) * dist, dist * 0.7, Math.cos(orbit) * dist); cam.lookAt(0, 0, 0);
   }
   cam.updateProjectionMatrix();
-  renderer.render(scene, cam);
+  renderWorld(t);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 const lockNow = () => { try { const r = canvas.requestPointerLock(); r && r.catch && r.catch(() => {}); } catch (e) {} };
 GK.renderer = renderer; GK.scene = scene; GK.build = buildGoblin; GK.NAMES = NAMES; GK.SCALE = SCALE; GK.glowTex = glowTex; GK.textTex = textTex;
 GK.start = () => { connect(); return new Promise(res => { if (assigned) res(actors.get(me).goblin); else { const prev = GK.onAssigned; GK.onAssigned = g => { GK.onAssigned = prev; res(g); }; } }); }; // connects and resolves with my goblin type
-GK.enter = () => { GK.mode = 'play'; GK.applySettings(); if (window.GK_OFFLINE) $('rr').style.display = 'block'; lockNow(); };   // call from a click
+GK.enter = () => { GK.mode = 'play'; GK.showStats(); GK.applySettings(); if (window.GK_OFFLINE) $('rr').style.display = 'block'; lockNow(); };   // call from a click
 GK.applySettings = () => { renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * GK.settings.scale); resize(); };
 GK.doors = doors;
 GK.setDoorsOpen = ids => { const set = new Set(ids); doors.forEach(d => d.open = set.has(d.id)); };   // ids of doors that are open right now

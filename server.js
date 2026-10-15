@@ -6,6 +6,12 @@ const read = f => fs.readFileSync(path.join(__dirname, f));
 const srv = http.createServer((q, r) => {
   const m = q.url.match(/^\/three\/(three\.(?:module|core)\.js)$/); // three.js is served from here, no CDN
   if (m) { r.writeHead(200, { 'content-type': 'text/javascript' }); return r.end(fs.readFileSync(path.join(THREE_DIR, m[1]))); }
+  if (q.url.startsWith('/three/addons/')) { // three.js post-processing addons (importmap "three/addons/"), .js only, no path traversal
+    let rel = ''; try { rel = decodeURIComponent(q.url.slice(14).split('?')[0]); } catch (e) {}
+    const base = path.join(__dirname, 'node_modules/three/examples/jsm'), file = path.resolve(base, rel);
+    if (rel && !rel.includes('\0') && file.startsWith(base + path.sep) && file.endsWith('.js') && fs.existsSync(file) && fs.statSync(file).isFile()) { r.writeHead(200, { 'content-type': 'text/javascript' }); return r.end(fs.readFileSync(file)); }
+    r.writeHead(404); return r.end();
+  }
   const js = q.url.match(/^\/(game|menu)\.js/); // client scripts
   if (js) { r.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }); return r.end(read(js[1] + '.js')); }
   r.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' }); r.end(read('index.html'));
@@ -49,6 +55,8 @@ let nextId = 1, dirty = false;
 const chests = Array.from({ length: 12 }, () => Math.floor(Math.random() * 6)); // weapon index per chest room, rolled once per server start
 
 // 0 small 30%, 1 medium 30%, 2 big 30%, 3 wizard 9%, 4 king 1%
+// starting stats per goblin type: knowledge, attack damage, health
+const STATS = [{ knowledge: 60, attack: 10, health: 40 }, { knowledge: 40, attack: 15, health: 50 }, { knowledge: 30, attack: 20, health: 80 }, { knowledge: 80, attack: 0, health: 60 }, { knowledge: 40, attack: 20, health: 100 }];
 function rollGoblin() {
   const r = Math.random() * 100;
   return r < 30 ? 0 : r < 60 ? 1 : r < 90 ? 2 : r < 99 ? 3 : 4;
@@ -67,7 +75,8 @@ setInterval(() => { if (dirty) { dirty = false; send(); } }, 50); // positions g
 
 wss.on('connection', ws => {
   const id = nextId++;
-  const p = { id, goblin: rollGoblin(), ...spawn() }; p.room = String(p.box);
+  const goblin = rollGoblin();
+  const p = { id, goblin, stats: { ...STATS[goblin], maxHealth: STATS[goblin].health }, ...spawn() }; p.room = String(p.box);
   players.set(ws, p);
   ws.on('error', () => {});
   ws.send(JSON.stringify({ you: id, chests, ...roundState() }));
