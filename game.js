@@ -710,7 +710,8 @@ function makeNet() {
   if (!window.GK_OFFLINE) {
     const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
     const net = { send: m => ws.readyState === 1 && ws.send(JSON.stringify(m)), onmessage: null };
-    ws.onmessage = e => net.onmessage && net.onmessage(JSON.parse(e.data));
+    ws.onmessage = e => { let d; try { d = JSON.parse(e.data); } catch (err) { return; } net.onmessage && net.onmessage(d); };
+    ws.onclose = () => { const m = document.getElementById('me'); if (m) m.textContent = 'Disconnected - reload to rejoin'; };
     return net;
   }
   const roll = () => { const r = Math.random() * 100; return r < 30 ? 0 : r < 60 ? 1 : r < 90 ? 2 : r < 99 ? 3 : 4; };
@@ -747,6 +748,11 @@ function makeNet() {
 }
 
 // ---------- state ----------
+function dropGoblin(g) { // free GPU memory of a removed goblin (shared geometry/materials re-upload lazily if reused)
+  scene.remove(g);
+  const lm = g.userData.label && g.userData.label.material.map; if (lm) lm.dispose();
+  g.traverse(o => { if (o.geometry) o.geometry.dispose(); [].concat(o.material || []).forEach(m => m.dispose()); });
+}
 const net = makeNet();
 const actors = new Map();
 let me = 0, spawned = false;
@@ -755,10 +761,10 @@ net.onmessage = d => {
   if (d.you) me = d.you;
   if (!d.players) return;
   const ids = new Set(d.players.map(p => p.id));
-  for (const [id, a] of actors) if (!ids.has(id)) { scene.remove(a.group); actors.delete(id); }
+  for (const [id, a] of actors) if (!ids.has(id)) { dropGoblin(a.group); actors.delete(id); }
   for (const p of d.players) {
     let a = actors.get(p.id);
-    if (a && a.goblin !== p.goblin) { scene.remove(a.group); actors.delete(p.id); a = null; }
+    if (a && a.goblin !== p.goblin) { dropGoblin(a.group); actors.delete(p.id); a = null; }
     if (!a) {
       const group = buildGoblin(p.goblin); scene.add(group);
       a = { group, goblin: p.goblin, x: p.x, z: p.z, yaw: p.yaw, phase: Math.random() * 6, speed: 0, seq: p.seq };
@@ -776,7 +782,8 @@ if (window.GK_OFFLINE) { $('rr').style.display = 'block'; $('rr').onclick = e =>
 
 // ---------- input ----------
 const keys = new Set(); let inside = true, drag = false;
-addEventListener('keydown', e => { keys.add(e.code); if (e.code === 'KeyV') inside = !inside; });
+addEventListener('keydown', e => { keys.add(e.code); if (e.code === 'KeyV' && !e.repeat) inside = !inside; });
+document.addEventListener('visibilitychange', () => keys.clear());
 addEventListener('keyup', e => keys.delete(e.code));
 addEventListener('blur', () => keys.clear());
 const canvas = renderer.domElement;
@@ -786,7 +793,7 @@ canvas.addEventListener('click', () => { if (!lockOk()) try { const r = canvas.r
 canvas.addEventListener('mousedown', () => drag = true); addEventListener('mouseup', () => drag = false);
 addEventListener('mousemove', e => {
   if (!lockOk() && !drag) return;
-  P.yaw -= e.movementX * 0.0022; P.pitch = clamp(P.pitch - e.movementY * 0.0022, -1.45, 1.45);
+  P.yaw = wrapPi(P.yaw - e.movementX * 0.0022); P.pitch = clamp(P.pitch - e.movementY * 0.0022, -1.45, 1.45);
 });
 let orbit = 0.4;
 function resize() { renderer.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); }
@@ -804,7 +811,7 @@ function blocked(x, z) {
 const wrapPi = a => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
 let last = performance.now(), sendT = 0;
 function frame(now) {
-  const dt = Math.min((now - last) / 1000, 0.05); last = now; const t = now / 1000;
+  const dt = clamp((now - last) / 1000, 0.001, 0.05); last = now; const t = now / 1000;
   const mine = actors.get(me);
   // my movement
   if (mine && spawned) {
