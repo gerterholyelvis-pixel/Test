@@ -15,7 +15,8 @@ const $ = id => document.getElementById(id);
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 1.2;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.body.prepend(renderer.domElement);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0b0b0e);
@@ -48,12 +49,27 @@ const floorTex = canvasTex(512, 512, (g, w, h) => {
 });
 const steelTex = canvasTex(256, 256, (g, w, h) => {
   g.fillStyle = '#9ca4ae'; g.fillRect(0, 0, w, h);
-  for (let i = 0; i < 700; i++) { g.fillStyle = `rgba(${Math.random() < .5 ? '255,255,255' : '0,0,0'},${Math.random() * .12})`; g.fillRect(0, Math.random() * h, w, 1 + Math.random() * 2); }
+  for (let i = 0; i < 900; i++) { g.fillStyle = `rgba(${Math.random() < .5 ? '255,255,255' : '0,0,0'},${Math.random() * .05})`; g.fillRect(0, Math.random() * h, w, 1); }
+  speckle(g, w, h, 1500, 2, 0.06);
 });
 const hazardTex = canvasTex(128, 128, (g, w, h) => {
   g.fillStyle = '#f2b705'; g.fillRect(0, 0, w, h); g.fillStyle = '#16161a';
   for (let i = -2; i < 6; i++) { g.beginPath(); g.moveTo(i * 32, 0); g.lineTo(i * 32 + 16, 0); g.lineTo(i * 32 + 16 + 128, 128); g.lineTo(i * 32 + 128, 128); g.fill(); }
 });
+const aoTex = canvasTex(128, 128, (g, w, h) => {
+  for (const [ax, ay, bx2, by2] of [[0, 0, .3, 0], [1, 0, .7, 0], [0, 0, 0, .3], [0, 1, 0, .7]]) {
+    const r = g.createLinearGradient(ax * w, ay * h, bx2 * w, by2 * h);
+    r.addColorStop(0, 'rgba(0,0,0,.34)'); r.addColorStop(0.5, 'rgba(0,0,0,.08)'); r.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = r; g.fillRect(0, 0, w, h);
+  }
+});
+aoTex.wrapS = aoTex.wrapT = THREE.ClampToEdgeWrapping;
+const cornerTex = canvasTex(64, 8, (g, w, h) => {
+  const r = g.createLinearGradient(0, 0, w, 0);
+  r.addColorStop(0, 'rgba(0,0,0,.30)'); r.addColorStop(0.45, 'rgba(0,0,0,.08)'); r.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = r; g.fillRect(0, 0, w, h);
+});
+cornerTex.wrapS = cornerTex.wrapT = THREE.ClampToEdgeWrapping;
 const glowTex = canvasTex(128, 128, (g, w, h) => {
   const r = g.createRadialGradient(64, 64, 0, 64, 64, 64);
   r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.25, 'rgba(255,255,255,.45)'); r.addColorStop(1, 'rgba(255,255,255,0)');
@@ -86,7 +102,9 @@ const vaultM = M(0x70787f, { map: steelTex, metalness: 0.9, roughness: 0.38, env
 const darkSteel = M(0x2a2e35, { metalness: 0.8, roughness: 0.45, envMapIntensity: 0.9 });
 const hazardM = M(0xffffff, { map: hazardTex, roughness: 0.6 });
 const glassM = new THREE.MeshStandardMaterial({ color: 0x07131c, roughness: 0.05, metalness: 0.2, emissive: 0x0b3a55, emissiveIntensity: 0.8 });
-const panelM = new THREE.MeshBasicMaterial({ color: 0xfff6e6 });
+const panelM = new THREE.MeshBasicMaterial({ color: 0xfff6e6, toneMapped: false });
+const aoM = new THREE.MeshBasicMaterial({ map: aoTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, side: THREE.DoubleSide, fog: false });
+const cornerM = new THREE.MeshBasicMaterial({ map: cornerTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, side: THREE.DoubleSide });
 
 function scaleUV(g, w, h, d, tile) {
   const uv = g.attributes.uv, dims = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];
@@ -195,7 +213,22 @@ for (let i = 0; i < 9; i++) {
   const [cx, cz] = rc(i);
   bx(scene, R, 0.4, R, cx, -0.2, cz, floorM, 2);
   ceilings.push(bx(scene, R, 0.3, R, cx, H + 0.15, cz, ceilM));
-  for (const [ox, oz] of [[-2.8, -2.8], [2.8, -2.8], [-2.8, 2.8], [2.8, 2.8]]) bx(scene, 3, 0.05, 1.4, cx + ox, H - 0.03, cz + oz, panelM);
+  for (const [ox, oz] of [[-2.8, -2.8], [2.8, -2.8], [-2.8, 2.8], [2.8, 2.8]]) {
+    bx(scene, 3, 0.05, 1.4, cx + ox, H - 0.03, cz + oz, panelM);
+    bx(scene, 3.24, 0.04, 1.64, cx + ox, H - 0.015, cz + oz, trimM);
+  }
+  // fake ambient occlusion: darkened floor/ceiling edges and wall corners
+  const hf = R / 2 - T / 2;
+  const fa = new THREE.Mesh(new THREE.PlaneGeometry(2 * hf, 2 * hf), aoM); fa.rotation.x = -Math.PI / 2; fa.position.set(cx, 0.004, cz); scene.add(fa);
+  const ca = new THREE.Mesh(new THREE.PlaneGeometry(2 * hf, 2 * hf), aoM); ca.rotation.x = Math.PI / 2; ca.position.set(cx, H - 0.004, cz); scene.add(ca); ceilings.push(ca);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) for (const ax of [0, 1]) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(1.7, H), cornerM);
+    if (ax) { m.rotation.y = Math.PI / 2; m.position.set(cx + sx * (hf - 0.004), H / 2, cz + sz * (hf - 0.85)); }
+    else { m.position.set(cx + sx * (hf - 0.85), H / 2, cz + sz * (hf - 0.004)); }
+    m.updateMatrix(); const e = new THREE.Vector3(-0.85, 0, 0).applyMatrix4(m.matrix);
+    if (Math.hypot(e.x - (cx + sx * hf), e.z - (cz + sz * hf)) > 0.3) m.scale.x = -1;
+    scene.add(m);
+  }
   const lamp = new THREE.PointLight(i === 4 ? 0xfff0e0 : 0xfff6ea, 55, 0, 2); lamp.position.set(cx, H - 0.7, cz); scene.add(lamp);
 }
 scene.add(new THREE.HemisphereLight(0xffffff, 0xb9b6b0, 0.9));
@@ -206,6 +239,12 @@ for (let i = 0; i < 9; i++) {
   wall(cx, cz + R / 2, 0, row < 2 ? (i === 4 || i + 3 === 4 ? 'vault' : 'secure') : null);
   if (col === 0) wall(cx - R / 2, cz, Math.PI / 2, null);
   if (row === 0) wall(cx, cz - R / 2, 0, null);
+}
+// static world never moves: freeze matrices so the per-frame scene graph update skips them
+scene.updateMatrixWorld(true);
+{
+  const dyn = new Set(); doors.forEach(d => d.leaf.traverse(o => dyn.add(o)));
+  scene.traverse(o => { if (o !== scene && !dyn.has(o) && !o.isLight) { o.matrixAutoUpdate = false; } });
 }
 
 // ---------- goblins ----------
@@ -231,30 +270,47 @@ function buildGoblin(type) {
   const bone = M(0xf0e8d0, { roughness: 0.5 }), eyeM = new THREE.MeshStandardMaterial({ color: 0xffe14a, emissive: 0xffb300, emissiveIntensity: 1.8 });
   const wood = M(0x6a4526, { roughness: 0.9, bumpMap: bumpTex, bumpScale: 2 });
   const u = { rig, type, legs: [], arms: [], glows: [], spin: [] };
+  const belly = M(new THREE.Color(C.skin).lerp(new THREE.Color(0xeedc9a), 0.38), { roughness: 0.55, bumpMap: bumpTex, bumpScale: 1.2 });
+  const skinDeep = M(new THREE.Color(C.skin).multiplyScalar(0.52), { roughness: 0.6, bumpMap: bumpTex, bumpScale: 1.4 });
+  const lidM = M(new THREE.Color(C.skin).multiplyScalar(0.62), { roughness: 0.5 });
+  const irisM = new THREE.MeshStandardMaterial({ color: 0xffd21e, emissive: 0xff8a00, emissiveIntensity: 1.1, roughness: 0.25 });
+  const clawM = M(0xd8cdb0, { roughness: 0.4 }), rag = M(0x5b4632, { roughness: 0.95, side: THREE.DoubleSide }), BOXG = new THREE.BoxGeometry(1, 1, 1);
 
   // legs and boots
   for (const s of [-1, 1]) {
     const leg = new THREE.Group(); leg.position.set(s * 0.17 * b, 0.58, 0); rig.add(leg); u.legs.push(leg);
-    limb(leg, dark, 0.085, 0.3, 0, -0.17, 0); limb(leg, dark, 0.075, 0.2, 0, -0.4, 0.01);
-    part(leg, SPH, leather, 0, -0.52, 0.06, 0.1, 0.07, 0.17); part(leg, SPH, leather, 0, -0.46, -0.01, 0.095, 0.1, 0.1);
-    for (const x of [-0.04, 0.04]) cone(leg, bone, x, -0.52, 0.22, 0.02, 0.07, Math.PI / 2);
+    part(leg, SPH, skin, 0, -0.1, 0, 0.1 * b, 0.17, 0.11 * b);                         // thigh
+    limb(leg, dark, 0.075, 0.2, 0, -0.17, 0); part(leg, SPH, skinDeep, 0, -0.33, 0.03, 0.075, 0.07, 0.07); // knee
+    part(leg, SPH, skin, 0, -0.4, -0.005, 0.07, 0.11, 0.075);                          // calf
+    part(leg, new THREE.CylinderGeometry(1, 0.8, 1, 12), leather, 0, -0.46, 0, 0.095, 0.1, 0.1);   // boot cuff
+    part(leg, SPH, leather, 0, -0.53, 0.07, 0.1, 0.065, 0.17);
+    const strap = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.012, 6, 14), gold); strap.rotation.x = Math.PI / 2; strap.position.y = -0.5; leg.add(strap);
+    for (const x of [-0.05, 0, 0.05]) cone(leg, clawM, x, -0.54, 0.235, 0.022, 0.09, Math.PI / 2 + 0.15);   // toe claws
   }
   // torso
   const torso = new THREE.Group(); torso.position.y = 0.55; rig.add(torso); u.torso = torso;
   part(torso, SPH, skin, 0, 0.32, 0, 0.3 * b, 0.36, 0.24 * b);
   part(torso, SPH, skin, 0, 0.17, 0.07, 0.25 * b, 0.22, 0.22 * b);              // pot belly
   part(torso, SPH, skin, 0, 0.5, 0.0, 0.31 * b, 0.2, 0.23 * b);                  // shoulders
+  part(torso, SPH, belly, 0, 0.2, 0.13 * b, 0.2 * b, 0.24, 0.17 * b);             // pale belly
+  part(torso, SPH, belly, 0, 0.4, 0.1 * b, 0.2 * b, 0.14, 0.17 * b);              // chest
+  for (const s of [-1, 1]) for (let i = 0; i < 3; i++) { const rb = part(torso, CAP, skinDeep, s * 0.13 * b, 0.46 - i * 0.07, 0.17 * b, 0.012, 0.05 * b, 0.012); rb.rotation.z = Math.PI / 2 - s * 0.25; } // ribs
+  for (let i = 0; i < 6; i++) cone(torso, skinDeep, 0, 0.62 - i * 0.1, -0.2 * b, 0.025, 0.07, -Math.PI / 2 - 0.3);   // spine ridge
+  torso.rotation.x = 0.14;
   const belt = new THREE.Mesh(new THREE.TorusGeometry(0.27 * b, 0.035, 8, 28), leather); belt.rotation.x = Math.PI / 2; belt.position.set(0, 0.2, 0.03); belt.scale.set(1, 0.9, 1); torso.add(belt);
   part(torso, new THREE.BoxGeometry(1, 1, 1), gold, 0, 0.2, 0.27 * b, 0.1, 0.09, 0.03);
   // arms (shoulder pivots)
   for (const s of [-1, 1]) {
     const sh = new THREE.Group(); sh.position.set(s * 0.35 * b, 1.0, 0); rig.add(sh); u.arms.push(sh);
-    limb(sh, skin, 0.065 * b, 0.22, 0, -0.14, 0);
+    limb(sh, skin, 0.06 * b, 0.22, 0, -0.14, 0); part(sh, SPH, skin, 0, -0.08, 0.01, 0.085 * b, 0.1, 0.085 * b); // bicep
     const el = new THREE.Group(); el.position.set(0, -0.3, 0); sh.add(el); sh.userData.el = el;
-    limb(el, skin, 0.06 * b, 0.2, 0, -0.12, 0);
+    part(el, SPH, skinDeep, 0, 0, -0.01, 0.06 * b, 0.055, 0.06 * b);                  // elbow
+    limb(el, skin, 0.055 * b, 0.2, 0, -0.12, 0); part(el, SPH, skin, 0, -0.1, 0.01, 0.07 * b, 0.1, 0.07 * b);
+    part(el, new THREE.CylinderGeometry(1, 0.85, 1, 12), leather, 0, -0.17, 0, 0.068 * b, 0.07, 0.068 * b);   // bracer
     const hand = new THREE.Group(); hand.position.set(0, -0.28, 0); el.add(hand); el.userData.hand = hand;
     part(hand, SPH, skin, 0, 0, 0, 0.075 * b, 0.07, 0.075 * b);
-    for (const x of [-0.04, 0, 0.04]) cone(hand, bone, x, -0.09, 0.03, 0.017, 0.09, Math.PI + 0.25);
+    for (const x of [-0.05, -0.017, 0.017, 0.05]) { part(hand, SPH, skin, x * b, -0.07, 0.03, 0.017, 0.04, 0.017); cone(hand, clawM, x * b, -0.14, 0.04, 0.014, 0.075, Math.PI + 0.3); }
+    part(hand, SPH, skin, s * 0.07 * b, -0.02, 0.03, 0.025, 0.035, 0.025);              // thumb
   }
   const handR = u.arms[1].userData.el.userData.hand, elR = u.arms[1].userData.el;
 
@@ -263,20 +319,34 @@ function buildGoblin(type) {
   part(head, SPH, skin, 0, 0.22, 0, 0.3, 0.27, 0.28);
   part(head, SPH, skin, 0, 0.07, 0.1, 0.22, 0.12, 0.2);                           // heavy jaw
   part(head, SPH, M(0x2a0d0d), 0, 0.105, 0.2, 0.15, 0.04, 0.08);                  // mouth
+  part(head, SPH, M(0xc2506a, { roughness: 0.4 }), 0, 0.095, 0.2, 0.07, 0.022, 0.06);   // tongue
   for (let i = 0; i < 6; i++) cone(head, bone, (i - 2.5) * 0.045, 0.125, 0.27 - Math.abs(i - 2.5) * 0.012, 0.016, 0.05);
+  part(head, SPH, skinDeep, 0, 0.1, 0.285, 0.1, 0.018, 0.03);                      // upper lip shadow
+  cone(head, skin, 0, 0.0, 0.2, 0.05, 0.1, Math.PI / 2 - 0.5);                    // chin spike
+  part(head, SPH, skin, 0, 0.36, 0.06, 0.24, 0.12, 0.22);                          // heavy forehead
   for (const s of [-1, 1]) {
-    cone(head, bone, s * 0.1, 0.17, 0.27, 0.03, 0.14, -0.15);                     // tusks
-    part(head, SPH, eyeM, s * 0.12, 0.26, 0.23, 0.055, 0.05, 0.05);
-    part(head, SPH, M(0x050505), s * 0.12, 0.26, 0.275, 0.014, 0.05, 0.02);       // slit pupils
-    glow(head, 0xffd040, 0.26, s * 0.12, 0.26, 0.27, 0.55);
-    const brow = part(head, CAP, dark, s * 0.12, 0.335, 0.23, 0.028, 0.06, 0.03); brow.rotation.z = Math.PI / 2 - s * 0.45;
+    cone(head, bone, s * 0.085, 0.11, 0.255, 0.034, 0.17, -0.12, s * 0.12);       // lower tusks (underbite)
+    cone(head, bone, s * 0.15, 0.13, 0.215, 0.02, 0.07, -0.1, s * 0.4);           // small side fangs
+    part(head, SPH, skin, s * 0.17, 0.17, 0.19, 0.07, 0.05, 0.06);                // cheekbone
+    part(head, SPH, skinDeep, s * 0.12, 0.25, 0.2, 0.075, 0.062, 0.05);           // eye socket
+    part(head, SPH, new THREE.MeshStandardMaterial({ color: 0xf6efb0, emissive: 0xc89400, emissiveIntensity: 0.5, roughness: 0.3 }), s * 0.12, 0.255, 0.222, 0.058, 0.05, 0.05);
+    part(head, SPH, irisM, s * 0.12, 0.255, 0.262, 0.036, 0.036, 0.016);
+    part(head, SPH, M(0x050505), s * 0.12, 0.255, 0.275, 0.009, 0.034, 0.01);     // slit pupils
+    glow(head, 0xffd040, 0.17, s * 0.12, 0.255, 0.28, 0.28);
+    const lid = part(head, SPH, lidM, s * 0.12, 0.285, 0.226, 0.066, 0.03, 0.06); lid.rotation.z = Math.PI / 2 * 0 + s * -0.0; lid.rotation.z = s * 0.38;
+    const brow = part(head, CAP, skinDeep, s * 0.125, 0.325, 0.225, 0.03, 0.07, 0.034); brow.rotation.z = Math.PI / 2 + s * 0.5;
     const ear = new THREE.Group(); ear.position.set(s * 0.27, 0.27, -0.02); ear.rotation.set(0.2, 0, -s * 1.25); head.add(ear);
     cone(ear, skin, 0, 0.25, 0, 0.11, 0.55).scale.z = 0.3; cone(ear, M(0xd98a8a, { roughness: 0.6 }), 0, 0.22, 0.015, 0.075, 0.42).scale.z = 0.2;
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.035, 0.008, 6, 14), gold); ring.position.set(0, 0.05, 0.02); ear.add(ring);
+    for (let k = 0; k < 3; k++) part(ear, SPH, skinDeep, 0, 0.12 + k * 0.1, 0.03, 0.01, 0.07, 0.006);  // ear veins
+    cone(ear, skin, 0.06, 0.38, 0.0, 0.025, 0.1, 0, -0.5).scale.z = 0.4;           // torn notch tip
+    for (let k = 0; k < 2; k++) { const ring = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.008, 6, 14), gold); ring.position.set(0, 0.04 + k * 0.09, 0.02); ear.add(ring); }
+    for (let k = 0; k < 2; k++) part(head, SPH, skinDeep, s * (0.03 + k * 0.04), 0.205, 0.318 - k * 0.01, 0.012, 0.012, 0.01); // nostrils
   }
   const nose = cone(head, skin, 0, 0.2, 0.28, 0.06, 0.2, Math.PI / 2 + 0.55);
-  part(head, SPH, skin, 0, 0.14, 0.33, 0.05, 0.04, 0.04);
-  for (const [x, y, z] of [[-0.17, 0.12, 0.2], [0.15, 0.3, 0.2], [0.05, 0.36, 0.17]]) part(head, SPH, dark, x, y, z, 0.022, 0.022, 0.022); // warts
+  part(head, SPH, skin, 0, 0.17, 0.33, 0.06, 0.045, 0.045);
+  for (const [x, y, z] of [[-0.17, 0.12, 0.2], [0.15, 0.3, 0.2], [0.05, 0.36, 0.17], [-0.2, 0.22, 0.17], [0.19, 0.14, 0.19]]) part(head, SPH, dark, x, y, z, 0.022, 0.022, 0.022); // warts
+  part(head, SPH, skinDeep, -0.16, 0.3, 0.21, 0.01, 0.07, 0.01).rotation.z = 0.5;  // scar
+  head.position.z = 0.04;
 
   // ----- per-type gear -----
   if (type === 0) { // scrawny scavenger: rag tunic, dagger, tuft of hair
@@ -541,5 +611,5 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__gk = { P, actors, doors, setView(x, z, yaw, pitch) { P.x = x; P.z = z; P.yaw = yaw; P.pitch = pitch || 0; spawned = true; }, toggleOverview() { inside = !inside; } };
+window.__gk = { P, actors, doors, setView(x, z, yaw, pitch) { P.x = x; P.z = z; P.yaw = yaw; P.pitch = pitch || 0; spawned = true; }, toggleOverview() { inside = !inside; }, build: buildGoblin };
 })();

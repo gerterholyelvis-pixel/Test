@@ -9,7 +9,10 @@ const srv = http.createServer((q, r) => {
   if (q.url.startsWith('/game.js')) { r.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }); return r.end(read('game.js')); }
   r.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' }); r.end(read('index.html'));
 });
-const wss = new WebSocketServer({ server: srv });
+const wss = new WebSocketServer({ server: srv, maxPayload: 256 }); // oversize frames close the socket
+const LIM = 18; // world half-extent: 36x36 m footprint
+const clamp = v => Math.max(-LIM, Math.min(LIM, v));
+const boxOf = (x, z) => Math.max(0, Math.min(2, Math.round(x / R) + 1)) + 3 * Math.max(0, Math.min(2, Math.round(z / R) + 1));
 const players = new Map();
 let nextId = 1, dirty = false;
 
@@ -32,15 +35,22 @@ setInterval(() => { if (dirty) { dirty = false; send(); } }, 50); // positions g
 
 wss.on('connection', ws => {
   const id = nextId++;
-  players.set(ws, { id, goblin: rollGoblin(), ...spawn() });
+  const p = { id, goblin: rollGoblin(), ...spawn() };
+  players.set(ws, p);
+  ws.on('error', () => {});
   ws.send(JSON.stringify({ you: id }));
   send();
-  ws.on('message', raw => {
-    let d; try { d = JSON.parse(raw); } catch { return; }
-    const p = players.get(ws);
-    if (Array.isArray(d.m) && d.m.length === 3 && d.m.every(Number.isFinite)) {
-      [p.x, p.z, p.yaw] = d.m;
-      p.box = Math.max(0, Math.min(2, Math.round(p.x / R) + 1)) + 3 * Math.max(0, Math.min(2, Math.round(p.z / R) + 1));
+  let tokens = 40, last = Date.now(); // rate limit: ~30 msg/s sustained, burst 40
+  ws.on('message', (raw, isBinary) => {
+    const now = Date.now();
+    tokens = Math.min(40, tokens + (now - last) * 0.03); last = now;
+    if (isBinary || tokens < 1) return;
+    tokens--;
+    let d; try { d = JSON.parse(raw.toString()); } catch { return; }
+    if (d && Array.isArray(d.m) && d.m.length === 3 && d.m.every(v => typeof v === 'number' && Number.isFinite(v))) {
+      p.x = clamp(d.m[0]); p.z = clamp(d.m[1]);
+      p.yaw = Math.max(-1e3, Math.min(1e3, d.m[2]));
+      p.box = boxOf(p.x, p.z);
       dirty = true;
     }
   });
