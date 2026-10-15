@@ -1672,7 +1672,7 @@ MY.weaponProto = key => {
   const it = GKITEMS.ITEMS[key] || GKITEMS.ITEMS['w:sword'], k = key.slice(2), m = tierMats(it.tier);
   let out = null;
   const ck = GK.chestKit && GK.chestKit.weaponModel;
-  if (ck) { try { const w = ck(key); if (w) out = norm(w.clone ? w.clone(true) : w, 1.55); } catch (e) { out = null; } }
+  if (ck) { try { const w = ck(key); if (w) out = norm(w.clone ? w.clone(true) : w, 1.9); } catch (e) { out = null; } }
   if (!out) { const g = new THREE.Group(); (WB[it.family] || WB.sword)(g, m, it, k); const len = { dagger: 1.1, sword: k === 'claymore' ? 2.0 : 1.7, club: 1.5, bow: k === 'longbow' ? 2.0 : 1.6, axe: k === 'handaxe' ? 1.3 : 1.7, spear: 2.1, mace: 1.6, crossbow: 1.5, flail: 1.5, halberd: 2.3, hammer: 1.7, staff: 2.0, scepter: 1.6 }[it.family] || 1.6; out = norm(g, len); }
   return wcache[key] = out;
 };
