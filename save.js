@@ -2,7 +2,7 @@
 (function () {
   const KEY = 'gk.save.v1';
   let mem = null;   // used when localStorage is unavailable
-  const blank = () => ({ stash: [], characters: [], nextId: 1 });
+  const blank = () => ({ stash: [], characters: [], nextId: 1, parts: {} });
   function load() {
     try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && Array.isArray(s.stash) && Array.isArray(s.characters)) return s; } catch (e) {}
     return mem || blank();
@@ -12,10 +12,11 @@
   window.GKSAVE = {
     load,
     stash: () => load().stash,
+    parts: () => load().parts || {},   // recycled parts brought back from won runs: { wood: n, metal: n, ... }
     characters: () => load().characters,
     getCharacter: id => load().characters.find(c => c.id === id) || null,
     // A won run: the character is saved (or gets another victory) and everything it carried goes to the stash.
-    recordWin({ charId, goblin, items }) {
+    recordWin({ charId, goblin, items, parts }) {
       const s = load();
       let c = charId != null ? s.characters.find(x => x.id === charId) : null;
       if (!c) {
@@ -25,6 +26,7 @@
       }
       c.wins++; c.lastWin = Date.now();
       for (const it of items || []) if (it) s.stash.push(it);
+      s.parts = s.parts || {}; for (const k in parts || {}) if (parts[k] > 0) s.parts[k] = (s.parts[k] || 0) + (parts[k] | 0);
       store(s); return c;
     },
     clearAll() { store(blank()); },
