@@ -113,12 +113,25 @@ function equip(p, goblin) { // give a player a goblin type with its starting gea
 }
 const sendGold = p => { if (p.ws) sendTo(p.ws, { gold: p.gold }); };
 const sendParts = p => { if (p.ws) sendTo(p.ws, { parts: p.parts }); };
-function recycle(m, p, slot) { // returns null on success or a failure reason
-  if (typeof slot !== 'string' || !/^(b[0-8]|q[0-2])$/.test(slot)) return 'item';
+function hasStation(m, p, st) { // merchant rooms have all stations, mystery 'stations' rooms list theirs
   const mm = /^c(\d+)$/.exec(p.room || ''), id = mm ? +mm[1] : -1;
   const L = id >= 0 ? m.layout[id] : null, my = id >= 0 ? m.mystery[id] : null;
-  const has = L === 'merchant' || (L === 'mystery' && my && my.kind === 'stations' && Array.isArray(my.stations) && my.stations.includes('recycler'));
-  if (!has) return 'room';
+  return L === 'merchant' || (L === 'mystery' && !!my && my.kind === 'stations' && Array.isArray(my.stations) && my.stations.includes(st));
+}
+function craft(m, p, rid) { // {craft: recipeId}; returns null or a failure reason
+  if (!hasStation(m, p, 'workbench')) return 'room';
+  const r = typeof rid === 'string' && G.RECIPES.find(x => x.id === rid);
+  if (!r) return 'recipe';
+  if (p.stats.knowledge < (r.needs || 0)) return 'knowledge';
+  for (const k in r.cost) if ((p.parts[k] || 0) < r.cost[k]) return 'parts';
+  if (p.inv.backpack.indexOf(null) < 0) return 'space';
+  for (const k in r.cost) p.parts[k] -= r.cost[k];
+  giveItem(p, r.out); sendParts(p); sendTo(p.ws, { crafted: { key: r.out, recipe: r.id } });
+  return null;
+}
+function recycle(m, p, slot) { // returns null on success or a failure reason
+  if (typeof slot !== 'string' || !/^(b[0-8]|q[0-2])$/.test(slot)) return 'item';
+  if (!hasStation(m, p, 'recycler')) return 'room';
   const key = getSlot(p.inv, slot), y = key && G.recycleYield(key);
   if (!y) return 'item';
   setSlot(p.inv, slot, null);
@@ -238,6 +251,8 @@ wss.on('connection', (ws, req) => {
     } else if (dbg && Number.isFinite(d.gold)) { p.gold = Math.max(0, Math.floor(d.gold)); sendGold(p);
     } else if (typeof d.eat === 'string') { eat(p, d.eat);
     } else if (Array.isArray(d.loot)) { const why = loot(m, p, d.loot); if (why) sendTo(ws, { lootFail: why });
+    } else if (typeof d.craft === 'string') {
+      const why = craft(m, p, d.craft); if (why) sendTo(ws, { craftFail: why });
     } else if (typeof d.recycle === 'string') {
       const why = recycle(m, p, d.recycle); if (why) sendTo(ws, { recycleFail: why });
     } else if (Array.isArray(d.buy) && d.buy.length === 2) {

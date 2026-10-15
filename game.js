@@ -2359,6 +2359,13 @@ const handleMsg = d => {
   if (d.shops) applyShops(d.shops);
   if (d.gold != null) setGold(d.gold);
   if (d.buyFail) shopFail(d.buyFail);
+  if (d.parts) setParts(d.parts);
+  if (d.recycled) recycledFx(d.recycled);
+  if (d.recycleFail) stationFail('recycle', d.recycleFail);
+  if (d.crafted) craftedFx(d.crafted);
+  if (d.craftFail) stationFail('craft', d.craftFail);
+  if (d.ate) ateFx(d.ate);
+  if (d.lootFail) lootFailFx(d.lootFail);
   if (d.died) showDeathScreen(d.died);
   if (d.won) showVictory(d.won);
   if (d.you) me = d.you;
@@ -2393,7 +2400,8 @@ function showStats(p, type) {   // small stat panel, bottom-left
     statsEl.style.cssText = 'position:fixed;left:2vw;bottom:2.5vh;min-width:190px;padding:10px 14px;border-radius:10px;background:rgba(10,10,16,.62);border:1px solid rgba(255,215,94,.35);color:#f2efe6;font:600 14px/1.5 system-ui,sans-serif;pointer-events:none;display:none;text-shadow:0 1px 4px #000';
     document.body.appendChild(statsEl);
   }
-  const mineInv = invReady ? invStats(myInv, type) : null;   // my own inventory is the freshest source for my stats
+  if (p && p.stats && p.stats.knowledge != null) knowOv = p.stats.knowledge;
+  const mineInv = invReady ? invStats(myInv, type, knowOv) : null;   // my own inventory is the freshest source for my stats
   const st = Object.assign({}, STATS[type], mineInv, p && p.stats), gear = Object.assign({}, GEAR[type], p && p.gear, invReady ? { weapon: myInv.weapon ? itemName(myInv.weapon) : 'none', armor: myInv.armor ? itemName(myInv.armor) : 'none' } : null);
   GK.myStats = { knowledge: st.knowledge, attack: st.attack, health: st.health, maxHealth: st.maxHealth || st.health };   // read by the knowledge tree tiers
   const packN = invReady ? myInv.backpack.filter(Boolean).length : 0;
@@ -2402,10 +2410,11 @@ function showStats(p, type) {   // small stat panel, bottom-left
     + '<div style="display:flex;justify-content:space-between"><span>Health</span><span>' + st.health + ' / ' + max + '</span></div>'
     + '<div style="height:6px;border-radius:3px;background:#2a2a34;margin:2px 0 6px"><div style="height:100%;width:' + pct + '%;border-radius:3px;background:linear-gradient(90deg,#c0392b,#e8564a)"></div></div>'
     + '<div style="display:flex;justify-content:space-between"><span>Attack</span><span>' + st.attack + '</span></div>'
-    + '<div style="display:flex;justify-content:space-between"><span>Knowledge</span><span>' + st.knowledge + '</span></div>'
+    + '<div style="display:flex;justify-content:space-between"><span>Knowledge</span><span id="hudKnow">' + fmtN(st.knowledge) + '</span></div>'
     + '<div style="display:flex;justify-content:space-between;align-items:center"><span>Gold</span><span><i class="gkcoin"></i> <b style="color:#ffd75e">' + myGold + '</b></span></div>'
-    + '<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,.12);font-weight:500;color:#cfd3dc"><div>Weapon: <b style="color:#f2efe6">' + gear.weapon + '</b> <small>(' + st.attack + ' dmg)</small></div>'
-    + '<div>Armour: <b style="color:#f2efe6">' + gear.armor + '</b> <small>(' + max + ' HP)</small></div>'
+    + '<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,.12);font-weight:500;color:#cfd3dc"><div>Weapon: <b style="color:#f2efe6">' + gear.weapon + '</b> <small>(' + (myInv.weapon && tierN(myInv.weapon) !== 0 || myInv.weapon && infoOf(myInv.weapon) && infoOf(myInv.weapon).tierN === 0 ? 'Tier ' + tierN(myInv.weapon) + ', ' : '') + st.attack + ' dmg)</small></div>'
+    + '<div>Armour: <b style="color:#f2efe6">' + gear.armor + '</b> <small>(' + (myInv.armor && infoOf(myInv.armor) && infoOf(myInv.armor).tierN != null ? 'Tier ' + tierN(myInv.armor) + ', ' : '') + max + ' HP)</small></div>'
+    + (partsTotal() ? '<div>Materials: <b style="color:#f2efe6">' + partsTotal() + '</b> <small>(Tab)</small></div>' : '')
     + '<div>Backpack: <b style="color:#f2efe6">' + packN + ' / 9</b> <small>(Tab)</small></div></div>';
   statsEl.style.display = GK.mode === 'play' ? 'block' : 'none';
 }
