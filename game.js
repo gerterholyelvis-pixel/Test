@@ -3370,7 +3370,7 @@ function ghostAt(e) { if (ghostEl && held) { ghostEl.style.left = e.clientX + 'p
 function openInv() {
   if (invOpen || shopOpen || GK.mode !== 'play') return;
   if (!invEl) buildInv();
-  invOpen = true; keys.clear(); drag = false; held = null; paintAll(); invEl.style.display = 'flex';
+  invOpen = true; keys.clear(); held = null; paintAll(); invEl.style.display = 'flex';
   try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
 }
 function closeInv(noLock) {
@@ -3505,7 +3505,7 @@ function paintShop() {
 function openShop(roomId) {
   if (shopOpen || invOpen || GK.mode !== 'play') return;
   if (!shopEl) buildShop();
-  shopRoom = roomId; shopOpen = true; panelKind = 'shop'; keys.clear(); drag = false; paintShop(); shopEl.style.display = 'flex'; setHover(-1);
+  shopRoom = roomId; shopOpen = true; panelKind = 'shop'; keys.clear(); paintShop(); shopEl.style.display = 'flex'; setHover(-1);
   try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
 }
 function closeShop(noLock) {
@@ -3595,7 +3595,7 @@ const stationNames = { recycle: 'RECYCLER', craft: 'WORKBENCH' };
 let recPn = null, craftPn = null, lootPn = null;
 function openStation(kind, roomId) {
   if (shopOpen || invOpen || GK.mode !== 'play') return;
-  shopOpen = true; panelKind = kind; shopRoom = roomId; keys.clear(); drag = false; setHover(-1);
+  shopOpen = true; panelKind = kind; shopRoom = roomId; keys.clear(); setHover(-1);
   if (kind === 'recycle') { if (!recPn) buildRec(); recSel = null; paintRec(); recPn.el.style.display = 'flex'; }
   else if (kind === 'craft') { if (!craftPn) buildCraft(); paintCraft(); craftPn.el.style.display = 'flex'; }
   else if (kind === 'loot') { if (!lootPn) buildLoot(); lootId = roomId; lootOpen = true; paintLoot(); lootPn.el.style.display = 'flex'; }
@@ -3737,7 +3737,7 @@ function connect(opts) { if (netReal) return; GK.charId = opts && opts.charId !=
 if (window.GK_OFFLINE) { $('rr').onclick = e => { net.send({ reroll: 1 }); e.stopPropagation(); }; $('rr').onpointerdown = e => e.stopPropagation(); }
 
 // ---------- input ----------
-const keys = new Set(); let inside = true, drag = false;
+const keys = new Set(); let inside = true;
 addEventListener('keydown', e => {
   if (e.code === 'KeyK' && !e.repeat && window.GK_OFFLINE && GK.mode === 'play' && actors.get(me)) { // demo only: K = die, to see the loot drop and the death screen
     const r = netReal && netReal.demoDie && netReal.demoDie(); showDeathScreen(r || { items: invAll(myInv) });
@@ -3749,12 +3749,26 @@ addEventListener('blur', () => keys.clear());
 const canvas = renderer.domElement;
 const lockOk = () => document.pointerLockElement === canvas;
 
-canvas.addEventListener('click', () => { if (!lockOk()) try { const r = canvas.requestPointerLock(); r && r.catch && r.catch(() => {}); } catch (e) {} });
-canvas.addEventListener('mousedown', () => drag = true); addEventListener('mouseup', () => drag = false);
+canvas.addEventListener('mousedown', () => { if (!lockOk()) try { const r = canvas.requestPointerLock(); r && r.catch && r.catch(() => {}); } catch (e) {} });
+// look follows the mouse, no button held: raw deltas while the pointer is locked; if the browser refuses the lock
+// (embedded views, some browsers), plain cursor movement still turns, and resting the cursor near the left/right edge keeps turning
+let mouseX = -1, edgeT = 0;
+const freeLook = () => GK.mode === 'play' && !invOpen && !shopOpen;
 addEventListener('mousemove', e => {
-  if (invOpen || shopOpen || (!lockOk() && !drag)) return;
+  mouseX = e.clientX;
+  if (!freeLook()) return;
   const k = 0.0022 * GK.settings.sens; P.yaw = wrapPi(P.yaw - e.movementX * k); P.pitch = clamp(P.pitch - e.movementY * k * (GK.settings.invertY ? -1 : 1), -1.45, 1.45);
 });
+document.addEventListener('mouseout', e => { if (!e.relatedTarget) mouseX = -1; });
+addEventListener('blur', () => { mouseX = -1; });
+(function edgeTurn(t) {
+  const dt = Math.min((t - (edgeT || t)) / 1000, 0.05); edgeT = t;
+  if (!lockOk() && freeLook() && mouseX >= 0) {
+    const m = innerWidth * 0.06, d = mouseX < m ? 1 : mouseX > innerWidth - m ? -1 : 0;
+    if (d) P.yaw = wrapPi(P.yaw + d * 2.4 * GK.settings.sens * dt);
+  }
+  requestAnimationFrame(edgeTurn);
+})(0);
 // FX-BEGIN (post-processing, dust motes, light shafts, screen pulse: owned by the graphics agent)
 let fx = null;   // { composer, bloom, grain } once the addons have loaded
 const fxMat = { uTime: { value: 0 }, uHeight: { value: 600 } };
