@@ -104,6 +104,12 @@ table.keys{border-collapse:collapse;width:100%}
 .islot{aspect-ratio:1;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#1b1813,#100e0b);border:1px solid #3a3326;transition:border-color .15s,box-shadow .15s}
 .islot.full:hover{border-color:var(--gold);box-shadow:0 0 10px rgba(245,170,50,.5),inset 0 0 8px rgba(245,196,81,.2)}
 .islot canvas{max-width:90%;max-height:90%}
+.parts{display:flex;flex-wrap:wrap;gap:4px 12px;margin-bottom:clamp(6px,1.2vh,10px);font-size:clamp(13px,2.2vh,17px);letter-spacing:.08em;text-transform:uppercase;color:#cfc9b6}
+.part{display:flex;align-items:center;gap:5px}
+.islot{position:relative}
+.islot .tb{position:absolute;right:3px;bottom:1px;font-style:normal;font-weight:700;font-size:clamp(10px,1.8vh,14px);text-shadow:0 1px 2px #000}
+.islot[data-t=transcendent]{animation:shim 2.4s ease-in-out infinite}
+@keyframes shim{50%{box-shadow:0 0 12px rgba(143,246,255,.7),inset 0 0 8px rgba(255,255,255,.3)}}
 #itip{position:fixed;z-index:30;display:none;pointer-events:none;padding:6px 10px;background:rgba(10,8,6,.96);border:1px solid var(--gold3);box-shadow:0 6px 20px rgba(0,0,0,.7);font-size:15px;letter-spacing:.06em;color:var(--txt)}
 #itip b{display:block;color:var(--gold2);font-size:1.1em;letter-spacing:.1em;text-transform:uppercase}
 #itip span{color:var(--teal)}
@@ -168,6 +174,7 @@ table.keys{border-collapse:collapse;width:100%}
    <h2 class="ph">Inventory</h2>
    <div class="sheet" id="inv-sheet">
     <div class="invsum" id="inv-sum"></div>
+    <div class="parts" id="inv-parts"></div>
     <div class="igrid" id="inv-grid"></div>
     <div class="invempty" id="inv-empty">Nothing here yet. Items you carry out of a won run end up here.</div>
    </div>

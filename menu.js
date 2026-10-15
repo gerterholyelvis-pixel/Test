@@ -88,10 +88,15 @@ function renderChars() {
   }
 }
 const itipEl = $('itip');
+const TCOL = { common: '#b9b4a4', uncommon: '#6fdc6a', rare: '#5aa8ff', mythic: '#c06bff', legendary: '#ffb02e', transcendent: '#8ff6ff' };
 function tip(it, e) {
   if (!it) { itipEl.style.display = 'none'; return; }
   itipEl.textContent = ''; const b = document.createElement('b'); b.textContent = it.name; const s = document.createElement('span');
-  s.textContent = it.attack != null ? 'Attack ' + it.attack : it.health != null ? 'Health ' + it.health : ''; itipEl.append(b, s);
+  const tn = it.tierN != null ? it.tierN : null, tname = it.tier ? it.tier[0].toUpperCase() + it.tier.slice(1) : '';
+  const st = it.attack != null ? 'Attack ' + it.attack : it.health != null ? 'Health ' + it.health : (it.desc || '');
+  s.textContent = [tn != null ? 'Tier ' + tn + (tname ? ' \u00b7 ' + tname : '') : '', st].filter(Boolean).join(' \u00b7 ');
+  if (it.tier && TCOL[it.tier]) b.style.color = TCOL[it.tier];
+  itipEl.append(b, s);
   itipEl.style.display = 'block';
   const w = itipEl.offsetWidth, h = itipEl.offsetHeight;
   itipEl.style.left = Math.max(4, Math.min(innerWidth - w - 4, e.clientX + 14)) + 'px'; itipEl.style.top = Math.max(4, Math.min(innerHeight - h - 4, e.clientY + 14)) + 'px';
@@ -99,12 +104,29 @@ function tip(it, e) {
 function itemInfo(raw) {
   const IT = (window.GKITEMS && GKITEMS.ITEMS) || {};
   const key = typeof raw === 'string' ? raw : raw && (raw.key || raw.id);
+  try { const i = GKITEMS.info(key); if (i) return i; } catch (e) {}
   if (IT[key]) return IT[key];
   const nm = typeof raw === 'string' ? raw : raw && raw.name;
   for (const k in IT) if (IT[k].name === nm) return IT[k];
   return raw && typeof raw === 'object' ? raw : { key, name: String(raw), type: 'weapon' };
 }
+const PCOL = { wood: '#8a5a2b', metal: '#a9b4be', leather: '#7a4a2a', cloth: '#b86adf', gold: '#f5c451', bone: '#eee6cf', gem: '#e0344f', string: '#d8d2c0', crystal: '#66e0ff' };
+function renderParts() {
+  const box = $('inv-parts'); box.textContent = '';
+  let ps = {}; try { ps = GKSAVE.parts() || {}; } catch (e) {}
+  const list = ((window.GKITEMS && GKITEMS.PARTS) || []).filter(p => ps[p.key] > 0);
+  box.style.display = list.length ? '' : 'none';
+  for (const p of list) {
+    const d = document.createElement('div'); d.className = 'part'; d.title = p.name;
+    const c = document.createElement('canvas'); c.width = c.height = 16; const g = c.getContext('2d');
+    g.fillStyle = PCOL[p.key] || '#999'; g.strokeStyle = 'rgba(0,0,0,.6)'; g.lineWidth = 1.5; g.beginPath();
+    if (p.key === 'gem' || p.key === 'crystal') { g.moveTo(8, 1); g.lineTo(14, 7); g.lineTo(8, 15); g.lineTo(2, 7); g.closePath(); } else if (p.key === 'cloth' || p.key === 'leather') g.rect(2, 3, 12, 10); else g.arc(8, 8, 6, 0, 6.3);
+    g.fill(); g.stroke();
+    const t = document.createElement('span'); t.textContent = p.name + ' ' + ps[p.key]; d.append(c, t); box.appendChild(d);
+  }
+}
 function renderInv() {
+  renderParts();
   const grid = $('inv-grid'); grid.textContent = '';
   let st = []; try { st = (window.GKSAVE ? GKSAVE.stash() : []).filter(Boolean); } catch (e) {}
   $('inv-sum').textContent = st.length ? st.length + (st.length === 1 ? ' item' : ' items') + ' brought back' : 'Stash';
@@ -114,7 +136,9 @@ function renderInv() {
     const s = document.createElement('div'); s.className = 'islot';
     if (i < st.length) {
       const it = itemInfo(st[i]); s.classList.add('full');
+      if (it.tier && TCOL[it.tier]) { s.style.borderColor = TCOL[it.tier] + '66'; s.dataset.t = it.tier; }
       s.appendChild(window.GKICONS ? GKICONS.canvas(it.key, 40) : document.createTextNode('?'));
+      if (it.tierN != null) { const bd = document.createElement('i'); bd.className = 'tb'; bd.textContent = it.tierN; bd.style.color = TCOL[it.tier] || '#ddd'; s.appendChild(bd); }
       s.onmouseenter = s.onmousemove = e => tip(it, e); s.onmouseleave = () => tip(null);
     }
     grid.appendChild(s);
@@ -424,7 +448,7 @@ try {   // 'Requeue' from the death screen (optionally with a saved character)
   }
 } catch (e) {}
 GK.menuDebug = { addDemoSave() {
-  GKSAVE.clearAll(); GKSAVE.recordWin({ goblin: 4, items: ['w:scepter', 'a:royal', 'w:axe'] });
+  GKSAVE.clearAll(); GKSAVE.recordWin({ goblin: 4, items: ['w:scepter', 'a:royal', 'w:axe', 'w:shadowfang', 'a:dragon', 'w:sharpstick'], parts: { wood: 5, metal: 3, gem: 2 } });
   const a = GKSAVE.recordWin({ goblin: 2, items: ['w:mace', 'a:harness'] }); GKSAVE.recordWin({ charId: a.id, goblin: 2, items: ['w:spear'] });
   GKSAVE.recordWin({ charId: a.id, goblin: 2, items: [] });
   const s = GKSAVE.load(); s.characters.push({ id: s.nextId++, goblin: 3, name: 'Mizzle', wins: 0 }); localStorage.setItem('gk.save.v1', JSON.stringify(s));

@@ -1099,8 +1099,8 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
     }, false);
     return {
       floor: M(0xffffff, { map: tex, emissiveMap: emi, emissive: 0xffffff, emissiveIntensity: 1.25, roughness: 0.3, metalness: 0.25, envMapIntensity: 0.8 }),
-      wall: M(0x9582e0, { map: plasterTex, bumpMap: bumpTex, bumpScale: 0.6, roughness: 0.9, envMapIntensity: 0.3, emissive: 0x2a1470, emissiveIntensity: 0.7 }),
-      ceil: M(0x6a58b0, { map: plasterTex, roughness: 0.95, emissive: 0x5a44b0, emissiveIntensity: 0.7 }),
+      wall: M(0x5a4a9a, { map: plasterTex, bumpMap: bumpTex, bumpScale: 0.6, roughness: 0.9, envMapIntensity: 0.25, emissive: 0x1c0e56, emissiveIntensity: 0.55 }),
+      ceil: M(0x3a2e78, { map: plasterTex, roughness: 0.95, emissive: 0x3a2a86, emissiveIntensity: 0.6 }),
       panel: new THREE.MeshBasicMaterial({ color: 0xb59cff, toneMapped: false }),
       band: M(0x8a5cff, { metalness: 0.5, roughness: 0.4, emissive: 0x7a44ff, emissiveIntensity: 1.3 }),
     };
@@ -1172,7 +1172,7 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
       hs.material.opacity = 0.42 + 0.12 * Math.sin(t * 2.1); beam.material.opacity = 0.045 + 0.02 * Math.sin(t * 1.3);
       motes.rotation.y = t * 0.03; motes.position.y = Math.sin(t * 0.4) * 0.15;
       for (const s of mist) { const m = s.userData.m, a = m.a + t * m.sp; s.position.set(Math.cos(a) * m.r, m.y + Math.sin(t * 0.5 + m.a) * 0.06, Math.sin(a * 0.8) * m.r * 0.8); }
-      for (const q of flameList) { const k = 1 + 0.12 * Math.sin(t * 17 + q.ph) + 0.08 * Math.sin(t * 29 + q.ph * 2); q.f.scale.set(k * 0.95, k, k * 0.95); q.f2.scale.set(k, 0.9 + (k - 1) * 2, k); q.gl.material.opacity = 0.6 + (k - 1) * 1.4; }
+      for (const q of flameList) { const k = 1 + 0.12 * Math.sin(t * 17 + q.ph) + 0.08 * Math.sin(t * 29 + q.ph * 2); q.f.scale.set(0.09 * k * 0.95, 0.3 * k, 0.09 * k * 0.95); q.f2.scale.set(0.05 * k, 0.2 * (0.9 + (k - 1) * 2), 0.05 * k); q.gl.material.opacity = 0.6 + (k - 1) * 1.4; }
     });
   }
   function merchantShell() { return shellMats('chest'); }
@@ -2616,8 +2616,11 @@ function paintSlot(el, id) {
   const k = invGet(myInv, id), size = +el.dataset.size || 40;
   el.textContent = '';
   if (el.dataset.lab) { const l = document.createElement('span'); l.className = 'kl'; l.textContent = el.dataset.lab; el.appendChild(l); }
-  if (k != null) el.appendChild(mkIcon(k, size));
-  else if (id === 'weapon' || id === 'armor') { const c = mkIcon(id === 'weapon' ? 'w:sword' : 'a:vest', size); c.className = 'sil'; el.appendChild(c); }
+  if (k != null) {
+    el.appendChild(mkIcon(k, size));
+    const tn = tierN(k); if (tn != null) { const b = document.createElement('span'); b.textContent = 'T' + tn; b.style.cssText = 'position:absolute;right:3px;bottom:2px;padding:0 4px;border-radius:4px;font:800 10px/14px system-ui,sans-serif;color:#0c0a06;pointer-events:none;background:' + (TIER_COL[(infoOf(k) || {}).tier] || '#9aa0a8'); el.appendChild(b); }
+    else if (infoOf(k) && infoOf(k).family === 'brain') { const b = document.createElement('span'); b.textContent = '+' + fmtN(infoOf(k).gain); b.style.cssText = 'position:absolute;right:3px;bottom:2px;padding:0 4px;border-radius:4px;font:800 10px/14px system-ui,sans-serif;color:#0c0a06;pointer-events:none;background:#f08aa8'; el.appendChild(b); }
+  } else if (id === 'weapon' || id === 'armor') { const c = mkIcon(id === 'weapon' ? 'w:sword' : 'a:vest', size); c.className = 'sil'; el.appendChild(c); }
   el.classList.toggle('held', held === id && k != null);
   el.classList.toggle('sel', id[0] === 'q' && +id[1] === qSel && el.dataset.hot === '1');
 }
@@ -2634,7 +2637,7 @@ function ensureHotbar() {
 }
 function hideHotbar() { if (hotEl) hotEl.style.display = 'none'; }
 function syncHotbar() { ensureHotbar(); hotEl.style.display = GK.mode === 'play' ? 'flex' : 'none'; }
-function paintAll() { for (const id in slotEls) for (const el of slotEls[id]) paintSlot(el, id); paintStatCol(); paintGhost(); }
+function paintAll() { for (const id in slotEls) for (const el of slotEls[id]) paintSlot(el, id); paintStatCol(); paintGhost(); paintParts(); panelRefresh(); }
 function setSel(i) { qSel = (i + 3) % 3; paintAll(); }
 function setInv(d) {
   if (!d || !Array.isArray(d.backpack)) return;
@@ -2645,15 +2648,16 @@ function setInv(d) {
 }
 function paintStatCol() {
   if (!statColEl) return;
-  const mine = actors.get(me), type = mine ? mine.goblin : 0, s = invStats(myInv, type), w = myInv.weapon, a = myInv.armor;
+  const mine = actors.get(me), type = mine ? mine.goblin : 0, s = invStats(myInv, type, knowOv), w = myInv.weapon, a = myInv.armor;
   const row = (k, v, sub) => '<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:#aaa59d">' + k + '</span><b>' + v + '</b></div>' + (sub ? '<div style="font-size:11px;color:#8d8880;margin:-2px 0 6px;text-align:right">' + sub + '</div>' : '');
   statColEl.innerHTML = '<div class="lab" style="text-align:left">' + NAMES[type].toUpperCase() + '</div>'
-    + row('Attack', s.attack, w ? itemName(w) : 'no weapon') + row('Health', s.health + ' / ' + s.maxHealth, a ? itemName(a) : 'no armour') + row('Knowledge', s.knowledge, 'innate') + row('Gold', '<i class="gkcoin"></i> ' + myGold);
+    + row('Attack', s.attack, w ? itemName(w) : 'no weapon') + row('Health', s.health + ' / ' + s.maxHealth, a ? itemName(a) : 'no armour') + row('Knowledge', '<span class="knowv">' + fmtN(s.knowledge) + '</span>', 'innate + brains') + row('Gold', '<i class="gkcoin"></i> ' + myGold);
 }
 function flashBad(...ids) { for (const id of ids) for (const el of slotEls[id] || []) { el.classList.remove('bad'); void el.offsetWidth; el.classList.add('bad'); } }
 function tipFor(k) {
-  const it = itemsData().ITEMS[k]; if (!it) return '<b>' + String(k).replace(/</g, '&lt;') + '</b>';
-  return '<b style="color:' + GOLD + '">' + it.name + '</b><span style="color:#aaa59d">' + (it.type === 'weapon' ? 'Weapon · ' + it.attack + ' damage' : 'Armour · ' + it.health + ' health') + '</span>';
+  const it = infoOf(k); if (!it) return '<b>' + String(k).replace(/</g, '&lt;') + '</b>';
+  const kind = it.type === 'weapon' ? 'Weapon' : it.type === 'armor' ? 'Armour' : 'Consumable';
+  return '<b style="color:' + (TIER_COL[it.tier] || GOLD) + '">' + it.name + '</b><span style="color:#aaa59d">' + kind + ' · ' + statTxt(k) + (it.family === 'brain' ? '<br>Eat it for +' + fmtN(it.gain) + ' knowledge' : '') + '</span>';
 }
 function paintGhost() {
   if (!ghostEl) return; ghostEl.textContent = '';
@@ -2678,7 +2682,7 @@ function buildInv() {
   invEl = document.createElement('div'); invEl.id = 'gkInv';
   invEl.style.cssText = 'position:fixed;inset:0;z-index:55;display:none;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,rgba(30,22,6,.5),rgba(0,0,0,.82));font-family:system-ui,sans-serif;color:#f2efe6;user-select:none';
   const panel = document.createElement('div');
-  panel.style.cssText = 'width:min(660px,94vw);box-sizing:border-box;padding:18px 26px 16px;border-radius:16px;background:rgba(14,12,9,.86);border:1px solid rgba(255,215,94,.45);box-shadow:0 10px 60px rgba(0,0,0,.7),inset 0 0 40px rgba(255,215,94,.04)';
+  panel.style.cssText = 'width:min(660px,94vw);max-height:96vh;overflow:auto;box-sizing:border-box;padding:18px 26px 16px;border-radius:16px;background:rgba(14,12,9,.86);border:1px solid rgba(255,215,94,.45);box-shadow:0 10px 60px rgba(0,0,0,.7),inset 0 0 40px rgba(255,215,94,.04)';
   panel.innerHTML = '<div style="text-align:center;color:' + GOLD + ';font-weight:800;font-size:clamp(24px,4vw,34px);letter-spacing:.14em;text-shadow:0 0 22px rgba(255,200,60,.4)">INVENTORY</div>'
     + '<div style="text-align:center;color:#b9b4ae;margin:0 0 14px;letter-spacing:.12em;font-size:11px">CLICK AN ITEM TO PICK IT UP, CLICK A SLOT TO PLACE IT</div>';
   const main = document.createElement('div'); main.style.cssText = 'display:flex;gap:26px;justify-content:center;align-items:flex-start;flex-wrap:wrap';
@@ -2694,11 +2698,15 @@ function buildInv() {
   const quick = document.createElement('div'); quick.style.cssText = 'display:flex;gap:10px;justify-content:center';
   for (let i = 0; i < 3; i++) quick.appendChild(mkSlot('q' + i, 58, String(i + 1)));
   const qwrap = document.createElement('div'); qwrap.style.cssText = 'margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.1)'; qwrap.innerHTML = '<div class="lab">QUICK ACCESS (KEYS 1 2 3)</div>'; qwrap.appendChild(quick);
+  const pw = document.createElement('div'); pw.style.cssText = 'margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.1)'; pw.innerHTML = '<div class="lab">MATERIALS</div>'; pw.appendChild(mkPartsRow()); qwrap.appendChild(pw);
   const foot = document.createElement('div'); foot.style.cssText = 'display:flex;gap:12px;align-items:center;margin-top:14px';
   hintEl = document.createElement('div'); hintEl.style.cssText = 'flex:1;font-size:12px;color:#8d8880;letter-spacing:.04em'; hintEl.textContent = 'Right-click an item to drop it  ·  Tab / I / Esc to close';
   dropBtn = document.createElement('button'); dropBtn.textContent = 'DROP'; dropBtn.style.cssText = 'border:1px solid rgba(255,90,74,.6);background:rgba(120,20,14,.35);color:#ff8a7a';
   const closeBtn = document.createElement('button'); closeBtn.textContent = 'CLOSE'; closeBtn.style.cssText = 'border:0;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font-weight:800';
-  foot.append(hintEl, dropBtn, closeBtn);
+  const eatBtn = document.createElement('button'); eatBtn.textContent = 'EAT'; eatBtn.id = 'invEat'; eatBtn.style.cssText = 'border:1px solid #8be28b;background:rgba(40,120,50,.35);color:#b8f5b8';
+  eatBtn.onclick = () => { const k = held && invGet(myInv, held); if (k && infoOf(k) && infoOf(k).family === 'brain') eatSlot(held); else { hintEl.style.color = '#ff8a7a'; hintEl.textContent = 'Pick up a brain first, then press Eat (or double-click it)'; setTimeout(() => { hintEl.style.color = '#8d8880'; hintEl.textContent = 'Right-click an item to drop it  ·  Tab / I / Esc to close'; }, 2200); } };
+  foot.append(hintEl, eatBtn, dropBtn, closeBtn);
+  invEl.addEventListener('dblclick', e => { const el = e.target.closest && e.target.closest('.gks'); if (el && el.dataset.id) { held = null; eatSlot(el.dataset.id); } });
   panel.append(main, qwrap, foot); invEl.appendChild(panel);
   ghostEl = document.createElement('div'); ghostEl.style.cssText = 'position:fixed;z-index:70;display:none;pointer-events:none;filter:drop-shadow(0 4px 8px #000);transform:translate(-50%,-50%)';
   tipEl = document.createElement('div'); tipEl.style.cssText = 'position:fixed;z-index:75;display:none;pointer-events:none;padding:6px 10px;border-radius:8px;background:rgba(10,8,6,.95);border:1px solid rgba(255,215,94,.5);font-size:13px;line-height:1.4';
@@ -2756,7 +2764,12 @@ addEventListener('keydown', e => {
   if (e.code === 'Tab' || e.code === 'KeyI') { e.preventDefault(); if (!e.repeat) { if (invOpen) closeInv(); else openInv(); } return; }
   if (e.code === 'Escape' && invOpen) { if (held) { held = null; paintAll(); } else closeInv(); return; }
   if (e.repeat) return;
-  if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') { ensureHotbar(); setSel(+e.code.slice(5) - 1); return; }
+  if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') {
+    ensureHotbar(); const i = +e.code.slice(5) - 1, k = invGet(myInv, 'q' + i);
+    if (i === qSel && k != null && infoOf(k) && infoOf(k).family === 'brain') eatSlot('q' + i); else setSel(i);   // pressing the selected slot's key eats a brain
+    return;
+  }
+  if (e.code === 'KeyE' && !invOpen) { if (nearestPile()) { openStation('loot', nearestPile().id); } return; }
   if (window.GK_OFFLINE && e.code === 'KeyG' && netReal && netReal.demoGive) netReal.demoGive();
   if (window.GK_OFFLINE && e.code === 'KeyL' && actors.get(me)) showVictory({ items: invAll(myInv), gold: myGold });   // demo only: L = win
 });
@@ -2809,8 +2822,8 @@ let myGold = 0, shops = [], shopOpen = false, shopRoom = -1, shopEl = null, shop
 const MERCHANT_NAMES = ['Grizzle the Fence', 'Snaggle Pennywort', 'Old Murk', 'Bargle Two-Coins', 'Fennick Slyhand', 'Gobbo the Honest'];
 const merchantName = id => { const g = (GK.merchantTargets || []).find(o => o && o.userData && o.userData.roomId === id); return (g && g.userData.merchantName) || MERCHANT_NAMES[id % MERCHANT_NAMES.length]; };
 const coin = '<i class="gkcoin"></i>';
-function setGold(n) { myGold = n | 0; paintStatCol(); const mine = actors.get(me); if (mine) showStats(null, mine.goblin); if (shopOpen) paintShop(); }
-function applyShops(s) { if (Array.isArray(s)) { shops = s; GK.shops = s; if (shopOpen) paintShop(); } }
+function setGold(n) { myGold = n | 0; paintStatCol(); const mine = actors.get(me); if (mine) showStats(null, mine.goblin); if (panelKind === 'shop') paintShop(); }
+function applyShops(s) { if (Array.isArray(s)) { shops = s; GK.shops = s; if (panelKind === 'shop') paintShop(); } }
 function shopFail(why) {
   if (!shopOpen || !shopMsg) return;
   shopMsg.textContent = { gold: 'Not enough gold', space: 'Your backpack is full', sold: 'Already sold', room: 'You are too far from the merchant' }[why] || 'Cannot buy that';
@@ -2838,11 +2851,11 @@ function paintShop() {
   const list = shops[shopRoom] || [], full = myInv.backpack.indexOf(null) < 0;
   if (!list.length) { rows.innerHTML = '<div style="text-align:center;color:#8d8880;padding:20px">The merchant has nothing to sell.</div>'; return; }
   list.forEach((it, idx) => {
-    const d = itemsData().ITEMS[it.key] || { name: String(it.key), type: 'weapon', attack: 0 };
+    const d = infoOf(it.key) || { name: String(it.key), type: 'weapon', attack: 0 };
     const row = document.createElement('div'); row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:6px 10px;border-radius:10px;background:rgba(0,0,0,.35);border:1px solid rgba(255,215,94,.2)' + (it.sold ? ';opacity:.45' : '');
     const ic = document.createElement('div'); ic.style.cssText = 'width:48px;height:48px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:rgba(0,0,0,.4);flex:none'; ic.appendChild(mkIcon(it.key, 40));
     const tx = document.createElement('div'); tx.style.cssText = 'flex:1;min-width:0';
-    tx.innerHTML = '<div style="font-weight:700;font-size:15px">' + d.name + '</div><div style="font-size:12px;color:#aaa59d">' + (d.type === 'weapon' ? 'Weapon · Attack ' + d.attack : 'Armour · Health ' + d.health) + '</div>';
+    tx.innerHTML = '<div style="font-weight:700;font-size:15px;color:' + (TIER_COL[d.tier] || '#f2efe6') + '">' + d.name + '</div><div style="font-size:12px;color:#aaa59d">' + statTxt(it.key) + '</div>';
     const pr = document.createElement('div'); pr.style.cssText = 'font-weight:700;font-size:15px;min-width:64px;text-align:right;color:' + (myGold >= it.price ? GOLD : '#ff8a7a'); pr.innerHTML = coin + ' ' + it.price;
     const bt = document.createElement('button'); const can = !it.sold && myGold >= it.price && !full;
     bt.textContent = it.sold ? 'SOLD' : myGold < it.price ? 'NO GOLD' : full ? 'PACK FULL' : 'BUY'; bt.disabled = !can; bt.dataset.idx = idx;
@@ -2854,31 +2867,234 @@ function paintShop() {
 function openShop(roomId) {
   if (shopOpen || invOpen || GK.mode !== 'play') return;
   if (!shopEl) buildShop();
-  shopRoom = roomId; shopOpen = true; keys.clear(); drag = false; paintShop(); shopEl.style.display = 'flex'; setHover(-1);
+  shopRoom = roomId; shopOpen = true; panelKind = 'shop'; keys.clear(); drag = false; paintShop(); shopEl.style.display = 'flex'; setHover(-1);
   try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
 }
 function closeShop(noLock) {
   if (!shopOpen) return;
-  shopOpen = false; if (shopEl) shopEl.style.display = 'none'; keys.clear(); if (!noLock) lockNow();
+  shopOpen = false; panelKind = ''; for (const id of ['gkShop', 'gkRec', 'gkCraft', 'gkLoot']) { const el = document.getElementById(id); if (el) el.style.display = 'none'; } keys.clear(); if (!noLock) lockNow();
 }
 GK.openShop = openShop; GK.closeShop = closeShop;
 // hover: ray from the screen centre against GK.merchantTargets (pushed by the rooms code, userData.roomId = CHEST_ROOMS id)
 const ray = new THREE.Raycaster();
-function setHover(id) {
-  if (id === hoverRoom) return; hoverRoom = id;
+let hoverKind = '';
+function setHover(id, kind) {
+  if (id === hoverRoom && (kind || '') === hoverKind) return; hoverRoom = id; hoverKind = kind || '';
   const dot = $('dot'); if (dot) { dot.style.transition = 'transform .12s'; dot.style.transform = id >= 0 ? 'scale(3)' : ''; dot.style.opacity = id >= 0 ? 1 : ''; }
   if (!hoverTip) { hoverTip = document.createElement('div'); hoverTip.style.cssText = 'position:fixed;left:50%;top:calc(50% + 24px);transform:translateX(-50%);z-index:25;pointer-events:none;padding:4px 12px;border-radius:8px;background:rgba(10,8,6,.8);border:1px solid rgba(255,215,94,.55);color:' + GOLD + ';font:700 13px system-ui,sans-serif;letter-spacing:.08em;display:none;white-space:nowrap'; document.body.appendChild(hoverTip); }
-  hoverTip.textContent = 'Click to trade'; hoverTip.style.display = id >= 0 ? 'block' : 'none';
+  hoverTip.textContent = hoverKind === 'r' ? 'Click to recycle' : hoverKind === 'w' ? 'Click to craft' : 'Click to trade'; hoverTip.style.display = id >= 0 ? 'block' : 'none';
 }
 function merchantHoverTick() {
-  const T = GK.merchantTargets;
-  if (GK.mode !== 'play' || invOpen || shopOpen || !inside || !spawned || !T || !T.length) { if (hoverRoom >= 0) setHover(-1); return; }
+  const T = [...(GK.merchantTargets || []), ...(GK.stationTargets || []).filter(o => o && o.userData && (o.userData.station === 'recycler' || o.userData.station === 'workbench'))];
+  lootPromptTick();
+  if (GK.mode !== 'play' || invOpen || shopOpen || !inside || !spawned || !T.length) { if (hoverRoom >= 0) setHover(-1); return; }
   cam.updateMatrixWorld(); ray.setFromCamera({ x: 0, y: 0 }, cam); ray.far = 7;
-  const hit = ray.intersectObjects(T, true)[0]; let id = -1;
-  if (hit) { for (let o = hit.object; o; o = o.parent) if (o.userData && o.userData.roomId != null) { id = o.userData.roomId; break; } }
-  setHover(id);
+  const hit = ray.intersectObjects(T, true)[0]; let id = -1, kind = '';
+  if (hit) { for (let o = hit.object; o; o = o.parent) { const u = o.userData; if (!u || u.roomId == null) continue; id = u.roomId; kind = u.station === 'recycler' ? 'r' : u.station === 'workbench' ? 'w' : 'm'; break; } }
+  setHover(id, kind);
 }
-document.addEventListener('click', e => { if (e.target === renderer.domElement && hoverRoom >= 0 && lockOk() && !invOpen && !shopOpen && GK.mode === 'play') openShop(hoverRoom); });
+GK.hover = () => ({ room: hoverRoom, kind: hoverKind });
+document.addEventListener('click', e => {
+  if (e.target !== renderer.domElement || hoverRoom < 0 || !lockOk() || invOpen || shopOpen || GK.mode !== 'play') return;
+  if (hoverKind === 'r') openStation('recycle', hoverRoom); else if (hoverKind === 'w') openStation('craft', hoverRoom); else openShop(hoverRoom);
+});
+// ---------- materials (parts), recycler, workbench, loot piles, eating ----------
+let panelKind = '', myParts = {}, knowOv = null, recSel = null, lootId = -1, lootOpen = false, lootPromptEl = null;
+const PART_DRAW = {   // simple canvas glyphs for the 9 crafting parts, drawn in a 0..1 box
+  wood: g => { g.fillStyle = '#8a5a2b'; rr(g, 0.1, 0.3, 0.7, 0.4, 0.08); g.fillStyle = '#c99a5b'; ell(g, 0.8, 0.5, 0.1, 0.2); g.strokeStyle = '#6b431c'; g.lineWidth = 0.025; g.beginPath(); g.arc(0.8, 0.5, 0.06, 0, 6.3); g.stroke(); g.fillStyle = '#6b431c'; g.fillRect(0.25, 0.4, 0.3, 0.025); g.fillRect(0.35, 0.55, 0.3, 0.025); },
+  metal: g => { g.fillStyle = '#7d8791'; poly0(g, [[0.2, 0.35], [0.8, 0.35], [0.92, 0.7], [0.08, 0.7]]); g.fillStyle = '#c3ccd4'; poly0(g, [[0.2, 0.35], [0.8, 0.35], [0.76, 0.45], [0.24, 0.45]]); },
+  leather: g => { g.fillStyle = '#9a6a3a'; poly0(g, [[0.15, 0.25], [0.4, 0.15], [0.6, 0.2], [0.85, 0.15], [0.9, 0.5], [0.8, 0.85], [0.5, 0.78], [0.2, 0.85], [0.1, 0.5]]); g.strokeStyle = '#d8b583'; g.lineWidth = 0.02; g.setLineDash([0.04, 0.04]); g.strokeRect(0.2, 0.28, 0.6, 0.45); g.setLineDash([]); },
+  cloth: g => { g.fillStyle = '#4a74c9'; rr(g, 0.15, 0.3, 0.6, 0.4, 0.04); g.fillStyle = '#7ea2ee'; ell(g, 0.75, 0.5, 0.1, 0.2); g.fillStyle = '#3b5da8'; ell(g, 0.15, 0.5, 0.08, 0.2); g.strokeStyle = '#a9c2f5'; g.lineWidth = 0.02; g.beginPath(); g.arc(0.75, 0.5, 0.05, 0, 6.3); g.stroke(); },
+  gold: g => { g.fillStyle = '#d9a514'; poly0(g, [[0.22, 0.35], [0.78, 0.35], [0.92, 0.7], [0.08, 0.7]]); g.fillStyle = '#ffe27a'; poly0(g, [[0.22, 0.35], [0.78, 0.35], [0.74, 0.46], [0.26, 0.46]]); },
+  bone: g => { g.fillStyle = '#ece4d0'; g.save(); g.translate(0.5, 0.5); g.rotate(-0.6); rr(g, -0.32, -0.05, 0.64, 0.1, 0.03); for (const [x, y] of [[-0.34, -0.08], [-0.34, 0.08], [0.34, -0.08], [0.34, 0.08]]) { g.beginPath(); g.arc(x, y, 0.07, 0, 6.3); g.fill(); } g.restore(); },
+  gem: g => { g.fillStyle = '#2fbf71'; poly0(g, [[0.5, 0.15], [0.85, 0.4], [0.5, 0.85], [0.15, 0.4]]); g.fillStyle = '#8ef0b8'; poly0(g, [[0.5, 0.15], [0.85, 0.4], [0.5, 0.4]]); g.fillStyle = '#1a8a50'; poly0(g, [[0.15, 0.4], [0.5, 0.4], [0.5, 0.85]]); },
+  string: g => { g.fillStyle = '#6b4a2f'; rr(g, 0.28, 0.15, 0.44, 0.1, 0.03); rr(g, 0.28, 0.75, 0.44, 0.1, 0.03); g.fillStyle = '#e8dcc0'; g.fillRect(0.32, 0.25, 0.36, 0.5); g.strokeStyle = '#b8a888'; g.lineWidth = 0.02; for (let y = 0.3; y < 0.75; y += 0.08) { g.beginPath(); g.moveTo(0.32, y); g.lineTo(0.68, y + 0.04); g.stroke(); } },
+  crystal: g => { g.fillStyle = '#58d6ff'; poly0(g, [[0.5, 0.08], [0.68, 0.35], [0.62, 0.88], [0.38, 0.88], [0.32, 0.35]]); g.fillStyle = '#c4f2ff'; poly0(g, [[0.5, 0.08], [0.68, 0.35], [0.5, 0.4]]); g.fillStyle = '#2a9fd0'; poly0(g, [[0.32, 0.35], [0.5, 0.4], [0.5, 0.88], [0.38, 0.88]]); },
+};
+function poly0(g, p) { g.beginPath(); g.moveTo(p[0][0], p[0][1]); for (let i = 1; i < p.length; i++) g.lineTo(p[i][0], p[i][1]); g.closePath(); g.fill(); }
+function rr(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); g.fill(); }
+function ell(g, x, y, rx, ry) { g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, 6.3); g.fill(); }
+function partIcon(key, size) {
+  const c = document.createElement('canvas'), d = Math.min(window.devicePixelRatio || 1, 2); c.width = c.height = Math.round(size * d); c.style.width = c.style.height = size + 'px';
+  const g = c.getContext('2d'); g.scale(c.width, c.height); g.shadowColor = 'rgba(0,0,0,.5)'; g.shadowBlur = 0.03; try { (PART_DRAW[key] || (() => {}))(g); } catch (e) {}
+  return c;
+}
+const partList = () => (window.GKITEMS && window.GKITEMS.PARTS) || [];
+const partName = k => { const p = partList().find(x => x.key === k); return p ? p.name : k; };
+const partsTotal = () => Object.values(myParts).reduce((a, b) => a + (b | 0), 0);
+const partRows = [];
+function mkPartsRow() {   // a row of the 9 materials with counters (inventory, recycler and workbench each have one)
+  const row = document.createElement('div'); row.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;justify-content:center';
+  for (const p of partList()) {
+    const c = document.createElement('div'); c.dataset.part = p.key; c.title = p.name; c.style.cssText = 'display:flex;align-items:center;gap:3px;padding:2px 7px 2px 3px;border-radius:7px;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.1);font:700 13px system-ui,sans-serif;font-variant-numeric:tabular-nums';
+    c.appendChild(partIcon(p.key, 22)); const n = document.createElement('span'); n.className = 'n'; c.appendChild(n); row.appendChild(c);
+  }
+  partRows.push(row); paintParts(); return row;
+}
+function paintParts() { for (const row of partRows) for (const c of row.children) { const v = myParts[c.dataset.part] | 0, n = c.querySelector('.n'); if (n.textContent !== String(v)) { n.textContent = v; } c.style.opacity = v ? 1 : 0.45; } }
+function setParts(p) {
+  const before = myParts; myParts = Object.assign({}, p);
+  paintParts(); const mine = actors.get(me); if (mine) showStats(null, mine.goblin);
+  if (panelKind === 'craft') paintCraft(); if (panelKind === 'recycle') paintRec();
+  for (const row of partRows) for (const c of row.children) if ((myParts[c.dataset.part] | 0) !== (before[c.dataset.part] | 0)) c.animate([{ transform: 'scale(1.35)', background: 'rgba(255,215,94,.4)' }, { transform: 'none' }], 350);
+}
+GK.getParts = () => Object.assign({}, myParts);
+function panelRefresh() { if (panelKind === 'recycle') paintRec(); else if (panelKind === 'craft') paintCraft(); else if (panelKind === 'shop') paintShop(); }
+function mkPanel(id, title, w) {
+  ensureCss();
+  const el = document.createElement('div'); el.id = id;
+  el.style.cssText = 'position:fixed;inset:0;z-index:56;display:none;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,rgba(30,22,6,.5),rgba(0,0,0,.82));font-family:system-ui,sans-serif;color:#f2efe6;user-select:none';
+  el.innerHTML = '<div style="width:min(' + w + 'px,94vw);max-height:94vh;overflow:auto;box-sizing:border-box;padding:16px 24px 16px;border-radius:16px;background:rgba(14,12,9,.88);border:1px solid rgba(255,215,94,.45);box-shadow:0 10px 60px rgba(0,0,0,.7)">'
+    + '<div class="ttl" style="text-align:center;color:' + GOLD + ';font-weight:800;font-size:clamp(22px,3.6vw,30px);letter-spacing:.1em;text-shadow:0 0 22px rgba(255,200,60,.4)">' + title + '</div>'
+    + '<div class="sub" style="text-align:center;margin:2px 0 10px;font-size:12px;letter-spacing:.14em;color:#b9b4ae"></div><div class="body"></div>'
+    + '<div style="display:flex;align-items:center;gap:12px;margin-top:12px"><div class="msg" style="flex:1;font-size:13px;color:#ff8a7a;min-height:1.3em"></div><button class="close" style="cursor:pointer;border:0;border-radius:8px;padding:9px 18px;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font:800 13px system-ui,sans-serif;letter-spacing:.1em">CLOSE (ESC)</button></div></div>';
+  document.body.appendChild(el); el.querySelector('.close').onclick = () => closeShop();
+  el.addEventListener('click', e => { if (e.target === el) closeShop(); });
+  return { el, body: el.querySelector('.body'), sub: el.querySelector('.sub'), msg: el.querySelector('.msg'), ttl: el.querySelector('.ttl') };
+}
+function say(pn, text, good) { if (!pn || !pn.msg) return; pn.msg.textContent = text; pn.msg.style.color = good ? '#8be28b' : '#ff8a7a'; clearTimeout(pn.t); pn.t = setTimeout(() => { pn.msg.textContent = ''; }, 2600); }
+const stationNames = { recycle: 'RECYCLER', craft: 'WORKBENCH' };
+let recPn = null, craftPn = null, lootPn = null;
+function openStation(kind, roomId) {
+  if (shopOpen || invOpen || GK.mode !== 'play') return;
+  shopOpen = true; panelKind = kind; shopRoom = roomId; keys.clear(); drag = false; setHover(-1);
+  if (kind === 'recycle') { if (!recPn) buildRec(); recSel = null; paintRec(); recPn.el.style.display = 'flex'; }
+  else if (kind === 'craft') { if (!craftPn) buildCraft(); paintCraft(); craftPn.el.style.display = 'flex'; }
+  else if (kind === 'loot') { if (!lootPn) buildLoot(); lootId = roomId; lootOpen = true; paintLoot(); lootPn.el.style.display = 'flex'; }
+  try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
+}
+GK.openStation = openStation;
+function stationFail(kind, why) {
+  const pn = kind === 'recycle' ? recPn : craftPn;
+  say(pn, { room: 'You are too far from the ' + (kind === 'recycle' ? 'recycler' : 'workbench'), item: 'That cannot be recycled', recipe: 'Unknown recipe', knowledge: 'Not enough knowledge', parts: 'Not enough materials', space: 'Your backpack is full' }[why] || 'Cannot do that');
+  flashBad(...(why === 'item' && recSel ? [recSel] : []));
+}
+// ---- recycler ----
+function buildRec() {
+  recPn = mkPanel('gkRec', 'RECYCLER', 640); recPn.sub.textContent = 'BREAK WEAPONS DOWN INTO MATERIALS - FREE FOR EVERYONE';
+  const main = document.createElement('div'); main.style.cssText = 'display:flex;gap:22px;flex-wrap:wrap;justify-content:center';
+  const left = document.createElement('div'); left.innerHTML = '<div class="lab">PICK A WEAPON</div>';
+  const grid = document.createElement('div'); grid.style.cssText = 'display:grid;grid-template-columns:repeat(3,54px);gap:6px';
+  for (const id of ['b0', 'b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'q0', 'q1', 'q2']) { const s = mkSlot(id, 54); s.dataset.rec = '1'; grid.appendChild(s); }
+  left.appendChild(grid);
+  recPn.prev = document.createElement('div'); recPn.prev.style.cssText = 'flex:1;min-width:200px;display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;text-align:center';
+  main.append(left, recPn.prev);
+  const mats = document.createElement('div'); mats.style.cssText = 'margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.1)'; mats.innerHTML = '<div class="lab">YOUR MATERIALS</div>'; mats.appendChild(mkPartsRow());
+  recPn.body.append(main, mats);
+  recPn.el.addEventListener('click', e => {
+    const s = e.target.closest && e.target.closest('.gks[data-rec]'); if (!s) return;
+    const id = s.dataset.id, k = invGet(myInv, id);
+    if (k == null) return;
+    if (!(itemsData().recycleYield && itemsData().recycleYield(k))) { flashBad(id); say(recPn, 'Only weapons can be recycled'); return; }
+    recSel = id; paintRec();
+  });
+}
+function paintRec() {
+  if (!recPn) return;
+  for (const id of ['b0', 'b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'q0', 'q1', 'q2']) for (const el of slotEls[id]) if (el.dataset.rec) {
+    const k = invGet(myInv, id), ok = k != null && !!(itemsData().recycleYield && itemsData().recycleYield(k));
+    el.style.opacity = k == null || ok ? 1 : 0.3; el.style.outline = recSel === id ? '2px solid ' + GOLD : 'none'; el.title = k != null && !ok ? 'cannot recycle' : '';
+  }
+  if (recSel && invGet(myInv, recSel) == null) recSel = null;
+  const k = recSel ? invGet(myInv, recSel) : null, y = k && itemsData().recycleYield(k), pv = recPn.prev; pv.textContent = '';
+  if (!k) { pv.innerHTML = '<div style="color:#8d8880;font-size:14px;line-height:1.5">Select a weapon from your backpack or quick slots<br>to see which materials it yields.<br><span style="font-size:12px">(armour and brains cannot be recycled)</span></div>'; return; }
+  const it = infoOf(k), head = document.createElement('div'); head.style.cssText = 'display:flex;align-items:center;gap:10px'; head.appendChild(mkIcon(k, 46));
+  const t = document.createElement('div'); t.style.textAlign = 'left'; t.innerHTML = '<b style="color:' + (TIER_COL[it.tier] || '#fff') + ';font-size:16px">' + it.name + '</b><div style="font-size:12px;color:#aaa59d">' + statTxt(k) + '</div>'; head.appendChild(t);
+  const get = document.createElement('div'); get.className = 'yield'; get.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;justify-content:center;min-height:34px';
+  for (const p in y) { const c = document.createElement('div'); c.style.cssText = 'display:flex;align-items:center;gap:4px;padding:3px 9px 3px 4px;border-radius:8px;background:rgba(0,0,0,.45);border:1px solid rgba(255,215,94,.3);font-weight:800'; c.dataset.part = p; c.appendChild(partIcon(p, 26)); c.append('+' + y[p] + ' ' + partName(p)); get.appendChild(c); }
+  const bt = document.createElement('button'); bt.textContent = 'RECYCLE'; bt.id = 'recGo'; bt.style.cssText = 'width:100%;padding:14px 10px;border:0;border-radius:10px;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font:800 18px system-ui,sans-serif;letter-spacing:.12em;cursor:pointer';
+  bt.onclick = () => { net.send({ recycle: recSel }); };
+  pv.append(head, Object.assign(document.createElement('div'), { className: 'lab', textContent: 'YOU GET' }), get, bt);
+}
+function recycledFx(r) {
+  if (!recPn || panelKind !== 'recycle') return;
+  say(recPn, 'Recycled ' + itemName(r.key) + ': ' + Object.keys(r.parts).map(p => '+' + r.parts[p] + ' ' + partName(p)).join(', '), true);
+  const from = recPn.prev.getBoundingClientRect(), tgt = {}; for (const c of partRows[partRows.length - 1] ? partRows[partRows.length - 1].children : []) tgt[c.dataset.part] = c.getBoundingClientRect();
+  Object.keys(r.parts).forEach((p, i) => {
+    const f = partIcon(p, 30); f.style.cssText += ';position:fixed;z-index:90;pointer-events:none;left:' + (from.x + from.width / 2 - 15) + 'px;top:' + (from.y + from.height / 2 - 15) + 'px';
+    document.body.appendChild(f); const t = tgt[p] || from, dx = t.x + 11 - (from.x + from.width / 2), dy = t.y + 11 - (from.y + from.height / 2);
+    const a = f.animate([{ transform: 'scale(.4)', opacity: 0 }, { transform: 'translate(' + dx * 0.2 + 'px,' + (dy * 0.2 - 40) + 'px) scale(1.4)', opacity: 1, offset: 0.3 }, { transform: 'translate(' + dx + 'px,' + dy + 'px) scale(.8)', opacity: 0.9 }], { duration: 650, delay: i * 90, easing: 'ease-in', fill: 'both' });
+    a.onfinish = () => f.remove();
+  });
+}
+// ---- workbench ----
+function buildCraft() {
+  craftPn = mkPanel('gkCraft', 'WORKBENCH', 600); craftPn.sub.textContent = 'CRAFT ITEMS FROM MATERIALS - FREE FOR EVERYONE';
+  craftPn.list = document.createElement('div'); craftPn.list.style.cssText = 'display:flex;flex-direction:column;gap:7px';
+  const mats = document.createElement('div'); mats.style.cssText = 'margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.1)'; mats.innerHTML = '<div class="lab">YOUR MATERIALS</div>'; mats.appendChild(mkPartsRow());
+  const hint = document.createElement('div'); hint.style.cssText = 'text-align:center;margin-top:10px;font-size:12px;color:#8d8880'; hint.textContent = 'More recipes unlock through the Knowledge Tree';
+  craftPn.body.append(craftPn.list, mats, hint);
+}
+function myKnowledge() { const mine = actors.get(me); return invStats(myInv, mine ? mine.goblin : 0, knowOv).knowledge; }
+function paintCraft() {
+  if (!craftPn) return; const list = craftPn.list; list.textContent = '';
+  const full = myInv.backpack.indexOf(null) < 0, know = myKnowledge(), recipes = (itemsData().RECIPES || []);
+  for (const r of recipes) {
+    const it = infoOf(r.out) || { name: r.out }, locked = (r.needs || 0) > know;
+    const lacking = Object.keys(r.cost).filter(p => (myParts[p] | 0) < r.cost[p]);
+    const reason = locked ? 'Needs ' + r.needs + ' knowledge (Knowledge Tree tier ' + r.tier + ')' : lacking.length ? 'Not enough ' + lacking.map(partName).join(', ') : full ? 'Your backpack is full' : '';
+    const row = document.createElement('div'); row.dataset.recipe = r.id; row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:6px 10px;border-radius:10px;background:rgba(0,0,0,.35);border:1px solid rgba(255,215,94,.2)' + (locked ? ';opacity:.5' : '');
+    const ic = document.createElement('div'); ic.style.cssText = 'width:48px;height:48px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:rgba(0,0,0,.4);flex:none'; ic.appendChild(mkIcon(r.out, 40));
+    const tx = document.createElement('div'); tx.style.cssText = 'flex:1;min-width:0'; tx.innerHTML = '<div style="font-weight:700;font-size:15px;color:' + (TIER_COL[it.tier] || '#f2efe6') + '">' + it.name + '</div><div style="font-size:12px;color:#aaa59d">' + (locked ? '&#128274; ' + reason : statTxt(r.out)) + '</div>';
+    const cost = document.createElement('div'); cost.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:210px';
+    for (const p in r.cost) { const ok = (myParts[p] | 0) >= r.cost[p], c = document.createElement('div'); c.title = partName(p); c.style.cssText = 'display:flex;align-items:center;gap:2px;font:800 13px system-ui,sans-serif;color:' + (ok ? '#8be28b' : '#ff6a5a'); c.appendChild(partIcon(p, 20)); c.append(' ' + (myParts[p] | 0) + '/' + r.cost[p]); cost.appendChild(c); }
+    const bt = document.createElement('button'); const can = !reason; bt.textContent = locked ? 'LOCKED' : 'CRAFT'; bt.disabled = !can; bt.title = reason;
+    bt.style.cssText = 'width:84px;padding:8px 0;border-radius:8px;font:800 12px system-ui,sans-serif;letter-spacing:.1em;cursor:' + (can ? 'pointer' : 'not-allowed') + ';' + (can ? 'border:0;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405' : 'border:1px solid rgba(255,90,74,.6);background:rgba(120,20,14,.35);color:#ff8a7a');
+    bt.onclick = () => { if (can) net.send({ craft: r.id }); else say(craftPn, reason); };
+    row.append(ic, tx, cost, bt); list.appendChild(row);
+  }
+  if (!recipes.length) list.innerHTML = '<div style="text-align:center;color:#8d8880;padding:20px">No recipes known.</div>';
+}
+function craftedFx(c) {
+  if (!craftPn || panelKind !== 'craft') return;
+  say(craftPn, 'Crafted ' + itemName(c.key) + ' - added to your backpack', true);
+  const row = craftPn.list.querySelector('[data-recipe="' + c.recipe + '"]');
+  if (row) { const f = mkIcon(c.key, 40), r = row.getBoundingClientRect(); f.style.cssText += ';position:fixed;z-index:90;pointer-events:none;left:' + (r.x + 14) + 'px;top:' + (r.y + 4) + 'px'; document.body.appendChild(f); const a = f.animate([{ transform: 'scale(1)', opacity: 1 }, { transform: 'translateY(-50px) scale(1.7)', opacity: 1, offset: 0.4 }, { transform: 'translateY(-90px) scale(.5)', opacity: 0 }], 800); a.onfinish = () => f.remove(); row.animate([{ background: 'rgba(80,200,90,.35)' }, { background: 'rgba(0,0,0,.35)' }], 700); }
+  try { GK.workbenchFeedback && GK.workbenchFeedback(shopRoom); } catch (e) {}
+}
+// ---- loot piles ----
+function nearestPile() {
+  let best = null, bd = 2.5; for (const d of dropsList) { const dd = Math.hypot(P.x - d.x, P.z - d.z); if (dd <= bd) { bd = dd; best = d; } } return best;
+}
+function lootPromptTick() {
+  const near = GK.mode === 'play' && !invOpen && !shopOpen && spawned ? nearestPile() : null;
+  if (!lootPromptEl) { lootPromptEl = document.createElement('div'); lootPromptEl.style.cssText = 'position:fixed;left:50%;top:62%;transform:translateX(-50%);z-index:25;pointer-events:none;padding:5px 14px;border-radius:8px;background:rgba(10,8,6,.8);border:1px solid rgba(255,215,94,.6);color:' + GOLD + ';font:700 14px system-ui,sans-serif;letter-spacing:.08em;display:none'; lootPromptEl.innerHTML = 'Press <b style="padding:1px 6px;border-radius:4px;background:#ffd75e;color:#1a1405">E</b> to loot'; document.body.appendChild(lootPromptEl); }
+  lootPromptEl.style.display = near ? 'block' : 'none';
+}
+GK.nearestPile = nearestPile;
+function buildLoot() { lootPn = mkPanel('gkLoot', 'LOOT', 560); lootPn.sub.textContent = 'A DEAD GOBLIN\'S BAG'; lootPn.list = document.createElement('div'); lootPn.list.style.cssText = 'display:flex;flex-direction:column;gap:7px'; lootPn.body.appendChild(lootPn.list); }
+function paintLoot() {
+  if (!lootPn) return; const d = dropsList.find(x => x.id === lootId);
+  if (!d || !d.items.length) { if (panelKind === 'loot') closeShop(); return; }
+  const list = lootPn.list; list.textContent = ''; const full = myInv.backpack.indexOf(null) < 0;
+  d.items.forEach((k, idx) => {
+    const it = infoOf(k) || { name: String(k) }, row = document.createElement('div'); row.dataset.idx = idx; row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:6px 10px;border-radius:10px;background:rgba(0,0,0,.35);border:1px solid rgba(255,215,94,.2)';
+    const ic = document.createElement('div'); ic.style.cssText = 'width:48px;height:48px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:rgba(0,0,0,.4);flex:none'; ic.appendChild(mkIcon(k, 40));
+    const tx = document.createElement('div'); tx.style.cssText = 'flex:1;min-width:0'; tx.innerHTML = '<div style="font-weight:700;font-size:15px;color:' + (TIER_COL[it.tier] || '#f2efe6') + '">' + it.name + '</div><div style="font-size:12px;color:#aaa59d">' + (it.desc && it.family === 'brain' ? it.desc : statTxt(k)) + '</div>';
+    row.append(ic, tx);
+    const mkBtn = (txt, mode, ok, gold) => { const b = document.createElement('button'); b.textContent = txt; b.disabled = !ok; b.dataset.mode = mode; b.style.cssText = 'padding:8px 14px;border-radius:8px;font:800 12px system-ui,sans-serif;letter-spacing:.1em;cursor:' + (ok ? 'pointer' : 'not-allowed') + ';' + (ok ? (gold ? 'border:0;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405' : 'border:1px solid #8be28b;background:rgba(40,120,50,.35);color:#b8f5b8') : 'border:1px solid rgba(255,90,74,.5);background:rgba(120,20,14,.3);color:#ff8a7a'); b.onclick = () => { if (ok) net.send({ loot: [d.id, idx, mode, k] }); else say(lootPn, 'Your backpack is full'); }; return b; };
+    if (it.family === 'brain') row.appendChild(mkBtn('EAT', 'eat', true, false));
+    row.appendChild(mkBtn(full ? 'PACK FULL' : 'TAKE', 'take', !full, true)); list.appendChild(row);
+  });
+  const all = document.createElement('button'); all.id = 'lootAll'; all.textContent = 'TAKE ALL'; all.style.cssText = 'margin-top:4px;padding:11px;border:0;border-radius:10px;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font:800 14px system-ui,sans-serif;letter-spacing:.12em;cursor:pointer';
+  all.onclick = () => { const free = myInv.backpack.filter(k => k == null).length; d.items.slice(0, free).forEach(k => net.send({ loot: [d.id, 0, 'take', k] })); if (d.items.length > free) say(lootPn, 'Not everything fits in your backpack'); };   // each take shifts the next item to index 0
+  list.appendChild(all);
+}
+function lootFailFx(why) { if (panelKind === 'loot') say(lootPn, { range: 'Too far from the bag', space: 'Your backpack is full', item: 'Someone took that first' }[why] || 'Cannot loot that'); }
+GK.openLoot = () => { const d = nearestPile(); if (d) openStation('loot', d.id); return !!d; };
+// ---- eating ----
+function eatSlot(id) {
+  const k = invGet(myInv, id); if (k == null || !(infoOf(k) && infoOf(k).family === 'brain')) return false;
+  invSet(myInv, id, null); if (held === id) held = null; net.send({ eat: id }); paintAll(); return true;
+}
+function ateFx(a) {
+  knowOv = a.knowledge; const mine = actors.get(me); if (mine) showStats(null, mine.goblin); paintStatCol();
+  const f = document.createElement('div'); f.textContent = '+' + fmtN(a.gain) + ' knowledge';
+  f.style.cssText = 'position:fixed;left:50%;top:44%;transform:translateX(-50%);z-index:90;pointer-events:none;color:#8be28b;font:800 26px system-ui,sans-serif;text-shadow:0 2px 12px #000,0 0 18px rgba(80,220,100,.7)';
+  document.body.appendChild(f); const an = f.animate([{ opacity: 0, transform: 'translate(-50%,10px)' }, { opacity: 1, transform: 'translate(-50%,-10px)', offset: 0.2 }, { opacity: 0, transform: 'translate(-50%,-70px)' }], 1600); an.onfinish = () => f.remove();
+  for (const e of document.querySelectorAll('#hudKnow,.knowv')) e.animate([{ color: '#6dff7a', transform: 'scale(1.4)' }, { transform: 'none' }], 900);
+}
+GK.eat = eatSlot;
 function connect(opts) { if (netReal) return; GK.charId = opts && opts.charId != null ? opts.charId : null; GK.wins = opts && opts.wins ? opts.wins | 0 : 0; netReal = makeNet(opts || {}); netReal.onmessage = handleMsg; }
 if (window.GK_OFFLINE) { $('rr').onclick = e => { net.send({ reroll: 1 }); e.stopPropagation(); }; $('rr').onpointerdown = e => e.stopPropagation(); }
 
