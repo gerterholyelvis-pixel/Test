@@ -55,8 +55,20 @@ let nextId = 1, dirty = false;
 const chests = Array.from({ length: 12 }, () => Math.floor(Math.random() * 6)); // weapon index per chest room, rolled once per server start
 
 // 0 small 30%, 1 medium 30%, 2 big 30%, 3 wizard 9%, 4 king 1%
-// starting stats per goblin type: knowledge, attack damage, health
-const STATS = [{ knowledge: 60, attack: 10, health: 40 }, { knowledge: 40, attack: 15, health: 50 }, { knowledge: 30, attack: 20, health: 80 }, { knowledge: 80, attack: 0, health: 60 }, { knowledge: 40, attack: 20, health: 100 }];
+// Equipment decides combat stats: attack damage comes from the weapon, health from the armour.
+const WEAPONS = { dagger: { name: 'Dagger', attack: 10 }, club: { name: 'Nailed Club', attack: 15 }, mace: { name: 'Spiked Mace', attack: 20 }, staff: { name: 'Gnarled Staff', attack: 0 }, scepter: { name: 'Royal Scepter', attack: 20 },
+  sword: { name: 'Rusty Sword', attack: 12 }, axe: { name: 'Battle Axe', attack: 22 }, spear: { name: 'War Spear', attack: 18 }, bow: { name: 'Short Bow', attack: 14 } };
+const ARMOR = { rags: { name: 'Ragged Tunic', health: 40 }, vest: { name: 'Studded Vest', health: 50 }, harness: { name: 'Warlord Harness', health: 80 }, robe: { name: 'Starry Robe', health: 60 }, royal: { name: 'Royal Mantle', health: 100 } };
+const KNOWLEDGE = [60, 40, 30, 80, 40]; // innate, per goblin type
+const START = [{ weapon: 'dagger', armor: 'rags' }, { weapon: 'club', armor: 'vest' }, { weapon: 'mace', armor: 'harness' }, { weapon: 'staff', armor: 'robe' }, { weapon: 'scepter', armor: 'royal' }];
+const drops = []; // loot left behind by dead players: { id, x, z, items: [name...] }
+let nextDrop = 1;
+function equip(p, goblin) { // give a player a goblin type with its starting weapon, armour and an empty inventory
+  const s = START[goblin];
+  p.goblin = goblin; p.equip = { weapon: s.weapon, armor: s.armor }; p.inv = [];
+  p.stats = { knowledge: KNOWLEDGE[goblin], attack: WEAPONS[s.weapon].attack, health: ARMOR[s.armor].health, maxHealth: ARMOR[s.armor].health };
+  p.gear = { weapon: WEAPONS[s.weapon].name, armor: ARMOR[s.armor].name };
+}
 function rollGoblin() {
   const r = Math.random() * 100;
   return r < 30 ? 0 : r < 60 ? 1 : r < 90 ? 2 : r < 99 ? 3 : 4;
@@ -67,6 +79,13 @@ function spawn() {
   const x = cx + (Math.random() - 0.5) * 6, z = cz + (Math.random() - 0.5) * 6;
   return { box, x, z, yaw: Math.atan2(-(cx - x), -(cz - z)) }; // facing the room centre
 }
+function die(ws, p) { // a dead player drops weapon, armour and everything in the inventory where they fell, then respawns as a new goblin
+  const items = [p.gear.weapon, p.gear.armor, ...p.inv];
+  drops.push({ id: nextDrop++, x: +p.x.toFixed(2), z: +p.z.toFixed(2), items }); if (drops.length > 60) drops.shift();
+  const msg = JSON.stringify({ drops }); wss.clients.forEach(c => c.readyState === 1 && c.send(msg));
+  if (ws.readyState === 1) ws.send(JSON.stringify({ died: { items } }));
+  setTimeout(() => { if (players.get(ws) === p) { Object.assign(p, spawn()); p.room = String(p.box); equip(p, rollGoblin()); dirty = true; } }, 2500);
+}
 const send = () => {
   const msg = JSON.stringify({ players: [...players.values()] });
   wss.clients.forEach(c => c.readyState === 1 && c.send(msg));
@@ -75,11 +94,10 @@ setInterval(() => { if (dirty) { dirty = false; send(); } }, 50); // positions g
 
 wss.on('connection', ws => {
   const id = nextId++;
-  const goblin = rollGoblin();
-  const p = { id, goblin, stats: { ...STATS[goblin], maxHealth: STATS[goblin].health }, ...spawn() }; p.room = String(p.box);
+  const p = { id, ...spawn() }; p.room = String(p.box); equip(p, rollGoblin());
   players.set(ws, p);
   ws.on('error', () => {});
-  ws.send(JSON.stringify({ you: id, chests, ...roundState() }));
+  ws.send(JSON.stringify({ you: id, chests, drops, ...roundState() }));
   dirty = true;
   let tokens = 40, last = Date.now(); // rate limit: ~30 msg/s sustained, burst 40
   ws.on('message', (raw, isBinary) => {
@@ -93,6 +111,7 @@ wss.on('connection', ws => {
       p.yaw = Math.max(-1e3, Math.min(1e3, d.m[2]));
       p.box = boxOf(p.x, p.z); p.room = roomKeyOf(p.x, p.z);
       dirty = true;
+    } else if (d && d.kill && process.env.GK_DEBUG) { die(ws, p);   // test hook, only with GK_DEBUG=1
     } else if (d && Number.isInteger(d.sel) && d.sel >= 0 && d.sel < nDoors && (ROOM_DOORS[p.room] || []).includes(d.sel)) {
       if (sel[p.room] !== d.sel) { sel[p.room] = d.sel; broadcastRound(); }
     }
