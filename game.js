@@ -269,6 +269,127 @@ scene.updateMatrixWorld(true);
 function applyChests(weaponIdx) { /* called with an array of 12 weapon indices, one per CHEST_ROOMS entry */ }
 // CHEST-END
 // MAP-BEGIN (wall maps in the spawn rooms: owned by the map agent)
+{
+  const MW = 1024, MH = 740, MS = 13.2, MOX = 360, MOY = 372; // canvas size, px per metre, map origin (world 0,0)
+  const mx = x => MOX + x * MS, my = z => MOY + z * MS;
+  const rr = (g, x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
+  const chestIcon = (g, x, y, k) => { // gold chest, centred on x,y
+    g.save(); g.translate(x, y); g.scale(k, k);
+    g.fillStyle = '#7a4a12'; rr(g, -15, -4, 30, 18, 2); g.fill();
+    g.fillStyle = '#c98a1c'; g.beginPath(); g.moveTo(-15, -4); g.lineTo(-15, -9); g.quadraticCurveTo(0, -20, 15, -9); g.lineTo(15, -4); g.closePath(); g.fill();
+    g.fillStyle = '#ffd24a'; g.fillRect(-15, -5, 30, 4); g.fillRect(-2.5, -5, 5, 15);
+    g.strokeStyle = '#3a2208'; g.lineWidth = 1.6; rr(g, -15, -4, 30, 18, 2); g.stroke();
+    g.fillStyle = '#fff3b0'; g.beginPath(); g.arc(0, 4, 2.6, 0, 7); g.fill(); g.restore();
+  };
+  const lockMark = (g, x, y, horiz) => { // closed door: red bar across the doorway + small padlock
+    g.save(); g.translate(x, y);
+    g.fillStyle = '#ff2a2a'; g.shadowColor = '#ff2a2a'; g.shadowBlur = 8;
+    if (horiz) g.fillRect(-4, -DW * MS / 2 + 3, 8, DW * MS - 6); else g.fillRect(-DW * MS / 2 + 3, -4, DW * MS - 6, 8);
+    g.shadowBlur = 0; g.fillStyle = '#14080a'; g.beginPath(); g.arc(0, 0, 11, 0, 7); g.fill();
+    g.strokeStyle = '#ff5a4a'; g.lineWidth = 2.2; g.beginPath(); g.arc(0, -3, 4.2, Math.PI, 0); g.stroke();
+    g.fillStyle = '#ff5a4a'; g.fillRect(-5.5, -2, 11, 8); g.restore();
+  };
+  const base = document.createElement('canvas'); base.width = MW; base.height = MH;
+  {
+    const g = base.getContext('2d');
+    const bg = g.createLinearGradient(0, 0, 0, MH); bg.addColorStop(0, '#0d1b2a'); bg.addColorStop(1, '#070d15');
+    g.fillStyle = bg; g.fillRect(0, 0, MW, MH);
+    g.strokeStyle = 'rgba(80,140,200,0.10)'; g.lineWidth = 1;
+    for (let x = 0; x < MW; x += 32) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, MH); g.stroke(); }
+    for (let y = 0; y < MH; y += 32) { g.beginPath(); g.moveTo(0, y); g.lineTo(MW, y); g.stroke(); }
+    g.fillStyle = '#e9f3ff'; g.font = 'bold 58px system-ui, sans-serif'; g.textAlign = 'left'; g.textBaseline = 'middle';
+    g.font = 'bold 58px system-ui, sans-serif'; g.fillText('FACILITY', 722, 50); g.fillText('MAP', 722, 108);
+    g.fillStyle = '#4aa8ff'; g.fillRect(722, 144, 280, 5);
+    // chest rooms
+    for (const c of CHEST_ROOMS) {
+      const x = mx(c.cx - CS / 2), y = my(c.cz - CS / 2), w = CS * MS;
+      g.fillStyle = '#2b2410'; g.fillRect(x, y, w, w);
+      g.strokeStyle = '#c9a23a'; g.lineWidth = 3; g.strokeRect(x + 1.5, y + 1.5, w - 3, w - 3);
+      chestIcon(g, x + w / 2 - c.dx * 3, y + w / 2 - c.dz * 3, 1.5);
+    }
+    // main rooms
+    for (let i = 0; i < 9; i++) {
+      const [cx, cz] = rc(i), x = mx(cx - R / 2), y = my(cz - R / 2), w = R * MS;
+      g.fillStyle = i === 4 ? '#2a3442' : '#dfe8f2'; g.fillRect(x, y, w, w);
+      g.strokeStyle = '#0a1018'; g.lineWidth = 5; g.strokeRect(x, y, w, w);
+      if (i === 4) { // vault symbol
+        const px = x + w / 2, py = y + w / 2;
+        g.strokeStyle = '#9fb4cc'; g.lineWidth = 6; g.beginPath(); g.arc(px, py, 38, 0, 7); g.stroke();
+        g.lineWidth = 4; g.beginPath(); g.arc(px, py, 10, 0, 7); g.stroke();
+        for (let a = 0; a < 6; a++) { const t = a * Math.PI / 3; g.beginPath(); g.moveTo(px + Math.cos(t) * 12, py + Math.sin(t) * 12); g.lineTo(px + Math.cos(t) * 38, py + Math.sin(t) * 38); g.stroke(); }
+        g.fillStyle = '#9fb4cc'; g.font = 'bold 22px system-ui, sans-serif'; g.textAlign = 'center'; g.fillText('VAULT', px, py + 62);
+      }
+    }
+    // doors between rooms and to chest rooms (all closed)
+    for (let i = 0; i < 9; i++) {
+      const [cx, cz] = rc(i);
+      if (i % 3 < 2) lockMark(g, mx(cx + R / 2), my(cz), true);
+      if (i < 6) lockMark(g, mx(cx), my(cz + R / 2), false);
+    }
+    for (const c of CHEST_ROOMS) lockMark(g, mx(c.wallX), my(c.wallZ), c.dx !== 0);
+    // legend
+    g.textAlign = 'left'; g.font = 'bold 34px system-ui, sans-serif'; g.fillStyle = '#e9f3ff';
+    g.fillText('LEGEND', 722, 190);
+    g.font = '600 32px system-ui, sans-serif';
+    g.fillStyle = '#2f8bff'; g.beginPath(); g.moveTo(744, 262); g.lineTo(730, 294); g.lineTo(744, 286); g.lineTo(758, 294); g.closePath(); g.fill();
+    g.fillStyle = '#e9f3ff'; g.fillText('You', 784, 282);
+    chestIcon(g, 744, 340, 1.4); g.fillText('Chest', 784, 340);
+    lockMark(g, 744, 398, false); g.fillText('Locked door', 784, 398);
+    g.fillStyle = '#dfe8f2'; g.fillRect(730, 444, 28, 28); g.fillStyle = '#e9f3ff'; g.fillText('Room', 784, 460);
+    g.fillStyle = '#2a3442'; g.fillRect(730, 494, 28, 28); g.strokeStyle = '#9fb4cc'; g.lineWidth = 2; g.strokeRect(730, 494, 28, 28); g.fillStyle = '#e9f3ff'; g.fillText('Vault', 784, 510);
+    g.fillStyle = '#7f95ad'; g.font = '24px system-ui, sans-serif'; g.fillText('All doors sealed', 722, 574);
+  }
+  const spawnRooms = [0, 1, 2, 3, 5, 6, 7, 8], panels = [];
+  function drawMap(p, live) {
+    const g = p.ctx, i = p.room, [cx, cz] = rc(i), x = mx(cx - R / 2), y = my(cz - R / 2), w = R * MS;
+    const ph = live ? 0.5 + 0.5 * Math.sin(performance.now() / 260) : 1;
+    g.drawImage(base, 0, 0);
+    g.save(); g.fillStyle = 'rgba(255,40,40,' + (0.16 + 0.16 * ph) + ')'; g.fillRect(x, y, w, w);
+    g.shadowColor = '#ff2a2a'; g.shadowBlur = 14 + 14 * ph; g.strokeStyle = '#ff3030'; g.lineWidth = 7; g.strokeRect(x + 3, y + 3, w - 6, w - 6); g.restore();
+    // label
+    const lx = x + w / 2, ly = y + 34;
+    g.save(); g.font = 'bold 25px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = '#d81818'; rr(g, lx - 58, ly - 30, 116, 60, 9); g.fill();
+    g.strokeStyle = '#ffd0d0'; g.lineWidth = 2; g.stroke();
+    g.fillStyle = '#fff'; g.fillText('YOU ARE', lx, ly - 12); g.fillText('HERE', lx, ly + 14); g.restore();
+    if (live && GK.mode === 'play' && roomAt(P.x, P.z) === i) {
+      const px = clamp(mx(P.x), x + 12, x + w - 12), py = clamp(my(P.z), y + 70, y + w - 12), fx = -Math.sin(P.yaw), fy = -Math.cos(P.yaw);
+      g.save(); g.translate(px, py); g.rotate(Math.atan2(fx, -fy)); // arrow points along heading (map up = -z)
+      g.fillStyle = 'rgba(60,150,255,' + (0.25 + 0.2 * ph) + ')'; g.beginPath(); g.arc(0, 0, 22 + 4 * ph, 0, 7); g.fill();
+      g.shadowColor = '#4aa8ff'; g.shadowBlur = 12; g.fillStyle = '#2f8bff'; g.strokeStyle = '#fff'; g.lineWidth = 3;
+      g.beginPath(); g.moveTo(0, -20); g.lineTo(-13, 14); g.lineTo(0, 7); g.lineTo(13, 14); g.closePath(); g.fill(); g.stroke(); g.restore();
+    }
+  }
+  const glowTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'), r = g.createRadialGradient(64, 64, 8, 64, 64, 64);
+    r.addColorStop(0, 'rgba(120,190,255,0.9)'); r.addColorStop(0.5, 'rgba(70,140,255,0.35)'); r.addColorStop(1, 'rgba(40,100,255,0)'); g.fillStyle = r; g.fillRect(0, 0, 128, 128);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0x1c1f24, roughness: 0.5, metalness: 0.8 });
+  const glowGeo = new THREE.PlaneGeometry(4.6, 3.6), backGeo = new THREE.BoxGeometry(2.6, 1.9, 0.06), screenGeo = new THREE.PlaneGeometry(2.5, 2.5 * MH / MW);
+  const barH = new THREE.BoxGeometry(2.6, 0.05, 0.09), barV = new THREE.BoxGeometry(0.05, 1.8, 0.09);
+  for (const i of spawnRooms) {
+    const [cx, cz] = rc(i), px = cx - 4.5, py = 2.6, pz = cz - R / 2 + T / 2; // pz = wall face
+    const grp = new THREE.Group();
+    const add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); grp.add(m); return m; };
+    const glow = add(glowGeo, new THREE.MeshBasicMaterial({ map: glowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.55, toneMapped: false }), px, py, pz + 0.012);
+    glow.renderOrder = 1;
+    add(backGeo, frameMat, px, py, pz + 0.03);
+    add(barH, frameMat, px, py + 0.925, pz + 0.045); add(barH, frameMat, px, py - 0.925, pz + 0.045);
+    add(barV, frameMat, px - 1.275, py, pz + 0.045); add(barV, frameMat, px + 1.275, py, pz + 0.045);
+    for (const sx of [-0.9, 0.9]) add(new THREE.BoxGeometry(0.12, 0.12, 0.03), frameMat, px + sx, py - 0.95 - 0.06, pz + 0.015); // wall brackets
+    const cv = document.createElement('canvas'); cv.width = MW; cv.height = MH;
+    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8; tex.generateMipmaps = true;
+    const p = { room: i, ctx: cv.getContext('2d'), tex, last: 0 };
+    drawMap(p, false); panels.push(p);
+    const scr = add(screenGeo, new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.85, roughness: 0.4, metalness: 0 }), px, py, pz + 0.076);
+    scr.onBeforeRender = () => {
+      if (GK.mode !== 'play' || roomAt(P.x, P.z) !== i) return;
+      const now = performance.now(); if (now - p.last < 110) return;
+      p.last = now; drawMap(p, true); tex.needsUpdate = true;
+    };
+    scene.add(grp); grp.traverse(o => { o.updateMatrix(); if (o !== scr) o.matrixAutoUpdate = false; }); grp.updateMatrixWorld(true);
+    scr.matrixAutoUpdate = false;
+  }
+}
 // MAP-END
 
 // ---------- goblins ----------
