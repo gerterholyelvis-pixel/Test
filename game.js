@@ -1489,6 +1489,154 @@ const AB = {
 };
 MY.AB = AB; MY.mannequin = mannequin;
 } // ---- end part 2
+{ // ---- part 3: the five enemy goblins (regular, dumb, speedy, archer, troll). Each builder: (parent, ctx) -> { h: height in metres, anim(t) }
+const MY = GK.mys, { GEO, cg, mk, grp, dyn, MM, BM, GS, glow, spike, fib } = MY, PI = Math.PI;
+const UP = new THREE.Vector3(0, 1, 0), DOWN = new THREE.Vector3(0, -1, 0), _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
+const rod = MY.rod = (p, mat, A, B, r) => { const m = new THREE.Mesh(GEO.cyl, mat), d = B.clone().sub(A), L = d.length(); m.scale.set(r, L, r); m.position.copy(A).addScaledVector(d, 0.5); m.quaternion.setFromUnitVectors(UP, d.normalize()); p.add(m); return m; };
+function ik(arm, T, pole, L1 = 0.3, L2 = 0.29) {   // two-bone arm in torso space: hand reaches T, elbow bends toward `pole`
+  const S = arm.sh.position, u = _a.copy(T).sub(S); let d = Math.min(u.length(), L1 + L2 - 0.01); u.normalize();
+  const a = (L1 * L1 - L2 * L2 + d * d) / (2 * d), h = Math.sqrt(Math.max(0, L1 * L1 - a * a)), p = _b.copy(pole).addScaledVector(u, -pole.dot(u)).normalize();
+  const E = _c.copy(S).addScaledVector(u, a).addScaledVector(p, h), e1 = E.clone().sub(S).normalize(); arm.sh.quaternion.setFromUnitVectors(DOWN, e1);
+  const e2 = S.clone().addScaledVector(u, d).sub(E).normalize().applyQuaternion(arm.sh.quaternion.clone().invert()); arm.el.quaternion.setFromUnitVectors(DOWN, e2);
+}
+const hoodGeo = new THREE.SphereGeometry(1, 20, 14, PI / 2 + 0.95, 2 * PI - 1.9);
+const arcGeo = new THREE.TorusGeometry(1, 0.05, 6, 14, PI);
+function gob(parent, o) {
+  const w = o.w || 1, bel = o.belly || 1, P = {};
+  const sk = MM(o.skin, { roughness: 0.75, emissive: o.skin, emissiveIntensity: 0.12 }), sd = MM(o.skinD, { roughness: 0.85, emissive: o.skinD, emissiveIntensity: 0.1 });
+  const eyeW = MM(0xf0e8b0, { roughness: 0.4, emissive: 0x403a10, emissiveIntensity: 0.4 }), pup = BM(o.eye || 0xff3a18), tooth = MM(0xe8dfc0, { roughness: 0.5 });
+  P.sk = sk; P.sd = sd; P.tooth = tooth;
+  const body = P.body = dyn(grp(parent));
+  for (const s of [-1, 1]) {
+    const hip = dyn(grp(body, s * 0.13 * w, 0.52, 0)), knee = dyn(grp(hip, 0, -0.26, 0)); P[s < 0 ? 'hipL' : 'hipR'] = hip; P[s < 0 ? 'kneeL' : 'kneeR'] = knee;
+    mk(hip, GEO.cyl, sk, 0, -0.13, 0, 0.09 * w, 0.27, 0.09 * w); mk(knee, GEO.cyl, sk, 0, -0.13, 0, 0.075 * w, 0.27, 0.075 * w); mk(knee, GEO.sph, sd, 0, -0.26, 0.06, 0.09 * w, 0.05, 0.15);
+    for (const tx of [-0.04, 0, 0.04]) spike(knee, tooth, tx * w, -0.27, 0.19, 0, -0.15, 1, 0.05, 0.013);
+  }
+  const torso = P.torso = dyn(grp(body, 0, 0.52, 0));
+  mk(torso, GEO.sph, sk, 0, 0.3, 0, 0.27 * w, 0.34, 0.22); mk(torso, GEO.sph, sk, 0, 0.2, 0.1, 0.25 * w * bel, 0.24 * bel, 0.2 * bel); mk(torso, GEO.sph, sd, 0, 0.46, -0.1, 0.2 * w, 0.18, 0.15);
+  for (const s of [-1, 1]) {
+    const sh = dyn(grp(torso, s * 0.3 * w, 0.55, 0)), el = dyn(grp(sh, 0, -0.3, 0)), hand = grp(el, 0, -0.29, 0);
+    mk(sh, GEO.sph, sk, 0, 0, 0, 0.09 * w); mk(sh, GEO.cyl, sk, 0, -0.15, 0, 0.062 * w, 0.3, 0.062 * w); mk(el, GEO.cyl, sk, 0, -0.14, 0, 0.053 * w, 0.28, 0.053 * w);
+    mk(hand, GEO.sph, sk, 0, -0.02, 0, 0.085 * w, 0.075, 0.085 * w); for (const cx of [-0.04, 0, 0.04]) spike(hand, tooth, cx, -0.06, 0.03, 0, -0.6, 1, 0.07, 0.014);
+    P[s < 0 ? 'armL' : 'armR'] = { sh, el, hand };
+  }
+  const head = P.head = dyn(grp(torso, 0, 0.66, 0.03)), face = P.face = grp(head, 0, 0.2, 0.04);
+  mk(face, GEO.sph, sk, 0, 0, 0, 0.26, 0.23, 0.24); mk(face, GEO.sph, sk, 0, -0.1, 0.09, 0.17 * (o.jaw || 1), 0.11, 0.15);
+  for (const s of [-1, 1]) {
+    const ex = s * 0.1 * (o.spread || 1), er = (s < 0 ? o.eyeL : o.eyeR) || 0.06;
+    mk(face, GEO.sph, eyeW, ex, 0.05, 0.19, er); const pu = mk(face, GEO.sph, pup, ex - s * (o.cross || 0) * 0.025, 0.05, 0.19 + er * 0.82, er * 0.5); P[s < 0 ? 'pupL' : 'pupR'] = pu;
+    glow(face, o.eye || 0xff3a18, 0.22, 0.55, ex, 0.05, 0.27); mk(face, GEO.box, sd, ex, 0.12 + (o.browY || 0), 0.205, 0.13 * (o.brow || 1), 0.035, 0.05, 0, 0, s * (o.angry == null ? 0.4 : o.angry));
+    const a = o.earA == null ? 0.35 : o.earA, len = o.earLen || 0.42, dx = s * Math.cos(a), dy = Math.sin(a);
+    mk(face, GEO.cone, sk, s * 0.22 + dx * len / 2, 0.06 + dy * len / 2, -0.02, 0.1, len, 0.025, 0, 0, -s * (PI / 2 - a)); mk(face, GEO.cone, sd, s * 0.22 + dx * len * 0.45, 0.06 + dy * len * 0.45, -0.005, 0.06, len * 0.75, 0.02, 0, 0, -s * (PI / 2 - a));
+  }
+  spike(face, sk, 0, 0.0, 0.225, 0, -0.35, 1, o.nose || 0.15, 0.05); mk(face, GEO.box, MM(0x2a0a0a), 0, -0.125, 0.2, 0.15, 0.03, 0.04);
+  for (const s of [-1, 1]) spike(face, tooth, s * 0.06, -0.12, 0.215, s * 0.1, 1, 0.3, o.tusk || 0.07, 0.016);
+  return P;
+}
+const cloth = (c, o = {}) => MM(c, { roughness: 0.95, side: THREE.DoubleSide, ...o });
+const swayRot = (o, t, ax, f, ph = 0) => o.rotation[ax] = 0;
+const E = MY.ENEMY = {};
+E.regular = (parent, ctx) => {
+  const P = gob(parent, { skin: 0x5c8a38, skinD: 0x3e6026, eye: 0xff3a18 }), { torso, head, armR, armL, body } = P;
+  const lea = cloth(0x6b4a2a), dk = MM(0x2a1a10, { roughness: 1 });
+  mk(torso, cg(0.28, 0.32, 18, true), lea, 0, 0.3, 0, 1, 0.42, 1).scale.z = 0.8; for (const [x, y, c] of [[0.1, 0.4, 0x8a2a2a], [-0.14, 0.24, 0x4a6a8a]]) mk(torso, GEO.box, cloth(c), x, y, 0.2, 0.11, 0.1, 0.012);
+  mk(torso, GEO.tor, dk, 0, 0.12, 0, 0.3, 0.3, 0.5, PI / 2).scale.set(0.3, 0.26, 0.3); mk(torso, GEO.box, MM(0xb89a3a, { metalness: 0.8, roughness: 0.4 }), 0, 0.12, 0.25, 0.08, 0.07, 0.02); mk(torso, GEO.box, cloth(0x6a1a1a), 0, -0.04, 0.2, 0.2, 0.22, 0.02);
+  for (let i = 0; i < 5; i++) mk(torso, GEO.box, dk, 0.04 * (i - 2), 0.3 + 0.03 * i, 0.255, 0.01, 0.03, 0.004);
+  armR.sh.rotation.x = -0.55; armR.el.rotation.x = -1.0; armL.sh.rotation.x = -0.1; armL.el.rotation.x = -0.45;
+  const cl = grp(armR.hand, 0.0, -0.02, 0); cl.rotation.x = -(armR.sh.rotation.x + armR.el.rotation.x) - 0.15;
+  mk(cl, cg(0.025, 0.028), MM(0x3a2414), 0, 0.1, 0, 1, 0.26, 1); mk(cl, GEO.box, MM(0x8a5a3a, { metalness: 0.7, roughness: 0.65 }), 0.0, 0.42, 0, 0.1, 0.32, 0.022); mk(cl, GEO.box, MM(0x9a6a48, { metalness: 0.8, roughness: 0.5 }), 0.05, 0.42, 0, 0.012, 0.32, 0.026);
+  for (const y of [0.3, 0.45, 0.55]) mk(cl, GEO.box, MM(0x1a1008), -0.05, y, 0, 0.03, 0.03, 0.03, 0, 0, 0.8); mk(cl, GEO.sph, MM(0x7a1a10, { roughness: 1 }), 0.02, 0.5, 0.013, 0.025, 0.04, 0.005);
+  mk(P.face, GEO.box, MM(0x6a2018), -0.1, 0.07, 0.232, 0.018, 0.17, 0.01, 0, 0, 0.5); mk(P.face, GEO.box, MM(0xe0d8c0), -0.1, 0.07, 0.236, 0.006, 0.17, 0.004, 0, 0, 0.5);
+  mk(P.face, GEO.sph, MM(0x2a1a10), -0.245, 0.25, -0.02, 0.05, 0.04, 0.02).visible = false;
+  return { h: 1.6, anim: t => {
+    body.scale.y = 1 + Math.sin(t * 1.9) * 0.012; torso.rotation.x = Math.sin(t * 1.9) * 0.025; head.rotation.y = Math.sin(t * 0.7) * 0.28; head.rotation.z = Math.sin(t * 1.3) * 0.06 + 0.04; head.rotation.x = Math.sin(t * 0.9) * 0.04;
+    armR.sh.rotation.x = -0.55 + Math.sin(t * 1.4) * 0.07; armL.sh.rotation.x = -0.1 + Math.sin(t * 1.9 + 1) * 0.04; body.rotation.z = Math.sin(t * 0.6) * 0.02;
+  } };
+};
+E.dumb = (parent, ctx) => {
+  const P = gob(parent, { skin: 0x9ab04a, skinD: 0x6e8030, eye: 0xffa030, w: 1.05, belly: 1.35, cross: 1.2, eyeL: 0.085, eyeR: 0.05, angry: -0.25, nose: 0.2, jaw: 1.1, earA: 0.1, spread: 1.15 });
+  const { torso, head, armR, armL, body, face } = P;
+  torso.rotation.x = 0.22; head.rotation.x = 0.18;
+  mk(torso, cg(0.28, 0.3, 18, true), cloth(0x7a6a8a), 0, 0.28, 0, 1, 0.34, 1).scale.z = 0.8; mk(torso, GEO.box, cloth(0x6a3a2a), 0, 0.1, 0.23, 0.26, 0.16, 0.02); mk(torso, GEO.sph, cloth(0x4a3a6a), 0, 0.35, 0.22, 0.05, 0.05, 0.015);
+  mk(face, GEO.sph, MM(0x2a0a0a), 0, -0.13, 0.2, 0.085, 0.07, 0.03); const tongue = mk(face, GEO.sph, MM(0xe0707a, { roughness: 0.5 }), 0.02, -0.19, 0.205, 0.04, 0.085, 0.02); dyn(tongue);
+  for (const s of [-1, 1]) spike(face, MM(0xf0e8c8), s * 0.025, -0.095, 0.215, 0, -1, 0.1, 0.065, 0.02);
+  const drool = dyn(mk(face, GEO.cyl, MM(0xbfe6ff, { transparent: true, opacity: 0.65, roughness: 0.1 }), -0.04, -0.24, 0.21, 0.007, 0.12, 0.007));
+  const pot = dyn(grp(face, 0.02, 0.27, 0.0, 0.0, 0, 0.18)); const potM = MM(0x7d8288, { metalness: 0.8, roughness: 0.45 });
+  mk(pot, cg(0.27, 0.23, 20), potM, 0, 0, 0, 1, 0.27, 1); mk(pot, GEO.tor, potM, 0, 0.135, 0, 0.27, 0.27, 0.8, PI / 2); mk(pot, GEO.tor, MM(0x5a3a22), 0, -0.13, 0, 0.23, 0.23, 0.6, PI / 2); mk(pot, GEO.arc, MM(0x3a3d44, { metalness: 0.9 }), 0, 0.14, 0, 0.27, 0.27, 0.27, 0, 0, 0).rotation.y = PI / 2;
+  mk(pot, GEO.sph, MM(0x5a5e64), 0.15, 0.04, 0.18, 0.06, 0.05, 0.02); mk(pot, GEO.sph, MM(0x5a5e64), -0.12, -0.04, 0.2, 0.04, 0.04, 0.02);
+  armR.sh.rotation.x = -0.9; armR.el.rotation.x = -0.9; armL.sh.rotation.set(0.1, 0, -0.12); armL.el.rotation.x = -0.2;
+  const sp = grp(armR.hand, 0, 0, 0); sp.rotation.x = -(armR.sh.rotation.x + armR.el.rotation.x) - 0.2; mk(sp, cg(0.02, 0.02), MM(0x8a6238), 0, 0.28, 0, 1, 0.7, 1); mk(sp, GEO.sph, MM(0x9a7240), 0, 0.68, 0, 0.07, 0.1, 0.025);
+  return { h: 1.55, anim: t => {
+    head.rotation.z = Math.sin(t * 1.7) * 0.22; head.rotation.y = Math.sin(t * 1.1 + 1) * 0.3; head.rotation.x = 0.18 + Math.sin(t * 2.3) * 0.09; pot.rotation.z = 0.18 + Math.sin(t * 2.9) * 0.06; pot.rotation.x = Math.sin(t * 2.1) * 0.05;
+    body.rotation.z = Math.sin(t * 0.9) * 0.045; body.scale.y = 1 + Math.sin(t * 1.6) * 0.012; armL.sh.rotation.x = 0.1 + Math.sin(t * 1.2) * 0.12; armR.sh.rotation.x = -0.9 + Math.sin(t * 3.0) * 0.12;
+    drool.scale.y = 0.1 + (0.5 + 0.5 * Math.sin(t * 1.3)) * 0.12; tongue.scale.y = 0.085 + Math.sin(t * 2.4) * 0.012;
+  } };
+};
+E.speedy = (parent, ctx) => {
+  const P = gob(parent, { skin: 0x4cb06a, skinD: 0x2e8048, eye: 0xffb020, w: 0.8, belly: 0.55, earA: 0.65, earLen: 0.5, nose: 0.17 });
+  const { torso, head, armR, armL, body, face } = P, red = MM(0xff5a1a, { roughness: 0.8, emissive: 0x802000, emissiveIntensity: 0.5 });
+  body.rotation.x = 0.42; P.hipL.rotation.x = -0.6; P.kneeL.rotation.x = 0.6; P.hipR.rotation.x = 0.5; P.kneeR.rotation.x = 0.9; body.position.set(0, 0.0, 0.05);
+  head.rotation.x = -0.3;
+  mk(torso, cg(0.22, 0.2, 16, true), cloth(0x22262e), 0, 0.3, 0, 1, 0.4, 1).scale.z = 0.8; mk(torso, GEO.tor, red, 0, 0.5, 0.0, 0.21, 0.21, 0.6, PI / 2); mk(torso, GEO.box, red, 0, 0.14, 0.18, 0.08, 0.08, 0.02, 0, 0, 0.8);
+  const mow = [];
+  for (let i = 0; i < 8; i++) { const ph = 0.9 - i * 0.28, c = spike(face, red, 0, 0.23 * Math.cos(ph) * 0.95, 0.24 * Math.sin(ph) * 0.95, 0, Math.cos(ph), Math.sin(ph) - 0.7, 0.2 - Math.abs(i - 3) * 0.015, 0.045); c.scale.z = 0.5; mow.push(c); dyn(c); }
+  mk(face, GEO.tor, MM(0xd02020), 0, 0.1, 0, 0.245, 0.245, 0.6, PI / 2); const tails = []; for (const s of [-1, 1]) { const tl = dyn(grp(face, s * 0.03, 0.1, -0.24)); mk(tl, GEO.box, MM(0xd02020), 0, 0, -0.1, 0.05, 0.025, 0.22); tails.push(tl); tl.userData.s = s; }
+  armR.sh.rotation.x = 0.9; armR.el.rotation.x = 0.3; armL.sh.rotation.x = -0.75; armL.el.rotation.x = -0.9;
+  const dagger = h => { const d = grp(h, 0, -0.02, 0); mk(d, cg(0.022, 0.022), MM(0x2a1a10), 0, -0.03, 0, 1, 0.12, 1); mk(d, GEO.box, MM(0xb0b8c0, { metalness: 0.9, roughness: 0.3 }), 0, -0.1, 0, 0.1, 0.02, 0.03); mk(d, GEO.cone4, MM(0xdfe6ee, { metalness: 1, roughness: 0.2, envMapIntensity: 1.5 }), 0, -0.3, 0, 0.035, 0.32, 0.01, PI, 0, 0); return d; };
+  dagger(armR.hand); dagger(armL.hand);
+  const sm = ctx.own(BM(0xbfe4ff, 0.5, true, MY.TEX.streak)), streaks = [];
+  for (let i = 0; i < 6; i++) { const y = 0.35 + i * 0.22, x = (i % 3 - 1) * 0.35, L = 0.9 + (i % 3) * 0.4; for (const r of [0, PI / 2]) { const m = new THREE.Mesh(GEO.plane, sm); m.rotation.set(0, PI / 2, r); m.scale.set(L, 0.05, 1); m.position.set(x, y, -0.55 - L / 2); m.renderOrder = 4; parent.add(m); m.userData.dyn = true; streaks.push({ m, L, z0: -0.55, ph: i * 1.3 }); } }
+  const puffs = []; for (let i = 0; i < 5; i++) { const mat = ctx.own(GS(0xd8cfae, 0.3)), s = new THREE.Sprite(mat); s.userData.dyn = true; parent.add(s); puffs.push({ s, mat, ph: i / 5, x: (i % 2 ? 0.2 : -0.18) }); }
+  return { h: 1.4, anim: t => {
+    body.position.y = Math.abs(Math.sin(t * 8)) * 0.018; const k = Math.pow(Math.max(0, Math.sin(t * 2.7)), 10), k2 = Math.pow(Math.max(0, Math.sin(t * 3.9 + 2)), 12);
+    head.rotation.y = k * 0.7 - k2 * 0.6; head.rotation.x = -0.3 + k2 * 0.15; armR.sh.rotation.x = 0.9 + Math.sin(t * 7) * 0.08 + k * 0.3; armL.sh.rotation.x = -0.75 + Math.sin(t * 7.5 + 1) * 0.08;
+    P.hipL.rotation.x = -0.6 + Math.sin(t * 8) * 0.06; P.hipR.rotation.x = 0.5 - Math.sin(t * 8) * 0.06;
+    mow.forEach((c, i) => c.rotation.x = Math.sin(t * 6 + i * 0.5) * 0.08); tails.forEach(tl => { tl.rotation.x = 0.3 + Math.sin(t * 9 + tl.userData.s) * 0.35; tl.rotation.y = tl.userData.s * 0.2 * Math.sin(t * 7); });
+    for (const q of streaks) { const f = ((t * 1.8 + q.ph) % 1); q.m.position.z = q.z0 - q.L / 2 - f * 0.5; q.m.scale.x = q.L * (0.5 + 0.5 * (1 - f)); }
+    sm.opacity = 0.35 + 0.15 * Math.sin(t * 20);
+    for (const q of puffs) { const f = (t * 0.9 + q.ph) % 1; q.s.position.set(q.x + Math.sin(q.ph * 9) * 0.1, 0.1 + f * 0.35, -0.35 - f * 0.7); q.s.scale.setScalar(0.25 + f * 0.7); q.mat.opacity = 0.32 * (1 - f); }
+  } };
+};
+E.archer = (parent, ctx) => {
+  const P = gob(parent, { skin: 0x557a42, skinD: 0x3a5630, eye: 0xffc030, w: 0.9, belly: 0.7, earA: -0.2, earLen: 0.34, nose: 0.16 });
+  const { torso, head, armR, armL, body, face } = P, hoodM = cloth(0x3b4a2a), red = cloth(0x8a2a2a), V = (x, y, z) => new THREE.Vector3(x, y, z);
+  mk(face, hoodGeo, hoodM, 0, 0.03, -0.03, 0.31, 0.3, 0.31); spike(face, hoodM, 0, 0.2, -0.26, 0, -0.35, -1, 0.26, 0.1); spike(face, MM(0xd8d0b8), 0.13, 0.25, -0.12, 0.6, 1, -0.4, 0.34, 0.035).scale.z = 0.3; spike(face, MM(0xc02020), 0.16, 0.24, -0.1, 0.7, 1, -0.5, 0.26, 0.03).scale.z = 0.3;
+  mk(face, GEO.sph, red, 0, -0.12, 0.09, 0.19, 0.1, 0.17); mk(face, GEO.tor, red, 0, -0.2, -0.01, 0.22, 0.22, 0.6, PI / 2); const tail = dyn(grp(face, 0.1, -0.2, -0.2)); mk(tail, GEO.box, red, 0, -0.17, -0.02, 0.09, 0.34, 0.02);
+  mk(torso, cg(0.27, 0.3, 18, true), cloth(0x4a5a34), 0, 0.28, 0, 1, 0.42, 1).scale.z = 0.8; mk(torso, GEO.tor, MM(0x3a2414), 0, 0.12, 0, 0.29, 0.29, 0.5, PI / 2).scale.set(0.29, 0.25, 0.3); mk(torso, GEO.box, MM(0x3a2414), 0, 0.42, 0.04, 0.05, 0.75, 0.22, 0, 0, 0.55);
+  const qv = grp(torso, 0.04, 0.4, -0.26, 0, 0, 0.3); mk(qv, cg(0.075, 0.055), MM(0x5a3a22, { roughness: 0.9 }), 0, 0, 0, 1, 0.5, 1); mk(qv, GEO.tor, MM(0x3a2414), 0, 0.2, 0, 0.075, 0.075, 0.4, PI / 2);
+  for (let i = 0; i < 5; i++) { const ax = (i - 2) * 0.025; mk(qv, cg(0.007, 0.007, 6), MM(0x8a6238), ax, 0.38, i % 2 * 0.02, 1, 0.3, 1); mk(qv, GEO.cone, i % 2 ? red : MM(0xe8e0c8), ax, 0.5, i % 2 * 0.02, 0.018, 0.08, 0.004); }
+  const tipsY = 0.75, G = V(-0.2, 0.62, 0.62), N = V(0.08, 0.76, 0.2);
+  const bow = grp(torso, G.x, G.y, G.z), bg = new THREE.TorusGeometry(1, 0.03, 8, 20, 1.9);
+  { const cur = new THREE.QuadraticBezierCurve3(V(0, -tipsY, 0), V(0, 0, 0.56), V(0, tipsY, 0)); mk(bow, new THREE.TubeGeometry(cur, 24, 0.024, 8), MM(0x6b4325, { roughness: 0.7 })); ctx.disp.push(bow.children[0].geometry); mk(bow, cg(0.04, 0.04), MM(0x3a2414), 0, 0, 0.28, 1, 0.26, 1); }
+  const strM = MM(0xeee6cc, { roughness: 0.5 }); const tA = G.clone().add(V(0, tipsY, 0)), tB = G.clone().add(V(0, -tipsY, 0)); rod(torso, strM, tA, N, 0.005); rod(torso, strM, N, tB, 0.005);
+  const aE = G.clone().add(V(0, 0.0, 0.62)); rod(torso, MM(0x8a6238), N, aE, 0.011); mk(torso, GEO.cone, MM(0xcfd6df, { metalness: 0.9, roughness: 0.3 }), aE.x, aE.y, aE.z + 0.05, 0.022, 0.1, 0.006, PI / 2, 0, 0); for (const k of [0, 1]) mk(torso, GEO.cone, k ? red : MM(0xe8e0c8), N.x, N.y + (k ? 0.012 : -0.012), N.z + 0.1, 0.014, 0.1, 0.004, -PI / 2, 0, 0);
+  ik(armL, G.clone().add(V(0, 0, 0.0)), V(-1, -0.4, 0)); ik(armR, N.clone().add(V(0.03, -0.02, 0.0)), V(1, 0.3, -0.5));
+  torso.rotation.y = -0.15; head.rotation.y = 0.15;
+  return { h: 1.55, anim: t => {
+    body.scale.y = 1 + Math.sin(t * 1.7) * 0.01; head.rotation.y = 0.15 + Math.sin(t * 0.6) * 0.3; head.rotation.x = Math.sin(t * 1.1) * 0.05; torso.rotation.z = Math.sin(t * 11) * 0.004 + Math.sin(t * 1.7) * 0.012;
+    tail.rotation.x = 0.1 + Math.sin(t * 2.3) * 0.12; tail.rotation.z = Math.sin(t * 1.7) * 0.15;
+  } };
+};
+E.troll = (parent, ctx) => {
+  const P = gob(parent, { skin: 0x75835f, skinD: 0x4c5a3e, eye: 0xff6a18, w: 1.35, belly: 1.5, earA: 0.2, earLen: 0.3, nose: 0.22, brow: 1.8, angry: 0.55, jaw: 1.3, tusk: 0.17, browY: -0.01 });
+  const { torso, head, armR, armL, body, face } = P, moss = MM(0x4a8a2a, { roughness: 1 }), stone = MM(0x80837c, { roughness: 0.9 }), bark = MM(0x5a3f28, { roughness: 1 }), iron = MM(0x3c4048, { metalness: 0.9, roughness: 0.45 });
+  torso.rotation.x = 0.2; head.rotation.x = 0.1; mk(face, GEO.box, P.sd, 0, 0.11, 0.2, 0.32, 0.07, 0.08);
+  for (const s of [-1, 1]) { spike(face, MM(0xe8dfc0, { roughness: 0.5 }), s * 0.11, -0.1, 0.19, s * 0.15, 1, 0.5, 0.2, 0.04); mk(torso, GEO.dodec, stone, s * 0.42, 0.82, 0, 0.12, 0.09, 0.12); mk(P.armL.sh === armL.sh ? torso : torso, GEO.dodec, stone, s * 0.18, 0.02, 0.14, 0.1, 0.07, 0.07); }
+  const r = (() => { let q = 7; return () => (q = (q * 16807) % 2147483647) / 2147483647; })();
+  for (let i = 0; i < 14; i++) { const a = r() * PI * 2, y = 0.1 + r() * 0.6, rr = 0.9; const m = mk(torso, GEO.sph, moss, Math.sin(a) * 0.3 * 1.35 * rr, y, Math.cos(a) * 0.23 * rr - 0.02, 0.07 + r() * 0.06, 0.03, 0.07 + r() * 0.05); m.lookAt(m.position.x * 3, m.position.y, m.position.z * 3); }
+  for (let i = 0; i < 6; i++) { const a = r() * 6; mk(face, GEO.sph, moss, Math.sin(a) * 0.15, 0.17, Math.cos(a) * 0.1 - 0.05, 0.07, 0.03, 0.07); }
+  mk(torso, GEO.tor, iron, 0, 0.64, 0.02, 0.24, 0.24, 0.9, PI / 2).scale.z = 0.5; for (let i = 0; i < 9; i++) { const a = i / 9 * PI * 2; spike(torso, iron, Math.sin(a) * 0.25, 0.65, Math.cos(a) * 0.23, Math.sin(a), 0.5, Math.cos(a), 0.12, 0.03); }
+  mk(torso, cg(0.3, 0.34, 14, true), cloth(0x6b5a3a), 0, 0.08, 0.02, 1.35, 0.2, 1).scale.z = 0.85; for (let i = 0; i < 9; i++) spike(torso, cloth(0x6b5a3a), (i - 4) * 0.075, 0.0, 0.26, 0, -1, 0.1, 0.12, 0.04);
+  armR.sh.rotation.x = -0.5; armR.el.rotation.x = -1.1; armL.sh.rotation.set(0.05, 0, -0.18); armL.el.rotation.x = -0.35;
+  const club = grp(armR.hand, 0, 0, 0); club.rotation.x = -(armR.sh.rotation.x + armR.el.rotation.x) - 0.35; club.rotation.z = -0.15;
+  mk(club, cg(0.22, 0.07), bark, 0, 0.55, 0, 1, 1.4, 1); mk(club, GEO.sph, bark, 0, 1.24, 0, 0.23, 0.12, 0.23); for (const [y, a] of [[0.9, 0.5], [1.1, 3.2], [0.7, 2.2]]) { mk(club, GEO.sph, bark, Math.sin(a) * 0.17, y, Math.cos(a) * 0.17, 0.07); spike(club, bark, Math.sin(a) * 0.19, y + 0.02, Math.cos(a) * 0.19, Math.sin(a), 0.4, Math.cos(a), 0.15, 0.035); }
+  for (let i = 0; i < 5; i++) { const a = i * 1.26; spike(club, iron, Math.sin(a) * 0.2, 1.1 + (i % 2) * 0.12, Math.cos(a) * 0.2, Math.sin(a), 0.2, Math.cos(a), 0.1, 0.025); } mk(club, GEO.sph, moss, 0.15, 1.28, 0.05, 0.08, 0.03, 0.08);
+  return { h: 1.7, gold: true, anim: t => {
+    const b = Math.sin(t * 1.2); body.scale.set(1 + b * 0.008, 1 + b * 0.014, 1 + b * 0.008); torso.rotation.x = 0.2 + b * 0.03; head.rotation.y = Math.sin(t * 0.4) * 0.3; head.rotation.x = 0.1 + Math.sin(t * 0.8) * 0.04;
+    armR.sh.rotation.x = -0.5 + Math.sin(t * 0.9) * 0.06; armL.sh.rotation.x = 0.05 + Math.sin(t * 1.2 + 1) * 0.05; club.rotation.z = -0.15 + Math.sin(t * 0.9) * 0.04;
+  } };
+};
+} // ---- end part 3
 // MYSTERY-END
 // MAP-BEGIN (wall maps in the spawn rooms: owned by the map agent)
 {
@@ -2385,6 +2533,14 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
         else if (!y) net.onmessage && net.onmessage({ recycleFail: 'item' });
         else { invSet(meP.inv, m.recycle, null); for (const k in y) meP.parts[k] = (meP.parts[k] || 0) + y[k]; sendInv(); sendParts(); net.onmessage && net.onmessage({ recycled: { key, parts: y } }); emit(); }
       }
+      if (typeof m.craft === 'string' && meP) {
+        const id = roomIdAt(), L = id >= 0 && layoutSim ? layoutSim[id] : null, my = id >= 0 && mysterySim ? mysterySim[id] : null;
+        const has = L === 'merchant' || (L === 'mystery' && my && my.kind === 'stations' && my.stations.includes('workbench'));
+        const r = (itemsData().RECIPES || []).find(x => x.id === m.craft);
+        const why = !has ? 'room' : !r ? 'recipe' : meP.know < (r.needs || 0) ? 'knowledge' : Object.keys(r.cost).some(k => (meP.parts[k] || 0) < r.cost[k]) ? 'parts' : meP.inv.backpack.indexOf(null) < 0 ? 'space' : null;
+        if (why) net.onmessage && net.onmessage({ craftFail: why });
+        else { for (const k in r.cost) meP.parts[k] -= r.cost[k]; meP.inv.backpack[meP.inv.backpack.indexOf(null)] = r.out; sendInv(); sendParts(); net.onmessage && net.onmessage({ crafted: { key: r.out, recipe: r.id } }); emit(); }
+      }
       if (Array.isArray(m.loot) && meP) {   // [dropId, index, 'take'|'eat', expectedKey]
         const [did, idx, mode, exp] = m.loot, di = dropsSim.findIndex(x => x.id === did), dr = dropsSim[di], key = dr && dr.items[idx];
         let why = !dr || key == null || (exp !== undefined && exp !== key) ? 'item' : Math.hypot(meP.x - dr.x, meP.z - dr.z) > 3 ? 'range' : null;
@@ -2754,7 +2910,7 @@ GK.getInv = () => JSON.parse(JSON.stringify(myInv));
 GK.openInventory = openInv; GK.closeInventory = closeInv;
 addEventListener('keydown', e => {
   if (GK.mode !== 'play') return;
-  if (shopOpen) { if (e.code === 'Escape' || e.code === 'Tab') { e.preventDefault(); closeShop(); } return; }
+  if (shopOpen) { if (e.code === 'Escape' || e.code === 'Tab' || (e.code === 'KeyE' && panelKind === 'loot')) { e.preventDefault(); closeShop(); } return; }
   if (!invOpen && !e.repeat && window.GK_OFFLINE && (e.code === 'KeyT' || e.code === 'KeyY') && spawned) {   // demo: T = into the first merchant room, Y = back to the start room
     const i = (GK.layout || []).indexOf('merchant');
     if (e.code === 'KeyT' && i >= 0) { const C = CHEST_ROOMS[i]; P.x = C.cx - C.dx * 2.2; P.z = C.cz - C.dz * 2.2; P.yaw = Math.atan2(-C.dx, -C.dz); P.pitch = 0; }
@@ -2771,7 +2927,7 @@ addEventListener('keydown', e => {
   }
   if (e.code === 'KeyE' && !invOpen) { if (nearestPile()) { openStation('loot', nearestPile().id); } return; }
   if (window.GK_OFFLINE && e.code === 'KeyG' && netReal && netReal.demoGive) netReal.demoGive();
-  if (window.GK_OFFLINE && e.code === 'KeyL' && actors.get(me)) showVictory({ items: invAll(myInv), gold: myGold });   // demo only: L = win
+  if (window.GK_OFFLINE && e.code === 'KeyL' && actors.get(me)) showVictory({ items: invAll(myInv), gold: myGold, parts: myParts });   // demo only: L = win
 });
 addEventListener('wheel', e => { if (GK.mode === 'play' && !invOpen && !shopOpen) { ensureHotbar(); setSel(qSel +(e.deltaY > 0 ? 1 : -1)); } }, { passive: true });
 
@@ -2784,13 +2940,14 @@ function showVictory(info) {
   const ms = performance.now() - run.t0, secs = Math.floor(ms / 1000), n = GK.roundInfo ? GK.roundInfo().n : 0;
   const items = ((info && info.items) || []).filter(k => k != null);
   const from = GK.charId;
-  let c = null; try { c = window.GKSAVE.recordWin({ charId: from, goblin: type, items }); if (c && c.id != null) GK.charId = c.id; } catch (e) { c = null; }
+  let c = null; try { c = window.GKSAVE.recordWin({ charId: from, goblin: type, items, parts: (info && info.parts) || {} }); if (c && c.id != null) GK.charId = c.id; } catch (e) { c = null; }
   const wins = c && c.wins != null ? c.wins : (GK.wins | 0) + 1;
   closeInv(true); closeShop(true); GK.mode = 'win'; inside = false; keys.clear(); hideHotbar();
   try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
   for (const id of ['hint', 'dot', 'rr', 'roundHud']) { const el = $(id); if (el) el.style.display = 'none'; }
   if (statsEl) statsEl.style.display = 'none';
   const esc = s => String(s).replace(/</g, '&lt;');
+  const pm = (info && info.parts) || {}, partsStr = Object.keys(pm).filter(p => pm[p] > 0).map(p => pm[p] + ' ' + partName(p)).join(', ');
   const rows = [['Goblin', NAMES[type]], ['Survived', Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0')], ['Round reached', n || 1], ['Distance travelled', Math.round(run.dist) + ' m'], ...(info && info.gold != null ? [['Gold left', info.gold]] : []), ['Victories', wins]];
   winEl = document.createElement('div');
   winEl.style.cssText = 'position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,rgba(70,50,0,.5),rgba(0,0,0,.88));font-family:system-ui,sans-serif;color:#f2efe6;opacity:0;transition:opacity .8s;overflow:auto';
@@ -2801,6 +2958,7 @@ function showVictory(info) {
     + rows.map(r => '<span style="color:#aaa59d">' + r[0] + '</span><b style="font-weight:600;text-align:right">' + esc(r[1]) + '</b>').join('') + '</div>'
     + '<div style="text-align:center;margin:16px 0 8px;color:#b9b4ae;letter-spacing:.14em;font-size:12px">ITEMS YOU KEEP</div>'
     + '<div id="winItems" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;min-height:30px"></div>'
+    + (partsStr ? '<div style="text-align:center;margin-top:8px;color:#d8c98c;font-size:13px">Materials kept: ' + esc(partsStr) + '</div>' : '')
     + '<div style="text-align:center;margin-top:8px;color:#8d8880;font-size:12px">' + (c ? 'Saved to your stash, along with ' + esc(c.name) : 'Saved to your stash') + '</div>'
     + '<div style="display:flex;gap:12px;margin-top:20px"><button id="winQueue" style="flex:1;padding:13px 10px;border:0;border-radius:10px;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font:800 16px system-ui,sans-serif;letter-spacing:.08em;cursor:pointer">QUEUE AGAIN</button>'
     + '<button id="winMenu" style="flex:1;padding:13px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.3);background:transparent;color:#f2efe6;font:700 16px system-ui,sans-serif;letter-spacing:.08em;cursor:pointer">MAIN MENU</button></div></div>';
@@ -2809,7 +2967,7 @@ function showVictory(info) {
   if (!items.length) box.innerHTML = '<span style="color:#8d8880">nothing</span>';
   for (const k of items) {
     const d = document.createElement('div'); d.style.cssText = 'width:74px;padding:6px 2px 5px;border-radius:9px;background:rgba(0,0,0,.4);border:1px solid rgba(255,215,94,.3);text-align:center;font-size:11px;line-height:1.2;display:flex;flex-direction:column;align-items:center;gap:2px';
-    d.appendChild(mkIcon(k, 44)); const t = document.createElement('span'); t.textContent = itemName(k); d.appendChild(t); box.appendChild(d);
+    d.appendChild(mkIcon(k, 44)); const t = document.createElement('span'); t.textContent = itemName(k) + (tierN(k) != null ? ' (T' + tierN(k) + ')' : ''); d.appendChild(t); box.appendChild(d);
   }
   $('winQueue').onclick = () => { try { sessionStorage.setItem('gk.requeue', '1'); if (from != null) sessionStorage.setItem('gk.requeueChar', String(from)); } catch (e) {} location.reload(); };
   $('winMenu').onclick = () => location.reload();
