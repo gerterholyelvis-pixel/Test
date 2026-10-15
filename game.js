@@ -520,13 +520,36 @@ function applyChests(a) { GK.applyChests(a); }
     g.strokeStyle = '#3a2208'; g.lineWidth = 1.6; rr(g, -15, -4, 30, 18, 2); g.stroke();
     g.fillStyle = '#fff3b0'; g.beginPath(); g.arc(0, 4, 2.6, 0, 7); g.fill(); g.restore();
   };
-  const lockMark = (g, x, y, horiz) => { // closed door: red bar across the doorway + small padlock
+  const lockMark = (g, x, y, horiz, kind) => { // closed door; kind: undefined plain red lock, 'treasure' yellow bar, 'player' skull, 'vault' double red bar
     g.save(); g.translate(x, y);
-    g.fillStyle = '#ff2a2a'; g.shadowColor = '#ff2a2a'; g.shadowBlur = 8;
-    if (horiz) g.fillRect(-4, -DW * MS / 2 + 3, 8, DW * MS - 6); else g.fillRect(-DW * MS / 2 + 3, -4, DW * MS - 6, 8);
-    g.shadowBlur = 0; g.fillStyle = '#14080a'; g.beginPath(); g.arc(0, 0, 11, 0, 7); g.fill();
-    g.strokeStyle = '#ff5a4a'; g.lineWidth = 2.2; g.beginPath(); g.arc(0, -3, 4.2, Math.PI, 0); g.stroke();
-    g.fillStyle = '#ff5a4a'; g.fillRect(-5.5, -2, 11, 8); g.restore();
+    const L = DW * MS - 6, col = kind === 'treasure' ? '#ffd21a' : '#ff2a2a';
+    g.fillStyle = col; g.shadowColor = col; g.shadowBlur = 8;
+    const bar = (o, t) => { if (horiz) g.fillRect(o - t / 2, -L / 2, t, L); else g.fillRect(-L / 2, o - t / 2, L, t); };
+    if (kind === 'vault') { bar(-6, 5); bar(6, 5); } else bar(0, kind === 'treasure' ? 9 : 8);
+    g.shadowBlur = 0;
+    if (kind === 'player') { // skull-ish mark: pale disc, dot eyes
+      g.fillStyle = '#f4efe6'; g.strokeStyle = '#14080a'; g.lineWidth = 2; g.beginPath(); g.arc(0, 0, 12, 0, 7); g.fill(); g.stroke();
+      g.fillStyle = '#14080a'; g.beginPath(); g.arc(-4.5, -1.5, 3, 0, 7); g.fill(); g.beginPath(); g.arc(4.5, -1.5, 3, 0, 7); g.fill();
+      g.fillRect(-3, 5, 1.8, 4); g.fillRect(1.2, 5, 1.8, 4);
+    } else if (kind !== 'vault' && kind !== 'treasure') {
+      g.fillStyle = '#14080a'; g.beginPath(); g.arc(0, 0, 11, 0, 7); g.fill();
+      g.strokeStyle = '#ff5a4a'; g.lineWidth = 2.2; g.beginPath(); g.arc(0, -3, 4.2, Math.PI, 0); g.stroke();
+      g.fillStyle = '#ff5a4a'; g.fillRect(-5.5, -2, 11, 8);
+    } else {
+      g.fillStyle = '#14080a'; g.beginPath(); g.arc(0, 0, 9, 0, 7); g.fill();
+      g.strokeStyle = col; g.lineWidth = 2; g.beginPath(); g.arc(0, -2.5, 3.6, Math.PI, 0); g.stroke();
+      g.fillStyle = col; g.fillRect(-4.5, -1.5, 9, 6.5);
+    }
+    g.restore();
+  };
+  const wallTab = (g, x, y, color, label, align) => { // wall-mounted sign symbol: pin arrow pointing at the wall (up) over a tab; x,y = pin tip on the wall line
+    g.save(); g.translate(x, y); g.lineJoin = 'round';
+    g.fillStyle = color; g.strokeStyle = '#06101a'; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(0, 0); g.lineTo(6, 8); g.lineTo(-6, 8); g.closePath(); g.fill(); g.stroke();
+    rr(g, -19, 8, 38, 16, 3); g.fill(); g.stroke();
+    if (label) { g.font = 'bold 11px system-ui, sans-serif'; g.textBaseline = 'middle'; g.textAlign = 'center'; g.fillStyle = '#fff'; g.fillText(label, 0, 16); }
+    else { g.fillStyle = '#fff'; g.fillRect(-12, 13, 24, 2.5); g.fillRect(-12, 17.5, 24, 2.5); }
+    g.restore();
   };
   const base = document.createElement('canvas'); base.width = MW; base.height = MH;
   {
@@ -562,21 +585,26 @@ function applyChests(a) { GK.applyChests(a); }
     // doors between rooms and to chest rooms (all closed)
     for (let i = 0; i < 9; i++) {
       const [cx, cz] = rc(i);
-      if (i % 3 < 2) lockMark(g, mx(cx + R / 2), my(cz), true);
-      if (i < 6) lockMark(g, mx(cx), my(cz + R / 2), false);
+      if (i % 3 < 2) lockMark(g, mx(cx + R / 2), my(cz), true, (i === 4 || i + 1 === 4) ? 'vault' : 'player');
+      if (i < 6) lockMark(g, mx(cx), my(cz + R / 2), false, (i === 4 || i + 3 === 4) ? 'vault' : 'player');
     }
-    for (const c of CHEST_ROOMS) lockMark(g, mx(c.wallX), my(c.wallZ), c.dx !== 0);
+    for (const c of CHEST_ROOMS) lockMark(g, mx(c.wallX), my(c.wallZ), c.dx !== 0, 'treasure');
     // legend
-    g.textAlign = 'left'; g.font = 'bold 34px system-ui, sans-serif'; g.fillStyle = '#e9f3ff';
-    g.fillText('LEGEND', 722, 190);
+    g.textAlign = 'left'; g.textBaseline = 'middle'; g.font = 'bold 36px system-ui, sans-serif'; g.fillStyle = '#e9f3ff';
+    g.fillText('LEGEND', 722, 186);
     g.font = '600 32px system-ui, sans-serif';
-    g.fillStyle = '#d81818'; g.fillRect(730, 268, 28, 28); g.strokeStyle = '#ffd0d0'; g.lineWidth = 2; g.strokeRect(730, 268, 28, 28);
-    g.fillStyle = '#e9f3ff'; g.fillText('You are here', 784, 284);
-    chestIcon(g, 744, 340, 1.4); g.fillText('Chest', 784, 340);
-    lockMark(g, 744, 398, false); g.fillText('Locked door', 784, 398);
-    g.fillStyle = '#dfe8f2'; g.fillRect(730, 444, 28, 28); g.fillStyle = '#e9f3ff'; g.fillText('Room', 784, 460);
-    g.fillStyle = '#2a3442'; g.fillRect(730, 494, 28, 28); g.strokeStyle = '#9fb4cc'; g.lineWidth = 2; g.strokeRect(730, 494, 28, 28); g.fillStyle = '#e9f3ff'; g.fillText('Vault', 784, 510);
-    g.fillStyle = '#7f95ad'; g.font = '24px system-ui, sans-serif'; g.fillText('All doors sealed', 722, 574);
+    const row = (n, fn, t) => { const y = 236 + n * 46; fn(744, y); g.fillStyle = '#e9f3ff'; g.textAlign = 'left'; g.font = '600 32px system-ui, sans-serif'; g.fillText(t, 790, y + 1); };
+    row(0, (x, y) => { g.fillStyle = '#d81818'; g.fillRect(x - 14, y - 14, 28, 28); g.strokeStyle = '#ffd0d0'; g.lineWidth = 2; g.strokeRect(x - 14, y - 14, 28, 28); }, 'You are here');
+    row(1, (x, y) => wallTab(g, x, y - 14, '#1b6fe0'), 'This map');
+    row(2, (x, y) => wallTab(g, x, y - 14, '#f08a1c'), 'Door controls');
+    row(3, (x, y) => chestIcon(g, x, y, 1.3), 'Chest');
+    row(4, (x, y) => lockMark(g, x, y, false), 'Locked door');
+    row(5, (x, y) => lockMark(g, x, y, false, 'treasure'), 'Treasure door');
+    row(6, (x, y) => lockMark(g, x, y, false, 'player'), 'Player door');
+    row(7, (x, y) => lockMark(g, x, y, false, 'vault'), 'Vault door');
+    row(8, (x, y) => { g.fillStyle = '#dfe8f2'; g.fillRect(x - 14, y - 14, 28, 28); }, 'Room');
+    row(9, (x, y) => { g.fillStyle = '#2a3442'; g.fillRect(x - 14, y - 14, 28, 28); g.strokeStyle = '#9fb4cc'; g.lineWidth = 2; g.strokeRect(x - 14, y - 14, 28, 28); }, 'Vault');
+    g.fillStyle = '#7f95ad'; g.font = '24px system-ui, sans-serif'; g.fillText('All doors sealed', 722, 712);
   }
   const spawnRooms = [0, 1, 2, 3, 5, 6, 7, 8], panels = [];
   function drawMap(p) {
@@ -586,11 +614,13 @@ function applyChests(a) { GK.applyChests(a); }
     g.save(); g.fillStyle = 'rgba(255,40,40,' + (0.16 + 0.16 * ph) + ')'; g.fillRect(x, y, w, w);
     g.shadowColor = '#ff2a2a'; g.shadowBlur = 14 + 14 * ph; g.strokeStyle = '#ff3030'; g.lineWidth = 7; g.strokeRect(x + 3, y + 3, w - 6, w - 6); g.restore();
     // label
-    const lx = x + w / 2, ly = y + 34;
+    const lx = x + w / 2, ly = y + w / 2 + 6;
     g.save(); g.font = 'bold 25px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillStyle = '#d81818'; rr(g, lx - 58, ly - 30, 116, 60, 9); g.fill();
     g.strokeStyle = '#ffd0d0'; g.lineWidth = 2; g.stroke();
     g.fillStyle = '#fff'; g.fillText('YOU ARE', lx, ly - 12); g.fillText('HERE', lx, ly + 14); g.restore();
+    // the two wall panels on this room's north wall: map at x-4.5 m, door controls at x+4.5 m (pin tips on the wall line)
+    wallTab(g, lx - 4.5 * MS, y + 3, '#1b6fe0', 'MAP'); wallTab(g, lx + 4.5 * MS, y + 3, '#f08a1c', 'CTRL');
   }
   const glowTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'), r = g.createRadialGradient(64, 64, 8, 64, 64, 64);
     r.addColorStop(0, 'rgba(120,190,255,0.9)'); r.addColorStop(0.5, 'rgba(70,140,255,0.35)'); r.addColorStop(1, 'rgba(40,100,255,0)'); g.fillStyle = r; g.fillRect(0, 0, 128, 128);
@@ -618,6 +648,199 @@ function applyChests(a) { GK.applyChests(a); }
 }
 // MAP-END
 // PANEL-BEGIN (door control panels and round logic on the client: owned by the rounds agent)
+// Door graph (ids = creation order of the wall loop; MUST match server.js), room keys: '0'..'8' grid rooms, 'c0'..'c11' chest rooms
+const PDIRS = ['NORTH', 'EAST', 'SOUTH', 'WEST'];
+const ROOM_DOORS = {}, DINFO = [];
+const chestKeyOf = (i, side) => 'c' + CHEST_ROOMS.findIndex(c => c.parent === i && c.side === side);
+{
+  const add = (a, b, da, db) => { const id = DINFO.length; DINFO.push({ id, a, b, da, db, kind: a === '4' || b === '4' ? 'vault' : (a[0] === 'c' || b[0] === 'c') ? 'chest' : 'skull' }); (ROOM_DOORS[a] = ROOM_DOORS[a] || []).push(id); (ROOM_DOORS[b] = ROOM_DOORS[b] || []).push(id); };
+  for (let i = 0; i < 9; i++) {
+    const col = i % 3, row = Math.floor(i / 3), s = String(i);
+    col < 2 ? add(s, String(i + 1), 'EAST', 'WEST') : add(s, chestKeyOf(i, 'E'), 'EAST', 'WEST');
+    row < 2 ? add(s, String(i + 3), 'SOUTH', 'NORTH') : add(s, chestKeyOf(i, 'S'), 'SOUTH', 'NORTH');
+    if (col === 0) add(s, chestKeyOf(i, 'W'), 'WEST', 'EAST');
+    if (row === 0) add(s, chestKeyOf(i, 'N'), 'NORTH', 'SOUTH');
+  }
+  for (const k in ROOM_DOORS) ROOM_DOORS[k].sort((p, q) => { const f = id => PDIRS.indexOf(DINFO[id].a === k ? DINFO[id].da : DINFO[id].db); return f(p) - f(q); });
+}
+const roomKeyAt = (x, z) => {   // grid rooms inside +-18 m, chest rooms beyond
+  const gi = v => clamp(Math.round(v / R), -1, 1) + 1;
+  if (Math.abs(z) > 18) return chestKeyOf(gi(x) + (z < 0 ? 0 : 6), z < 0 ? 'N' : 'S');
+  if (Math.abs(x) > 18) return chestKeyOf(gi(z) * 3 + (x < 0 ? 0 : 2), x < 0 ? 'W' : 'E');
+  return String(gi(x) + 3 * gi(z));
+};
+const doorLabel = (key, id) => {
+  const d = DINFO[id], mine = d.a === key, other = mine ? d.b : d.a, dir = mine ? d.da : d.db;
+  const dest = other[0] === 'c' ? 'Treasure room' : other === '4' ? 'VAULT' : 'Room ' + (+other + 1);
+  const k = doors[id] && ['chest', 'skull', 'vault'].includes(doors[id].kind) ? doors[id].kind : d.kind;
+  return { dir, dest, kind: k };
+};
+const fmtT = ms => { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+
+// ----- round state (fed by applyRound; the local clock interpolates between server updates) -----
+const RS = { n: 0, endAt: 0, dur: 0, sel: {}, open: [], selJ: '{}', openJ: '[]', flashed: 0, flashUntil: 0 };
+const roundLeft = () => Math.max(0, RS.endAt - performance.now());
+function applyRound(d) {
+  const now = performance.now();
+  if (d.round && Number.isFinite(d.round.n)) {
+    if (RS.n > 0 && d.round.n > RS.n && RS.flashed !== RS.n) { RS.flashed = RS.n; RS.flashUntil = now + 2200; }
+    RS.n = d.round.n; RS.endAt = now + (+d.round.left || 0); RS.dur = +d.round.dur || 0;
+  }
+  if (d.sel && typeof d.sel === 'object') { const j = JSON.stringify(d.sel); if (j !== RS.selJ) { RS.selJ = j; RS.sel = d.sel; panelsDirty(); } }
+  if (Array.isArray(d.open)) { const j = JSON.stringify(d.open); if (j !== RS.openJ) { RS.openJ = j; RS.open = d.open; GK.setDoorsOpen(d.open); panelsDirty(); } }
+}
+
+// ----- control panels -----
+const CP = {}, cpList = [];   // by room key
+const cpGlowTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'), r = g.createRadialGradient(64, 64, 8, 64, 64, 64);
+  r.addColorStop(0, 'rgba(120,190,255,0.9)'); r.addColorStop(0.5, 'rgba(70,140,255,0.35)'); r.addColorStop(1, 'rgba(40,100,255,0)'); g.fillStyle = r; g.fillRect(0, 0, 128, 128);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
+const cpFrameMat = new THREE.MeshStandardMaterial({ color: 0x1c1f24, roughness: 0.5, metalness: 0.8 });
+const cpGlowMat = new THREE.MeshBasicMaterial({ map: cpGlowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.55, toneMapped: false });
+const CP_KIND = { chest: '#ffc83a', skull: '#ff6a55', vault: '#5fd0ff' };
+const cpRR = (g, x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
+function cpIcon(g, kind, cx, cy, r) {
+  g.save(); g.translate(cx, cy);
+  g.fillStyle = '#0a121c'; g.beginPath(); g.arc(0, 0, r, 0, 7); g.fill();
+  g.strokeStyle = CP_KIND[kind]; g.lineWidth = r * 0.12; g.beginPath(); g.arc(0, 0, r - r * 0.06, 0, 7); g.stroke();
+  const k = r / 40;
+  if (kind === 'chest') {
+    g.fillStyle = '#8a5414'; cpRR(g, -22 * k, -6 * k, 44 * k, 26 * k, 3 * k); g.fill();
+    g.fillStyle = '#d99a22'; g.beginPath(); g.moveTo(-22 * k, -6 * k); g.lineTo(-22 * k, -12 * k); g.quadraticCurveTo(0, -28 * k, 22 * k, -12 * k); g.lineTo(22 * k, -6 * k); g.closePath(); g.fill();
+    g.fillStyle = '#ffd95a'; g.fillRect(-22 * k, -7 * k, 44 * k, 5 * k); g.fillRect(-3 * k, -7 * k, 6 * k, 22 * k);
+    g.fillStyle = '#fff3b0'; g.beginPath(); g.arc(0, 5 * k, 3.4 * k, 0, 7); g.fill();
+  } else if (kind === 'skull') {
+    g.fillStyle = '#f2ead8'; g.beginPath(); g.arc(0, -4 * k, 20 * k, 0, 7); g.fill(); cpRR(g, -12 * k, 6 * k, 24 * k, 18 * k, 4 * k); g.fill();
+    g.fillStyle = '#0a121c'; for (const s of [-1, 1]) { g.beginPath(); g.arc(s * 8 * k, -4 * k, 5.5 * k, 0, 7); g.fill(); }
+    g.beginPath(); g.moveTo(0, 2 * k); g.lineTo(-3 * k, 9 * k); g.lineTo(3 * k, 9 * k); g.fill();
+    g.fillRect(-7 * k, 15 * k, 2 * k, 8 * k); g.fillRect(-1 * k, 15 * k, 2 * k, 8 * k); g.fillRect(5 * k, 15 * k, 2 * k, 8 * k);
+  } else {
+    g.strokeStyle = '#9fe0ff'; g.lineWidth = 4.5 * k; g.beginPath(); g.arc(0, 0, 21 * k, 0, 7); g.stroke();
+    g.lineWidth = 3.5 * k; for (let a = 0; a < 6; a++) { const t = a * Math.PI / 3; g.beginPath(); g.moveTo(Math.cos(t) * 7 * k, Math.sin(t) * 7 * k); g.lineTo(Math.cos(t) * 21 * k, Math.sin(t) * 21 * k); g.stroke(); }
+    g.fillStyle = '#9fe0ff'; g.beginPath(); g.arc(0, 0, 6 * k, 0, 7); g.fill();
+  }
+  g.restore();
+}
+function cpLayout(p) {
+  const n = p.ids.length, W = p.W, H = p.H, top = 92, bottom = H - 16, gap = 10;
+  const rowH = Math.min(n === 1 ? 210 : 118, (bottom - top - gap * (n - 1)) / Math.max(1, n));
+  const total = rowH * n + gap * (n - 1), y0 = n === 1 ? top + (bottom - top - total) / 2 : top;
+  p.buttons = p.ids.map((id, i) => ({ id, x: 18, y: y0 + i * (rowH + gap), w: W - 36, h: rowH }));
+}
+function cpDraw(p) {
+  const g = p.ctx, W = p.W, H = p.H, selSet = new Set(Object.values(RS.sel)), openSet = new Set(RS.open);
+  const bg = g.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#0d1b2a'); bg.addColorStop(1, '#070d15');
+  g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  g.strokeStyle = 'rgba(80,140,200,0.10)'; g.lineWidth = 1;
+  for (let x = 0; x < W; x += 32) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke(); }
+  for (let y = 0; y < H; y += 32) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
+  g.textBaseline = 'middle'; g.textAlign = 'left'; g.fillStyle = '#e9f3ff'; g.font = 'bold 40px system-ui, sans-serif'; g.fillText('DOOR CONTROL', 24, 38);
+  g.textAlign = 'right'; g.fillStyle = '#7fb4e8'; g.font = '600 26px system-ui, sans-serif';
+  g.fillText(p.key[0] === 'c' ? 'TREASURE ROOM' : p.key === '4' ? 'VAULT' : 'ROOM ' + (+p.key + 1), W - 24, 40);
+  g.fillStyle = '#4aa8ff'; g.fillRect(24, 70, W - 48, 4);
+  p.buttons.forEach((b, i) => {
+    const L = doorLabel(p.key, b.id), sel = selSet.has(b.id), opn = openSet.has(b.id), hov = p.hover === i;
+    g.save();
+    if (sel) { g.shadowColor = '#ffd24a'; g.shadowBlur = 22; g.fillStyle = hov ? '#ffe27a' : '#ffcf3a'; }
+    else g.fillStyle = hov ? '#21456f' : opn ? '#0f3a24' : '#13243a';
+    cpRR(g, b.x, b.y, b.w, b.h, 14); g.fill(); g.shadowBlur = 0;
+    g.lineWidth = sel ? 5 : hov ? 5 : 3; g.strokeStyle = sel ? '#fff6cf' : hov ? '#9fd8ff' : opn ? '#3aff80' : '#2f5e8f'; g.stroke(); g.restore();
+    const r = Math.min(b.h * 0.38, 46), ix = b.x + 16 + r, iy = b.y + b.h / 2;
+    cpIcon(g, L.kind, ix, iy, r);
+    const tx = ix + r + 18, tw = b.x + b.w - 16 - tx - (opn ? 96 : 0), dark = sel;
+    let fs = Math.min(40, b.h * 0.34); const text = L.dir + ' · ' + L.dest;
+    g.textAlign = 'left'; g.font = '800 ' + fs + 'px system-ui, sans-serif';
+    while (g.measureText(text).width > tw && fs > 18) { fs -= 2; g.font = '800 ' + fs + 'px system-ui, sans-serif'; }
+    g.fillStyle = dark ? '#1a1204' : '#f1f7ff'; g.fillText(text, tx, iy - fs * 0.42);
+    g.font = '700 ' + Math.min(26, b.h * 0.22) + 'px system-ui, sans-serif';
+    g.fillStyle = sel ? '#7a1200' : opn ? '#6dff9f' : hov ? '#cfe8ff' : '#7fa4cc';
+    g.fillText(sel ? 'SELECTED · OPENS AT 0:00' : opn ? 'OPEN THIS ROUND' : 'Click to select', tx, iy + fs * 0.72);
+    if (opn) { g.fillStyle = '#18c25e'; cpRR(g, b.x + b.w - 100, iy - 20, 84, 40, 20); g.fill(); g.fillStyle = '#04200f'; g.textAlign = 'center'; g.font = '800 24px system-ui, sans-serif'; g.fillText('OPEN', b.x + b.w - 58, iy + 1); }
+  });
+  p.tex.needsUpdate = true; p.dirty = false;
+}
+function cpBuild(key, parent, w, h, x, y, z, rotY) {   // framed emissive screen, same look as the facility map
+  const grp = new THREE.Group(); grp.position.set(x, y, z); grp.rotation.y = rotY; parent.add(grp);
+  const add = (geo, mat, px, py, pz) => { const m = new THREE.Mesh(geo, mat); m.position.set(px, py, pz); grp.add(m); return m; };
+  add(new THREE.PlaneGeometry(w * 1.77, h * 1.89), cpGlowMat, 0, 0, 0.012).renderOrder = 1;
+  add(new THREE.BoxGeometry(w, h, 0.06), cpFrameMat, 0, 0, 0.03);
+  const bh = new THREE.BoxGeometry(w, 0.05, 0.09), bv = new THREE.BoxGeometry(0.05, h - 0.1, 0.09);
+  add(bh, cpFrameMat, 0, h / 2 - 0.025, 0.045); add(bh, cpFrameMat, 0, -h / 2 + 0.025, 0.045);
+  add(bv, cpFrameMat, -w / 2 + 0.025, 0, 0.045); add(bv, cpFrameMat, w / 2 - 0.025, 0, 0.045);
+  for (const sx of [-0.9, 0.9]) if (Math.abs(sx) < w / 2 - 0.2) add(new THREE.BoxGeometry(0.12, 0.12, 0.03), cpFrameMat, sx, -h / 2 - 0.06, 0.015);
+  const W = Math.round((w - 0.1) * 320), H = Math.round((h - 0.1) * 320);
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+  const scr = add(new THREE.PlaneGeometry(w - 0.1, h - 0.1), new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.85, roughness: 0.4, metalness: 0 }), 0, 0, 0.076);
+  const p = { key, ids: ROOM_DOORS[key], W, H, ctx: cv.getContext('2d'), tex, screen: scr, hover: -1, dirty: false, buttons: [] };
+  cpLayout(p); cpDraw(p); CP[key] = p; cpList.push(p);
+  return grp;
+}
+function panelsDirty() { for (const p of cpList) p.dirty = true; }
+for (let i = 0; i < 9; i++) {   // grid rooms: north wall, mirrored against the facility map (x = centre + 4.5)
+  const [cx, cz] = rc(i); cpBuild(String(i), scene, 2.6, 1.9, cx + 4.5, 2.6, cz - R / 2 + T / 2, 0);
+}
+for (const cr of CHEST_ROOMS) {   // chest rooms: 2 m panel on the room's left wall (the far wall is taken by banners and torches)
+  const g = new THREE.Group(); g.position.set(cr.cx, 0, cr.cz); g.rotation.y = Math.atan2(-cr.dx, -cr.dz); scene.add(g);
+  cpBuild('c' + cr.id, g, 2.0, 1.9, -(CS / 2 - T / 2), 2.6, 0, Math.PI / 2);
+}
+scene.updateMatrixWorld(true);
+for (const p of cpList) p.screen.parent.parent.traverse(o => { if (o.parent) { o.updateMatrix(); o.matrixAutoUpdate = false; } });
+scene.updateMatrixWorld(true);
+
+// ----- aiming, clicking, HUD -----
+const cpRay = new THREE.Raycaster(), cpV0 = new THREE.Vector2(0, 0);
+let cpAim = null;   // { p, i }
+cpRay.far = 7;
+function cpComputeAim() {
+  if (GK.mode !== 'play' || !inside) return null;
+  const p = CP[roomKeyAt(P.x, P.z)]; if (!p) return null;
+  cam.updateMatrixWorld(); cpRay.setFromCamera(cpV0, cam);
+  const h = cpRay.intersectObject(p.screen, false)[0]; if (!h || !h.uv) return null;
+  const x = h.uv.x * p.W, y = (1 - h.uv.y) * p.H;
+  const i = p.buttons.findIndex(b => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h);
+  return i < 0 ? null : { p, i };
+}
+const dotEl = $('dot');
+if (dotEl) dotEl.style.transition = 'transform .12s, background .12s, opacity .12s';
+function panelTick() {
+  const a = cpComputeAim();
+  for (const p of cpList) { const hv = a && a.p === p ? a.i : -1; if (hv !== p.hover) { p.hover = hv; p.dirty = true; } }
+  cpAim = a;
+  if (dotEl) { dotEl.style.transform = a ? 'scale(3)' : ''; dotEl.style.background = a ? '#ffd24a' : ''; dotEl.style.opacity = a ? '1' : ''; }
+  const cur = CP[roomKeyAt(P.x, P.z)];   // redraw dirty panels: the one in front of us first, one other per frame
+  if (cur && cur.dirty) cpDraw(cur); else { const o = cpList.find(q => q.dirty); if (o) cpDraw(o); }
+}
+renderer.domElement.addEventListener('click', () => {
+  const a = cpComputeAim(); if (!a) return;
+  net.send({ sel: a.p.buttons[a.i].id });
+});
+GK.panelClick = (room, idx) => { const ids = ROOM_DOORS[String(room)]; if (ids && ids[idx] !== undefined) net.send({ sel: ids[idx] }); };   // test helper: same message as a click
+GK.roundInfo = () => ({ n: RS.n, left: roundLeft(), dur: RS.dur, sel: RS.sel, open: RS.open });
+GK.ROOM_DOORS = ROOM_DOORS; GK.roomKeyAt = roomKeyAt;
+
+{
+  const css = document.createElement('style');
+  css.textContent = '#roundHud{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:30;pointer-events:none;text-align:center;font-family:system-ui,sans-serif;display:none}' +
+    '#roundHud .t{display:inline-block;padding:6px 26px 8px;border-radius:14px;background:rgba(8,14,24,.72);border:2px solid rgba(120,180,255,.55);color:#f2f8ff;font-weight:800;font-size:clamp(26px,4.4vw,46px);letter-spacing:.06em;font-variant-numeric:tabular-nums;text-shadow:0 2px 8px #000;box-shadow:0 4px 24px rgba(0,0,0,.5)}' +
+    '#roundHud .t.warn{color:#ff4343;border-color:#ff4343;background:rgba(40,6,6,.78);animation:rhPulse .5s ease-in-out infinite alternate}' +
+    '#roundHud .b{margin-top:10px;font-weight:900;font-size:clamp(28px,5.5vw,60px);letter-spacing:.14em;color:#ffd24a;text-shadow:0 0 18px #ff9a00,0 3px 10px #000;animation:rhBanner 2.2s ease-out forwards;display:none}' +
+    '@keyframes rhPulse{from{transform:scale(1)}to{transform:scale(1.14)}}@keyframes rhBanner{0%{opacity:0;transform:scale(.7)}12%{opacity:1;transform:scale(1.08)}20%{transform:scale(1)}80%{opacity:1}100%{opacity:0}}';
+  document.head.appendChild(css);
+  const hud = document.createElement('div'); hud.id = 'roundHud'; hud.innerHTML = '<div class="t"></div><div class="b">DOORS OPENING</div>';
+  document.body.appendChild(hud);
+  const tEl = hud.firstChild, bEl = hud.lastChild; let shownBanner = 0, lastTxt = '', lastWarn = null;
+  setInterval(() => {
+    const show = GK.mode === 'play' && RS.n > 0; hud.style.display = show ? 'block' : 'none'; if (!show) return;
+    const left = roundLeft(), now = performance.now();
+    if (left <= 0 && RS.flashed !== RS.n) { RS.flashed = RS.n; RS.flashUntil = now + 2200; }
+    const txt = 'ROUND ' + RS.n + '  ' + fmtT(left), warn = left <= 5000;
+    if (txt !== lastTxt) { tEl.textContent = txt; lastTxt = txt; }
+    if (warn !== lastWarn) { tEl.classList.toggle('warn', warn); lastWarn = warn; }
+    if (now < RS.flashUntil) { if (shownBanner !== RS.flashUntil) { shownBanner = RS.flashUntil; bEl.style.display = 'none'; void bEl.offsetWidth; bEl.style.display = 'block'; } }
+    else if (shownBanner) { shownBanner = 0; bEl.style.display = 'none'; }
+  }, 100);
+}
 // PANEL-END
 
 // ---------- goblins ----------
@@ -1131,6 +1354,7 @@ const P = { x: 0, z: 0, yaw: 0, pitch: 0, speed: 0 };
 const handleMsg = d => {
   if (d.chests) applyChests(d.chests);
   if (d.you) me = d.you;
+  if (d.round || d.sel || d.open) applyRound(d);
   if (!d.players) return;
   const ids = new Set(d.players.map(p => p.id));
   for (const [id, a] of actors) if (!ids.has(id)) { dropGoblin(a.group); actors.delete(id); }
@@ -1188,6 +1412,7 @@ let last = performance.now(), sendT = 0;
 function frame(now) {
   const dt = clamp((now - last) / 1000, 0.001, 0.05); last = now; const t = now / 1000;
   if (GK.mode !== 'play') { GK.menu && GK.menu.render(now, dt); requestAnimationFrame(frame); return; }
+  panelTick();
   const mine = actors.get(me);
   // my movement
   if (mine && spawned) {
