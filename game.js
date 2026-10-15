@@ -1112,13 +1112,13 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
     const goldQ = mat('qgoldDecal', () => new THREE.MeshBasicMaterial({ map: qGlyph('gold', '#ffd76a', '#ff9a20'), transparent: true, depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
     const purpQ = mat('qpurpDecal', () => new THREE.MeshBasicMaterial({ map: qGlyph('purp', '#d9bfff', '#8a4cff'), transparent: true, depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
     // --- the floating question mark, high above the floor ---
-    const qM = mat('qbody', () => M(0xb48cff, { metalness: 0.45, roughness: 0.28, emissive: 0x8a44ff, emissiveIntensity: 1.5, envMapIntensity: 1.5 })), qDot = mat('qdot', () => M(0xffd05a, { metalness: 1, roughness: 0.25, emissive: 0xff9a10, emissiveIntensity: 1.1, envMapIntensity: 1.6 }));
+    const qM = mat('qbody', () => M(0x7a3cff, { metalness: 0.45, roughness: 0.28, emissive: 0x8a3cff, emissiveIntensity: 1.1, envMapIntensity: 1.2 })), qDot = mat('qdot', () => M(0xffd05a, { metalness: 1, roughness: 0.25, emissive: 0xff9a10, emissiveIntensity: 1.1, envMapIntensity: 1.6 }));
     const qCurve = pts => new THREE.CatmullRomCurve3(pts.map(p => new THREE.Vector3(p[0], p[1], 0)));
     const hookPts = []; for (let a = 200; a >= -70; a -= 22.5) { const r = a * Math.PI / 180; hookPts.push([Math.cos(r) * 0.55, 0.85 + Math.sin(r) * 0.55]); } hookPts.push([0.1, 0.18], [0.0, -0.12], [0.0, -0.34]);
     const qGeo = kgeo('qtube', () => new THREE.TubeGeometry(qCurve(hookPts), 90, 0.13, 12, false)), qHalo = kgeo('qtube2', () => new THREE.TubeGeometry(qCurve(hookPts), 60, 0.24, 8, false));
     const haloM = mat('qhalo', () => new THREE.MeshBasicMaterial({ color: 0x8a50ff, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide, fog: false }));
-    const qg = dyn(new THREE.Group()); qg.position.set(0, 4.35, 0); qg.scale.setScalar(0.95); g.add(qg);
-    mkm(qg, qGeo, qM, 0, 0, 0); mkm(qg, qHalo, haloM, 0, 0, 0); sph(qg, qDot, 0, -0.82, 0, 0.17); mkm(qg, qHalo, haloM, 0, 0, 0).scale.setScalar(1.0);
+    const qg = dyn(new THREE.Group()); qg.position.set(0, 4.35, 0); qg.scale.setScalar(1.1); g.add(qg);
+    mkm(qg, qGeo, qM, 0, 0, 0); mkm(qg, qHalo, haloM, 0, 0, 0); sph(qg, qDot, 0, -0.82, 0, 0.17);
     const cap = sph(qg, qDot, 0, -0.34, 0, 0.14, 0.06, 0.14);
     const ring = dyn(new THREE.Group()); ring.position.set(0, 0.3, 0); qg.add(ring); const rg = tor(ring, qDot, 0, 0, 0, 1.1, 0.025); rg.rotation.x = Math.PI / 2.4; const rg2 = tor(ring, qM, 0, 0, 0, 0.9, 0.018); rg2.rotation.x = -Math.PI / 2.2; rg2.rotation.y = 0.6;
     const hs = addGlow(qg, 0x8a50ff, 5.2, 0.5, 0, 0.3, 0), hs2 = addGlow(qg, 0xffc060, 2.4, 0.35, 0, 0.3, 0); dyn(hs); dyn(hs2);
