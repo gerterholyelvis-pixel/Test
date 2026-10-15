@@ -13,7 +13,6 @@ const $ = id => document.getElementById(id);
 const GK = window.GK = window.GK || {};
 GK.mode = 'menu';                         // 'menu' (title, settings, wheel) or 'play'
 GK.settings = Object.assign({ sens: 1, fov: 75, scale: 1, invertY: false, tags: true }, GK.settings || {});
-const DOORS_OPEN = false;                 // doors stay shut for now
 const CS = 8;                             // chest room size
 const WEAPONS = ['Rusty Sword', 'Battle Axe', 'War Spear', 'Spiked Mace', 'Short Bow', 'Dagger'];
 // One chest room behind every outer wall: edge rooms get 1, corner rooms get 2 (12 in total)
@@ -172,7 +171,7 @@ function wall(px, pz, rot, kind) {
   base(-L / 2, -dw / 2 - 0.3); base(dw / 2 + 0.3, L / 2);
   addRect(px, pz, rot, -L / 2, -dw / 2, -T / 2, T / 2); addRect(px, pz, rot, dw / 2, L / 2, -T / 2, T / 2);
   const light = new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0xff1a1a, emissiveIntensity: 2 }); statusMats.push(light);
-  const d = { kind, p: 0, gx: px, gz: pz, light, leaf: new THREE.Group(), wheels: [], bolts: [], blocker: null };
+  const d = { id: doors.length, open: false, kind, p: 0, gx: px, gz: pz, light, leaf: new THREE.Group(), wheels: [], bolts: [], blocker: null };
   d.blocker = { door: d }; addRect(px, pz, rot, -dw / 2, dw / 2, -T / 2, T / 2); Object.assign(d.blocker, rects.pop());
   rects.push(d.blocker);
 
@@ -618,6 +617,8 @@ function applyChests(a) { GK.applyChests(a); }
   }
 }
 // MAP-END
+// PANEL-BEGIN (door control panels and round logic on the client: owned by the rounds agent)
+// PANEL-END
 
 // ---------- goblins ----------
 const SPH = new THREE.SphereGeometry(1, 24, 16), CONE = new THREE.ConeGeometry(1, 1, 10), CAP = new THREE.CapsuleGeometry(1, 1, 6, 12);
@@ -1204,8 +1205,7 @@ function frame(now) {
   }
   // doors
   for (const d of doors) {
-    let near = false;
-    if (DOORS_OPEN) for (const a of actors.values()) if (Math.hypot(a.x - d.gx, a.z - d.gz) < (d.kind === 'vault' ? 6.2 : 4.6)) { near = true; break; }
+    const near = d.open;   // doors open/close from the round state (GK.setDoorsOpen)
     const dur = d.kind === 'vault' ? 2.4 : 0.8;
     d.p = clamp(d.p + (near ? 1 : -1) * dt / dur, 0, 1);
     if (d.kind === 'secure') d.leaf.position.x = d.p * (DW + 0.15);
@@ -1265,6 +1265,8 @@ GK.renderer = renderer; GK.scene = scene; GK.build = buildGoblin; GK.NAMES = NAM
 GK.start = () => { connect(); return new Promise(res => { if (assigned) res(actors.get(me).goblin); else { const prev = GK.onAssigned; GK.onAssigned = g => { GK.onAssigned = prev; res(g); }; } }); }; // connects and resolves with my goblin type
 GK.enter = () => { GK.mode = 'play'; GK.applySettings(); if (window.GK_OFFLINE) $('rr').style.display = 'block'; lockNow(); };   // call from a click
 GK.applySettings = () => { renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * GK.settings.scale); resize(); };
+GK.doors = doors;
+GK.setDoorsOpen = ids => { const set = new Set(ids); doors.forEach(d => d.open = set.has(d.id)); };   // ids of doors that are open right now
 GK.skipMenu = () => { connect(); GK.mode = 'play'; };   // for tests
 window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw, pitch) { P.x = x; P.z = z; P.yaw = yaw; P.pitch = pitch || 0; spawned = true; }, toggleOverview() { inside = !inside; }, build: buildGoblin };
 })();
