@@ -1,5 +1,5 @@
 const http = require('http'), fs = require('fs'), path = require('path'), { WebSocketServer } = require('ws');
-const R = 12; // room size, must match game.js
+const WORLD = require('./world.js'); // shared geometry (rooms, vault, chest rooms), the client uses the same file
 const THREE_DIR = path.join(__dirname, 'node_modules/three/build');
 const read = f => fs.readFileSync(path.join(__dirname, f));
 
@@ -12,21 +12,15 @@ const srv = http.createServer((q, r) => {
     if (rel && !rel.includes('\0') && file.startsWith(base + path.sep) && file.endsWith('.js') && fs.existsSync(file) && fs.statSync(file).isFile()) { r.writeHead(200, { 'content-type': 'text/javascript' }); return r.end(fs.readFileSync(file)); }
     r.writeHead(404); return r.end();
   }
-  const js = q.url.match(/^\/(game|menu|items|save|icons)\.js/); // client scripts
+  const js = q.url.match(/^\/(game|menu|items|world|save|icons)\.js/); // client scripts
   if (js) { r.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }); return r.end(read(js[1] + '.js')); }
   r.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' }); r.end(read('index.html'));
 });
 const wss = new WebSocketServer({ server: srv, maxPayload: 512 }); // oversize frames close the socket
-const LIM = 27; // world half-extent: 36x36 m grid plus the 8 m chest rooms around it
+const LIM = WORLD.LIM + 1; // world half-extent: the room grid plus the 8 m chest rooms around it (+1 m slack)
 const clamp = v => Math.max(-LIM, Math.min(LIM, v));
 // ---- doors and rounds (door ids and room keys must match game.js) ----
-const CHEST = []; // chest rooms in game.js order: { parent, side }
-for (let i = 0; i < 9; i++) {
-  if (i === 4) continue;
-  const col = i % 3, row = Math.floor(i / 3);
-  if (row === 0) CHEST.push({ parent: i, side: 'N' }); if (col === 0) CHEST.push({ parent: i, side: 'W' }); if (col === 2) CHEST.push({ parent: i, side: 'E' }); if (row === 2) CHEST.push({ parent: i, side: 'S' });
-}
-const chestKey = (i, side) => 'c' + CHEST.findIndex(c => c.parent === i && c.side === side);
+const chestKey = WORLD.chestKey; // chest rooms in game.js order (WORLD.CHEST)
 const ROOM_DOORS = {}; let nDoors = 0; // room key ('0'..'8' grid, 'c0'..'c11' chest) -> door ids on its walls
 const addDoor = (a, b) => { const id = nDoors++; (ROOM_DOORS[a] = ROOM_DOORS[a] || []).push(id); (ROOM_DOORS[b] = ROOM_DOORS[b] || []).push(id); };
 for (let i = 0; i < 9; i++) {
@@ -36,13 +30,7 @@ for (let i = 0; i < 9; i++) {
   if (col === 0) addDoor(String(i), chestKey(i, 'W'));
   if (row === 0) addDoor(String(i), chestKey(i, 'N'));
 }
-const gi = v => Math.max(0, Math.min(2, Math.round(v / R) + 1));
-const roomKeyOf = (x, z) => { // grid rooms inside +-18, chest rooms beyond
-  if (Math.abs(z) > 18) return chestKey(gi(x) + (z < 0 ? 0 : 6), z < 0 ? 'N' : 'S');
-  if (Math.abs(x) > 18) return chestKey(gi(z) * 3 + (x < 0 ? 0 : 2), x < 0 ? 'W' : 'E');
-  return String(gi(x) + 3 * gi(z));
-};
-const boxOf = (x, z) => Math.max(0, Math.min(2, Math.round(x / R) + 1)) + 3 * Math.max(0, Math.min(2, Math.round(z / R) + 1));
+const roomKeyOf = WORLD.roomKeyOf, boxOf = WORLD.roomAt;
 // ---- matches: independent games, players are queued with similar victory counts ----
 const CAP = 8;
 const matches = new Map(); // id -> match
@@ -174,9 +162,8 @@ function rollGoblin() {
   return r < 30 ? 0 : r < 60 ? 1 : r < 90 ? 2 : r < 99 ? 3 : 4;
 }
 function spawn() {
-  const box = [0, 1, 2, 3, 5, 6, 7, 8][Math.floor(Math.random() * 8)]; // never the middle (4)
-  const cx = ((box % 3) - 1) * R, cz = (Math.floor(box / 3) - 1) * R;
-  const x = cx + (Math.random() - 0.5) * 6, z = cz + (Math.random() - 0.5) * 6;
+  const box = [0, 1, 2, 3, 5, 6, 7, 8][Math.floor(Math.random() * 8)]; // never the vault (4)
+  const [cx, cz] = WORLD.rc(box), [x, z] = WORLD.randomPoint(box);
   return { box, x, z, yaw: Math.atan2(-(cx - x), -(cz - z)) }; // facing the room centre
 }
 function die(ws, p) { // a dead player drops everything where they fell and leaves the match
