@@ -84,6 +84,31 @@ table.keys{border-collapse:collapse;width:100%}
  background:linear-gradient(180deg,#2c2820,#15120d);border:1px solid #5a4a28;border-bottom-width:3px;border-radius:5px;box-shadow:0 2px 6px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.1);letter-spacing:.04em}
 .note{margin-top:8px;padding:8px 12px;border-left:3px solid var(--ember);background:rgba(255,106,42,.08);font-size:clamp(13px,2.2vh,17px);color:#e8c9a8;letter-spacing:.04em}
 
+/* ---------- characters + inventory ---------- */
+#menu .col.wide{width:min(660px,94vw)}
+.clist{display:grid;grid-template-columns:repeat(auto-fill,minmax(clamp(190px,30vw,300px),1fr));gap:clamp(8px,1.6vh,14px)}
+.ccard{display:flex;align-items:center;gap:clamp(8px,1.4vw,14px);padding:clamp(6px,1.2vh,10px) clamp(8px,1.2vw,12px);background:linear-gradient(90deg,rgba(255,255,255,.06),rgba(255,255,255,.02));border:1px solid rgba(245,196,81,.25);border-left:3px solid var(--gold3);transition:border-color .2s,background .2s}
+.ccard:hover,.ccard:focus-within{border-color:var(--gold);background:linear-gradient(90deg,rgba(245,196,81,.14),rgba(255,255,255,.03))}
+.ccard canvas{flex:none;border-radius:50%;background:radial-gradient(circle at 50% 40%,#2a2218,#0c0a08);border:1px solid rgba(245,196,81,.4)}
+.cinfo{min-width:0;flex:1}
+.cname{font-size:clamp(18px,3vh,24px);font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ctype{font-size:clamp(12px,2vh,15px);letter-spacing:.16em;text-transform:uppercase;color:var(--mut)}
+.cwins{display:flex;align-items:center;gap:6px;margin-top:2px;font-size:clamp(14px,2.4vh,19px);font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--gold)}
+.cwins canvas{border:0;background:none;border-radius:0}
+.cwins b{font-size:1.5em;color:var(--gold2);text-shadow:0 0 12px rgba(245,170,50,.6);letter-spacing:.02em}
+.cplay{flex:none;height:clamp(30px,5vh,40px);padding:0 clamp(12px,1.6vw,18px);cursor:pointer;font-size:clamp(14px,2.4vh,18px);font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#1a1104;background:linear-gradient(90deg,var(--gold2),var(--gold));border:1px solid var(--gold3);outline:0;transition:transform .15s,box-shadow .2s}
+.cplay:hover,.cplay:focus-visible{transform:scale(1.06);box-shadow:0 0 14px rgba(245,170,50,.7)}
+.cempty,.invempty{padding:clamp(14px,4vh,34px) 8px;text-align:center;font-size:clamp(15px,2.6vh,20px);letter-spacing:.08em;color:var(--mut)}
+.invsum{font-size:clamp(15px,2.6vh,20px);letter-spacing:.12em;text-transform:uppercase;color:var(--gold);margin-bottom:clamp(6px,1.2vh,10px)}
+.igrid{display:grid;grid-template-columns:repeat(8,1fr);gap:clamp(3px,.6vh,5px)}
+.islot{aspect-ratio:1;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#1b1813,#100e0b);border:1px solid #3a3326;transition:border-color .15s,box-shadow .15s}
+.islot.full:hover{border-color:var(--gold);box-shadow:0 0 10px rgba(245,170,50,.5),inset 0 0 8px rgba(245,196,81,.2)}
+.islot canvas{max-width:90%;max-height:90%}
+#itip{position:fixed;z-index:30;display:none;pointer-events:none;padding:6px 10px;background:rgba(10,8,6,.96);border:1px solid var(--gold3);box-shadow:0 6px 20px rgba(0,0,0,.7);font-size:15px;letter-spacing:.06em;color:var(--txt)}
+#itip b{display:block;color:var(--gold2);font-size:1.1em;letter-spacing:.1em;text-transform:uppercase}
+#itip span{color:var(--teal)}
+#menu .sheet#inv-sheet{max-height:calc(100vh - 30vh - 40px)}
+
 /* ---------- wheel screen ---------- */
 #roll{position:fixed;inset:0;z-index:8;display:none;align-items:center;justify-content:center;gap:clamp(18px,4vw,64px);padding:2vh 4vw;opacity:0;transition:opacity .6s;
  background:radial-gradient(ellipse at 50% 50%,rgba(10,8,8,.8),rgba(3,2,4,.95) 80%)}
@@ -124,9 +149,32 @@ table.keys{border-collapse:collapse;width:100%}
 
   <div class="panel on" id="p-main"><div class="btns">
    <button class="mbtn primary" id="b-start">Start<span class="ar">&#9654;</span></button>
+   <button class="mbtn" id="b-chars">Characters<span class="ar">&#9654;</span></button>
+   <button class="mbtn" id="b-inv">Inventory<span class="ar">&#9654;</span></button>
    <button class="mbtn" id="b-settings">Settings<span class="ar">&#9654;</span></button>
    <button class="mbtn" id="b-controls">Controls<span class="ar">&#9654;</span></button>
   </div></div>
+
+  <div class="panel" id="p-chars">
+   <h2 class="ph">Characters</h2>
+   <div class="sheet" id="chars-sheet">
+    <div id="chars-list" class="clist"></div>
+    <div class="note" id="chars-note">Matches pair you with goblins of similar victory counts.</div>
+   </div>
+   <div class="brow"><button class="mbtn small" id="ch-back">Back</button></div>
+  </div>
+
+  <div class="panel" id="p-inv">
+   <h2 class="ph">Inventory</h2>
+   <div class="sheet" id="inv-sheet">
+    <div class="invsum" id="inv-sum"></div>
+    <div class="igrid" id="inv-grid"></div>
+    <div class="invempty" id="inv-empty">Nothing here yet. Items you carry out of a won run end up here.</div>
+   </div>
+   <div class="brow"><button class="mbtn small" id="inv-back">Back</button></div>
+  </div>
+
+  <div id="itip"></div>
 
   <div class="panel" id="p-settings">
    <h2 class="ph">Settings</h2>

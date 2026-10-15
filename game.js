@@ -141,7 +141,7 @@ const vaultM = M(0x70787f, { map: steelTex, metalness: 0.9, roughness: 0.38, env
 const darkSteel = M(0x2a2e35, { metalness: 0.8, roughness: 0.45, envMapIntensity: 0.9 });
 const hazardM = M(0xffffff, { map: hazardTex, roughness: 0.6 });
 const glassM = new THREE.MeshStandardMaterial({ color: 0x07131c, roughness: 0.05, metalness: 0.2, emissive: 0x0b3a55, emissiveIntensity: 0.8 });
-const panelM = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xfff6e6).multiplyScalar(2.4), toneMapped: false });   // HDR so the bloom pass picks the ceiling panels up
+const panelM = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xfff6e6).multiplyScalar(6), toneMapped: false });   // HDR so the bloom pass picks the ceiling panels up
 const aoM = new THREE.MeshBasicMaterial({ map: aoTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, side: THREE.DoubleSide, fog: false });
 const cornerM = new THREE.MeshBasicMaterial({ map: cornerTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, side: THREE.DoubleSide });
 
@@ -440,7 +440,7 @@ function wall(px, pz, rot, kind) {
         plate.position.set(0, lh / 2, s * 0.17); if (s < 0) plate.rotation.y = Math.PI; d.leaf.add(plate);
       } else if (sk) {
         for (const yy of [0.5, lh - 0.5]) bx(d.leaf, lw - 0.5, 0.05, 0.02, 0, yy, s * 0.14, redTrimM, 1);
-        const pl = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.6), new THREE.MeshStandardMaterial({ map: skullTex, emissiveMap: skullTex, emissive: 0xffffff, emissiveIntensity: 0.45, roughness: 0.5, metalness: 0.2, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+        const pl = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.6), new THREE.MeshStandardMaterial({ map: skullTex, emissiveMap: skullTex, emissive: 0xffffff, emissiveIntensity: 0.2, roughness: 0.5, metalness: 0.2, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
         pl.position.set(0, lh / 2 + 0.05, s * 0.135); if (s < 0) pl.rotation.y = Math.PI; d.leaf.add(pl);
         if (!d.eyeM) d.eyeM = glowMat(0xff2a10, 0.9);
         for (const ex of [-0.274, 0.274]) glowSprite(d.leaf, d.eyeM, 0.8, ex, lh / 2 + 0.05 + 0.145, s * 0.2);
@@ -1805,7 +1805,7 @@ function fxResize() {
     const rt = new THREE.WebGLRenderTarget(innerWidth * pr, innerHeight * pr, { type: THREE.HalfFloatType, samples: 4 });   // MSAA kept inside the composer
     const composer = new EffectComposer(renderer, rt);
     composer.addPass(new RenderPass(scene, cam));
-    const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.32, 0.55, 1.35);   // strength, radius, threshold (HDR, linear)
+    const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.42, 0.5, 1.5);   // strength, radius, threshold (HDR, linear)
     const bs = bloom.setSize.bind(bloom); bloom.setSize = (w, h) => bs(Math.max(1, w >> 1), Math.max(1, h >> 1));   // bloom at half resolution
     composer.addPass(bloom);
     composer.addPass(new OutputPass());   // tone mapping + sRGB
@@ -2001,6 +2001,7 @@ GK.start = (opts) => { connect(opts); return new Promise(res => { if (assigned) 
 GK.enter = () => { run.t0 = performance.now(); run.n0 = GK.roundInfo ? GK.roundInfo().n : 0; run.dist = 0; GK.mode = 'play'; GK.showStats(); GK.applySettings(); if (window.GK_OFFLINE) $('rr').style.display = 'block'; lockNow(); };   // call from a click
 GK.applySettings = () => { renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * GK.settings.scale); resize(); };
 GK.doors = doors;
+GK.fxDebug = { get fx() { return fx; }, cam };   // test hook: post-effects state and the world camera
 GK.setDoorsOpen = ids => { const set = new Set(ids); doors.forEach(d => d.open = set.has(d.id)); };   // ids of doors that are open right now
 GK.skipMenu = () => { connect(); GK.mode = 'play'; };   // for tests
 window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw, pitch) { P.x = x; P.z = z; P.yaw = yaw; P.pitch = pitch || 0; spawned = true; }, toggleOverview() { inside = !inside; }, build: buildGoblin };

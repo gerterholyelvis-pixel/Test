@@ -42,17 +42,51 @@ const roomKeyOf = (x, z) => { // grid rooms inside +-18, chest rooms beyond
   if (Math.abs(x) > 18) return chestKey(gi(z) * 3 + (x < 0 ? 0 : 2), x < 0 ? 'W' : 'E');
   return String(gi(x) + 3 * gi(z));
 };
-let round = 1, dur = 30000, endsAt = Date.now() + dur, sel = {}, open = []; // sel: room key -> selected door id, open: doors open during this round
-const roundState = () => ({ round: { n: round, left: Math.max(0, endsAt - Date.now()), dur }, sel, open });
-const broadcastRound = () => { const msg = JSON.stringify(roundState()); wss.clients.forEach(c => c.readyState === 1 && c.send(msg)); };
-setInterval(() => {
-  if (Date.now() >= endsAt) { open = [...new Set(Object.values(sel))]; sel = {}; round++; dur = 45000; endsAt = Date.now() + dur; broadcastRound(); }
-}, 100);
-setInterval(broadcastRound, 1000);
 const boxOf = (x, z) => Math.max(0, Math.min(2, Math.round(x / R) + 1)) + 3 * Math.max(0, Math.min(2, Math.round(z / R) + 1));
-const players = new Map();
-let nextId = 1, dirty = false;
-const chests = Array.from({ length: 12 }, () => Math.floor(Math.random() * 6)); // weapon index per chest room, rolled once per server start
+// ---- matches: independent games, players are queued with similar victory counts ----
+const CAP = 8;
+const matches = new Map(); // id -> match
+let nextId = 1, nextMatch = 1;
+const sendTo = (ws, o) => { if (ws.readyState === 1) ws.send(typeof o === 'string' ? o : JSON.stringify(o)); };
+const bcast = (m, o) => { const msg = typeof o === 'string' ? o : JSON.stringify(o); for (const ws of m.players.keys()) if (ws.readyState === 1) ws.send(msg); };
+const avgWins = m => { let s = 0; for (const p of m.players.values()) s += p.wins; return m.players.size ? s / m.players.size : 0; };
+const tolerance = w => w <= 5 ? 1 : Math.ceil(w * 0.25);
+function newMatch() {
+  const m = { id: nextMatch++, players: new Map(), round: 1, dur: 30000, endsAt: Date.now() + 30000, sel: {}, open: [], drops: [], nextDrop: 1, dirty: false, lastRound: 0,
+    chests: Array.from({ length: 12 }, () => Math.floor(Math.random() * 6)) }; // weapon index per chest room
+  matches.set(m.id, m); return m;
+}
+const VAULT = ROOM_DOORS['4'] || []; // the 4 doors touching the middle vault room
+const vaultVotes = m => new Set(Object.keys(m.sel).filter(k => VAULT.includes(m.sel[k]))).size; // distinct rooms selecting a vault door
+const roundState = m => ({ round: { n: m.round, left: Math.max(0, m.endsAt - Date.now()), dur: m.dur }, sel: m.sel, open: m.open, vaultVotes: vaultVotes(m), fizzled: m.fizzled || [] });
+const broadcastRound = m => bcast(m, roundState(m));
+const matchInfo = m => { let lo = Infinity, hi = -Infinity; for (const p of m.players.values()) { lo = Math.min(lo, p.wins); hi = Math.max(hi, p.wins); } return { size: m.players.size, minWins: m.players.size ? lo : 0, maxWins: m.players.size ? hi : 0 }; };
+const broadcastMatch = m => bcast(m, { match: matchInfo(m) });
+function findMatch(wins) {
+  let best = null;
+  for (const m of matches.values()) {
+    if (m.players.size >= CAP) continue;
+    const d = m.players.size ? Math.abs(wins - avgWins(m)) : 0;
+    if (m.players.size && d > tolerance(wins)) continue;
+    if (!best || d < best.d || (d === best.d && m.players.size > best.m.players.size)) best = { m, d };
+  }
+  return best ? best.m : newMatch();
+}
+function leave(m, ws) { // remove a player from their match; empty matches disappear
+  if (!m.players.delete(ws)) return;
+  m.dirty = true;
+  if (!m.players.size) matches.delete(m.id); else broadcastMatch(m);
+}
+setInterval(() => { // one global timer steps every match
+  const now = Date.now();
+  for (const m of matches.values()) {
+    if (now >= m.endsAt) {
+      const picked = [...new Set(Object.values(m.sel))], ok = vaultVotes(m) >= 2; // vault doors need 2 different rooms
+      m.open = picked.filter(d => ok || !VAULT.includes(d)); m.fizzled = ok ? [] : picked.filter(d => VAULT.includes(d)); m.sel = {}; m.round++; m.dur = 45000; m.endsAt = now + m.dur; broadcastRound(m); m.lastRound = now; }
+    else if (now - m.lastRound >= 1000) { m.lastRound = now; broadcastRound(m); }
+    if (m.dirty) { m.dirty = false; bcast(m, { players: [...m.players.values()].map(pub) }); } // positions go out at 20 Hz
+  }
+}, 50);
 
 // 0 small 30%, 1 medium 30%, 2 big 30%, 3 wizard 9%, 4 king 1%
 // Equipment decides combat stats: attack damage comes from the weapon, health from the armour.
