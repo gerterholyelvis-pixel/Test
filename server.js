@@ -39,7 +39,7 @@ wss.on('connection', ws => {
   players.set(ws, p);
   ws.on('error', () => {});
   ws.send(JSON.stringify({ you: id }));
-  send();
+  dirty = true;
   let tokens = 40, last = Date.now(); // rate limit: ~30 msg/s sustained, burst 40
   ws.on('message', (raw, isBinary) => {
     const now = Date.now();
@@ -54,7 +54,7 @@ wss.on('connection', ws => {
       dirty = true;
     }
   });
-  ws.on('close', () => { players.delete(ws); send(); });
+  ws.on('close', () => { players.delete(ws); dirty = true; });
 });
 
 srv.listen(process.env.PORT || 3000, () => console.log('Goblin King on :' + (process.env.PORT || 3000)));
