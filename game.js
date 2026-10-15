@@ -1971,7 +1971,7 @@ BUILD.enemy = (ctx, v) => {
   const g = grp(ctx.root, 0, 0, z); g.scale.setScalar(sc); const r = E[key](g, ctx); ctx.anim.push(r.anim);
   const rm = ring(ctx.root, 0xff2a1a, 1.5 * sc, 0.8, 0, z), pm = pool(ctx.root, 0xff2a1a, 2.2 * sc, 0.28, 0, z); rm.material = ctx.own(rm.material); pm.material = ctx.own(pm.material);
   ctx.anim.push(t => { rm.material.opacity = 0.55 + 0.3 * Math.sin(t * 3); pm.material.opacity = 0.2 + 0.1 * Math.sin(t * 3 + 1); rm.rotation.z = t * 0.4; });
-  if (troll) { glow(ctx.root, 0xffc83a, 3.5, 0.2, 0, 1.6 * sc, z); }
+  if (troll) { glow(ctx.root, 0xffc83a, 4.5, 0.18, 0, 1.6 * sc, z - 1.8); }
   lbl(ctx.root, 'ENEMY: ' + NAMES[key], '#ff5a4a', r.h * sc + 0.55 + (troll ? 0.3 : 0), 0.5, troll ? '★ RARE ★' : null, '#ffd24a', 0, z);
 };
 // ----- stations
