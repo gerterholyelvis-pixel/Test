@@ -185,6 +185,9 @@ function wall(px, pz, rot, kind) {
     bx(g, dw + 1, 0.5, T + 0.34, 0, dh - 0.05, 0, darkSteel);
     for (const z of [-1, 1]) bx(g, dw + 0.9, 0.34, 0.03, 0, dh - 0.05, z * (T / 2 + 0.18), hazardM, 1.2);
     for (let i = 0; i < 3; i++) cyl(g, 0.12, 0.5, darkSteel, -dw / 2 - 0.05, 0.8 + i * 1.8, 0);   // hinges
+    // swing away from the middle room: find which local side faces the centre
+    d.sgn = (Math.sin(rot) * -px + Math.cos(rot) * -pz) > 0 ? -1 : 1;
+    const sw = { openOnly: d }; addRect(px, pz, rot, -dw / 2 - 0.3, -dw / 2 + 0.3, d.sgn > 0 ? 0.3 : -4.9, d.sgn > 0 ? 4.9 : -0.3); Object.assign(sw, rects.pop()); rects.push(sw);
     const hinge = new THREE.Group(); hinge.position.set(-dw / 2, 0, 0); g.add(hinge); hinge.add(d.leaf); d.leaf = hinge;
     const slab = new THREE.Group(); slab.position.x = dw / 2; hinge.add(slab);
     const lh = dh - 0.4;
@@ -588,7 +591,7 @@ function buildGoblin(type) {
     }
     // magic circle on the ground and a violet aura
     const circ = new THREE.Group(); circ.position.y = 0.05; rig.add(circ); u.spin.push(circ);
-    const cp = new THREE.Mesh(new THREE.PlaneGeometry(2.1, 2.1), new THREE.MeshBasicMaterial({ map: K.circleV || (K.circleV = K.circle('#a98bff', '#66e0ff', false)), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: DS, opacity: 0.9 })); cp.rotation.x = -Math.PI / 2; circ.add(cp);
+    const cp = new THREE.Mesh(new THREE.PlaneGeometry(2.1, 2.1), new THREE.MeshBasicMaterial({ map: K.circleV || (K.circleV = K.circle('#7a4cff', '#22aadd', false)), transparent: true, depthWrite: false, side: DS, opacity: 0.85 })); cp.rotation.x = -Math.PI / 2; circ.add(cp);
     g2(rig, 0x7a4cff, 2.8, 0, 1.0, -0.3, 0.2);
   }
   if (type === 4) { // the king: damask tunic, ermine mantle, jewelled crown, embroidered cape, sun-ruby scepter, golden halo
@@ -687,8 +690,8 @@ function buildGoblin(type) {
     for (let i = 0; i < 5; i++) { const a = i / 5 * 6.283 + 0.6, y0 = 0.1 + ((i * 3) % 5) * 0.18 - 0.2, sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: K.glyphs[i], color: 0xffd24a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.85 })); sp.scale.set(0.24, 0.24, 1); sp.position.set(Math.sin(a) * 0.65, y0, Math.cos(a) * 0.65); sp.userData.y0 = y0; runes.add(sp); }
     for (let i = 0; i < 16; i++) { const a = i * 2.4, r = 0.4 + (i * 37 % 60) / 100, y0 = -0.5 + (i * 53 % 170) / 100, sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: i % 3 ? 0xffd24a : 0xfff4c0, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.8 })); sp.scale.setScalar(0.07 + (i % 3) * 0.03); sp.position.set(Math.sin(a) * r, y0, Math.cos(a) * r); sp.userData.y0 = y0; sp.userData.tw = 1; runes.add(sp); }
     const circ = new THREE.Group(); circ.position.y = 0.05; rig.add(circ); u.spin.push(circ);
-    const cp = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 2.4), new THREE.MeshBasicMaterial({ map: K.circleK || (K.circleK = K.circle('#ffc933', '#ff3355', true)), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: DS, opacity: 0.9 })); cp.rotation.x = -Math.PI / 2; circ.add(cp);
-    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: K.rays, color: 0xffd060, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.45 }));
+    const cp = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 2.4), new THREE.MeshBasicMaterial({ map: K.circleK || (K.circleK = K.circle('#e8a010', '#ff3355', true)), transparent: true, depthWrite: false, side: DS, opacity: 0.85 })); cp.rotation.x = -Math.PI / 2; circ.add(cp);
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: K.rays, color: 0xffc030, depthWrite: false, transparent: true, opacity: 0.45 }));
     halo.scale.set(4.4, 4.4, 1); halo.position.set(0, 1.0, -0.45); halo.userData.op = 0.5; rig.add(halo); u.halo = halo; u.glows.push(halo);
     g2(rig, 0xffc933, 3.2, 0, 1.0, -0.4, 0.28);
   }
@@ -793,6 +796,7 @@ addEventListener('resize', resize); resize();
 function blocked(x, z) {
   for (const r of rects) {
     if (r.door && r.door.p > 0.86) continue;
+    if (r.openOnly && r.openOnly.p < 0.55) continue;
     if (x > r.x0 - RAD && x < r.x1 + RAD && z > r.z0 - RAD && z < r.z1 + RAD) return true;
   }
   return false;
@@ -819,13 +823,13 @@ function frame(now) {
   // doors
   for (const d of doors) {
     let near = false;
-    for (const a of actors.values()) if (Math.hypot(a.x - d.gx, a.z - d.gz) < (d.kind === 'vault' ? 4.4 : 3.4)) { near = true; break; }
-    const dur = d.kind === 'vault' ? 2.6 : 0.8;
+    for (const a of actors.values()) if (Math.hypot(a.x - d.gx, a.z - d.gz) < (d.kind === 'vault' ? 6.2 : 4.6)) { near = true; break; }
+    const dur = d.kind === 'vault' ? 2.4 : 0.8;
     d.p = clamp(d.p + (near ? 1 : -1) * dt / dur, 0, 1);
     if (d.kind === 'secure') d.leaf.position.x = d.p * (DW + 0.15);
     else {
       const bolt = Math.min(d.p / 0.3, 1), swing = Math.max((d.p - 0.3) / 0.7, 0);
-      d.leaf.rotation.y = -swing * 1.75;
+      d.leaf.rotation.y = -d.sgn * swing * 1.75;
       d.wheels.forEach(w => w.rotation.z = d.p * Math.PI * 3);
       d.bolts.forEach(b => b.position.x = b.userData.x0 + b.userData.sx * 0.38 * (1 - bolt) - b.userData.sx * 0.3 * 0);
     }
