@@ -108,9 +108,23 @@ function recalc(p) { // derived stats from the equipped items
 function equip(p, goblin) { // give a player a goblin type with its starting gear and otherwise empty inventory
   const s = G.START[goblin];
   p.goblin = goblin; p.inv = { backpack: Array(G.SLOTS.backpack).fill(null), quick: Array(G.SLOTS.quick).fill(null), weapon: s.weapon, armor: s.armor };
-  p.stats = null; recalc(p); p.gold = G.START_GOLD;
+  p.stats = null; recalc(p); p.gold = G.START_GOLD; p.parts = {}; for (const pt of G.PARTS) p.parts[pt.key] = 0;
 }
 const sendGold = p => { if (p.ws) sendTo(p.ws, { gold: p.gold }); };
+const sendParts = p => { if (p.ws) sendTo(p.ws, { parts: p.parts }); };
+function recycle(m, p, slot) { // returns null on success or a failure reason
+  if (typeof slot !== 'string' || !/^(b[0-8]|q[0-2])$/.test(slot)) return 'item';
+  const mm = /^c(\d+)$/.exec(p.room || ''), id = mm ? +mm[1] : -1;
+  const L = id >= 0 ? m.layout[id] : null, my = id >= 0 ? m.mystery[id] : null;
+  const has = L === 'merchant' || (L === 'mystery' && my && my.kind === 'stations' && Array.isArray(my.stations) && my.stations.includes('recycler'));
+  if (!has) return 'room';
+  const key = getSlot(p.inv, slot), y = key && G.recycleYield(key);
+  if (!y) return 'item';
+  setSlot(p.inv, slot, null);
+  for (const k in y) p.parts[k] = (p.parts[k] || 0) + y[k];
+  sendInv(p); sendParts(p); sendTo(p.ws, { recycled: { key, parts: y } }); m.dirty = true;
+  return null;
+}
 function buy(m, p, roomId, idx) { // returns null on success or a failure reason
   if (!Number.isInteger(roomId) || !Number.isInteger(idx) || roomId < 0 || roomId >= m.shops.length || p.room !== 'c' + roomId) return 'room';
   const shop = m.shops[roomId], it = shop && shop[idx];
@@ -162,7 +176,7 @@ function win(ws, p) { // everything carried goes home with the winner, nothing i
   const m = p.match; if (p.dead || !m) return;
   const items = allItems(p.inv);
   p.dead = true; leave(m, ws);
-  sendTo(ws, { won: { items, gold: p.gold } });
+  sendTo(ws, { won: { items, gold: p.gold, parts: p.parts } });
 }
 
 wss.on('connection', (ws, req) => {
@@ -174,7 +188,7 @@ wss.on('connection', (ws, req) => {
   const m = findMatch(wins); p.match = m; m.players.set(ws, p); m.dirty = true;
   ws.on('error', () => {});
   sendTo(ws, { you: id, chests: m.chests, chestKeys: m.chestKeys, layout: m.layout, mystery: m.mystery, shops: m.shops, drops: m.drops, ...roundState(m), match: matchInfo(m) });
-  sendTo(ws, { inv: p.inv }); sendGold(p);
+  sendTo(ws, { inv: p.inv }); sendGold(p); sendParts(p);
   broadcastMatch(m);
   let tokens = 40, last = Date.now(); // rate limit: ~30 msg/s sustained, burst 40
   ws.on('message', (raw, isBinary) => {
@@ -196,6 +210,8 @@ wss.on('connection', (ws, req) => {
     } else if (dbg && Array.isArray(d.tp) && d.tp.length === 2 && d.tp.every(v => typeof v === 'number' && Number.isFinite(v))) {
       p.x = clamp(d.tp[0]); p.z = clamp(d.tp[1]); p.box = boxOf(p.x, p.z); p.room = roomKeyOf(p.x, p.z); m.dirty = true;
     } else if (dbg && Number.isFinite(d.gold)) { p.gold = Math.max(0, Math.floor(d.gold)); sendGold(p);
+    } else if (typeof d.recycle === 'string') {
+      const why = recycle(m, p, d.recycle); if (why) sendTo(ws, { recycleFail: why });
     } else if (Array.isArray(d.buy) && d.buy.length === 2) {
       const why = buy(m, p, d.buy[0], d.buy[1]); if (why) sendTo(ws, { buyFail: why });
     } else if (Array.isArray(d.mv) && d.mv.length === 2) {
