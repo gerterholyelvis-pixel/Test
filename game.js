@@ -639,7 +639,32 @@ scene.updateMatrixWorld(true);
 
 // CHEST-BEGIN (chest rooms, chests, weapons: owned by the chest agent)
 const tickers = GK.tickers = GK.tickers || [];
-const chestDyn = new Set();               // objects that must keep matrixAutoUpdate (animated)
+// The merchant logo: a gold coin with a goblin-merchant hat over a pair of scales (canvas, transparent outside the coin). Reused by doors, maps and the merchant rooms.
+function merchantLogo(size = 256) {
+  const c = document.createElement('canvas'); c.width = c.height = size; const g = c.getContext('2d'); g.scale(size / 256, size / 256);
+  const C = 128;
+  g.fillStyle = '#5a3504'; g.beginPath(); g.arc(C, C, 126, 0, 7); g.fill();
+  const gr = g.createRadialGradient(C - 34, C - 40, 8, C, C, 124); gr.addColorStop(0, '#fff3ad'); gr.addColorStop(0.45, '#f4c23f'); gr.addColorStop(1, '#a8690c');
+  g.fillStyle = gr; g.beginPath(); g.arc(C, C, 121, 0, 7); g.fill();
+  g.strokeStyle = 'rgba(90,52,4,.6)'; g.lineWidth = 2;
+  for (let i = 0; i < 56; i++) { const a = i / 56 * 6.2832; g.beginPath(); g.moveTo(C + Math.cos(a) * 113, C + Math.sin(a) * 113); g.lineTo(C + Math.cos(a) * 120, C + Math.sin(a) * 120); g.stroke(); }
+  g.strokeStyle = '#7a4a08'; g.lineWidth = 3; g.beginPath(); g.arc(C, C, 107, 0, 7); g.stroke();
+  g.strokeStyle = '#ffe99a'; g.lineWidth = 1.5; g.beginPath(); g.arc(C, C, 110, 0, 7); g.stroke();
+  const emblem = (ox, oy, col) => {
+    g.save(); g.translate(C + ox, C + oy + 14); g.fillStyle = col; g.strokeStyle = col; g.lineCap = 'round'; g.lineJoin = 'round';
+    g.beginPath(); g.moveTo(-46, -26); g.quadraticCurveTo(-36, -68, -8, -84); g.quadraticCurveTo(20, -98, 42, -74); g.quadraticCurveTo(30, -70, 25, -58); g.quadraticCurveTo(34, -40, 46, -26); g.quadraticCurveTo(0, -36, -46, -26); g.fill();   // floppy hat
+    g.beginPath(); g.ellipse(0, -24, 58, 10, 0, 0, 7); g.fill(); g.beginPath(); g.arc(46, -76, 8, 0, 7); g.fill();                                                                       // brim and bobble
+    g.lineWidth = 5; g.beginPath(); g.moveTo(0, -12); g.lineTo(0, 58); g.stroke(); g.beginPath(); g.moveTo(-56, 3); g.lineTo(56, 3); g.stroke();                                                // scales: post, beam
+    g.lineWidth = 2.4; for (const s of [-1, 1]) { g.beginPath(); g.moveTo(s * 56, 3); g.lineTo(s * 38, 34); g.moveTo(s * 56, 3); g.lineTo(s * 74, 34); g.stroke(); g.beginPath(); g.arc(s * 56, 34, 19, 0, Math.PI); g.fill(); }
+    g.beginPath(); g.moveTo(-24, 66); g.lineTo(24, 66); g.lineTo(16, 56); g.lineTo(-16, 56); g.closePath(); g.fill(); g.beginPath(); g.arc(0, 0, 7, 0, 7); g.fill();
+    g.restore();
+  };
+  emblem(2.2, 2.2, 'rgba(255,240,170,.75)'); emblem(0, 0, '#43270a');
+  g.fillStyle = '#d8281c'; g.beginPath(); g.arc(C + 28, C - 62 + 14 + 12, 5, 0, 7); g.fill();   // hat jewel
+  return c;
+}
+GK.merchantLogo = merchantLogo;
+const chestDyn = new Set();              // objects that must keep matrixAutoUpdate (animated)
 const chestSlots = [];                    // per chest room: {holder, glow, label, shaft, cur}
 {
   const rnd = (() => { let s = 1234567; return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; })();
@@ -1731,10 +1756,12 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     const box = [0, 1, 2, 3, 5, 6, 7, 8][Math.floor(Math.random() * 8)], [cx, cz] = rc(box);
     const x = cx + (Math.random() - 0.5) * 6, z = cz + (Math.random() - 0.5) * 6;
     const goblin = !bot && opts && opts.goblin != null ? opts.goblin | 0 : roll();
-    return { id: nid++, goblin, box, x, z, yaw: Math.atan2(-(cx - x), -(cz - z)), bot, tx: cx, tz: cz, wait: Math.random() * 2, seq, inv: startInv(goblin), wins: bot ? Math.max(0, myWins + Math.floor(Math.random() * 3) - 1) : myWins };
+    return { id: nid++, goblin, box, x, z, yaw: Math.atan2(-(cx - x), -(cz - z)), bot, tx: cx, tz: cz, wait: Math.random() * 2, seq, inv: startInv(goblin), gold: itemsData().START_GOLD != null ? itemsData().START_GOLD : 100, wins: bot ? Math.max(0, myWins + Math.floor(Math.random() * 3) - 1) : myWins };
   };
   const clone = v => JSON.parse(JSON.stringify(v));
+  let layoutSim = null, shopsSim = null;
   const sendInv = () => net.onmessage && meP && net.onmessage({ inv: clone(meP.inv) });
+  const sendGold = () => net.onmessage && meP && net.onmessage({ gold: meP.gold });
   const sendMatch = () => { const w = list.map(p => p.wins); net.onmessage && net.onmessage({ match: { size: 5, minWins: Math.min(...w), maxWins: Math.max(...w) } }); };
   const entry = ({ id, goblin, box, x, z, yaw, seq, inv, wins }) => { const s = invStats(inv, goblin), I = itemsData().ITEMS; return { id, goblin, box, x, z, yaw, seq, stats: s, gear: { weapon: inv.weapon && I[inv.weapon] ? I[inv.weapon].name : null, armor: inv.armor && I[inv.armor] ? I[inv.armor].name : null }, wins }; };
   const emit = () => net.onmessage && net.onmessage({ players: list.map(entry) });
@@ -1748,9 +1775,15 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     onmessage: null,
     send(m) {
       if (Number.isInteger(m.sel) && meP) { const k = roomKeyAt(meP.x, meP.z); if ((ROOM_DOORS[k] || []).includes(m.sel) && rs.sel[k] !== m.sel) { rs.sel[k] = m.sel; emitRound(); } }
-      if (m.m && meP) { [meP.x, meP.z, meP.yaw] = m.m; meP.box = roomAt(meP.x, meP.z); } if (m.reroll) { const o = list.indexOf(meP); seq++; meP = mk(false); meP.id = list[o].id; list[o] = meP; sendInv(); emit(); }
+      if (m.m && meP) { [meP.x, meP.z, meP.yaw] = m.m; meP.box = roomAt(meP.x, meP.z); } if (m.reroll) { const o = list.indexOf(meP); seq++; meP = mk(false); meP.id = list[o].id; list[o] = meP; sendInv(); sendGold(); emit(); }
       if (Array.isArray(m.mv) && meP) { invMove(meP.inv, m.mv[0], m.mv[1]); sendInv(); emit(); }   // same rules as the server; always answer with the real inventory
-      if (typeof m.drop === 'string' && meP) { invDrop(meP.inv, m.drop); sendInv(); emit(); } },
+      if (typeof m.drop === 'string' && meP) { invDrop(meP.inv, m.drop); sendInv(); emit(); }
+      if (Array.isArray(m.buy) && meP) {   // same checks and replies as the server
+        const [rid, idx] = m.buy, C = CHEST_ROOMS[rid], it = shopsSim && shopsSim[rid] && shopsSim[rid][idx];
+        const why = !C || !it || !layoutSim || layoutSim[rid] !== 'merchant' || Math.abs(meP.x - C.cx) > 4 || Math.abs(meP.z - C.cz) > 4 ? 'room' : it.sold ? 'sold' : meP.gold < it.price ? 'gold' : meP.inv.backpack.indexOf(null) < 0 ? 'space' : null;
+        if (why) net.onmessage && net.onmessage({ buyFail: why });
+        else { meP.inv.backpack[meP.inv.backpack.indexOf(null)] = it.key; meP.gold -= it.price; it.sold = true; sendInv(); sendGold(); net.onmessage && net.onmessage({ shops: clone(shopsSim) }); emit(); }
+      } },
     demoGive() {   // demo key G: a random item into the first free backpack slot
       if (!meP) return null;
       const keys = Object.keys(itemsData().ITEMS), i = meP.inv.backpack.indexOf(null); if (i < 0 || !keys.length) return null;
@@ -1758,7 +1791,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     },
   };
   meP = mk(false); list = [meP, mk(true), mk(true), mk(true), mk(true)];
-  setTimeout(() => { net.onmessage && net.onmessage({ you: meP.id, ...(() => { const layout = GKITEMS.randomLayout(); return { layout, mystery: layout.map(t => t === 'mystery' ? GKITEMS.randomMystery() : null) }; })(), chests: Array.from({ length: CHEST_ROOMS.length }, () => Math.floor(Math.random() * WEAPONS.length)), ...rmsg() }); sendInv(); sendMatch(); emit(); }, 50);
+  setTimeout(() => { net.onmessage && net.onmessage({ you: meP.id, ...(() => { const layout = GKITEMS.randomLayout(); layoutSim = layout; shopsSim = layout.map(t => t === 'merchant' ? GKITEMS.randomShop() : null); return { layout, mystery: layout.map(t => t === 'mystery' ? GKITEMS.randomMystery() : null), shops: clone(shopsSim) }; })(), chests: Array.from({ length: CHEST_ROOMS.length }, () => Math.floor(Math.random() * WEAPONS.length)), chestKeys: Array.from({ length: CHEST_ROOMS.length }, () => GKITEMS.randomWeaponKey()), ...rmsg() }); sendInv(); sendGold(); sendMatch(); emit(); }, 50);
   botPlan();
   setInterval(() => {
     const now = performance.now();
@@ -1798,10 +1831,13 @@ let me = 0, spawned = false;
 const P = { x: 0, z: 0, yaw: 0, pitch: 0, speed: 0 };
 const handleMsg = d => {
   if (d.layout) applyLayout(d.layout, d.mystery);
-  if (d.chests) applyChests(d.chests);
+  if (d.chestKeys || d.chests) applyChests(d.chestKeys || d.chests);   // item keys like 'w:axe' (new), or legacy indices
   if (d.drops) applyDrops(d.drops);
   if (d.inv) setInv(d.inv);
   if (d.match) applyMatch(d.match);
+  if (d.shops) applyShops(d.shops);
+  if (d.gold != null) setGold(d.gold);
+  if (d.buyFail) shopFail(d.buyFail);
   if (d.died) showDeathScreen(d.died);
   if (d.won) showVictory(d.won);
   if (d.you) me = d.you;
@@ -1830,6 +1866,7 @@ const handleMsg = d => {
 let assigned = false;
 let statsEl = null;
 function showStats(p, type) {   // small stat panel, bottom-left
+  ensureCss();
   if (!statsEl) {
     statsEl = document.createElement('div');
     statsEl.style.cssText = 'position:fixed;left:2vw;bottom:2.5vh;min-width:190px;padding:10px 14px;border-radius:10px;background:rgba(10,10,16,.62);border:1px solid rgba(255,215,94,.35);color:#f2efe6;font:600 14px/1.5 system-ui,sans-serif;pointer-events:none;display:none;text-shadow:0 1px 4px #000';
@@ -1844,6 +1881,7 @@ function showStats(p, type) {   // small stat panel, bottom-left
     + '<div style="height:6px;border-radius:3px;background:#2a2a34;margin:2px 0 6px"><div style="height:100%;width:' + pct + '%;border-radius:3px;background:linear-gradient(90deg,#c0392b,#e8564a)"></div></div>'
     + '<div style="display:flex;justify-content:space-between"><span>Attack</span><span>' + st.attack + '</span></div>'
     + '<div style="display:flex;justify-content:space-between"><span>Knowledge</span><span>' + st.knowledge + '</span></div>'
+    + '<div style="display:flex;justify-content:space-between;align-items:center"><span>Gold</span><span><i class="gkcoin"></i> <b style="color:#ffd75e">' + myGold + '</b></span></div>'
     + '<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,.12);font-weight:500;color:#cfd3dc"><div>Weapon: <b style="color:#f2efe6">' + gear.weapon + '</b> <small>(' + st.attack + ' dmg)</small></div>'
     + '<div>Armour: <b style="color:#f2efe6">' + gear.armor + '</b> <small>(' + max + ' HP)</small></div>'
     + '<div>Backpack: <b style="color:#f2efe6">' + packN + ' / 9</b> <small>(Tab)</small></div></div>';
@@ -1879,7 +1917,7 @@ function showDeathScreen(info) {
   const mine = actors.get(me), type = mine ? mine.goblin : 0, gear = GEAR[type], st = STATS[type];
   const ms = performance.now() - run.t0, secs = Math.floor(ms / 1000), n = GK.roundInfo ? GK.roundInfo().n : 0;
   const where = Math.abs(P.x) > 18 || Math.abs(P.z) > 18 ? 'Treasure room' : 'Room ' + (roomAt(P.x, P.z) + 1);
-  closeInv(true); GK.mode = 'dead'; inside = false; keys.clear(); hideHotbar();
+  closeInv(true); closeShop(true); GK.mode = 'dead'; inside = false; keys.clear(); hideHotbar();
   try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
   for (const id of ['hint', 'dot', 'rr', 'roundHud']) { const el = $(id); if (el) el.style.display = 'none'; }
   if (statsEl) statsEl.style.display = 'none';
@@ -1916,7 +1954,8 @@ function ensureCss() {
     + '.gks.bad{animation:gkbad .5s}@keyframes gkbad{0%,100%{}30%{border-color:#ff3b30;background:rgba(255,40,30,.45);box-shadow:0 0 16px #ff3b30}}'
     + '.gks .kl{position:absolute;left:5px;top:2px;font:800 12px system-ui,sans-serif;color:rgba(255,215,94,.8);text-shadow:0 1px 2px #000;pointer-events:none}'
     + '.gks canvas{pointer-events:none}.gks .sil{opacity:.2;filter:grayscale(1) brightness(1.5)}'
-    + '#gkInv .lab{font:700 11px system-ui,sans-serif;letter-spacing:.16em;color:#b9b4ae;margin:0 0 6px;text-align:center}'
+    + '.gkcoin{display:inline-block;width:13px;height:13px;border-radius:50%;vertical-align:-2px;background:radial-gradient(circle at 35% 30%,#fff3b0,#ffd24a 45%,#b8860b);border:1px solid #7a5a08;box-shadow:0 0 5px rgba(255,200,60,.6)}'
+    + '#gkInv .lab,#gkShop .lab{font:700 11px system-ui,sans-serif;letter-spacing:.16em;color:#b9b4ae;margin:0 0 6px;text-align:center}'
     + '#gkInv button{cursor:pointer;font:700 13px system-ui,sans-serif;letter-spacing:.1em;border-radius:8px;padding:9px 16px}';
   document.head.appendChild(st);
 }
@@ -1960,7 +1999,7 @@ function paintStatCol() {
   const mine = actors.get(me), type = mine ? mine.goblin : 0, s = invStats(myInv, type), w = myInv.weapon, a = myInv.armor;
   const row = (k, v, sub) => '<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:#aaa59d">' + k + '</span><b>' + v + '</b></div>' + (sub ? '<div style="font-size:11px;color:#8d8880;margin:-2px 0 6px;text-align:right">' + sub + '</div>' : '');
   statColEl.innerHTML = '<div class="lab" style="text-align:left">' + NAMES[type].toUpperCase() + '</div>'
-    + row('Attack', s.attack, w ? itemName(w) : 'no weapon') + row('Health', s.health + ' / ' + s.maxHealth, a ? itemName(a) : 'no armour') + row('Knowledge', s.knowledge, 'innate');
+    + row('Attack', s.attack, w ? itemName(w) : 'no weapon') + row('Health', s.health + ' / ' + s.maxHealth, a ? itemName(a) : 'no armour') + row('Knowledge', s.knowledge, 'innate') + row('Gold', '<i class="gkcoin"></i> ' + myGold);
 }
 function flashBad(...ids) { for (const id of ids) for (const el of slotEls[id] || []) { el.classList.remove('bad'); void el.offsetWidth; el.classList.add('bad'); } }
 function tipFor(k) {
@@ -2036,7 +2075,7 @@ function buildInv() {
 }
 function ghostAt(e) { if (ghostEl && held) { ghostEl.style.left = e.clientX + 'px'; ghostEl.style.top = e.clientY + 'px'; } }
 function openInv() {
-  if (invOpen || GK.mode !== 'play') return;
+  if (invOpen || shopOpen || GK.mode !== 'play') return;
   if (!invEl) buildInv();
   invOpen = true; keys.clear(); drag = false; held = null; paintAll(); invEl.style.display = 'flex';
   try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
@@ -2058,14 +2097,21 @@ GK.getInv = () => JSON.parse(JSON.stringify(myInv));
 GK.openInventory = openInv; GK.closeInventory = closeInv;
 addEventListener('keydown', e => {
   if (GK.mode !== 'play') return;
+  if (shopOpen) { if (e.code === 'Escape' || e.code === 'Tab') { e.preventDefault(); closeShop(); } return; }
+  if (!invOpen && !e.repeat && window.GK_OFFLINE && (e.code === 'KeyT' || e.code === 'KeyY') && spawned) {   // demo: T = into the first merchant room, Y = back to the start room
+    const i = (GK.layout || []).indexOf('merchant');
+    if (e.code === 'KeyT' && i >= 0) { const C = CHEST_ROOMS[i]; P.x = C.cx - C.dx * 2.2; P.z = C.cz - C.dz * 2.2; P.yaw = Math.atan2(-C.dx, -C.dz); P.pitch = 0; }
+    else if (e.code === 'KeyY') { P.x = 0; P.z = 3; P.yaw = 0; P.pitch = 0; }
+    return;
+  }
   if (e.code === 'Tab' || e.code === 'KeyI') { e.preventDefault(); if (!e.repeat) { if (invOpen) closeInv(); else openInv(); } return; }
   if (e.code === 'Escape' && invOpen) { if (held) { held = null; paintAll(); } else closeInv(); return; }
   if (e.repeat) return;
   if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') { ensureHotbar(); setSel(+e.code.slice(5) - 1); return; }
   if (window.GK_OFFLINE && e.code === 'KeyG' && netReal && netReal.demoGive) netReal.demoGive();
-  if (window.GK_OFFLINE && e.code === 'KeyL' && actors.get(me)) showVictory({ items: invAll(myInv) });   // demo only: L = win
+  if (window.GK_OFFLINE && e.code === 'KeyL' && actors.get(me)) showVictory({ items: invAll(myInv), gold: myGold });   // demo only: L = win
 });
-addEventListener('wheel', e => { if (GK.mode === 'play' && !invOpen) { ensureHotbar(); setSel(qSel + (e.deltaY > 0 ? 1 : -1)); } }, { passive: true });
+addEventListener('wheel', e => { if (GK.mode === 'play' && !invOpen && !shopOpen) { ensureHotbar(); setSel(qSel +(e.deltaY > 0 ? 1 : -1)); } }, { passive: true });
 
 // ---------- victory screen: the run is won, the character and everything it carried are kept ----------
 let winEl = null, winDone = false;
@@ -2078,12 +2124,12 @@ function showVictory(info) {
   const from = GK.charId;
   let c = null; try { c = window.GKSAVE.recordWin({ charId: from, goblin: type, items }); if (c && c.id != null) GK.charId = c.id; } catch (e) { c = null; }
   const wins = c && c.wins != null ? c.wins : (GK.wins | 0) + 1;
-  closeInv(true); GK.mode = 'win'; inside = false; keys.clear(); hideHotbar();
+  closeInv(true); closeShop(true); GK.mode = 'win'; inside = false; keys.clear(); hideHotbar();
   try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
   for (const id of ['hint', 'dot', 'rr', 'roundHud']) { const el = $(id); if (el) el.style.display = 'none'; }
   if (statsEl) statsEl.style.display = 'none';
   const esc = s => String(s).replace(/</g, '&lt;');
-  const rows = [['Goblin', NAMES[type]], ['Survived', Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0')], ['Round reached', n || 1], ['Distance travelled', Math.round(run.dist) + ' m'], ['Victories', wins]];
+  const rows = [['Goblin', NAMES[type]], ['Survived', Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0')], ['Round reached', n || 1], ['Distance travelled', Math.round(run.dist) + ' m'], ...(info && info.gold != null ? [['Gold left', info.gold]] : []), ['Victories', wins]];
   winEl = document.createElement('div');
   winEl.style.cssText = 'position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,rgba(70,50,0,.5),rgba(0,0,0,.88));font-family:system-ui,sans-serif;color:#f2efe6;opacity:0;transition:opacity .8s;overflow:auto';
   winEl.innerHTML = '<div style="width:min(540px,92vw);padding:24px 32px 24px;border-radius:16px;background:rgba(16,13,6,.84);border:1px solid rgba(255,215,94,.55);box-shadow:0 10px 60px rgba(0,0,0,.7),0 0 50px rgba(255,200,60,.12)">'
@@ -2108,6 +2154,82 @@ function showVictory(info) {
   $('winQueue').focus();
 }
 GK.showVictory = showVictory;
+
+// ---------- merchant: click the merchant goblin to trade (5 items with gold prices) ----------
+let myGold = 0, shops = [], shopOpen = false, shopRoom = -1, shopEl = null, shopMsg = null, hoverRoom = -1, hoverTip = null;
+const MERCHANT_NAMES = ['Grizzle the Fence', 'Snaggle Pennywort', 'Old Murk', 'Bargle Two-Coins', 'Fennick Slyhand', 'Gobbo the Honest'];
+const merchantName = id => { const g = (GK.merchantTargets || []).find(o => o && o.userData && o.userData.roomId === id); return (g && g.userData.merchantName) || MERCHANT_NAMES[id % MERCHANT_NAMES.length]; };
+const coin = '<i class="gkcoin"></i>';
+function setGold(n) { myGold = n | 0; paintStatCol(); const mine = actors.get(me); if (mine) showStats(null, mine.goblin); if (shopOpen) paintShop(); }
+function applyShops(s) { if (Array.isArray(s)) { shops = s; GK.shops = s; if (shopOpen) paintShop(); } }
+function shopFail(why) {
+  if (!shopOpen || !shopMsg) return;
+  shopMsg.textContent = { gold: 'Not enough gold', space: 'Your backpack is full', sold: 'Already sold', room: 'You are too far from the merchant' }[why] || 'Cannot buy that';
+  shopMsg.style.opacity = 1; shopEl.firstChild.animate([{ transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'none' }], 220);
+  clearTimeout(shopFail.t); shopFail.t = setTimeout(() => { if (shopMsg) shopMsg.style.opacity = 0; }, 2200);
+}
+function buildShop() {
+  ensureCss();
+  shopEl = document.createElement('div'); shopEl.id = 'gkShop';
+  shopEl.style.cssText = 'position:fixed;inset:0;z-index:56;display:none;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,rgba(30,22,6,.5),rgba(0,0,0,.82));font-family:system-ui,sans-serif;color:#f2efe6;user-select:none';
+  shopEl.innerHTML = '<div style="width:min(560px,94vw);box-sizing:border-box;padding:16px 24px 16px;border-radius:16px;background:rgba(14,12,9,.88);border:1px solid rgba(255,215,94,.45);box-shadow:0 10px 60px rgba(0,0,0,.7)">'
+    + '<div id="shopTitle" style="text-align:center;color:' + GOLD + ';font-weight:800;font-size:clamp(22px,3.6vw,30px);letter-spacing:.1em;text-shadow:0 0 22px rgba(255,200,60,.4)"></div>'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin:4px 0 10px;font-size:12px;letter-spacing:.14em;color:#b9b4ae"><span>MERCHANT</span><span id="shopGold" style="font-size:16px;letter-spacing:.04em;color:' + GOLD + ';font-weight:700"></span></div>'
+    + '<div id="shopRows" style="display:flex;flex-direction:column;gap:7px"></div>'
+    + '<div style="display:flex;align-items:center;gap:12px;margin-top:12px"><div id="shopMsg" style="flex:1;font-size:13px;color:#ff8a7a;opacity:0;transition:opacity .25s"></div><button id="shopClose" style="cursor:pointer;border:0;border-radius:8px;padding:9px 18px;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font:800 13px system-ui,sans-serif;letter-spacing:.1em">CLOSE (ESC)</button></div></div>';
+  document.body.appendChild(shopEl); shopMsg = shopEl.querySelector('#shopMsg');
+  shopEl.querySelector('#shopClose').onclick = () => closeShop();
+  shopEl.addEventListener('click', e => { if (e.target === shopEl) closeShop(); });
+}
+function paintShop() {
+  if (!shopEl) return;
+  shopEl.querySelector('#shopTitle').textContent = merchantName(shopRoom).toUpperCase();
+  shopEl.querySelector('#shopGold').innerHTML = 'Your gold ' + coin + ' ' + myGold;
+  const rows = shopEl.querySelector('#shopRows'); rows.textContent = '';
+  const list = shops[shopRoom] || [], full = myInv.backpack.indexOf(null) < 0;
+  if (!list.length) { rows.innerHTML = '<div style="text-align:center;color:#8d8880;padding:20px">The merchant has nothing to sell.</div>'; return; }
+  list.forEach((it, idx) => {
+    const d = itemsData().ITEMS[it.key] || { name: String(it.key), type: 'weapon', attack: 0 };
+    const row = document.createElement('div'); row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:6px 10px;border-radius:10px;background:rgba(0,0,0,.35);border:1px solid rgba(255,215,94,.2)' + (it.sold ? ';opacity:.45' : '');
+    const ic = document.createElement('div'); ic.style.cssText = 'width:48px;height:48px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:rgba(0,0,0,.4);flex:none'; ic.appendChild(mkIcon(it.key, 40));
+    const tx = document.createElement('div'); tx.style.cssText = 'flex:1;min-width:0';
+    tx.innerHTML = '<div style="font-weight:700;font-size:15px">' + d.name + '</div><div style="font-size:12px;color:#aaa59d">' + (d.type === 'weapon' ? 'Weapon · Attack ' + d.attack : 'Armour · Health ' + d.health) + '</div>';
+    const pr = document.createElement('div'); pr.style.cssText = 'font-weight:700;font-size:15px;min-width:64px;text-align:right;color:' + (myGold >= it.price ? GOLD : '#ff8a7a'); pr.innerHTML = coin + ' ' + it.price;
+    const bt = document.createElement('button'); const can = !it.sold && myGold >= it.price && !full;
+    bt.textContent = it.sold ? 'SOLD' : myGold < it.price ? 'NO GOLD' : full ? 'PACK FULL' : 'BUY'; bt.disabled = !can; bt.dataset.idx = idx;
+    bt.style.cssText = 'width:92px;padding:8px 0;border-radius:8px;font:800 12px system-ui,sans-serif;letter-spacing:.1em;cursor:' + (can ? 'pointer' : 'not-allowed') + ';' + (can ? 'border:0;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405' : it.sold ? 'border:1px solid rgba(255,255,255,.2);background:transparent;color:#8d8880' : 'border:1px solid rgba(255,90,74,.6);background:rgba(120,20,14,.35);color:#ff8a7a');
+    bt.onclick = () => { if (!bt.disabled) net.send({ buy: [shopRoom, idx] }); else shopFail(it.sold ? 'sold' : myGold < it.price ? 'gold' : 'space'); };
+    row.append(ic, tx, pr, bt); rows.appendChild(row);
+  });
+}
+function openShop(roomId) {
+  if (shopOpen || invOpen || GK.mode !== 'play') return;
+  if (!shopEl) buildShop();
+  shopRoom = roomId; shopOpen = true; keys.clear(); drag = false; paintShop(); shopEl.style.display = 'flex'; setHover(-1);
+  try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
+}
+function closeShop(noLock) {
+  if (!shopOpen) return;
+  shopOpen = false; if (shopEl) shopEl.style.display = 'none'; keys.clear(); if (!noLock) lockNow();
+}
+GK.openShop = openShop; GK.closeShop = closeShop;
+// hover: ray from the screen centre against GK.merchantTargets (pushed by the rooms code, userData.roomId = CHEST_ROOMS id)
+const ray = new THREE.Raycaster();
+function setHover(id) {
+  if (id === hoverRoom) return; hoverRoom = id;
+  const dot = $('dot'); if (dot) { dot.style.transition = 'transform .12s'; dot.style.transform = id >= 0 ? 'scale(3)' : ''; dot.style.opacity = id >= 0 ? 1 : ''; }
+  if (!hoverTip) { hoverTip = document.createElement('div'); hoverTip.style.cssText = 'position:fixed;left:50%;top:calc(50% + 24px);transform:translateX(-50%);z-index:25;pointer-events:none;padding:4px 12px;border-radius:8px;background:rgba(10,8,6,.8);border:1px solid rgba(255,215,94,.55);color:' + GOLD + ';font:700 13px system-ui,sans-serif;letter-spacing:.08em;display:none;white-space:nowrap'; document.body.appendChild(hoverTip); }
+  hoverTip.textContent = 'Click to trade'; hoverTip.style.display = id >= 0 ? 'block' : 'none';
+}
+function merchantHoverTick() {
+  const T = GK.merchantTargets;
+  if (GK.mode !== 'play' || invOpen || shopOpen || !inside || !spawned || !T || !T.length) { if (hoverRoom >= 0) setHover(-1); return; }
+  cam.updateMatrixWorld(); ray.setFromCamera({ x: 0, y: 0 }, cam); ray.far = 7;
+  const hit = ray.intersectObjects(T, true)[0]; let id = -1;
+  if (hit) { for (let o = hit.object; o; o = o.parent) if (o.userData && o.userData.roomId != null) { id = o.userData.roomId; break; } }
+  setHover(id);
+}
+document.addEventListener('click', e => { if (e.target === renderer.domElement && hoverRoom >= 0 && lockOk() && !invOpen && !shopOpen && GK.mode === 'play') openShop(hoverRoom); });
 function connect(opts) { if (netReal) return; GK.charId = opts && opts.charId != null ? opts.charId : null; GK.wins = opts && opts.wins ? opts.wins | 0 : 0; netReal = makeNet(opts || {}); netReal.onmessage = handleMsg; }
 if (window.GK_OFFLINE) { $('rr').onclick = e => { net.send({ reroll: 1 }); e.stopPropagation(); }; $('rr').onpointerdown = e => e.stopPropagation(); }
 
@@ -2128,7 +2250,7 @@ const lockOk = () => document.pointerLockElement === canvas;
 canvas.addEventListener('click', () => { if (!lockOk()) try { const r = canvas.requestPointerLock(); r && r.catch && r.catch(() => {}); } catch (e) {} });
 canvas.addEventListener('mousedown', () => drag = true); addEventListener('mouseup', () => drag = false);
 addEventListener('mousemove', e => {
-  if (invOpen || (!lockOk() && !drag)) return;
+  if (invOpen || shopOpen || (!lockOk() && !drag)) return;
   const k = 0.0022 * GK.settings.sens; P.yaw = wrapPi(P.yaw - e.movementX * k); P.pitch = clamp(P.pitch - e.movementY * k * (GK.settings.invertY ? -1 : 1), -1.45, 1.45);
 });
 // FX-BEGIN (post-processing, dust motes, light shafts, screen pulse: owned by the graphics agent)
@@ -2251,7 +2373,7 @@ function frame(now) {
   panelTick();
   const mine = actors.get(me);
   // my movement
-  if (mine && spawned && GK.mode === 'play' && !invOpen) {
+  if (mine && spawned && GK.mode === 'play' && !invOpen && !shopOpen) {
     const f = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
     const s = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
     const sp = (keys.has('ShiftLeft') || keys.has('ShiftRight') ? 7.5 : 4.6) * (0.85 + 0.15 * SCALE[mine.goblin]);
@@ -2333,6 +2455,7 @@ function frame(now) {
     cam.fov = 50; cam.position.set(Math.sin(orbit) * dist, dist * 0.7, Math.cos(orbit) * dist); cam.lookAt(0, 0, 0);
   }
   cam.updateProjectionMatrix();
+  merchantHoverTick();
   renderWorld(t);
   requestAnimationFrame(frame);
 }

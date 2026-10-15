@@ -1,6 +1,8 @@
 // Procedural item icons (browser). GKICONS.canvas(key, size) -> <canvas>; GKICONS.draw(ctx, key, x, y, size) draws into a box.
 (function () {
-  const steel = '#b8c2cc', dark = '#4a5058', wood = '#7a5230', gold = '#f0c040', leather = '#6b4a2f';
+  let steel = '#b8c2cc'; const dark = '#4a5058', wood = '#7a5230', gold = '#f0c040', leather = '#6b4a2f';
+  const TIER = { common: ['#b8c2cc', null], uncommon: ['#9fd3a8', null], rare: ['#8fb8ff', '#4a8dff'], epic: ['#d2a2ff', '#a455ff'], legendary: ['#ffd36a', '#ff9a1a'], class: ['#b8c2cc', null] };
+  const DRAW_FAMILY = {};
   const DRAW = {
     'w:dagger': g => { blade(g, 0.18, 0.62, steel); hilt(g, 0.62, 0.3, leather); },
     'w:sword': g => { blade(g, 0.24, 0.66, '#9aa3ab'); hilt(g, 0.66, 0.48, leather); g.fillStyle = '#6a4a38'; g.fillRect(-0.03, 0.72, 0.06, 0.2); },
@@ -16,6 +18,15 @@
     'a:robe': g => { poly2(g, [[-0.14, 0.1], [0.14, 0.1], [0.34, 0.92], [-0.34, 0.92]], '#4b27a0', '#2a1560'); g.fillStyle = gold; circ(g, 0, 0.5, 0.04); circ(g, -0.1, 0.7, 0.03); circ(g, 0.12, 0.8, 0.03); },
     'a:royal': g => { shirt(g, '#b3122b', '#6e0a1a'); g.fillStyle = '#f7f3ea'; g.fillRect(-0.34, 0.14, 0.68, 0.1); g.fillStyle = gold; g.fillRect(-0.34, 0.85, 0.68, 0.06); },
   };
+  // shapes for the families that have no hand-drawn icon of their own
+  DRAW_FAMILY.crossbow = g => { g.fillStyle = wood; g.fillRect(-0.04, 0.2, 0.08, 0.7); g.strokeStyle = steel; g.lineWidth = 0.06; g.beginPath(); g.moveTo(-0.36, 0.35); g.quadraticCurveTo(0, 0.1, 0.36, 0.35); g.stroke(); g.strokeStyle = '#ddd'; g.lineWidth = 0.014; g.beginPath(); g.moveTo(-0.36, 0.35); g.lineTo(0, 0.55); g.lineTo(0.36, 0.35); g.stroke(); g.fillStyle = steel; poly(g, [[0, 0.04], [0.05, 0.3], [-0.05, 0.3]]); };
+  DRAW_FAMILY.flail = g => { g.fillStyle = wood; g.fillRect(-0.035, 0.45, 0.07, 0.48); g.strokeStyle = steel; g.lineWidth = 0.03; g.beginPath(); g.moveTo(0, 0.45); g.quadraticCurveTo(0.22, 0.3, 0.1, 0.18); g.stroke(); g.fillStyle = steel; circ(g, 0.1, 0.16, 0.13); spikes(g, 0.1, 0.16, 0.13, 8); };
+  DRAW_FAMILY.halberd = g => { g.fillStyle = wood; g.fillRect(-0.025, 0.12, 0.05, 0.82); g.fillStyle = steel; poly(g, [[0, 0.0], [0.07, 0.16], [-0.07, 0.16]]); poly(g, [[0.02, 0.14], [0.32, 0.1], [0.28, 0.34], [0.02, 0.32]]); poly(g, [[-0.02, 0.2], [-0.16, 0.26], [-0.02, 0.3]]); };
+  DRAW_FAMILY.hammer = g => { g.fillStyle = wood; g.fillRect(-0.035, 0.28, 0.07, 0.66); g.fillStyle = steel; g.fillRect(-0.24, 0.08, 0.48, 0.24); g.fillStyle = 'rgba(255,255,255,.35)'; g.fillRect(-0.24, 0.08, 0.48, 0.05); g.fillStyle = dark; g.fillRect(-0.24, 0.17, 0.48, 0.03); };
+  DRAW_FAMILY.cloth = g => shirt(g, '#9a8a6a', '#5f5240');
+  DRAW_FAMILY.leather = g => { shirt(g, '#7a5232', '#3f2a1a'); g.fillStyle = '#c9a74a'; for (let i = 0; i < 4; i++) circ(g, -0.1 + (i % 2) * 0.2, 0.34 + Math.floor(i / 2) * 0.18, 0.025); };
+  DRAW_FAMILY.mail = g => { shirt(g, steel, '#4a5058'); g.strokeStyle = 'rgba(0,0,0,.28)'; g.lineWidth = 0.012; for (let y = 0.2; y < 0.88; y += 0.07) { g.beginPath(); g.moveTo(-0.2, y); g.lineTo(0.2, y); g.stroke(); } };
+  DRAW_FAMILY.plate = g => { shirt(g, steel, '#3a4048'); g.fillStyle = 'rgba(255,255,255,.4)'; g.fillRect(-0.04, 0.16, 0.08, 0.6); g.fillStyle = gold; circ(g, 0, 0.3, 0.045); g.strokeStyle = gold; g.lineWidth = 0.03; g.beginPath(); g.moveTo(-0.22, 0.88); g.lineTo(0.22, 0.88); g.stroke(); };
   function poly(g, p) { g.beginPath(); g.moveTo(p[0][0], p[0][1]); for (let i = 1; i < p.length; i++) g.lineTo(p[i][0], p[i][1]); g.closePath(); g.fill(); }
   function poly2(g, p, a, b) { g.fillStyle = a; poly(g, p); g.strokeStyle = b; g.lineWidth = 0.035; g.stroke(); }
   function circ(g, x, y, r) { g.beginPath(); g.arc(x, y, r, 0, 6.2832); g.fill(); }
@@ -26,10 +37,14 @@
   function spikes(g, x, y, r, n) { g.fillStyle = steel; for (let i = 0; i < n; i++) { const a = i * 6.2832 / n; poly(g, [[x + Math.cos(a - 0.2) * r, y + Math.sin(a - 0.2) * r], [x + Math.cos(a) * r * 1.5, y + Math.sin(a) * r * 1.5], [x + Math.cos(a + 0.2) * r, y + Math.sin(a + 0.2) * r]]); } }
   function shirt(g, a, b) { poly2(g, [[-0.18, 0.1], [0.18, 0.1], [0.38, 0.28], [0.3, 0.42], [0.22, 0.36], [0.22, 0.9], [-0.22, 0.9], [-0.22, 0.36], [-0.3, 0.42], [-0.38, 0.28]], a, b); }
   function draw(ctx, key, x, y, size) {
+    const it = window.GKITEMS && window.GKITEMS.ITEMS && window.GKITEMS.ITEMS[key], tier = (it && TIER[it.tier]) || TIER.common;
+    steel = tier[0];
     ctx.save(); ctx.translate(x + size / 2, y + size * 0.04); ctx.scale(size * 0.92, size * 0.92); ctx.lineJoin = 'round';
+    if (tier[1]) { const gr = ctx.createRadialGradient(0, 0.5, 0, 0, 0.5, 0.62); gr.addColorStop(0, tier[1] + '77'); gr.addColorStop(1, tier[1] + '00'); ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(0, 0.5, 0.62, 0, 6.2832); ctx.fill(); }
     ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = size * 0.04;
-    try { (DRAW[key] || (g => { g.fillStyle = '#888'; g.fillRect(-0.2, 0.3, 0.4, 0.4); }))(ctx); } catch (e) {}
-    ctx.restore();
+    const fam = it && it.family, fn = DRAW[key] || DRAW_FAMILY[fam] || DRAW['w:' + fam] || DRAW['a:' + fam] || (g => { g.fillStyle = '#888'; g.fillRect(-0.2, 0.3, 0.4, 0.4); });
+    try { fn(ctx); } catch (e) {}
+    ctx.restore(); steel = '#b8c2cc';
   }
   function canvas(key, size) { const c = document.createElement('canvas'); const d = Math.min(window.devicePixelRatio || 1, 2); c.width = c.height = Math.round(size * d); c.style.width = c.style.height = size + 'px'; const g = c.getContext('2d'); g.scale(d, d); draw(g, key, 0, 0, size); return c; }
   window.GKICONS = { draw, canvas };
