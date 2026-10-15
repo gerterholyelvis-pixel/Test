@@ -239,7 +239,7 @@ const dialTex = canvasTex(256, 256, (g, w, h) => {
   g.fillStyle = '#10141a'; g.beginPath(); g.arc(128, 128, 126, 0, 7); g.fill();
   g.strokeStyle = '#c9d2dc'; g.fillStyle = '#e8eef5'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = 'bold 20px system-ui';
   for (let i = 0; i < 60; i++) { const a = i / 60 * Math.PI * 2, big = i % 5 === 0; g.lineWidth = big ? 4 : 2; g.beginPath(); g.moveTo(128 + Math.sin(a) * (big ? 100 : 108), 128 - Math.cos(a) * (big ? 100 : 108)); g.lineTo(128 + Math.sin(a) * 120, 128 - Math.cos(a) * 120); g.stroke(); }
-  for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; g.fillText(String(i * 10), 128 + Math.sin(a) * 80, 128 - Math.cos(a) * 80); }
+  for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; g.fillText(String(i * 5), 128 + Math.sin(a) * 80, 128 - Math.cos(a) * 80); }
   g.fillStyle = '#ff3a2a'; g.beginPath(); g.moveTo(128, 6); g.lineTo(118, 28); g.lineTo(138, 28); g.fill();
 });
 const handTex = canvasTex(256, 256, (g, w, h) => {
@@ -262,6 +262,7 @@ const yellowM = M(0xf2b705, { metalness: 0.4, roughness: 0.42, envMapIntensity: 
 const gunM = M(0x2d3138, { map: steelTex, metalness: 0.9, roughness: 0.4, envMapIntensity: 1 });
 const lightSteelM = M(0xd7dee8, { map: steelTex, metalness: 1, roughness: 0.26, envMapIntensity: 1.25 });
 const rivetM = M(0x9aa4b0, { metalness: 1, roughness: 0.3, envMapIntensity: 1.1 });
+const chainM = M(0x9aa3ad, { metalness: 1, roughness: 0.35 });
 const redTrimM = new THREE.MeshBasicMaterial({ color: 0xc41818, toneMapped: false });
 const chainGeo = new THREE.TorusGeometry(0.07, 0.022, 6, 14), rivetGeo = new THREE.SphereGeometry(1, 8, 6);
 const _o = new THREE.Object3D();
@@ -1600,9 +1601,9 @@ function buildGoblin(type) {
 }
 
 // ---------- networking (real server, or a local simulation for the offline demo) ----------
-function makeNet() {
+function makeNet(opts) {   // opts.goblin: play this goblin type (a saved character) instead of rolling one
   if (!window.GK_OFFLINE) {
-    const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
+    const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + (opts && opts.goblin != null ? '/?goblin=' + (opts.goblin | 0) : ''));
     const net = { send: m => ws.readyState === 1 && ws.send(JSON.stringify(m)), onmessage: null };
     ws.onmessage = e => { let d; try { d = JSON.parse(e.data); } catch (err) { return; } net.onmessage && net.onmessage(d); };
     ws.onclose = () => { const m = document.getElementById('me'); if (m) m.textContent = 'Disconnected - reload to rejoin'; };
@@ -1669,7 +1670,7 @@ const P = { x: 0, z: 0, yaw: 0, pitch: 0, speed: 0 };
 const handleMsg = d => {
   if (d.chests) applyChests(d.chests);
   if (d.drops) applyDrops(d.drops);
-  if (d.died) showDied(d.died);
+  if (d.died) showDeathScreen(d.died);
   if (d.you) me = d.you;
   if (d.round || d.sel || d.open) applyRound(d);
   if (!d.players) return;
@@ -1735,16 +1736,45 @@ function showDied(info) {
   diedEl.style.opacity = 1; setTimeout(() => { diedEl.style.opacity = 0; }, 2400);
 }
 GK.applyDrops = applyDrops; GK.showDied = showDied;
+// ---- death screen: run stats, then back to the main menu or straight into the queue again ----
+const run = { t0: 0, n0: 0, dist: 0 };
+let deathEl = null;
+function showDeathScreen(info) {
+  if (GK.mode !== 'play') return;
+  const mine = actors.get(me), type = mine ? mine.goblin : 0, gear = GEAR[type], st = STATS[type];
+  const ms = performance.now() - run.t0, secs = Math.floor(ms / 1000), n = GK.roundInfo ? GK.roundInfo().n : 0;
+  const where = Math.abs(P.x) > 18 || Math.abs(P.z) > 18 ? 'Treasure room' : 'Room ' + (roomAt(P.x, P.z) + 1);
+  GK.mode = 'dead'; inside = false; keys.clear();
+  try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
+  for (const id of ['hint', 'dot', 'rr', 'roundHud']) { const el = $(id); if (el) el.style.display = 'none'; }
+  if (statsEl) statsEl.style.display = 'none';
+  const rows = [['Goblin', NAMES[type]], ['Survived', Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0')], ['Round reached', n || 1], ['Distance travelled', Math.round(run.dist) + ' m'], ['Died in', where],
+    ['Starting weapon', gear.weapon + ' (' + st.attack + ' dmg)'], ['Starting armour', gear.armor + ' (' + st.health + ' HP)'], ['Dropped', ((info && info.items) || []).join(', ') || 'nothing']];
+  deathEl = document.createElement('div');
+  deathEl.style.cssText = 'position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,rgba(60,0,0,.55),rgba(0,0,0,.88));font-family:system-ui,sans-serif;color:#f2efe6;opacity:0;transition:opacity .8s';
+  deathEl.innerHTML = '<div style="width:min(520px,92vw);padding:28px 32px 26px;border-radius:16px;background:rgba(14,10,12,.82);border:1px solid rgba(255,90,74,.45);box-shadow:0 10px 60px rgba(0,0,0,.7)">'
+    + '<div style="text-align:center;color:#ff5a4a;font-weight:800;font-size:clamp(34px,6vw,58px);letter-spacing:.1em;text-shadow:0 0 24px rgba(255,60,40,.5)">YOU DIED</div>'
+    + '<div style="text-align:center;color:#b9b4ae;margin:2px 0 18px;letter-spacing:.14em;font-size:13px">YOUR RUN</div>'
+    + '<div style="display:grid;grid-template-columns:auto 1fr;gap:7px 22px;font-size:15px;font-variant-numeric:tabular-nums">'
+    + rows.map(r => '<span style="color:#aaa59d">' + r[0] + '</span><b style="font-weight:600;text-align:right">' + String(r[1]).replace(/</g, '&lt;') + '</b>').join('') + '</div>'
+    + '<div style="display:flex;gap:12px;margin-top:24px"><button id="deathQueue" style="flex:1;padding:13px 10px;border:0;border-radius:10px;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font:800 16px system-ui,sans-serif;letter-spacing:.08em;cursor:pointer">REQUEUE</button>'
+    + '<button id="deathMenu" style="flex:1;padding:13px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.3);background:transparent;color:#f2efe6;font:700 16px system-ui,sans-serif;letter-spacing:.08em;cursor:pointer">MAIN MENU</button></div></div>';
+  document.body.appendChild(deathEl); requestAnimationFrame(() => { deathEl.style.opacity = 1; });
+  $('deathQueue').onclick = () => { try { sessionStorage.setItem('gk.requeue', '1'); } catch (e) {} location.reload(); };   // fresh connection, new wheel roll
+  $('deathMenu').onclick = () => location.reload();
+  $('deathQueue').focus();
+}
+GK.showDeathScreen = showDeathScreen;
 GK.showStats = () => { if (statsEl) statsEl.style.display = GK.mode === 'play' ? 'block' : 'none'; };
-function connect() { if (netReal) return; netReal = makeNet(); netReal.onmessage = handleMsg; }
+function connect(opts) { if (netReal) return; GK.charId = opts && opts.charId != null ? opts.charId : null; netReal = makeNet(opts || {}); netReal.onmessage = handleMsg; }
 if (window.GK_OFFLINE) { $('rr').onclick = e => { net.send({ reroll: 1 }); e.stopPropagation(); }; $('rr').onpointerdown = e => e.stopPropagation(); }
 
 // ---------- input ----------
 const keys = new Set(); let inside = true, drag = false;
 addEventListener('keydown', e => {
-  if (e.code === 'KeyK' && !e.repeat && window.GK_OFFLINE && GK.mode === 'play' && actors.get(me)) { // demo only: K = die, to see the loot drop
+  if (e.code === 'KeyK' && !e.repeat && window.GK_OFFLINE && GK.mode === 'play' && actors.get(me)) { // demo only: K = die, to see the loot drop and the death screen
     const g = GEAR[actors.get(me).goblin], items = [g.weapon, g.armor];
-    (GK.demoDrops = GK.demoDrops || []).push({ id: Date.now(), x: P.x, z: P.z, items }); applyDrops(GK.demoDrops); showDied({ items }); setTimeout(() => net.send({ reroll: 1 }), 2500);
+    (GK.demoDrops = GK.demoDrops || []).push({ id: Date.now(), x: P.x, z: P.z, items }); applyDrops(GK.demoDrops); showDeathScreen({ items });
   }
   keys.add(e.code); if (e.code === 'KeyV' && !e.repeat) inside = !inside; });
 document.addEventListener('visibilitychange', () => keys.clear());
@@ -1875,11 +1905,11 @@ const wrapPi = a => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI)
 let last = performance.now(), sendT = 0;
 function frame(now) {
   const dt = clamp((now - last) / 1000, 0.001, 0.05); last = now; const t = now / 1000;
-  if (GK.mode !== 'play') { GK.menu && GK.menu.render(now, dt); requestAnimationFrame(frame); return; }
+  if (GK.mode !== 'play' && GK.mode !== 'dead') { GK.menu && GK.menu.render(now, dt); requestAnimationFrame(frame); return; }
   panelTick();
   const mine = actors.get(me);
   // my movement
-  if (mine && spawned) {
+  if (mine && spawned && GK.mode === 'play') {
     const f = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
     const s = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
     const sp = (keys.has('ShiftLeft') || keys.has('ShiftRight') ? 7.5 : 4.6) * (0.85 + 0.15 * SCALE[mine.goblin]);
@@ -1888,6 +1918,7 @@ function frame(now) {
     const ox = P.x, oz = P.z;
     if (!blocked(P.x + mx, P.z)) P.x += mx;
     if (!blocked(P.x, P.z + mz)) P.z += mz;
+    run.dist += Math.hypot(P.x - ox, P.z - oz);
     P.speed += (Math.hypot(P.x - ox, P.z - oz) / dt - P.speed) * Math.min(1, dt * 12);
     mine.x = P.x; mine.z = P.z; mine.yaw = P.yaw; mine.speed = P.speed;
     sendT += dt; if (sendT > 0.066) { sendT = 0; net.send({ m: [+P.x.toFixed(2), +P.z.toFixed(2), +P.yaw.toFixed(3)] }); }
@@ -1966,8 +1997,8 @@ function frame(now) {
 requestAnimationFrame(frame);
 const lockNow = () => { try { const r = canvas.requestPointerLock(); r && r.catch && r.catch(() => {}); } catch (e) {} };
 GK.renderer = renderer; GK.scene = scene; GK.build = buildGoblin; GK.NAMES = NAMES; GK.SCALE = SCALE; GK.glowTex = glowTex; GK.textTex = textTex;
-GK.start = () => { connect(); return new Promise(res => { if (assigned) res(actors.get(me).goblin); else { const prev = GK.onAssigned; GK.onAssigned = g => { GK.onAssigned = prev; res(g); }; } }); }; // connects and resolves with my goblin type
-GK.enter = () => { GK.mode = 'play'; GK.showStats(); GK.applySettings(); if (window.GK_OFFLINE) $('rr').style.display = 'block'; lockNow(); };   // call from a click
+GK.start = (opts) => { connect(opts); return new Promise(res => { if (assigned) res(actors.get(me).goblin); else { const prev = GK.onAssigned; GK.onAssigned = g => { GK.onAssigned = prev; res(g); }; } }); }; // connects and resolves with my goblin type
+GK.enter = () => { run.t0 = performance.now(); run.n0 = GK.roundInfo ? GK.roundInfo().n : 0; run.dist = 0; GK.mode = 'play'; GK.showStats(); GK.applySettings(); if (window.GK_OFFLINE) $('rr').style.display = 'block'; lockNow(); };   // call from a click
 GK.applySettings = () => { renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * GK.settings.scale); resize(); };
 GK.doors = doors;
 GK.setDoorsOpen = ids => { const set = new Set(ids); doors.forEach(d => d.open = set.has(d.id)); };   // ids of doors that are open right now

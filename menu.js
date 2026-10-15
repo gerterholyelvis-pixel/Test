@@ -338,6 +338,7 @@ function startGame() {
   Promise.resolve(p).then(g => { wh.result = (typeof g === 'number' && g >= 0 && g < 5) ? g : 0; });
 }
 $('b-start').onclick = startGame;
+try { if (sessionStorage.getItem('gk.requeue')) { sessionStorage.removeItem('gk.requeue'); setTimeout(startGame, 150); } } catch (e) {}   // 'Requeue' from the death screen
 $('retry').onclick = () => location.reload();
 $('enter').onclick = () => {
   body.classList.remove('menu');

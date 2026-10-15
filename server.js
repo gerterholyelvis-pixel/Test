@@ -12,7 +12,7 @@ const srv = http.createServer((q, r) => {
     if (rel && !rel.includes('\0') && file.startsWith(base + path.sep) && file.endsWith('.js') && fs.existsSync(file) && fs.statSync(file).isFile()) { r.writeHead(200, { 'content-type': 'text/javascript' }); return r.end(fs.readFileSync(file)); }
     r.writeHead(404); return r.end();
   }
-  const js = q.url.match(/^\/(game|menu)\.js/); // client scripts
+  const js = q.url.match(/^\/(game|menu|items|save|icons)\.js/); // client scripts
   if (js) { r.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }); return r.end(read(js[1] + '.js')); }
   r.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' }); r.end(read('index.html'));
 });
@@ -79,12 +79,12 @@ function spawn() {
   const x = cx + (Math.random() - 0.5) * 6, z = cz + (Math.random() - 0.5) * 6;
   return { box, x, z, yaw: Math.atan2(-(cx - x), -(cz - z)) }; // facing the room centre
 }
-function die(ws, p) { // a dead player drops weapon, armour and everything in the inventory where they fell, then respawns as a new goblin
+function die(ws, p) { // a dead player drops weapon, armour and everything in the inventory where they fell and leaves the game
   const items = [p.gear.weapon, p.gear.armor, ...p.inv];
   drops.push({ id: nextDrop++, x: +p.x.toFixed(2), z: +p.z.toFixed(2), items }); if (drops.length > 60) drops.shift();
   const msg = JSON.stringify({ drops }); wss.clients.forEach(c => c.readyState === 1 && c.send(msg));
   if (ws.readyState === 1) ws.send(JSON.stringify({ died: { items } }));
-  setTimeout(() => { if (players.get(ws) === p) { Object.assign(p, spawn()); p.room = String(p.box); equip(p, rollGoblin()); dirty = true; } }, 2500);
+  p.dead = true; players.delete(ws); dirty = true;   // out of the game; the client goes back to the menu or requeues with a new connection
 }
 const send = () => {
   const msg = JSON.stringify({ players: [...players.values()] });
@@ -106,6 +106,7 @@ wss.on('connection', ws => {
     if (isBinary || tokens < 1) return;
     tokens--;
     let d; try { d = JSON.parse(raw.toString()); } catch { return; }
+    if (p.dead) return;
     if (d && Array.isArray(d.m) && d.m.length === 3 && d.m.every(v => typeof v === 'number' && Number.isFinite(v))) {
       p.x = clamp(d.m[0]); p.z = clamp(d.m[1]);
       p.yaw = Math.max(-1e3, Math.min(1e3, d.m[2]));
