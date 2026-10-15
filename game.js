@@ -1,4 +1,5 @@
 // Goblin King client. Needs a global THREE (r158+). Set window.GK_OFFLINE = true to run with simulated players.
+if (/[?&]offline=1/.test(location.search)) window.GK_OFFLINE = true;   // demo/test: simulated players, no server
 (() => {
 const THREE = window.THREE;
 const NAMES = ['Small Goblin', 'Goblin', 'Big Goblin', 'Goblin Wizard', 'GOBLIN KING'];
@@ -19,13 +20,23 @@ GK.settings = Object.assign({ sens: 1, fov: 75, scale: 1, invertY: false, tags: 
 const CS = 8;                             // chest room size
 const WEAPONS = ['Rusty Sword', 'Battle Axe', 'War Spear', 'Spiked Mace', 'Short Bow', 'Dagger'];
 // One chest room behind every outer wall: edge rooms get 1, corner rooms get 2 (12 in total)
+// Three kinds of rooms behind the outer doors: 'chest' (a chest with a random weapon), 'mystery' (question mark, contents decided later) and 'merchant' (merchant goblin behind glass, knowledge tree, workbench, recycler).
+// Edge rooms (1,3,5,7) have only a chest room; each corner room (0,2,6,8) has a chest room plus one mystery or merchant room: 8 chest, 2 mystery, 2 merchant.
+const ROOM_TYPE_BY_ID = { 1: 'mystery', 4: 'merchant', 7: 'merchant', 10: 'mystery' };   // ids follow the CHEST_ROOMS creation order below
 const CHEST_ROOMS = [];
+const layoutHooks = [];   // functions called with the type array when the match's random room layout is known (room interiors, door emblems, maps and panels are built/updated from it)
 for (let i = 0; i < 9; i++) {
   if (i === 4) continue;
   const col = i % 3, row = Math.floor(i / 3), cx0 = (col - 1) * R, cz0 = (row - 1) * R, sides = [];
   if (row === 0) sides.push(['N', 0, -1]); if (col === 0) sides.push(['W', -1, 0]); if (col === 2) sides.push(['E', 1, 0]); if (row === 2) sides.push(['S', 0, 1]);
-  for (const [side, dx, dz] of sides) CHEST_ROOMS.push({ id: CHEST_ROOMS.length, parent: i, side, dx, dz, cx: cx0 + dx * (R / 2 + CS / 2), cz: cz0 + dz * (R / 2 + CS / 2), wallX: cx0 + dx * R / 2, wallZ: cz0 + dz * R / 2 });
+  for (const [side, dx, dz] of sides) CHEST_ROOMS.push({ id: CHEST_ROOMS.length, type: ROOM_TYPE_BY_ID[CHEST_ROOMS.length] || 'chest', parent: i, side, dx, dz, cx: cx0 + dx * (R / 2 + CS / 2), cz: cz0 + dz * (R / 2 + CS / 2), wallX: cx0 + dx * R / 2, wallZ: cz0 + dz * R / 2 });
 }
+function applyLayout(types) {   // types: 12 strings in CHEST_ROOMS order
+  if (!Array.isArray(types) || types.length !== CHEST_ROOMS.length || !types.every(t => t === 'chest' || t === 'mystery' || t === 'merchant')) return;
+  types.forEach((t, i) => { CHEST_ROOMS[i].type = t; });
+  GK.layout = types.slice(); for (const f of layoutHooks) { try { f(GK.layout); } catch (e) { console.error(e); } }
+}
+GK.layoutHooks = layoutHooks; GK.applyLayout = applyLayout;
 GK.CHEST_ROOMS = CHEST_ROOMS; GK.WEAPONS = WEAPONS;
 
 // ---------- renderer ----------
@@ -981,14 +992,20 @@ const doorLabel = (key, id) => {
 const fmtT = ms => { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
 
 // ----- round state (fed by applyRound; the local clock interpolates between server updates) -----
-const RS = { n: 0, endAt: 0, dur: 0, sel: {}, open: [], selJ: '{}', openJ: '[]', flashed: 0, flashUntil: 0 };
+const RS = { n: 0, endAt: 0, dur: 0, sel: {}, open: [], fizzled: [], votes: 0, selJ: '{}', openJ: '[]', flashUntil: 0, fizzUntil: 0 };
 const roundLeft = () => Math.max(0, RS.endAt - performance.now());
 function applyRound(d) {
   const now = performance.now();
   if (d.round && Number.isFinite(d.round.n)) {
-    if (RS.n > 0 && d.round.n > RS.n && RS.flashed !== RS.n) { RS.flashed = RS.n; RS.flashUntil = now + 2200; }
+    if (RS.n > 0 && d.round.n > RS.n) {   // a round just ended: banners depend on what actually opened / fizzled
+      RS.fizzled = Array.isArray(d.fizzled) ? d.fizzled : [];
+      if (Array.isArray(d.open) && d.open.length) RS.flashUntil = now + 2200;
+      const mySel = RS.sel[roomKeyAt(P.x, P.z)];
+      if (Array.isArray(d.fizzled) && d.fizzled.length && mySel !== undefined && d.fizzled.includes(mySel)) RS.fizzUntil = now + 2800;
+    }
     RS.n = d.round.n; RS.endAt = now + (+d.round.left || 0); RS.dur = +d.round.dur || 0;
   }
+  if (Number.isFinite(d.vaultVotes) && d.vaultVotes !== RS.votes) { RS.votes = d.vaultVotes; panelsDirty(); }
   if (d.sel && typeof d.sel === 'object') { const j = JSON.stringify(d.sel); if (j !== RS.selJ) { RS.selJ = j; RS.sel = d.sel; panelsDirty(); } }
   if (Array.isArray(d.open)) { const j = JSON.stringify(d.open); if (j !== RS.openJ) { RS.openJ = j; RS.open = d.open; GK.setDoorsOpen(d.open); panelsDirty(); } }
 }
@@ -1044,20 +1061,22 @@ function cpDraw(p) {
   p.buttons.forEach((b, i) => {
     const L = doorLabel(p.key, b.id), sel = selSet.has(b.id), opn = openSet.has(b.id), hov = p.hover === i;
     g.save();
-    if (sel) { g.shadowColor = '#ffd24a'; g.shadowBlur = 22; g.fillStyle = hov ? '#ffe27a' : '#ffcf3a'; }
+    if (sel) { const warn = RS.votes < 2 && doorLabel(p.key, b.id).kind === 'vault'; g.shadowColor = warn ? '#ff5a2a' : '#ffd24a'; g.shadowBlur = 22; g.fillStyle = warn ? (hov ? '#ffa55a' : '#ff8a3a') : hov ? '#ffe27a' : '#ffcf3a'; }
     else g.fillStyle = hov ? '#21456f' : opn ? '#0f3a24' : '#13243a';
     cpRR(g, b.x, b.y, b.w, b.h, 14); g.fill(); g.shadowBlur = 0;
     g.lineWidth = sel ? 5 : hov ? 5 : 3; g.strokeStyle = sel ? '#fff6cf' : hov ? '#9fd8ff' : opn ? '#3aff80' : '#2f5e8f'; g.stroke(); g.restore();
     const r = Math.min(b.h * 0.38, 46), ix = b.x + 16 + r, iy = b.y + b.h / 2;
     cpIcon(g, L.kind, ix, iy, r);
     const tx = ix + r + 18, tw = b.x + b.w - 16 - tx - (opn ? 96 : 0), dark = sel;
-    let fs = Math.min(40, b.h * 0.34); const text = L.dir + ' · ' + L.dest;
+    let fs = Math.min(L.kind === 'vault' ? 34 : 40, b.h * 0.34); const text = L.dir + ' · ' + L.dest;
     g.textAlign = 'left'; g.font = '800 ' + fs + 'px system-ui, sans-serif';
     while (g.measureText(text).width > tw && fs > 18) { fs -= 2; g.font = '800 ' + fs + 'px system-ui, sans-serif'; }
-    g.fillStyle = dark ? '#1a1204' : '#f1f7ff'; g.fillText(text, tx, iy - fs * 0.42);
+    g.fillStyle = dark ? '#1a1204' : '#f1f7ff'; g.fillText(text, tx, iy - fs * (L.kind === 'vault' ? 0.82 : 0.42));
     g.font = '700 ' + Math.min(26, b.h * 0.22) + 'px system-ui, sans-serif';
     g.fillStyle = sel ? '#7a1200' : opn ? '#6dff9f' : hov ? '#cfe8ff' : '#7fa4cc';
-    g.fillText(sel ? 'SELECTED · OPENS AT 0:00' : opn ? 'OPEN THIS ROUND' : 'Click to select', tx, iy + fs * 0.72);
+    const vlt = L.kind === 'vault', dy = vlt ? 4 : fs * 0.72;
+    g.fillText(sel ? 'SELECTED · OPENS AT 0:00' : opn ? 'OPEN THIS ROUND' : 'Click to select', tx, iy + dy);
+    if (vlt) { g.font = '800 ' + Math.min(21, b.h * 0.18) + 'px system-ui, sans-serif'; g.fillStyle = sel ? (RS.votes < 2 ? '#8a0a00' : '#1a5a10') : '#ffb347'; g.fillText('NEEDS 2 PLAYERS · Vault votes: ' + RS.votes + '/2', tx, iy + dy + Math.min(27, b.h * 0.24)); }
     if (opn) { g.fillStyle = '#18c25e'; cpRR(g, b.x + b.w - 100, iy - 20, 84, 40, 20); g.fill(); g.fillStyle = '#04200f'; g.textAlign = 'center'; g.font = '800 24px system-ui, sans-serif'; g.fillText('OPEN', b.x + b.w - 58, iy + 1); }
   });
   p.tex.needsUpdate = true; p.dirty = false;
@@ -1118,7 +1137,8 @@ renderer.domElement.addEventListener('click', () => {
   net.send({ sel: a.p.buttons[a.i].id });
 });
 GK.panelClick = (room, idx) => { const ids = ROOM_DOORS[String(room)]; if (ids && ids[idx] !== undefined) net.send({ sel: ids[idx] }); };   // test helper: same message as a click
-GK.roundInfo = () => ({ n: RS.n, left: roundLeft(), dur: RS.dur, sel: RS.sel, open: RS.open });
+GK.roundInfo = () => ({ n: RS.n, left: roundLeft(), dur: RS.dur, sel: RS.sel, open: RS.open, votes: RS.votes, fizzled: RS.fizzled });
+GK._applyRound = applyRound;   // test hook
 GK.ROOM_DOORS = ROOM_DOORS; GK.roomKeyAt = roomKeyAt;
 
 {
@@ -1127,20 +1147,22 @@ GK.ROOM_DOORS = ROOM_DOORS; GK.roomKeyAt = roomKeyAt;
     '#roundHud .t{display:inline-block;padding:6px 26px 8px;border-radius:14px;background:rgba(8,14,24,.72);border:2px solid rgba(120,180,255,.55);color:#f2f8ff;font-weight:800;font-size:clamp(26px,4.4vw,46px);letter-spacing:.06em;font-variant-numeric:tabular-nums;text-shadow:0 2px 8px #000;box-shadow:0 4px 24px rgba(0,0,0,.5)}' +
     '#roundHud .t.warn{color:#ff4343;border-color:#ff4343;background:rgba(40,6,6,.78);animation:rhPulse .5s ease-in-out infinite alternate}' +
     '#roundHud .b{margin-top:10px;font-weight:900;font-size:clamp(28px,5.5vw,60px);letter-spacing:.14em;color:#ffd24a;text-shadow:0 0 18px #ff9a00,0 3px 10px #000;animation:rhBanner 2.2s ease-out forwards;display:none}' +
+    '#roundHud .b.f{color:#ff4a3a;font-size:clamp(20px,3.6vw,38px);text-shadow:0 0 16px #a00,0 3px 10px #000}' +
     '@keyframes rhPulse{from{transform:scale(1)}to{transform:scale(1.14)}}@keyframes rhBanner{0%{opacity:0;transform:scale(.7)}12%{opacity:1;transform:scale(1.08)}20%{transform:scale(1)}80%{opacity:1}100%{opacity:0}}';
   document.head.appendChild(css);
-  const hud = document.createElement('div'); hud.id = 'roundHud'; hud.innerHTML = '<div class="t"></div><div class="b">DOORS OPENING</div>';
+  const hud = document.createElement('div'); hud.id = 'roundHud'; hud.innerHTML = '<div class="t"></div><div class="b">DOORS OPENING</div><div class="b f">VAULT NEEDS 2 PLAYERS - TURN WASTED</div>';
   document.body.appendChild(hud);
-  const tEl = hud.firstChild, bEl = hud.lastChild; let shownBanner = 0, lastTxt = '', lastWarn = null;
+  const tEl = hud.children[0], bEl = hud.children[1], fEl = hud.children[2]; let shownBanner = 0, shownFizz = 0, lastTxt = '', lastWarn = null;
   setInterval(() => {
     const show = GK.mode === 'play' && RS.n > 0; hud.style.display = show ? 'block' : 'none'; if (!show) return;
     const left = roundLeft(), now = performance.now();
-    if (left <= 0 && RS.flashed !== RS.n) { RS.flashed = RS.n; RS.flashUntil = now + 2200; }
     const txt = 'ROUND ' + RS.n + '  ' + fmtT(left), warn = left <= 5000;
     if (txt !== lastTxt) { tEl.textContent = txt; lastTxt = txt; }
     if (warn !== lastWarn) { tEl.classList.toggle('warn', warn); lastWarn = warn; }
     if (now < RS.flashUntil) { if (shownBanner !== RS.flashUntil) { shownBanner = RS.flashUntil; bEl.style.display = 'none'; void bEl.offsetWidth; bEl.style.display = 'block'; } }
     else if (shownBanner) { shownBanner = 0; bEl.style.display = 'none'; }
+    if (now < RS.fizzUntil) { if (shownFizz !== RS.fizzUntil) { shownFizz = RS.fizzUntil; fEl.style.display = 'none'; void fEl.offsetWidth; fEl.style.display = 'block'; } }
+    else if (shownFizz) { shownFizz = 0; fEl.style.display = 'none'; }
   }, 100);
 }
 // PANEL-END
@@ -1600,10 +1622,35 @@ function buildGoblin(type) {
   return root;
 }
 
+// ---------- inventory rules (same as the server: also used by the offline simulation and for optimistic UI) ----------
+const itemsData = () => window.GKITEMS || { ITEMS: {}, START: [], KNOWLEDGE: [], SLOTS: { backpack: 9, quick: 3 } };
+const itemName = k => { const it = itemsData().ITEMS[k]; return it ? it.name : String(k); };   // keys -> names (plain names from an older server pass through)
+const emptyInv = () => ({ backpack: Array(9).fill(null), quick: Array(3).fill(null), weapon: null, armor: null });
+function startInv(goblin) { const inv = emptyInv(), s = itemsData().START[goblin]; if (s) { inv.weapon = s.weapon || null; inv.armor = s.armor || null; } return inv; }
+const SLOT_RE = /^(b[0-8]|q[0-2]|weapon|armor)$/;
+function invGet(inv, id) { return id === 'weapon' || id === 'armor' ? inv[id] : (id[0] === 'b' ? inv.backpack : inv.quick)[+id.slice(1)]; }
+function invSet(inv, id, v) { if (id === 'weapon' || id === 'armor') inv[id] = v; else (id[0] === 'b' ? inv.backpack : inv.quick)[+id.slice(1)] = v; }
+function slotAccepts(id, key) {
+  if (key == null) return true;
+  const it = itemsData().ITEMS[key]; if (!it) return false;
+  return id === 'weapon' ? it.type === 'weapon' : id === 'armor' ? it.type === 'armor' : true;
+}
+function canMove(inv, from, to) { return SLOT_RE.test(from) && SLOT_RE.test(to) && from !== to && invGet(inv, from) != null && slotAccepts(to, invGet(inv, from)) && slotAccepts(from, invGet(inv, to)); }
+function invMove(inv, from, to) {   // swaps when the target is occupied; returns false (and changes nothing) if rejected
+  if (typeof from !== 'string' || typeof to !== 'string' || !canMove(inv, from, to)) return false;
+  const a = invGet(inv, from), b = invGet(inv, to); invSet(inv, to, a); invSet(inv, from, b); return true;
+}
+function invDrop(inv, id) { if (typeof id !== 'string' || !SLOT_RE.test(id)) return null; const k = invGet(inv, id); if (k == null) return null; invSet(inv, id, null); return k; }
+function invStats(inv, goblin) {   // attack comes from the weapon, health from the armour, knowledge is innate
+  const I = itemsData().ITEMS, w = I[inv.weapon], a = I[inv.armor], hp = a ? a.health : 0;
+  return { knowledge: (itemsData().KNOWLEDGE || [])[goblin] != null ? itemsData().KNOWLEDGE[goblin] : STATS[goblin].knowledge, attack: w ? w.attack : 0, health: hp, maxHealth: hp };
+}
+function invAll(inv) { return [inv.weapon, inv.armor, ...inv.backpack, ...inv.quick].filter(k => k != null); }
+
 // ---------- networking (real server, or a local simulation for the offline demo) ----------
 function makeNet(opts) {   // opts.goblin: play this goblin type (a saved character) instead of rolling one
   if (!window.GK_OFFLINE) {
-    const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + (opts && opts.goblin != null ? '/?goblin=' + (opts.goblin | 0) : ''));
+    const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + (opts && opts.goblin != null ? '/?goblin=' + (opts.goblin | 0) + '&wins=' + (Math.max(0, (opts.wins | 0))) : (opts && opts.wins ? '/?wins=' + (opts.wins | 0) : '')));
     const net = { send: m => ws.readyState === 1 && ws.send(JSON.stringify(m)), onmessage: null };
     ws.onmessage = e => { let d; try { d = JSON.parse(e.data); } catch (err) { return; } net.onmessage && net.onmessage(d); };
     ws.onclose = () => { const m = document.getElementById('me'); if (m) m.textContent = 'Disconnected - reload to rejoin'; };
@@ -1611,30 +1658,44 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
   }
   const roll = () => { const r = Math.random() * 100; return r < 30 ? 0 : r < 60 ? 1 : r < 90 ? 2 : r < 99 ? 3 : 4; };
   let nid = 1, list = [], meP = null, seq = 0;
+  const myWins = Math.max(0, (opts && opts.wins) | 0);
   const mk = bot => {
     const box = [0, 1, 2, 3, 5, 6, 7, 8][Math.floor(Math.random() * 8)], [cx, cz] = rc(box);
     const x = cx + (Math.random() - 0.5) * 6, z = cz + (Math.random() - 0.5) * 6;
-    return { id: nid++, goblin: roll(), box, x, z, yaw: Math.atan2(-(cx - x), -(cz - z)), bot, tx: cx, tz: cz, wait: Math.random() * 2, seq };
+    const goblin = !bot && opts && opts.goblin != null ? opts.goblin | 0 : roll();
+    return { id: nid++, goblin, box, x, z, yaw: Math.atan2(-(cx - x), -(cz - z)), bot, tx: cx, tz: cz, wait: Math.random() * 2, seq, inv: startInv(goblin), wins: bot ? Math.max(0, myWins + Math.floor(Math.random() * 3) - 1) : myWins };
   };
-  const emit = () => net.onmessage && net.onmessage({ players: list.map(({ id, goblin, box, x, z, yaw, seq }) => ({ id, goblin, box, x, z, yaw, seq })) });
+  const clone = v => JSON.parse(JSON.stringify(v));
+  const sendInv = () => net.onmessage && meP && net.onmessage({ inv: clone(meP.inv) });
+  const sendMatch = () => { const w = list.map(p => p.wins); net.onmessage && net.onmessage({ match: { size: 5, minWins: Math.min(...w), maxWins: Math.max(...w) } }); };
+  const entry = ({ id, goblin, box, x, z, yaw, seq, inv, wins }) => { const s = invStats(inv, goblin), I = itemsData().ITEMS; return { id, goblin, box, x, z, yaw, seq, stats: s, gear: { weapon: inv.weapon && I[inv.weapon] ? I[inv.weapon].name : null, armor: inv.armor && I[inv.armor] ? I[inv.armor].name : null }, wins }; };
+  const emit = () => net.onmessage && net.onmessage({ players: list.map(entry) });
   // same round machine as server.js, run locally: 30 s first round, 45 s after; bots pick a door in their room each round
-  const rs = { n: 1, dur: 30000, endsAt: performance.now() + 30000, sel: {}, open: [] };
-  const rmsg = () => ({ round: { n: rs.n, left: Math.max(0, rs.endsAt - performance.now()), dur: rs.dur }, sel: { ...rs.sel }, open: rs.open.slice() });
+  const rs = { n: 1, dur: 30000, endsAt: performance.now() + 30000, sel: {}, open: [], fizzled: [] };
+  const isVault = id => DINFO[id].kind === 'vault', votes = () => Object.keys(rs.sel).filter(k => isVault(rs.sel[k])).length;
+  const rmsg = () => ({ round: { n: rs.n, left: Math.max(0, rs.endsAt - performance.now()), dur: rs.dur }, sel: { ...rs.sel }, open: rs.open.slice(), vaultVotes: votes(), fizzled: rs.fizzled.slice() });
   const emitRound = () => net.onmessage && net.onmessage(rmsg());
   const botPlan = () => { for (const b of list) if (b.bot) b.selAt = performance.now() + 1500 + Math.random() * (rs.dur - 6000); };
   const net = {
     onmessage: null,
     send(m) {
       if (Number.isInteger(m.sel) && meP) { const k = roomKeyAt(meP.x, meP.z); if ((ROOM_DOORS[k] || []).includes(m.sel) && rs.sel[k] !== m.sel) { rs.sel[k] = m.sel; emitRound(); } }
-      if (m.m && meP) { [meP.x, meP.z, meP.yaw] = m.m; meP.box = roomAt(meP.x, meP.z); } if (m.reroll) { const o = list.indexOf(meP); seq++; meP = mk(false); meP.id = list[o].id; list[o] = meP; } },
+      if (m.m && meP) { [meP.x, meP.z, meP.yaw] = m.m; meP.box = roomAt(meP.x, meP.z); } if (m.reroll) { const o = list.indexOf(meP); seq++; meP = mk(false); meP.id = list[o].id; list[o] = meP; sendInv(); emit(); }
+      if (Array.isArray(m.mv) && meP) { invMove(meP.inv, m.mv[0], m.mv[1]); sendInv(); emit(); }   // same rules as the server; always answer with the real inventory
+      if (typeof m.drop === 'string' && meP) { invDrop(meP.inv, m.drop); sendInv(); emit(); } },
+    demoGive() {   // demo key G: a random item into the first free backpack slot
+      if (!meP) return null;
+      const keys = Object.keys(itemsData().ITEMS), i = meP.inv.backpack.indexOf(null); if (i < 0 || !keys.length) return null;
+      meP.inv.backpack[i] = keys[Math.floor(Math.random() * keys.length)]; sendInv(); emit(); return meP.inv.backpack[i];
+    },
   };
   meP = mk(false); list = [meP, mk(true), mk(true), mk(true), mk(true)];
-  setTimeout(() => { net.onmessage && net.onmessage({ you: meP.id, chests: Array.from({ length: CHEST_ROOMS.length }, () => Math.floor(Math.random() * WEAPONS.length)), ...rmsg() }); emit(); }, 50);
+  setTimeout(() => { net.onmessage && net.onmessage({ you: meP.id, layout: GKITEMS.randomLayout(), chests: Array.from({ length: CHEST_ROOMS.length }, () => Math.floor(Math.random() * WEAPONS.length)), ...rmsg() }); sendInv(); sendMatch(); emit(); }, 50);
   botPlan();
   setInterval(() => {
     const now = performance.now();
-    if (now >= rs.endsAt) { rs.open = [...new Set(Object.values(rs.sel))]; rs.sel = {}; rs.n++; rs.dur = 45000; rs.endsAt = now + rs.dur; botPlan(); emitRound(); return; }
-    for (const b of list) if (b.bot && b.selAt && now >= b.selAt) { b.selAt = 0; const k = roomKeyAt(b.x, b.z), ids = ROOM_DOORS[k]; if (ids && rs.sel[k] === undefined) { rs.sel[k] = ids[Math.floor(Math.random() * ids.length)]; emitRound(); } }
+    if (now >= rs.endsAt) { const picked = [...new Set(Object.values(rs.sel))], ok = votes() >= 2; rs.open = picked.filter(d => ok || !isVault(d)); rs.fizzled = ok ? [] : picked.filter(isVault); rs.sel = {}; rs.n++; rs.dur = 45000; rs.endsAt = now + rs.dur; botPlan(); emitRound(); return; }
+    for (const b of list) if (b.bot && b.selAt && now >= b.selAt) { b.selAt = 0; const k = roomKeyAt(b.x, b.z), ids = ROOM_DOORS[k]; if (ids && rs.sel[k] === undefined) { const vs = ids.filter(isVault), pool = vs.length && Math.random() < 0.5 ? vs : ids; rs.sel[k] = pool[Math.floor(Math.random() * pool.length)]; emitRound(); } }
   }, 200);
   setInterval(emitRound, 1000);
   setInterval(() => {
@@ -1652,7 +1713,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     }
     emit();
   }, 50);
-  setInterval(() => { const bots = list.filter(p => p.bot); if (bots.length > 2 && Math.random() < 0.5) list.splice(list.indexOf(bots[0]), 1); else if (bots.length < 6) list.push(mk(true)); }, 7000);
+  setInterval(() => { const bots = list.filter(p => p.bot); if (bots.length > 2 && Math.random() < 0.5) list.splice(list.indexOf(bots[0]), 1); else if (bots.length < 6) list.push(mk(true)); sendMatch(); }, 7000);
   return net;
 }
 
@@ -1668,9 +1729,13 @@ const actors = new Map();
 let me = 0, spawned = false;
 const P = { x: 0, z: 0, yaw: 0, pitch: 0, speed: 0 };
 const handleMsg = d => {
+  if (d.layout) applyLayout(d.layout);
   if (d.chests) applyChests(d.chests);
   if (d.drops) applyDrops(d.drops);
+  if (d.inv) setInv(d.inv);
+  if (d.match) applyMatch(d.match);
   if (d.died) showDeathScreen(d.died);
+  if (d.won) showVictory(d.won);
   if (d.you) me = d.you;
   if (d.round || d.sel || d.open) applyRound(d);
   if (!d.players) return;
@@ -1702,8 +1767,10 @@ function showStats(p, type) {   // small stat panel, bottom-left
     statsEl.style.cssText = 'position:fixed;left:2vw;bottom:2.5vh;min-width:190px;padding:10px 14px;border-radius:10px;background:rgba(10,10,16,.62);border:1px solid rgba(255,215,94,.35);color:#f2efe6;font:600 14px/1.5 system-ui,sans-serif;pointer-events:none;display:none;text-shadow:0 1px 4px #000';
     document.body.appendChild(statsEl);
   }
-  const st = Object.assign({}, STATS[type], p && p.stats), gear = (p && p.gear) || GEAR[type], inv = (p && p.inv) || [];
-  const max = st.maxHealth || st.health, pct = Math.max(0, Math.min(100, 100 * st.health / max));
+  const mineInv = invReady ? invStats(myInv, type) : null;   // my own inventory is the freshest source for my stats
+  const st = Object.assign({}, STATS[type], mineInv, p && p.stats), gear = Object.assign({}, GEAR[type], p && p.gear, invReady ? { weapon: myInv.weapon ? itemName(myInv.weapon) : 'none', armor: myInv.armor ? itemName(myInv.armor) : 'none' } : null);
+  const packN = invReady ? myInv.backpack.filter(Boolean).length : 0;
+  const max = st.maxHealth || st.health || 1, pct = Math.max(0, Math.min(100, 100 * st.health / max));
   statsEl.innerHTML = '<div style="color:#ffd75e;letter-spacing:.06em;margin-bottom:4px">' + NAMES[type].toUpperCase() + '</div>'
     + '<div style="display:flex;justify-content:space-between"><span>Health</span><span>' + st.health + ' / ' + max + '</span></div>'
     + '<div style="height:6px;border-radius:3px;background:#2a2a34;margin:2px 0 6px"><div style="height:100%;width:' + pct + '%;border-radius:3px;background:linear-gradient(90deg,#c0392b,#e8564a)"></div></div>'
@@ -1711,7 +1778,7 @@ function showStats(p, type) {   // small stat panel, bottom-left
     + '<div style="display:flex;justify-content:space-between"><span>Knowledge</span><span>' + st.knowledge + '</span></div>'
     + '<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,.12);font-weight:500;color:#cfd3dc"><div>Weapon: <b style="color:#f2efe6">' + gear.weapon + '</b> <small>(' + st.attack + ' dmg)</small></div>'
     + '<div>Armour: <b style="color:#f2efe6">' + gear.armor + '</b> <small>(' + max + ' HP)</small></div>'
-    + '<div>Inventory: <b style="color:#f2efe6">' + (inv.length ? inv.join(', ') : 'empty') + '</b></div></div>';
+    + '<div>Backpack: <b style="color:#f2efe6">' + packN + ' / 9</b> <small>(Tab)</small></div></div>';
   statsEl.style.display = GK.mode === 'play' ? 'block' : 'none';
 }
 // ---- loot: what a dead goblin leaves behind (weapon, armour and everything in the inventory) ----
@@ -1725,14 +1792,14 @@ function applyDrops(list) {
     const sack = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 12), new THREE.MeshStandardMaterial({ color: 0x7a5a34, roughness: 0.9 })); sack.scale.y = 0.8; sack.position.y = 0.25; g.add(sack);
     const neck = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.25, 10), sack.material); neck.position.y = 0.58; g.add(neck);
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffd24a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.8 })); glow.scale.set(1.6, 1.6, 1); glow.position.y = 0.5; g.add(glow);
-    const lab = new THREE.Sprite(new THREE.SpriteMaterial({ map: textTex(d.items.join(' · '), '#ffd75e', 'rgba(10,10,16,.6)', 640, 96, 'bold 40px system-ui'), transparent: true, depthWrite: false })); lab.scale.set(2.4, 0.36, 1); lab.position.y = 1.1; g.add(lab);
+    const lab = new THREE.Sprite(new THREE.SpriteMaterial({ map: textTex(d.items.map(itemName).join(' · '), '#ffd75e', 'rgba(10,10,16,.6)', 640, 96, 'bold 40px system-ui'), transparent: true, depthWrite: false })); lab.scale.set(2.4, 0.36, 1); lab.position.y = 1.1; g.add(lab);
     scene.add(g); lootMeshes.set(d.id, g);
   }
 }
 let diedEl = null;
 function showDied(info) {
   if (!diedEl) { diedEl = document.createElement('div'); diedEl.style.cssText = 'position:fixed;left:0;right:0;top:34%;text-align:center;pointer-events:none;color:#ff5a4a;font:700 clamp(28px,5vw,60px) system-ui,sans-serif;letter-spacing:.08em;text-shadow:0 3px 18px #000;transition:opacity .6s;opacity:0'; document.body.appendChild(diedEl); }
-  diedEl.innerHTML = 'YOU DIED<div style="font-size:.32em;letter-spacing:.04em;color:#f2efe6;margin-top:8px">You dropped: ' + ((info && info.items) || []).join(', ') + '</div>';
+  diedEl.innerHTML = 'YOU DIED<div style="font-size:.32em;letter-spacing:.04em;color:#f2efe6;margin-top:8px">You dropped: ' + ((info && info.items) || []).map(itemName).join(', ') + '</div>';
   diedEl.style.opacity = 1; setTimeout(() => { diedEl.style.opacity = 0; }, 2400);
 }
 GK.applyDrops = applyDrops; GK.showDied = showDied;
@@ -1744,12 +1811,12 @@ function showDeathScreen(info) {
   const mine = actors.get(me), type = mine ? mine.goblin : 0, gear = GEAR[type], st = STATS[type];
   const ms = performance.now() - run.t0, secs = Math.floor(ms / 1000), n = GK.roundInfo ? GK.roundInfo().n : 0;
   const where = Math.abs(P.x) > 18 || Math.abs(P.z) > 18 ? 'Treasure room' : 'Room ' + (roomAt(P.x, P.z) + 1);
-  GK.mode = 'dead'; inside = false; keys.clear();
+  closeInv(true); GK.mode = 'dead'; inside = false; keys.clear(); hideHotbar();
   try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
   for (const id of ['hint', 'dot', 'rr', 'roundHud']) { const el = $(id); if (el) el.style.display = 'none'; }
   if (statsEl) statsEl.style.display = 'none';
   const rows = [['Goblin', NAMES[type]], ['Survived', Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0')], ['Round reached', n || 1], ['Distance travelled', Math.round(run.dist) + ' m'], ['Died in', where],
-    ['Starting weapon', gear.weapon + ' (' + st.attack + ' dmg)'], ['Starting armour', gear.armor + ' (' + st.health + ' HP)'], ['Dropped', ((info && info.items) || []).join(', ') || 'nothing']];
+    ['Starting weapon', gear.weapon + ' (' + st.attack + ' dmg)'], ['Starting armour', gear.armor + ' (' + st.health + ' HP)'], ['Dropped', ((info && info.items) || []).map(itemName).join(', ') || 'nothing']];
   deathEl = document.createElement('div');
   deathEl.style.cssText = 'position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,rgba(60,0,0,.55),rgba(0,0,0,.88));font-family:system-ui,sans-serif;color:#f2efe6;opacity:0;transition:opacity .8s';
   deathEl.innerHTML = '<div style="width:min(520px,92vw);padding:28px 32px 26px;border-radius:16px;background:rgba(14,10,12,.82);border:1px solid rgba(255,90,74,.45);box-shadow:0 10px 60px rgba(0,0,0,.7)">'
@@ -1757,7 +1824,8 @@ function showDeathScreen(info) {
     + '<div style="text-align:center;color:#b9b4ae;margin:2px 0 18px;letter-spacing:.14em;font-size:13px">YOUR RUN</div>'
     + '<div style="display:grid;grid-template-columns:auto 1fr;gap:7px 22px;font-size:15px;font-variant-numeric:tabular-nums">'
     + rows.map(r => '<span style="color:#aaa59d">' + r[0] + '</span><b style="font-weight:600;text-align:right">' + String(r[1]).replace(/</g, '&lt;') + '</b>').join('') + '</div>'
-    + '<div style="display:flex;gap:12px;margin-top:24px"><button id="deathQueue" style="flex:1;padding:13px 10px;border:0;border-radius:10px;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font:800 16px system-ui,sans-serif;letter-spacing:.08em;cursor:pointer">REQUEUE</button>'
+    + '<div style="text-align:center;margin-top:16px;color:#ff8a7a;font-size:14px;letter-spacing:.04em">Everything you carried is lost.</div>'
+    + '<div style="display:flex;gap:12px;margin-top:20px"><button id="deathQueue" style="flex:1;padding:13px 10px;border:0;border-radius:10px;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font:800 16px system-ui,sans-serif;letter-spacing:.08em;cursor:pointer">REQUEUE</button>'
     + '<button id="deathMenu" style="flex:1;padding:13px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.3);background:transparent;color:#f2efe6;font:700 16px system-ui,sans-serif;letter-spacing:.08em;cursor:pointer">MAIN MENU</button></div></div>';
   document.body.appendChild(deathEl); requestAnimationFrame(() => { deathEl.style.opacity = 1; });
   $('deathQueue').onclick = () => { try { sessionStorage.setItem('gk.requeue', '1'); } catch (e) {} location.reload(); };   // fresh connection, new wheel roll
@@ -1765,15 +1833,221 @@ function showDeathScreen(info) {
   $('deathQueue').focus();
 }
 GK.showDeathScreen = showDeathScreen;
-GK.showStats = () => { if (statsEl) statsEl.style.display = GK.mode === 'play' ? 'block' : 'none'; };
-function connect(opts) { if (netReal) return; GK.charId = opts && opts.charId != null ? opts.charId : null; netReal = makeNet(opts || {}); netReal.onmessage = handleMsg; }
+
+// ---------- inventory UI: hotbar (3 quick slots), inventory screen, lobby line ----------
+let myInv = emptyInv(), invReady = false, invOpen = false, qSel = 0, held = null;
+let hotEl = null, invEl = null, ghostEl = null, tipEl = null, statColEl = null, dropBtn = null, hintEl = null, lobbyEl = null;
+const slotEls = {};   // slot id -> [elements showing it] (hotbar and inventory mirror the quick slots)
+const GOLD = '#ffd75e';
+function ensureCss() {
+  if (document.getElementById('gkInvCss')) return;
+  const st = document.createElement('style'); st.id = 'gkInvCss';
+  st.textContent = '.gks{position:relative;box-sizing:border-box;border-radius:9px;background:linear-gradient(180deg,rgba(40,34,26,.75),rgba(12,10,8,.8));border:1px solid rgba(255,215,94,.28);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:border-color .12s,box-shadow .12s,transform .12s;box-shadow:inset 0 0 10px rgba(0,0,0,.6)}'
+    + '.gks:hover{border-color:' + GOLD + ';box-shadow:inset 0 0 10px rgba(0,0,0,.6),0 0 10px rgba(255,215,94,.35)}'
+    + '.gks.held{opacity:.35}.gks.sel{border-color:' + GOLD + ';box-shadow:0 0 14px rgba(255,215,94,.65),inset 0 0 12px rgba(255,215,94,.25);transform:translateY(-4px)}'
+    + '.gks.bad{animation:gkbad .5s}@keyframes gkbad{0%,100%{}30%{border-color:#ff3b30;background:rgba(255,40,30,.45);box-shadow:0 0 16px #ff3b30}}'
+    + '.gks .kl{position:absolute;left:5px;top:2px;font:800 12px system-ui,sans-serif;color:rgba(255,215,94,.8);text-shadow:0 1px 2px #000;pointer-events:none}'
+    + '.gks canvas{pointer-events:none}.gks .sil{opacity:.2;filter:grayscale(1) brightness(1.5)}'
+    + '#gkInv .lab{font:700 11px system-ui,sans-serif;letter-spacing:.16em;color:#b9b4ae;margin:0 0 6px;text-align:center}'
+    + '#gkInv button{cursor:pointer;font:700 13px system-ui,sans-serif;letter-spacing:.1em;border-radius:8px;padding:9px 16px}';
+  document.head.appendChild(st);
+}
+function mkIcon(key, size) {
+  try { if (window.GKICONS) return window.GKICONS.canvas(key, size); } catch (e) {}
+  const s = document.createElement('span'); s.textContent = itemName(key).slice(0, 2); s.style.cssText = 'color:#ddd;font:700 14px system-ui'; return s;
+}
+function paintSlot(el, id) {
+  const k = invGet(myInv, id), size = +el.dataset.size || 40;
+  el.textContent = '';
+  if (el.dataset.lab) { const l = document.createElement('span'); l.className = 'kl'; l.textContent = el.dataset.lab; el.appendChild(l); }
+  if (k != null) el.appendChild(mkIcon(k, size));
+  else if (id === 'weapon' || id === 'armor') { const c = mkIcon(id === 'weapon' ? 'w:sword' : 'a:vest', size); c.className = 'sil'; el.appendChild(c); }
+  el.classList.toggle('held', held === id && k != null);
+  el.classList.toggle('sel', id[0] === 'q' && +id[1] === qSel && el.dataset.hot === '1');
+}
+function mkSlot(id, px, lab, hot) {
+  const el = document.createElement('div'); el.className = 'gks'; el.dataset.id = id; el.dataset.size = Math.round(px * 0.74); if (lab) el.dataset.lab = lab; if (hot) el.dataset.hot = '1';
+  el.style.width = el.style.height = px + 'px'; (slotEls[id] = slotEls[id] || []).push(el); return el;
+}
+function ensureHotbar() {
+  if (hotEl) return; ensureCss();
+  hotEl = document.createElement('div'); hotEl.id = 'gkHot';
+  hotEl.style.cssText = 'position:fixed;left:50%;bottom:2.2vh;transform:translateX(-50%);z-index:20;display:none;gap:10px;padding:8px 10px;border-radius:14px;background:rgba(10,10,16,.45);border:1px solid rgba(255,215,94,.2);user-select:none';
+  for (let i = 0; i < 3; i++) { const s = mkSlot('q' + i, 58, String(i + 1), true); s.style.pointerEvents = 'none'; hotEl.appendChild(s); }
+  document.body.appendChild(hotEl); paintAll();
+}
+function hideHotbar() { if (hotEl) hotEl.style.display = 'none'; }
+function syncHotbar() { ensureHotbar(); hotEl.style.display = GK.mode === 'play' ? 'flex' : 'none'; }
+function paintAll() { for (const id in slotEls) for (const el of slotEls[id]) paintSlot(el, id); paintStatCol(); paintGhost(); }
+function setSel(i) { qSel = (i + 3) % 3; paintAll(); }
+function setInv(d) {
+  if (!d || !Array.isArray(d.backpack)) return;
+  myInv = { backpack: Array.from({ length: 9 }, (_, i) => d.backpack[i] == null ? null : d.backpack[i]), quick: Array.from({ length: 3 }, (_, i) => (d.quick || [])[i] == null ? null : d.quick[i]), weapon: d.weapon || null, armor: d.armor || null };
+  invReady = true; if (held && invGet(myInv, held) == null) held = null;
+  if (hotEl) paintAll();
+  const mine = actors.get(me); if (mine) showStats(null, mine.goblin);
+}
+function paintStatCol() {
+  if (!statColEl) return;
+  const mine = actors.get(me), type = mine ? mine.goblin : 0, s = invStats(myInv, type), w = myInv.weapon, a = myInv.armor;
+  const row = (k, v, sub) => '<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:#aaa59d">' + k + '</span><b>' + v + '</b></div>' + (sub ? '<div style="font-size:11px;color:#8d8880;margin:-2px 0 6px;text-align:right">' + sub + '</div>' : '');
+  statColEl.innerHTML = '<div class="lab" style="text-align:left">' + NAMES[type].toUpperCase() + '</div>'
+    + row('Attack', s.attack, w ? itemName(w) : 'no weapon') + row('Health', s.health + ' / ' + s.maxHealth, a ? itemName(a) : 'no armour') + row('Knowledge', s.knowledge, 'innate');
+}
+function flashBad(...ids) { for (const id of ids) for (const el of slotEls[id] || []) { el.classList.remove('bad'); void el.offsetWidth; el.classList.add('bad'); } }
+function tipFor(k) {
+  const it = itemsData().ITEMS[k]; if (!it) return '<b>' + String(k).replace(/</g, '&lt;') + '</b>';
+  return '<b style="color:' + GOLD + '">' + it.name + '</b><span style="color:#aaa59d">' + (it.type === 'weapon' ? 'Weapon · ' + it.attack + ' damage' : 'Armour · ' + it.health + ' health') + '</span>';
+}
+function paintGhost() {
+  if (!ghostEl) return; ghostEl.textContent = '';
+  const k = held ? invGet(myInv, held) : null;
+  if (k == null) { ghostEl.style.display = 'none'; return; }
+  ghostEl.appendChild(mkIcon(k, 50)); ghostEl.style.display = 'block';
+}
+function moveInv(from, to) {
+  if (from === to) { held = null; paintAll(); return; }
+  if (!canMove(myInv, from, to)) { flashBad(to); return; }   // wrong slot type for this item: red flash, item stays picked up
+  invMove(myInv, from, to); net.send({ mv: [from, to] }); held = null; paintAll();   // optimistic, the server's {inv} reconciles
+  const mine = actors.get(me); if (mine) showStats(null, mine.goblin);
+}
+function dropSlot(id) {
+  if (!id || invGet(myInv, id) == null) return;
+  invDrop(myInv, id); net.send({ drop: id }); if (held === id) held = null; paintAll(); hideTip();
+  const mine = actors.get(me); if (mine) showStats(null, mine.goblin);
+}
+function hideTip() { if (tipEl) tipEl.style.display = 'none'; }
+function buildInv() {
+  ensureCss();
+  invEl = document.createElement('div'); invEl.id = 'gkInv';
+  invEl.style.cssText = 'position:fixed;inset:0;z-index:55;display:none;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,rgba(30,22,6,.5),rgba(0,0,0,.82));font-family:system-ui,sans-serif;color:#f2efe6;user-select:none';
+  const panel = document.createElement('div');
+  panel.style.cssText = 'width:min(660px,94vw);box-sizing:border-box;padding:18px 26px 16px;border-radius:16px;background:rgba(14,12,9,.86);border:1px solid rgba(255,215,94,.45);box-shadow:0 10px 60px rgba(0,0,0,.7),inset 0 0 40px rgba(255,215,94,.04)';
+  panel.innerHTML = '<div style="text-align:center;color:' + GOLD + ';font-weight:800;font-size:clamp(24px,4vw,34px);letter-spacing:.14em;text-shadow:0 0 22px rgba(255,200,60,.4)">INVENTORY</div>'
+    + '<div style="text-align:center;color:#b9b4ae;margin:0 0 14px;letter-spacing:.12em;font-size:11px">CLICK AN ITEM TO PICK IT UP, CLICK A SLOT TO PLACE IT</div>';
+  const main = document.createElement('div'); main.style.cssText = 'display:flex;gap:26px;justify-content:center;align-items:flex-start;flex-wrap:wrap';
+  const col = (label, inner) => { const d = document.createElement('div'); d.innerHTML = '<div class="lab">' + label + '</div>'; d.appendChild(inner); return d; };
+  const eq = document.createElement('div'); eq.style.cssText = 'display:flex;flex-direction:column;gap:10px;align-items:center';
+  const wl = document.createElement('div'); wl.className = 'lab'; wl.textContent = 'WEAPON'; wl.style.margin = '0 0 -4px';
+  const al = document.createElement('div'); al.className = 'lab'; al.textContent = 'ARMOUR'; al.style.margin = '4px 0 -4px';
+  eq.append(wl, mkSlot('weapon', 70), al, mkSlot('armor', 70));
+  const grid = document.createElement('div'); grid.style.cssText = 'display:grid;grid-template-columns:repeat(3,62px);gap:7px';
+  for (let i = 0; i < 9; i++) grid.appendChild(mkSlot('b' + i, 62));
+  statColEl = document.createElement('div'); statColEl.style.cssText = 'min-width:150px;font-size:14px;line-height:1.6';
+  main.append(eq, col('BACKPACK', grid), statColEl);
+  const quick = document.createElement('div'); quick.style.cssText = 'display:flex;gap:10px;justify-content:center';
+  for (let i = 0; i < 3; i++) quick.appendChild(mkSlot('q' + i, 58, String(i + 1)));
+  const qwrap = document.createElement('div'); qwrap.style.cssText = 'margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.1)'; qwrap.innerHTML = '<div class="lab">QUICK ACCESS (KEYS 1 2 3)</div>'; qwrap.appendChild(quick);
+  const foot = document.createElement('div'); foot.style.cssText = 'display:flex;gap:12px;align-items:center;margin-top:14px';
+  hintEl = document.createElement('div'); hintEl.style.cssText = 'flex:1;font-size:12px;color:#8d8880;letter-spacing:.04em'; hintEl.textContent = 'Right-click an item to drop it  ·  Tab / I / Esc to close';
+  dropBtn = document.createElement('button'); dropBtn.textContent = 'DROP'; dropBtn.style.cssText = 'border:1px solid rgba(255,90,74,.6);background:rgba(120,20,14,.35);color:#ff8a7a';
+  const closeBtn = document.createElement('button'); closeBtn.textContent = 'CLOSE'; closeBtn.style.cssText = 'border:0;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font-weight:800';
+  foot.append(hintEl, dropBtn, closeBtn);
+  panel.append(main, qwrap, foot); invEl.appendChild(panel);
+  ghostEl = document.createElement('div'); ghostEl.style.cssText = 'position:fixed;z-index:70;display:none;pointer-events:none;filter:drop-shadow(0 4px 8px #000);transform:translate(-50%,-50%)';
+  tipEl = document.createElement('div'); tipEl.style.cssText = 'position:fixed;z-index:75;display:none;pointer-events:none;padding:6px 10px;border-radius:8px;background:rgba(10,8,6,.95);border:1px solid rgba(255,215,94,.5);font-size:13px;line-height:1.4';
+  tipEl.innerHTML = '';
+  document.body.append(invEl, ghostEl, tipEl);
+  const slotOf = e => { const el = e.target.closest && e.target.closest('.gks'); return el && invEl.contains(el) ? el.dataset.id : null; };
+  invEl.addEventListener('click', e => {
+    const id = slotOf(e); if (e.target.closest('button')) return;
+    if (!id) { if (held && e.target === invEl) { held = null; paintAll(); } return; }
+    if (held == null) { if (invGet(myInv, id) != null) { held = id; hideTip(); paintAll(); ghostAt(e); } } else moveInv(held, id);
+  });
+  invEl.addEventListener('contextmenu', e => { e.preventDefault(); const id = held || slotOf(e); if (id) dropSlot(id); });
+  invEl.addEventListener('mousemove', e => {
+    ghostAt(e);
+    const id = slotOf(e), k = id && !held ? invGet(myInv, id) : null;
+    if (k == null) { hideTip(); return; }
+    tipEl.innerHTML = tipFor(k).replace(/<span/, '<br><span'); tipEl.style.display = 'block';
+    tipEl.style.left = Math.min(e.clientX + 16, innerWidth - 190) + 'px'; tipEl.style.top = Math.min(e.clientY + 14, innerHeight - 60) + 'px';
+  });
+  dropBtn.onclick = () => { if (held) dropSlot(held); else { hintEl.style.color = '#ff8a7a'; hintEl.textContent = 'Pick up an item first, then press Drop (or right-click it)'; setTimeout(() => { hintEl.style.color = '#8d8880'; hintEl.textContent = 'Right-click an item to drop it  ·  Tab / I / Esc to close'; }, 2200); } };
+  closeBtn.onclick = () => closeInv();
+  paintAll();
+}
+function ghostAt(e) { if (ghostEl && held) { ghostEl.style.left = e.clientX + 'px'; ghostEl.style.top = e.clientY + 'px'; } }
+function openInv() {
+  if (invOpen || GK.mode !== 'play') return;
+  if (!invEl) buildInv();
+  invOpen = true; keys.clear(); drag = false; held = null; paintAll(); invEl.style.display = 'flex';
+  try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
+}
+function closeInv(noLock) {
+  if (!invOpen) return;
+  invOpen = false; held = null; hideTip(); if (invEl) invEl.style.display = 'none'; if (ghostEl) ghostEl.style.display = 'none'; keys.clear();
+  if (!noLock) lockNow();
+}
+function applyMatch(m) {
+  if (!m) return;
+  const hud = $('cnt') && $('cnt').parentNode; if (!hud) return;
+  if (!lobbyEl) { lobbyEl = document.createElement('div'); lobbyEl.style.cssText = 'font-size:clamp(11px,1.3vw,14px);color:#9aa0ad;margin-top:2px'; hud.appendChild(lobbyEl); }
+  const lo = m.minWins | 0, hi = m.maxWins | 0, v = n => n + (n === 1 ? ' victory' : ' victories');
+  lobbyEl.textContent = 'Lobby: ' + (m.size | 0) + ' goblins · ' + (lo === hi ? v(lo) : lo + '-' + hi + ' victories');
+}
+GK.showStats = () => { if (statsEl) statsEl.style.display = GK.mode === 'play' ? 'block' : 'none'; syncHotbar(); };
+GK.getInv = () => JSON.parse(JSON.stringify(myInv));
+GK.openInventory = openInv; GK.closeInventory = closeInv;
+addEventListener('keydown', e => {
+  if (GK.mode !== 'play') return;
+  if (e.code === 'Tab' || e.code === 'KeyI') { e.preventDefault(); if (!e.repeat) { if (invOpen) closeInv(); else openInv(); } return; }
+  if (e.code === 'Escape' && invOpen) { if (held) { held = null; paintAll(); } else closeInv(); return; }
+  if (e.repeat) return;
+  if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') { ensureHotbar(); setSel(+e.code.slice(5) - 1); return; }
+  if (window.GK_OFFLINE && e.code === 'KeyG' && netReal && netReal.demoGive) netReal.demoGive();
+  if (window.GK_OFFLINE && e.code === 'KeyL' && actors.get(me)) showVictory({ items: invAll(myInv) });   // demo only: L = win
+});
+addEventListener('wheel', e => { if (GK.mode === 'play' && !invOpen) { ensureHotbar(); setSel(qSel + (e.deltaY > 0 ? 1 : -1)); } }, { passive: true });
+
+// ---------- victory screen: the run is won, the character and everything it carried are kept ----------
+let winEl = null, winDone = false;
+function showVictory(info) {
+  if (GK.mode !== 'play' || winDone) return;
+  winDone = true;
+  const mine = actors.get(me), type = mine ? mine.goblin : 0;
+  const ms = performance.now() - run.t0, secs = Math.floor(ms / 1000), n = GK.roundInfo ? GK.roundInfo().n : 0;
+  const items = ((info && info.items) || []).filter(k => k != null);
+  const from = GK.charId;
+  let c = null; try { c = window.GKSAVE.recordWin({ charId: from, goblin: type, items }); if (c && c.id != null) GK.charId = c.id; } catch (e) { c = null; }
+  const wins = c && c.wins != null ? c.wins : (GK.wins | 0) + 1;
+  closeInv(true); GK.mode = 'win'; inside = false; keys.clear(); hideHotbar();
+  try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
+  for (const id of ['hint', 'dot', 'rr', 'roundHud']) { const el = $(id); if (el) el.style.display = 'none'; }
+  if (statsEl) statsEl.style.display = 'none';
+  const esc = s => String(s).replace(/</g, '&lt;');
+  const rows = [['Goblin', NAMES[type]], ['Survived', Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0')], ['Round reached', n || 1], ['Distance travelled', Math.round(run.dist) + ' m'], ['Victories', wins]];
+  winEl = document.createElement('div');
+  winEl.style.cssText = 'position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,rgba(70,50,0,.5),rgba(0,0,0,.88));font-family:system-ui,sans-serif;color:#f2efe6;opacity:0;transition:opacity .8s;overflow:auto';
+  winEl.innerHTML = '<div style="width:min(540px,92vw);padding:24px 32px 24px;border-radius:16px;background:rgba(16,13,6,.84);border:1px solid rgba(255,215,94,.55);box-shadow:0 10px 60px rgba(0,0,0,.7),0 0 50px rgba(255,200,60,.12)">'
+    + '<div style="text-align:center;color:' + GOLD + ';font-weight:800;font-size:clamp(34px,6vw,58px);letter-spacing:.1em;text-shadow:0 0 26px rgba(255,200,60,.55)">VICTORY</div>'
+    + '<div style="text-align:center;color:#d8c98c;margin:2px 0 14px;letter-spacing:.06em;font-size:15px">' + (c ? '<b style="color:' + GOLD + '">' + esc(c.name) + '</b> now has <b style="color:' + GOLD + '">' + wins + '</b> victor' + (wins === 1 ? 'y' : 'ies') : 'Your run is won') + '</div>'
+    + '<div style="display:grid;grid-template-columns:auto 1fr;gap:6px 22px;font-size:15px;font-variant-numeric:tabular-nums">'
+    + rows.map(r => '<span style="color:#aaa59d">' + r[0] + '</span><b style="font-weight:600;text-align:right">' + esc(r[1]) + '</b>').join('') + '</div>'
+    + '<div style="text-align:center;margin:16px 0 8px;color:#b9b4ae;letter-spacing:.14em;font-size:12px">ITEMS YOU KEEP</div>'
+    + '<div id="winItems" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;min-height:30px"></div>'
+    + '<div style="text-align:center;margin-top:8px;color:#8d8880;font-size:12px">' + (c ? 'Saved to your stash, along with ' + esc(c.name) : 'Saved to your stash') + '</div>'
+    + '<div style="display:flex;gap:12px;margin-top:20px"><button id="winQueue" style="flex:1;padding:13px 10px;border:0;border-radius:10px;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font:800 16px system-ui,sans-serif;letter-spacing:.08em;cursor:pointer">QUEUE AGAIN</button>'
+    + '<button id="winMenu" style="flex:1;padding:13px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.3);background:transparent;color:#f2efe6;font:700 16px system-ui,sans-serif;letter-spacing:.08em;cursor:pointer">MAIN MENU</button></div></div>';
+  document.body.appendChild(winEl); requestAnimationFrame(() => { winEl.style.opacity = 1; });
+  const box = $('winItems');
+  if (!items.length) box.innerHTML = '<span style="color:#8d8880">nothing</span>';
+  for (const k of items) {
+    const d = document.createElement('div'); d.style.cssText = 'width:74px;padding:6px 2px 5px;border-radius:9px;background:rgba(0,0,0,.4);border:1px solid rgba(255,215,94,.3);text-align:center;font-size:11px;line-height:1.2;display:flex;flex-direction:column;align-items:center;gap:2px';
+    d.appendChild(mkIcon(k, 44)); const t = document.createElement('span'); t.textContent = itemName(k); d.appendChild(t); box.appendChild(d);
+  }
+  $('winQueue').onclick = () => { try { sessionStorage.setItem('gk.requeue', '1'); if (from != null) sessionStorage.setItem('gk.requeueChar', String(from)); } catch (e) {} location.reload(); };
+  $('winMenu').onclick = () => location.reload();
+  $('winQueue').focus();
+}
+GK.showVictory = showVictory;
+function connect(opts) { if (netReal) return; GK.charId = opts && opts.charId != null ? opts.charId : null; GK.wins = opts && opts.wins ? opts.wins | 0 : 0; netReal = makeNet(opts || {}); netReal.onmessage = handleMsg; }
 if (window.GK_OFFLINE) { $('rr').onclick = e => { net.send({ reroll: 1 }); e.stopPropagation(); }; $('rr').onpointerdown = e => e.stopPropagation(); }
 
 // ---------- input ----------
 const keys = new Set(); let inside = true, drag = false;
 addEventListener('keydown', e => {
   if (e.code === 'KeyK' && !e.repeat && window.GK_OFFLINE && GK.mode === 'play' && actors.get(me)) { // demo only: K = die, to see the loot drop and the death screen
-    const g = GEAR[actors.get(me).goblin], items = [g.weapon, g.armor];
+    const items = invReady ? invAll(myInv) : [GEAR[actors.get(me).goblin].weapon, GEAR[actors.get(me).goblin].armor];
     (GK.demoDrops = GK.demoDrops || []).push({ id: Date.now(), x: P.x, z: P.z, items }); applyDrops(GK.demoDrops); showDeathScreen({ items });
   }
   keys.add(e.code); if (e.code === 'KeyV' && !e.repeat) inside = !inside; });
@@ -1786,7 +2060,7 @@ const lockOk = () => document.pointerLockElement === canvas;
 canvas.addEventListener('click', () => { if (!lockOk()) try { const r = canvas.requestPointerLock(); r && r.catch && r.catch(() => {}); } catch (e) {} });
 canvas.addEventListener('mousedown', () => drag = true); addEventListener('mouseup', () => drag = false);
 addEventListener('mousemove', e => {
-  if (!lockOk() && !drag) return;
+  if (invOpen || (!lockOk() && !drag)) return;
   const k = 0.0022 * GK.settings.sens; P.yaw = wrapPi(P.yaw - e.movementX * k); P.pitch = clamp(P.pitch - e.movementY * k * (GK.settings.invertY ? -1 : 1), -1.45, 1.45);
 });
 // FX-BEGIN (post-processing, dust motes, light shafts, screen pulse: owned by the graphics agent)
@@ -1905,11 +2179,11 @@ const wrapPi = a => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI)
 let last = performance.now(), sendT = 0;
 function frame(now) {
   const dt = clamp((now - last) / 1000, 0.001, 0.05); last = now; const t = now / 1000;
-  if (GK.mode !== 'play' && GK.mode !== 'dead') { GK.menu && GK.menu.render(now, dt); requestAnimationFrame(frame); return; }
+  if (GK.mode !== 'play' && GK.mode !== 'dead' && GK.mode !== 'win') { GK.menu && GK.menu.render(now, dt); requestAnimationFrame(frame); return; }
   panelTick();
   const mine = actors.get(me);
   // my movement
-  if (mine && spawned && GK.mode === 'play') {
+  if (mine && spawned && GK.mode === 'play' && !invOpen) {
     const f = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
     const s = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
     const sp = (keys.has('ShiftLeft') || keys.has('ShiftRight') ? 7.5 : 4.6) * (0.85 + 0.15 * SCALE[mine.goblin]);
@@ -1943,7 +2217,7 @@ function frame(now) {
     }
     const moving = d.p > 0.02 && d.p < 0.98, flash = d.flash > 0, hex = flash ? 0x20ff60 : moving ? 0xffa020 : d.p >= 0.98 ? 0x20ff60 : 0xff1a1a;
     d.light.emissive.setHex(hex);
-    d.light.emissiveIntensity = flash ? 2.5 + 1.5 * Math.sin(t * 30) : moving ? 1.5 + Math.sin(t * 14) : 2;
+    d.light.emissiveIntensity = 2.6 * (flash ? 2.5 + 1.5 * Math.sin(t * 30) : moving ? 1.5 + Math.sin(t * 14) : 2 + 0.4 * Math.sin(t * 2.4 + d.light.id));   // HDR: the status lamps feed the bloom, gentle idle pulse
     d.halo.color.setHex(hex); d.halo.opacity = (flash ? 0.95 : moving ? 0.55 + 0.3 * Math.sin(t * 14) : 0.6 + 0.1 * Math.sin(t * 2 + d.id)) ;
     d.ledM.color.setHex(vault && !flash && !moving && d.p < 0.98 ? 0xff2a1a : hex === 0xff1a1a ? 0x35e6ff : hex);
     const bt = moving ? 0.9 : vault ? 0.55 : 0, bc = moving ? 0xffa020 : d.p >= 0.98 ? 0x20ff60 : 0xff2010;

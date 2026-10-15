@@ -16,7 +16,7 @@ const srv = http.createServer((q, r) => {
   if (js) { r.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }); return r.end(read(js[1] + '.js')); }
   r.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' }); r.end(read('index.html'));
 });
-const wss = new WebSocketServer({ server: srv, maxPayload: 256 }); // oversize frames close the socket
+const wss = new WebSocketServer({ server: srv, maxPayload: 512 }); // oversize frames close the socket
 const LIM = 27; // world half-extent: 36x36 m grid plus the 8 m chest rooms around it
 const clamp = v => Math.max(-LIM, Math.min(LIM, v));
 // ---- doors and rounds (door ids and room keys must match game.js) ----
@@ -53,7 +53,7 @@ const avgWins = m => { let s = 0; for (const p of m.players.values()) s += p.win
 const tolerance = w => w <= 5 ? 1 : Math.ceil(w * 0.25);
 function newMatch() {
   const m = { id: nextMatch++, players: new Map(), round: 1, dur: 30000, endsAt: Date.now() + 30000, sel: {}, open: [], drops: [], nextDrop: 1, dirty: false, lastRound: 0,
-    chests: Array.from({ length: 12 }, () => Math.floor(Math.random() * 6)) }; // weapon index per chest room
+    chests: Array.from({ length: 12 }, () => Math.floor(Math.random() * 6)), layout: GKITEMS.randomLayout() }; // weapon index per chest room
   matches.set(m.id, m); return m;
 }
 const VAULT = ROOM_DOORS['4'] || []; // the 4 doors touching the middle vault room
@@ -89,19 +89,43 @@ setInterval(() => { // one global timer steps every match
 }, 50);
 
 // 0 small 30%, 1 medium 30%, 2 big 30%, 3 wizard 9%, 4 king 1%
-// Equipment decides combat stats: attack damage comes from the weapon, health from the armour.
-const WEAPONS = { dagger: { name: 'Dagger', attack: 10 }, club: { name: 'Nailed Club', attack: 15 }, mace: { name: 'Spiked Mace', attack: 20 }, staff: { name: 'Gnarled Staff', attack: 0 }, scepter: { name: 'Royal Scepter', attack: 20 },
-  sword: { name: 'Rusty Sword', attack: 12 }, axe: { name: 'Battle Axe', attack: 22 }, spear: { name: 'War Spear', attack: 18 }, bow: { name: 'Short Bow', attack: 14 } };
-const ARMOR = { rags: { name: 'Ragged Tunic', health: 40 }, vest: { name: 'Studded Vest', health: 50 }, harness: { name: 'Warlord Harness', health: 80 }, robe: { name: 'Starry Robe', health: 60 }, royal: { name: 'Royal Mantle', health: 100 } };
-const KNOWLEDGE = [60, 40, 30, 80, 40]; // innate, per goblin type
-const START = [{ weapon: 'dagger', armor: 'rags' }, { weapon: 'club', armor: 'vest' }, { weapon: 'mace', armor: 'harness' }, { weapon: 'staff', armor: 'robe' }, { weapon: 'scepter', armor: 'royal' }];
-const drops = []; // loot left behind by dead players: { id, x, z, items: [name...] }
-let nextDrop = 1;
-function equip(p, goblin) { // give a player a goblin type with its starting weapon, armour and an empty inventory
-  const s = START[goblin];
-  p.goblin = goblin; p.equip = { weapon: s.weapon, armor: s.armor }; p.inv = [];
-  p.stats = { knowledge: KNOWLEDGE[goblin], attack: WEAPONS[s.weapon].attack, health: ARMOR[s.armor].health, maxHealth: ARMOR[s.armor].health };
-  p.gear = { weapon: WEAPONS[s.weapon].name, armor: ARMOR[s.armor].name };
+// Equipment decides combat stats: attack damage comes from the weapon (items.js), health from the armour.
+const G = require('./items.js'), ITEMS = G.ITEMS;
+const isItem = k => typeof k === 'string' && Object.prototype.hasOwnProperty.call(ITEMS, k);
+const SLOT_IDS = new Set([...Array.from({ length: 9 }, (_, i) => 'b' + i), ...Array.from({ length: 3 }, (_, i) => 'q' + i), 'weapon', 'armor']);
+const getSlot = (inv, id) => id === 'weapon' ? inv.weapon : id === 'armor' ? inv.armor : (id[0] === 'b' ? inv.backpack : inv.quick)[+id.slice(1)];
+const setSlot = (inv, id, v) => { if (id === 'weapon') inv.weapon = v; else if (id === 'armor') inv.armor = v; else (id[0] === 'b' ? inv.backpack : inv.quick)[+id.slice(1)] = v; };
+const fits = (id, key) => key == null || (id === 'weapon' ? ITEMS[key].type === 'weapon' : id === 'armor' ? ITEMS[key].type === 'armor' : true);
+const allItems = inv => [inv.weapon, inv.armor, ...inv.backpack, ...inv.quick].filter(Boolean);
+function recalc(p) { // derived stats from the equipped items
+  const w = p.inv.weapon && ITEMS[p.inv.weapon], a = p.inv.armor && ITEMS[p.inv.armor];
+  const maxHealth = a ? a.health : 10;
+  p.stats = { knowledge: G.KNOWLEDGE[p.goblin], attack: w ? w.attack : 0, health: Math.min(p.stats ? p.stats.health : maxHealth, maxHealth), maxHealth };
+  p.gear = { weapon: w ? w.name : 'None', armor: a ? a.name : 'None' };
+}
+function equip(p, goblin) { // give a player a goblin type with its starting gear and otherwise empty inventory
+  const s = G.START[goblin];
+  p.goblin = goblin; p.inv = { backpack: Array(G.SLOTS.backpack).fill(null), quick: Array(G.SLOTS.quick).fill(null), weapon: s.weapon, armor: s.armor };
+  p.stats = null; recalc(p);
+}
+const sendInv = p => { if (p.ws) sendTo(p.ws, { inv: p.inv }); };
+function giveItem(p, key) { // first free backpack slot; false when full or unknown item
+  if (!isItem(key)) return false;
+  const i = p.inv.backpack.indexOf(null); if (i < 0) return false;
+  p.inv.backpack[i] = key; sendInv(p); return true;
+}
+function move(p, from, to) { // inventory move/swap, strictly validated
+  if (typeof from !== 'string' || typeof to !== 'string' || !SLOT_IDS.has(from) || !SLOT_IDS.has(to) || from === to) return false;
+  const a = getSlot(p.inv, from), b = getSlot(p.inv, to);
+  if (a == null || !fits(to, a) || !fits(from, b)) return false;
+  setSlot(p.inv, to, a); setSlot(p.inv, from, b == null ? null : b);
+  recalc(p); return true;
+}
+const pub = p => ({ id: p.id, goblin: p.goblin, wins: p.wins, box: p.box, room: p.room, x: p.x, z: p.z, yaw: p.yaw, stats: p.stats, gear: p.gear }); // never includes the inventory
+function addDrop(m, p, items) {
+  if (!items.length) return;
+  m.drops.push({ id: m.nextDrop++, x: +p.x.toFixed(2), z: +p.z.toFixed(2), items }); if (m.drops.length > 60) m.drops.shift();
+  bcast(m, { drops: m.drops });
 }
 function rollGoblin() {
   const r = Math.random() * 100;
@@ -113,26 +137,31 @@ function spawn() {
   const x = cx + (Math.random() - 0.5) * 6, z = cz + (Math.random() - 0.5) * 6;
   return { box, x, z, yaw: Math.atan2(-(cx - x), -(cz - z)) }; // facing the room centre
 }
-function die(ws, p) { // a dead player drops weapon, armour and everything in the inventory where they fell and leaves the game
-  const items = [p.gear.weapon, p.gear.armor, ...p.inv];
-  drops.push({ id: nextDrop++, x: +p.x.toFixed(2), z: +p.z.toFixed(2), items }); if (drops.length > 60) drops.shift();
-  const msg = JSON.stringify({ drops }); wss.clients.forEach(c => c.readyState === 1 && c.send(msg));
-  if (ws.readyState === 1) ws.send(JSON.stringify({ died: { items } }));
-  p.dead = true; players.delete(ws); dirty = true;   // out of the game; the client goes back to the menu or requeues with a new connection
+function die(ws, p) { // a dead player drops everything where they fell and leaves the match
+  const m = p.match; if (p.dead || !m) return;
+  const items = allItems(p.inv);
+  p.dead = true; leave(m, ws); // the client goes back to the menu or requeues with a new connection
+  addDrop(m, p, items);
+  sendTo(ws, { died: { items } });
 }
-const send = () => {
-  const msg = JSON.stringify({ players: [...players.values()] });
-  wss.clients.forEach(c => c.readyState === 1 && c.send(msg));
-};
-setInterval(() => { if (dirty) { dirty = false; send(); } }, 50); // positions go out at 20 Hz
+function win(ws, p) { // everything carried goes home with the winner, nothing is dropped
+  const m = p.match; if (p.dead || !m) return;
+  const items = allItems(p.inv);
+  p.dead = true; leave(m, ws);
+  sendTo(ws, { won: { items } });
+}
 
-wss.on('connection', ws => {
+wss.on('connection', (ws, req) => {
+  let q; try { q = new URL(req.url, 'http://x').searchParams; } catch { q = new URLSearchParams(); }
+  const g = q.get('goblin'), goblin = g !== null && /^[0-4]$/.test(g) ? +g : rollGoblin();
+  const wq = q.get('wins'), wins = wq !== null && /^\d{1,9}$/.test(wq) ? Math.min(9999, +wq) : 0;
   const id = nextId++;
-  const p = { id, ...spawn() }; p.room = String(p.box); equip(p, rollGoblin());
-  players.set(ws, p);
+  const p = { id, wins, ws, ...spawn() }; p.room = String(p.box); equip(p, goblin);
+  const m = findMatch(wins); p.match = m; m.players.set(ws, p); m.dirty = true;
   ws.on('error', () => {});
-  ws.send(JSON.stringify({ you: id, chests, drops, ...roundState() }));
-  dirty = true;
+  sendTo(ws, { you: id, chests: m.chests, layout: m.layout, drops: m.drops, ...roundState(m), match: matchInfo(m) });
+  sendTo(ws, { inv: p.inv });
+  broadcastMatch(m);
   let tokens = 40, last = Date.now(); // rate limit: ~30 msg/s sustained, burst 40
   ws.on('message', (raw, isBinary) => {
     const now = Date.now();
@@ -140,18 +169,28 @@ wss.on('connection', ws => {
     if (isBinary || tokens < 1) return;
     tokens--;
     let d; try { d = JSON.parse(raw.toString()); } catch { return; }
-    if (p.dead) return;
-    if (d && Array.isArray(d.m) && d.m.length === 3 && d.m.every(v => typeof v === 'number' && Number.isFinite(v))) {
+    if (p.dead || !d || typeof d !== 'object') return;
+    const dbg = !!process.env.GK_DEBUG;
+    if (Array.isArray(d.m) && d.m.length === 3 && d.m.every(v => typeof v === 'number' && Number.isFinite(v))) {
       p.x = clamp(d.m[0]); p.z = clamp(d.m[1]);
       p.yaw = Math.max(-1e3, Math.min(1e3, d.m[2]));
       p.box = boxOf(p.x, p.z); p.room = roomKeyOf(p.x, p.z);
-      dirty = true;
-    } else if (d && d.kill && process.env.GK_DEBUG) { die(ws, p);   // test hook, only with GK_DEBUG=1
-    } else if (d && Number.isInteger(d.sel) && d.sel >= 0 && d.sel < nDoors && (ROOM_DOORS[p.room] || []).includes(d.sel)) {
-      if (sel[p.room] !== d.sel) { sel[p.room] = d.sel; broadcastRound(); }
+      m.dirty = true;
+    } else if (dbg && d.kill) { die(ws, p);   // test hooks, only with GK_DEBUG=1
+    } else if (dbg && d.win) { win(ws, p);
+    } else if (dbg && typeof d.give === 'string') { giveItem(p, d.give);
+    } else if (Array.isArray(d.mv) && d.mv.length === 2) {
+      if (move(p, d.mv[0], d.mv[1])) { sendInv(p); m.dirty = true; }
+    } else if (typeof d.drop === 'string') {
+      if (SLOT_IDS.has(d.drop) && getSlot(p.inv, d.drop) != null) {
+        const key = getSlot(p.inv, d.drop); setSlot(p.inv, d.drop, null); recalc(p);
+        addDrop(m, p, [key]); sendInv(p); m.dirty = true;
+      }
+    } else if (Number.isInteger(d.sel) && d.sel >= 0 && d.sel < nDoors && (ROOM_DOORS[p.room] || []).includes(d.sel)) {
+      if (m.sel[p.room] !== d.sel) { m.sel[p.room] = d.sel; broadcastRound(m); }
     }
   });
-  ws.on('close', () => { players.delete(ws); dirty = true; });
+  ws.on('close', () => leave(m, ws));
 });
 
 srv.listen(process.env.PORT || 3000, () => console.log('Goblin King on :' + (process.env.PORT || 3000)));

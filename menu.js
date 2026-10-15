@@ -36,14 +36,90 @@ syncUI(); GK.applySettings();
 // ---------- panels ----------
 function show(name) {
   for (const p of document.querySelectorAll('.panel')) p.classList.toggle('on', p.id === 'p-' + name);
-  const f = { main: 'b-start', settings: 's-back', controls: 'c-back' }[name];
-  setTimeout(() => $(f) && $(f).focus({ preventScroll: true }), 30);
+  if (name === 'chars') renderChars(); if (name === 'inv') renderInv();
+  const f = { main: 'b-start', settings: 's-back', controls: 'c-back', chars: 'ch-back', inv: 'inv-back' }[name];
+  setTimeout(() => { const first = name === 'chars' && document.querySelector('#chars-list .cplay'); const el = first || $(f); el && el.focus({ preventScroll: true }); }, 30);
   if (name === 'main') $('b-start').focus();
   curPanel = name; document.querySelector('#menu .col').classList.toggle('sub', name !== 'main'); $('menu').classList.toggle('sub', name !== 'main');
+  document.querySelector('#menu .col').classList.toggle('wide', name === 'chars' || name === 'inv'); tip(null);
 }
 let curPanel = 'main';
 $('b-settings').onclick = () => show('settings'); $('b-controls').onclick = () => show('controls');
-$('s-back').onclick = $('c-back').onclick = () => show('main');
+$('b-chars').onclick = () => show('chars'); $('b-inv').onclick = () => show('inv');
+$('s-back').onclick = $('c-back').onclick = $('ch-back').onclick = $('inv-back').onclick = () => show('main');
+
+// ---------- characters + inventory panels ----------
+function headCanvas(type, size) {   // goblin portrait using the wheel's head drawing
+  const c = document.createElement('canvas'), d = Math.min(devicePixelRatio || 1, 2);
+  c.width = c.height = Math.round(size * d); c.style.width = c.style.height = size + 'px';
+  const g = c.getContext('2d'); g.scale(d, d); g.translate(size / 2, size * (type === 3 ? 0.62 : type === 4 ? 0.6 : 0.5));
+  drawHead(g, type, size * (type === 3 ? 0.2 : type === 4 ? 0.26 : 0.29)); return c;
+}
+function trophyCanvas(size) {
+  const c = document.createElement('canvas'), d = Math.min(devicePixelRatio || 1, 2);
+  c.width = c.height = Math.round(size * d); c.style.width = c.style.height = size + 'px';
+  const g = c.getContext('2d'); g.scale(d * size, d * size);
+  const gr = g.createLinearGradient(0, 0, 1, 1); gr.addColorStop(0, '#fff0a0'); gr.addColorStop(.5, '#f5c451'); gr.addColorStop(1, '#a8741a');
+  g.fillStyle = gr; g.strokeStyle = '#4a2c05'; g.lineWidth = 0.04; g.lineJoin = 'round';
+  g.beginPath(); g.moveTo(.22, .1); g.lineTo(.78, .1); g.quadraticCurveTo(.78, .62, .5, .66); g.quadraticCurveTo(.22, .62, .22, .1); g.closePath(); g.fill(); g.stroke();
+  for (const s of [-1, 1]) { g.beginPath(); g.moveTo(.5 + s * .28, .16); g.quadraticCurveTo(.5 + s * .46, .16, .5 + s * .42, .32); g.quadraticCurveTo(.5 + s * .38, .45, .5 + s * .24, .46); g.lineWidth = 0.05; g.stroke(); }
+  g.lineWidth = 0.04; g.fillRect(.45, .64, .1, .16); g.fillRect(.28, .8, .44, .1); g.strokeRect(.28, .8, .44, .1);
+  return c;
+}
+function fixedWins(c) { return Math.max(0, c.wins | 0); }
+function renderChars() {
+  const box = $('chars-list'); box.textContent = '';
+  let list = []; try { list = (window.GKSAVE ? GKSAVE.characters() : []).slice(); } catch (e) {}
+  list.sort((a, b) => fixedWins(b) - fixedWins(a) || (b.lastWin || 0) - (a.lastWin || 0));
+  $('chars-note').style.display = list.length ? '' : 'none';
+  if (!list.length) { const e = document.createElement('div'); e.className = 'cempty'; e.textContent = 'No saved characters yet. Win a run to keep your goblin.'; box.appendChild(e); box.style.display = 'block'; return; }
+  box.style.display = '';
+  for (const c of list) {
+    const card = document.createElement('div'); card.className = 'ccard';
+    card.appendChild(headCanvas(c.goblin, 64));
+    const info = document.createElement('div'); info.className = 'cinfo';
+    const n = document.createElement('div'); n.className = 'cname'; n.textContent = c.name; info.appendChild(n);
+    const t = document.createElement('div'); t.className = 'ctype'; t.textContent = GK.NAMES[c.goblin] || 'Goblin'; info.appendChild(t);
+    const w = document.createElement('div'); w.className = 'cwins'; w.appendChild(trophyCanvas(24));
+    const l = document.createElement('span'); l.textContent = 'Victories'; const b = document.createElement('b'); b.textContent = fixedWins(c); w.append(l, b); info.appendChild(w);
+    card.appendChild(info);
+    const p = document.createElement('button'); p.className = 'cplay'; p.textContent = 'Play'; p.onclick = () => startGame({ goblin: c.goblin, wins: fixedWins(c), charId: c.id });
+    card.appendChild(p); box.appendChild(card);
+  }
+}
+const itipEl = $('itip');
+function tip(it, e) {
+  if (!it) { itipEl.style.display = 'none'; return; }
+  itipEl.textContent = ''; const b = document.createElement('b'); b.textContent = it.name; const s = document.createElement('span');
+  s.textContent = it.attack != null ? 'Attack ' + it.attack : it.health != null ? 'Health ' + it.health : ''; itipEl.append(b, s);
+  itipEl.style.display = 'block';
+  const w = itipEl.offsetWidth, h = itipEl.offsetHeight;
+  itipEl.style.left = Math.max(4, Math.min(innerWidth - w - 4, e.clientX + 14)) + 'px'; itipEl.style.top = Math.max(4, Math.min(innerHeight - h - 4, e.clientY + 14)) + 'px';
+}
+function itemInfo(raw) {
+  const IT = (window.GKITEMS && GKITEMS.ITEMS) || {};
+  const key = typeof raw === 'string' ? raw : raw && (raw.key || raw.id);
+  if (IT[key]) return IT[key];
+  const nm = typeof raw === 'string' ? raw : raw && raw.name;
+  for (const k in IT) if (IT[k].name === nm) return IT[k];
+  return raw && typeof raw === 'object' ? raw : { key, name: String(raw), type: 'weapon' };
+}
+function renderInv() {
+  const grid = $('inv-grid'); grid.textContent = '';
+  let st = []; try { st = (window.GKSAVE ? GKSAVE.stash() : []).filter(Boolean); } catch (e) {}
+  $('inv-sum').textContent = st.length ? st.length + (st.length === 1 ? ' item' : ' items') + ' brought back' : 'Stash';
+  $('inv-empty').style.display = st.length ? 'none' : '';
+  const total = Math.max(48, Math.ceil(st.length / 8) * 8);
+  for (let i = 0; i < total; i++) {
+    const s = document.createElement('div'); s.className = 'islot';
+    if (i < st.length) {
+      const it = itemInfo(st[i]); s.classList.add('full');
+      s.appendChild(window.GKICONS ? GKICONS.canvas(it.key, 40) : document.createTextNode('?'));
+      s.onmouseenter = s.onmousemove = e => tip(it, e); s.onmouseleave = () => tip(null);
+    }
+    grid.appendChild(s);
+  }
+}
 addEventListener('keydown', e => {
   if (GK.mode === 'play' || !$('menu') || $('menu').classList.contains('gone')) return;
   if (e.key === 'Escape' && curPanel !== 'main') { show('main'); e.preventDefault(); }
@@ -327,18 +403,32 @@ function showReveal() {
 }
 
 let started = false;
-function startGame() {
+function startGame(opts) {
   if (started) return; started = true;
+  if (!opts || typeof opts !== 'object' || opts.type === 'click') opts = undefined;
   body.classList.add('rolling'); $('menu').classList.add('gone');
   const roll = $('roll'); roll.classList.add('show'); roll.getBoundingClientRect(); roll.classList.add('vis');
   wheelGo = true; sizeWheel();
   wh.state = 'spin'; wh.t = 0; wh.rot = Math.random() * TAU; wh.result = null; wh.shown = false;
   $('rname').textContent = 'Rolling...'; $('rstat').textContent = 'Spinning the wheel of fate';
-  let p; try { p = GK.start(); } catch (e) { console.error(e); p = new Promise(() => {}); }
+  let p; try { p = opts ? GK.start(opts) : GK.start(); } catch (e) { console.error(e); p = new Promise(() => {}); }
   Promise.resolve(p).then(g => { wh.result = (typeof g === 'number' && g >= 0 && g < 5) ? g : 0; });
 }
-$('b-start').onclick = startGame;
-try { if (sessionStorage.getItem('gk.requeue')) { sessionStorage.removeItem('gk.requeue'); setTimeout(startGame, 150); } } catch (e) {}   // 'Requeue' from the death screen
+$('b-start').onclick = () => startGame();
+try {   // 'Requeue' from the death screen (optionally with a saved character)
+  if (sessionStorage.getItem('gk.requeue')) {
+    const cid = sessionStorage.getItem('gk.requeueChar');
+    sessionStorage.removeItem('gk.requeue'); sessionStorage.removeItem('gk.requeueChar');
+    let c = null; try { if (cid != null && window.GKSAVE) c = GKSAVE.getCharacter(+cid); } catch (e) {}
+    setTimeout(() => startGame(c ? { goblin: c.goblin, wins: c.wins | 0, charId: c.id } : undefined), 150);
+  }
+} catch (e) {}
+GK.menuDebug = { addDemoSave() {
+  GKSAVE.clearAll(); GKSAVE.recordWin({ goblin: 4, items: ['w:scepter', 'a:royal', 'w:axe'] });
+  const a = GKSAVE.recordWin({ goblin: 2, items: ['w:mace', 'a:harness'] }); GKSAVE.recordWin({ charId: a.id, goblin: 2, items: ['w:spear'] });
+  GKSAVE.recordWin({ charId: a.id, goblin: 2, items: [] });
+  const s = GKSAVE.load(); s.characters.push({ id: s.nextId++, goblin: 3, name: 'Mizzle', wins: 0 }); localStorage.setItem('gk.save.v1', JSON.stringify(s));
+} };
 $('retry').onclick = () => location.reload();
 $('enter').onclick = () => {
   body.classList.remove('menu');

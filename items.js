@@ -19,6 +19,14 @@
   const KNOWLEDGE = [60, 40, 30, 80, 40];   // innate stat per goblin type
   const CHEST_WEAPONS = ['w:sword', 'w:axe', 'w:spear', 'w:mace', 'w:bow', 'w:dagger'];   // same order as WEAPONS in game.js (chest room contents)
   const SLOTS = { backpack: 9, quick: 3 };
-  root.GKITEMS = { WEAPONS, ARMOR, ITEMS, START, KNOWLEDGE, CHEST_WEAPONS, SLOTS };
+  // Random room layout for one match: the types of the 12 rooms behind the outer doors, in CHEST_ROOMS order (game.js).
+  // Edge rooms 1,3,5,7 have a single outer room (ids 2,5,6,9): chest or mystery, never a merchant.
+  // Corner rooms 0,2,6,8 have two outer rooms (ids 0/1, 3/4, 7/8, 10/11): each chest, mystery or merchant.
+  function randomLayout() {
+    const pick = table => { let r = Math.random() * table.reduce((a, b) => a + b[1], 0); for (const [t, w] of table) { if ((r -= w) < 0) return t; } return table[0][0]; };
+    const EDGE = [['chest', 60], ['mystery', 40]], CORNER = [['chest', 50], ['mystery', 25], ['merchant', 25]], edgeIds = [2, 5, 6, 9];
+    return Array.from({ length: 12 }, (_, id) => pick(edgeIds.includes(id) ? EDGE : CORNER));
+  }
+  root.GKITEMS = { randomLayout, WEAPONS, ARMOR, ITEMS, START, KNOWLEDGE, CHEST_WEAPONS, SLOTS };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.GKITEMS;
 })(typeof window !== 'undefined' ? window : globalThis);
