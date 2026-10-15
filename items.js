@@ -18,24 +18,26 @@
     ['obsidian', 'Obsidian Armour', 'plate', 1.5, 185], ['dragon', 'Dragonscale Mail', 'mail', 1, 215], ['mythril', 'Mythril Hauberk', 'mail', 0.6, 250], ['aegis', "Titan's Aegis", 'plate', 0.4, 300],
   ];
   const tierOf = c => c >= 7 ? 'common' : c >= 4.5 ? 'uncommon' : c >= 2.5 ? 'rare' : c >= 1 ? 'epic' : 'legendary';
+  // Weapons and armour have TIERS 1-5 shown next to their stats: tier 1 common ... tier 5 legendary (tierN). `tier` stays the rarity name used for colours.
+  const TIER_N = { common: 1, uncommon: 2, rare: 3, epic: 4, legendary: 5 };
   const WEAPONS = {}, ARMOR = {}, ITEMS = {};
   for (const [k, name, family, chance, attack] of W) {
     WEAPONS[k] = { name, attack, family, chance, tier: tierOf(chance) };
-    ITEMS['w:' + k] = { key: 'w:' + k, type: 'weapon', name, attack, family, chance, tier: tierOf(chance), price: Math.round((attack * 3 + 20) / 5) * 5 };
+    ITEMS['w:' + k] = { key: 'w:' + k, type: 'weapon', name, attack, family, chance, tier: tierOf(chance), tierN: TIER_N[tierOf(chance)], price: Math.round((attack * 3 + 20) / 5) * 5 };
   }
   for (const [k, name, family, chance, health] of A) {
     ARMOR[k] = { name, health, family, chance, tier: tierOf(chance) };
-    ITEMS['a:' + k] = { key: 'a:' + k, type: 'armor', name, health, family, chance, tier: tierOf(chance), price: Math.round((health * 1.4 + 10) / 5) * 5 };
+    ITEMS['a:' + k] = { key: 'a:' + k, type: 'armor', name, health, family, chance, tier: tierOf(chance), tierN: TIER_N[tierOf(chance)], price: Math.round((health * 1.4 + 10) / 5) * 5 };
   }
   // class items (start-only, never dropped)
   WEAPONS.staff = { name: 'Gnarled Staff', attack: 0, family: 'staff', chance: 0, tier: 'class' };
   WEAPONS.scepter = { name: 'Royal Scepter', attack: 20, family: 'scepter', chance: 0, tier: 'class' };
   ARMOR.robe = { name: 'Starry Robe', health: 60, family: 'robe', chance: 0, tier: 'class' };
   ARMOR.royal = { name: 'Royal Mantle', health: 100, family: 'royal', chance: 0, tier: 'class' };
-  ITEMS['w:staff'] = { key: 'w:staff', type: 'weapon', name: 'Gnarled Staff', attack: 0, family: 'staff', chance: 0, tier: 'class', price: 70 };
-  ITEMS['w:scepter'] = { key: 'w:scepter', type: 'weapon', name: 'Royal Scepter', attack: 20, family: 'scepter', chance: 0, tier: 'class', price: 150 };
-  ITEMS['a:robe'] = { key: 'a:robe', type: 'armor', name: 'Starry Robe', health: 60, family: 'robe', chance: 0, tier: 'class', price: 90 };
-  ITEMS['a:royal'] = { key: 'a:royal', type: 'armor', name: 'Royal Mantle', health: 100, family: 'royal', chance: 0, tier: 'class', price: 180 };
+  ITEMS['w:staff'] = { key: 'w:staff', type: 'weapon', name: 'Gnarled Staff', attack: 0, family: 'staff', chance: 0, tier: 'class', tierN: 2, price: 70 };
+  ITEMS['w:scepter'] = { key: 'w:scepter', type: 'weapon', name: 'Royal Scepter', attack: 20, family: 'scepter', chance: 0, tier: 'class', tierN: 2, price: 150 };
+  ITEMS['a:robe'] = { key: 'a:robe', type: 'armor', name: 'Starry Robe', health: 60, family: 'robe', chance: 0, tier: 'class', tierN: 2, price: 90 };
+  ITEMS['a:royal'] = { key: 'a:royal', type: 'armor', name: 'Royal Mantle', health: 100, family: 'royal', chance: 0, tier: 'class', tierN: 3, price: 180 };
 
   const START = [   // starting gear per goblin type: 0 small, 1 medium, 2 big, 3 wizard, 4 king
     { weapon: 'w:dagger', armor: 'a:rags' }, { weapon: 'w:club', armor: 'a:vest' }, { weapon: 'w:mace', armor: 'a:harness' },
@@ -108,6 +110,6 @@
     return { kind: 'plushie' };
   }
   const CHEST_WEAPONS = ['w:sword', 'w:axe', 'w:spear', 'w:mace', 'w:bow', 'w:dagger'];   // legacy: old 6-entry chest list (indices), kept until the client reads chestKeys
-  root.GKITEMS = { randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, START, KNOWLEDGE, KNOWLEDGE_TIERS, CHEST_WEAPONS, SLOTS, tierOf, PARTS, recycleYield, brainKey, isBrain, brainKnowledge, brainGain, info };
+  root.GKITEMS = { randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, START, KNOWLEDGE, KNOWLEDGE_TIERS, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, PARTS, recycleYield, brainKey, isBrain, brainKnowledge, brainGain, info };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.GKITEMS;
 })(typeof window !== 'undefined' ? window : globalThis);

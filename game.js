@@ -933,12 +933,13 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
   const labelFor = key => {   // shared sprite material: 'Battle Axe · 30 dmg' in the tier colour
     if (typeof key === 'number') key = LEGACY_KEYS[key] || 'w:sword'; let m = labelCache.get(key); if (m) return m;
     const it = itemOf(key) || { name: String(key), attack: 0, tier: 'common' }, t = TIERS[it.tier] || TIERS.common;
-    m = new THREE.SpriteMaterial({ map: textTex(it.name + (it.attack != null && it.type !== 'armor' ? ' \u00b7 ' + it.attack + ' dmg' : it.health ? ' \u00b7 ' + it.health + ' HP' : ''), hex6(t.col), 'rgba(12,8,4,.6)', 640, 96, 'bold 46px system-ui'), transparent: true, depthWrite: false, fog: false });
+    m = new THREE.SpriteMaterial({ map: textTex(it.name + (it.tierN ? ' · Tier ' + it.tierN : '') + (it.attack != null && it.type !== 'armor' ? ' \u00b7 ' + it.attack + ' dmg' : it.health ? ' \u00b7 ' + it.health + ' HP' : ''), hex6(t.col), 'rgba(12,8,4,.6)', 768, 96, 'bold 44px system-ui'), transparent: true, depthWrite: false, fog: false });
     labelCache.set(key, m); return m;
   };
 
   // ----- shared toolkit for the room interiors and the stations -----
   const CW = CS / 2, IN = CW - T / 2;
+  let lastWeapons = null;                   // item keys from the server, one per CHEST_ROOMS entry
   const slots = [];                         // per outer room: { cr, g (shell group), shell, inner (rebuildable interior group), flames, built }
   const cacheM = new Map(), cache = (k, f) => { let v = cacheM.get(k); if (v === undefined) { v = f(); cacheM.set(k, v); } return v; };
   const kgeo = (k, f) => cache('g:' + k, () => { const g = f(); keepGeo.add(g); return g; });
@@ -1017,19 +1018,23 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
   const roomTickUnused = [];
   for (const cr of CHEST_ROOMS) {
     const g = new THREE.Group(); g.position.set(cr.cx, 0, cr.cz); g.rotation.y = Math.atan2(-cr.dx, -cr.dz); scene.add(g);  // local +z faces the door
-    bx(g, CS, 0.4, CS, 0, -0.2, 0, cFloorM, CS);
-    ceilings.push(bx(g, CS + T, 0.3, CS + T, 0, H + 0.15, 0, cCeilM));
-    for (const z of [-1.8, 1.4]) { ceilings.push(bx(g, 2.4, 0.05, 1.2, 0, H - 0.03, z, cPanelM), bx(g, 2.64, 0.04, 1.44, 0, H - 0.015, z, skirtM)); }
+    const shell = { walls: [], bands: [], panels: [] };   // meshes whose material depends on the room type
+    shell.floor = bx(g, CS, 0.4, CS, 0, -0.2, 0, cFloorM, CS);
+    ceilings.push(shell.ceil = bx(g, CS + T, 0.3, CS + T, 0, H + 0.15, 0, cCeilM));
+    for (const z of [-1.8, 1.4]) { const pn = bx(g, 2.4, 0.05, 1.2, 0, H - 0.03, z, cPanelM); shell.panels.push(pn); ceilings.push(pn, bx(g, 2.64, 0.04, 1.44, 0, H - 0.015, z, skirtM)); }
     const L = CS + T / 2;
-    bx(g, CS + T, H, T, 0, H / 2, -CW, cWallM); bx(g, T, H, L, -CW, H / 2, -T / 4, cWallM); bx(g, T, H, L, CW, H / 2, -T / 4, cWallM);
+    shell.walls.push(bx(g, CS + T, H, T, 0, H / 2, -CW, cWallM), bx(g, T, H, L, -CW, H / 2, -T / 4, cWallM), bx(g, T, H, L, CW, H / 2, -T / 4, cWallM));
     // skirting, gold band, cornice
     bx(g, 2 * IN, 0.28, 0.1, 0, 0.14, -IN + 0.05, skirtM); for (const s of [-1, 1]) bx(g, 0.1, 0.28, 2 * IN, s * (IN - 0.05), 0.14, 0, skirtM);
-    bx(g, 2 * IN, 0.08, 0.05, 0, 1.3, -IN + 0.025, goldM); for (const s of [-1, 1]) bx(g, 0.05, 0.08, 2 * IN, s * (IN - 0.025), 1.3, 0, goldM);
+    shell.bands.push(bx(g, 2 * IN, 0.08, 0.05, 0, 1.3, -IN + 0.025, goldM)); for (const s of [-1, 1]) shell.bands.push(bx(g, 0.05, 0.08, 2 * IN, s * (IN - 0.025), 1.3, 0, goldM));
     bx(g, 2 * IN, 0.2, 0.1, 0, H - 0.1, -IN + 0.05, skirtM); for (const s of [-1, 1]) bx(g, 0.1, 0.2, 2 * IN, s * (IN - 0.05), H - 0.1, 0, skirtM);
+    const inner = new THREE.Group(); g.add(inner); slots.push({ cr, g, shell, inner, flames: [], built: null });
+  }
+  function buildChest(slot) {   // banners, torches and the chest with its floating weapon
+    const cr = slot.cr, g = slot.inner, flames = [];
     // wall banners
     for (const bxp of [-2.6, 2.6]) { const b = bx(g, 0.9, 2.4, 0.04, bxp, 3.5, -IN + 0.03, clothM, 1); bx(g, 1.0, 0.07, 0.07, bxp, 4.74, -IN + 0.04, goldM, 1); const em = bx(g, 0.3, 0.3, 0.02, bxp, 3.6, -IN + 0.07, goldM, 1); em.rotation.z = Math.PI / 4; }
     // torches
-    const flames = [];
     for (const [tx, tz, ry] of [[-1.3, -IN, 0], [1.3, -IN, 0], [-IN, 1.9, Math.PI / 2], [IN, 1.9, -Math.PI / 2], [-IN, -1.9, Math.PI / 2], [IN, -1.9, -Math.PI / 2]]) {
       const t = new THREE.Group(); t.position.set(tx, 2.7, tz); t.rotation.y = ry; g.add(t);       // local +z points into the room
       bx(t, 0.14, 0.14, 0.08, 0, 0, 0.04, ironM, 1); const arm = cy2(t, 0.025, 0.025, 0.3, ironM, 0); arm.rotation.x = Math.PI / 2; arm.position.z = 0.15;
@@ -1038,29 +1043,48 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
       const gl = addGlow(t, 0xff8a2a, 2.6, 0.75, 0, 0.5, 0.35); flames.push({ f, f2, gl, ph: rnd() * 9 }); chestDyn.add(f); chestDyn.add(f2); chestDyn.add(gl);
     }
     // chest + dais, facing the door (+z local)
-    const chest = chestProto.clone(); chest.position.set(0, 0, -1.2); g.add(chest);
-    const pool = new THREE.Mesh(new THREE.PlaneGeometry(5.5, 5.5), new THREE.MeshBasicMaterial({ map: glowTex, color: 0xffb040, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false, fog: false })); pool.rotation.x = -Math.PI / 2; pool.position.set(0, 0.02, 0.8); chest.add(pool);
-    const sh = new THREE.Group(); sh.position.set(0, 1.0, 0); chest.add(sh);
-    for (let k = 0; k < 2; k++) { const pl = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 3.4), shaftM); pl.position.y = 1.7; pl.rotation.y = k * Math.PI / 2; pl.renderOrder = 3; sh.add(pl); }
-    const glow = addGlow(chest, 0xffd060, 1.9, 0.6, 0, 1.2, 0); chestDyn.add(glow);
-    const holder = new THREE.Group(); holder.position.set(0, 2.0, 0); chest.add(holder); chestDyn.add(holder);
-    const wglow = addGlow(chest, 0xffffff, 1.8, 0.28, 0, 2.0, 0); chestDyn.add(wglow);
-    const label = new THREE.Sprite(getLabel(0).clone()); label.scale.set(2.3, 0.43, 1); label.position.set(0, 3.75, 0); label.renderOrder = 5; chest.add(label); chestDyn.add(label); label.visible = false;
-    chestSlots.push({ holder, glow, wglow, label, cur: -1, ph: cr.id * 1.7, base: 2.0, chest });
-    roomTick.push(flames);
+    const kc = chestKitBuild(g, 0, -1.2, 0, { id: cr.id }); if (lastWeapons) kc.setWeapon(lastWeapons[cr.id]);
+    slot.flames = flames;
   }
   // static world: freeze matrices of everything we built except animated pieces
   scene.updateMatrixWorld(true);
-  for (const s of chestSlots) s.chest.parent.traverse(o => { if (!chestDyn.has(o) && o.isMesh) { o.matrixAutoUpdate = false; o.updateMatrix(); } else if (!chestDyn.has(o) && !o.isSprite && !o.isLight) { o.updateMatrix(); } });
-  for (const s of chestSlots) s.chest.parent.traverse(o => { if (!chestDyn.has(o) && o !== s.chest.parent) o.matrixAutoUpdate = false; });
-  let lastT = -1;
+  for (const s of slots) freezeTree(s.g);
+  // ===== room interiors: (re)built from the random layout; the shell (floor, walls, ceiling, lights) is built once and only retinted =====
+  const SHELL = {};
+  function shellMats(type) {
+    if (type === 'chest') return { floor: cFloorM, wall: cWallM, ceil: cCeilM, panel: cPanelM, band: goldM };
+    return SHELL[type] || (SHELL[type] = type === 'mystery' ? mysteryShell() : merchantShell());
+  }
+  function buildInterior(slot) {
+    const cr = slot.cr, type = cr.type;
+    if (slot.mg) { GK.disposeMysteryContents && GK.disposeMysteryContents(slot.mg); slot.mg = null; }
+    disposeTree(slot.inner); slot.g.remove(slot.inner);
+    targetsOf(GK.merchantTargets, o => o.userData.roomId === cr.id); targetsOf(GK.stationTargets, o => o.userData.roomId === cr.id);
+    slot.inner = new THREE.Group(); slot.g.add(slot.inner); slot.flames = [];
+    const m = shellMats(type), sh = slot.shell;
+    sh.floor.material = m.floor; sh.ceil.material = m.ceil; for (const w of sh.walls) w.material = m.wall; for (const p of sh.panels) p.material = m.panel; for (const b of sh.bands) b.material = m.band;
+    (type === 'mystery' ? buildMystery : type === 'merchant' ? buildMerchant : buildChest)(slot);
+    freezeTree(slot.inner);
+    if (type === 'mystery') {   // contents of the mystery room (separate agent): a group in the room's local frame, origin = room centre on the floor, +z toward the door
+      const mg = new THREE.Group(); mg.name = 'mysteryContents'; slot.inner.add(mg); slot.mg = mg;
+      if (GK.buildMysteryContents) { try { GK.buildMysteryContents(cr, mg, cr.mystery); } catch (e) { console.error(e); } }
+    }
+    slot.built = type; prune();
+  }
+  const rebuildAll = () => { for (const s of slots) { if (s.built === s.cr.type && s.cr.type !== 'mystery') continue; buildInterior(s); } };
+  layoutHooks.push(rebuildAll);
+  if (GK.layout) rebuildAll(); else setTimeout(() => { if (!GK.layout) rebuildAll(); }, 4000);   // no layout from the server: show the defaults
+  // @@ROOMS@@
+  let lastT = -1, lastP = 0;
   function animate() {
-    const t = performance.now() / 1000; if (t === lastT) return; lastT = t;
+    const t = performance.now() / 1000; if (t === lastT) return; const dt = Math.min(0.1, lastT < 0 ? 0.016 : t - lastT); lastT = t;
+    if (t - lastP > 2) { lastP = t; prune(); }
+    for (const q of tickList) if (attached(q.root)) q.fn(t, dt);
     for (const s of chestSlots) {
       s.holder.position.y = s.base + Math.sin(t * 1.5 + s.ph) * 0.07; s.holder.rotation.y = t * 0.7 + s.ph; s.holder.updateMatrix(); s.holder.updateMatrixWorld(true);
       const k = 0.85 + 0.15 * Math.sin(t * 2.3 + s.ph); s.glow.material.opacity = 0.55 * k + 0.05;
     }
-    for (const fl of roomTick) for (const q of fl) { const k = 1 + 0.12 * Math.sin(t * 17 + q.ph) + 0.08 * Math.sin(t * 29 + q.ph * 2); q.f.scale.set(k * 0.95, k, k * 0.95); q.f2.scale.set(k, 0.9 + (k - 1) * 2, k); q.gl.material.opacity = 0.62 + (k - 1) * 1.4; q.f.updateMatrix(); q.f2.updateMatrix(); }
+    for (const sl of slots) for (const q of sl.flames) { const k = 1 + 0.12 * Math.sin(t * 17 + q.ph) + 0.08 * Math.sin(t * 29 + q.ph * 2); q.f.scale.set(k * 0.95, k, k * 0.95); q.f2.scale.set(k, 0.9 + (k - 1) * 2, k); q.gl.material.opacity = 0.62 + (k - 1) * 1.4; q.f.updateMatrix(); q.f2.updateMatrix(); }
   }
   tickers.push(animate);
   // drives the animation without frame(): a tiny always-drawn mesh whose onBeforeRender ticks everything
@@ -1069,13 +1093,8 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
   hook.matrixAutoUpdate = false; hook.updateMatrix();
   function applyChestsImpl(weaponIdx) {
     if (!weaponIdx) return;
-    chestSlots.forEach((s, i) => {
-      const w = weaponIdx[i] | 0; if (s.cur === w || !(w >= 0 && w < WEAPONS.length)) return; s.cur = w;
-      while (s.holder.children.length) s.holder.remove(s.holder.children[0]);
-      const m = getWeapon(w).clone(); m.rotation.z = 0.35; s.holder.add(m);
-      m.traverse(o => { o.matrixAutoUpdate = false; o.updateMatrix(); }); m.matrixAutoUpdate = true;
-      s.wglow.material.color.setHex(RARITY[w]); s.label.material = getLabel(w); s.label.visible = true; s.holder.updateMatrixWorld(true);
-    });
+    lastWeapons = Array.from(weaponIdx, w => typeof w === 'string' ? w : (LEGACY_KEYS[w | 0] || 'w:sword'));   // item keys ('w:axe') or legacy indices; kept until the interiors exist
+    for (const s of chestSlots) if (s.id != null && attached(s.holder)) setSlotWeapon(s, lastWeapons[s.id]);
   }
   GK.applyChests = applyChestsImpl;
 }
