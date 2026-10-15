@@ -31,10 +31,10 @@ for (let i = 0; i < 9; i++) {
   if (row === 0) sides.push(['N', 0, -1]); if (col === 0) sides.push(['W', -1, 0]); if (col === 2) sides.push(['E', 1, 0]); if (row === 2) sides.push(['S', 0, 1]);
   for (const [side, dx, dz] of sides) CHEST_ROOMS.push({ id: CHEST_ROOMS.length, type: ROOM_TYPE_BY_ID[CHEST_ROOMS.length] || 'chest', parent: i, side, dx, dz, cx: cx0 + dx * (R / 2 + CS / 2), cz: cz0 + dz * (R / 2 + CS / 2), wallX: cx0 + dx * R / 2, wallZ: cz0 + dz * R / 2 });
 }
-function applyLayout(types) {   // types: 12 strings in CHEST_ROOMS order
+function applyLayout(types, mystery) {   // types: 12 strings in CHEST_ROOMS order; mystery: 12 entries, null or the contents of that mystery room (GKITEMS.randomMystery)
   if (!Array.isArray(types) || types.length !== CHEST_ROOMS.length || !types.every(t => t === 'chest' || t === 'mystery' || t === 'merchant')) return;
-  types.forEach((t, i) => { CHEST_ROOMS[i].type = t; });
-  GK.layout = types.slice(); for (const f of layoutHooks) { try { f(GK.layout); } catch (e) { console.error(e); } }
+  types.forEach((t, i) => { CHEST_ROOMS[i].type = t; CHEST_ROOMS[i].mystery = t === 'mystery' && mystery && mystery[i] ? mystery[i] : null; });
+  GK.layout = types.slice(); GK.mystery = CHEST_ROOMS.map(c => c.mystery); for (const f of layoutHooks) { try { f(GK.layout, GK.mystery); } catch (e) { console.error(e); } }
 }
 GK.layoutHooks = layoutHooks; GK.applyLayout = applyLayout;
 GK.CHEST_ROOMS = CHEST_ROOMS; GK.WEAPONS = WEAPONS;
@@ -246,6 +246,43 @@ const skullTex = canvasTex(512, 512, (g, w, h) => {
   }
   g.fillStyle = '#080504'; g.beginPath(); g.moveTo(256, 258); g.quadraticCurveTo(232, 300, 236, 306); g.lineTo(276, 306); g.quadraticCurveTo(280, 300, 256, 258); g.fill();
 });
+const mysteryTex = canvasTex(512, 512, (g, w, h) => {
+  const bg = g.createRadialGradient(256, 256, 20, 256, 256, 340); bg.addColorStop(0, '#2c1a52'); bg.addColorStop(1, '#0b0716');
+  rrect(g, 8, 8, 496, 496, 46); g.fillStyle = bg; g.fill();
+  g.lineWidth = 12; g.strokeStyle = '#d9a93a'; rrect(g, 8, 8, 496, 496, 46); g.stroke();
+  g.lineWidth = 3; g.strokeStyle = '#7b52c9'; rrect(g, 32, 32, 448, 448, 30); g.stroke();
+  g.strokeStyle = '#9a6cff'; g.lineWidth = 4; g.beginPath(); g.arc(256, 256, 214, 0, 7); g.stroke(); g.lineWidth = 2; g.beginPath(); g.arc(256, 256, 176, 0, 7); g.stroke();
+  let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  g.strokeStyle = '#c9a7ff'; g.lineWidth = 5; g.lineCap = 'round';
+  for (let i = 0; i < 20; i++) {   // runes between the rings
+    const a = i / 20 * Math.PI * 2, rx = 256 + Math.sin(a) * 195, ry = 256 - Math.cos(a) * 195; g.save(); g.translate(rx, ry); g.rotate(a);
+    g.beginPath(); g.moveTo(0, -13); g.lineTo(0, 13); if (rnd() < 0.7) { g.moveTo(0, -13); g.lineTo(9, -3); } if (rnd() < 0.7) { g.moveTo(0, 13); g.lineTo(-9, 2); } if (rnd() < 0.5) { g.moveTo(-8, 0); g.lineTo(8, 4); } g.stroke(); g.restore();
+  }
+  const gl = g.createRadialGradient(256, 262, 10, 256, 262, 190); gl.addColorStop(0, 'rgba(190,120,255,.7)'); gl.addColorStop(1, 'rgba(120,60,255,0)'); g.fillStyle = gl; g.fillRect(0, 0, w, h);
+  g.font = 'bold 330px Georgia, "Times New Roman", serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = '#3a1d7a'; g.fillText('?', 262, 276); g.fillStyle = '#e8c35a'; g.fillText('?', 256, 268); g.fillStyle = '#fff3c4'; g.globalAlpha = 0.55; g.fillText('?', 252, 262); g.globalAlpha = 1;
+  g.fillStyle = 'rgba(255,255,255,.9)'; star4(g, 380, 120, 16); star4(g, 128, 380, 12);
+});
+const merchantTex = canvasTex(512, 512, (g, w, h) => {
+  const gold = g.createLinearGradient(40, 40, 470, 470); gold.addColorStop(0, '#fff0a0'); gold.addColorStop(0.45, '#e2a82a'); gold.addColorStop(1, '#7a5510');
+  g.fillStyle = '#4a3208'; g.beginPath(); g.arc(256, 262, 250, 0, 7); g.fill();
+  g.fillStyle = gold; g.beginPath(); g.arc(256, 256, 246, 0, 7); g.fill();
+  g.strokeStyle = '#8a6212'; g.lineWidth = 5; for (let i = 0; i < 60; i++) { const a = i / 60 * Math.PI * 2; g.beginPath(); g.moveTo(256 + Math.sin(a) * 226, 256 - Math.cos(a) * 226); g.lineTo(256 + Math.sin(a) * 242, 256 - Math.cos(a) * 242); g.stroke(); }
+  g.fillStyle = '#1b1306'; g.beginPath(); g.arc(256, 256, 206, 0, 7); g.fill();
+  g.strokeStyle = '#e6b52e'; g.lineWidth = 6; g.beginPath(); g.arc(256, 256, 196, 0, 7); g.stroke();
+  g.fillStyle = gold; g.strokeStyle = '#e6b52e'; g.lineWidth = 9; g.lineCap = 'round'; g.lineJoin = 'round';
+  // goblin merchant hat
+  g.beginPath(); g.moveTo(186, 168); g.quadraticCurveTo(220, 150, 238, 100); g.quadraticCurveTo(250, 60, 300, 48); g.quadraticCurveTo(278, 80, 282, 110); g.quadraticCurveTo(300, 150, 326, 168); g.closePath(); g.fill();
+  g.beginPath(); g.ellipse(256, 172, 92, 16, 0, 0, 7); g.fill(); g.fillStyle = '#1b1306'; g.fillRect(222, 138, 66, 10); g.fillStyle = gold; g.beginPath(); g.arc(256, 143, 11, 0, 7); g.fill();
+  // scales
+  g.beginPath(); g.moveTo(256, 196); g.lineTo(256, 392); g.stroke(); g.beginPath(); g.moveTo(180, 410); g.lineTo(332, 410); g.stroke();
+  g.beginPath(); g.moveTo(120, 232); g.lineTo(392, 232); g.stroke(); g.beginPath(); g.arc(256, 218, 15, 0, 7); g.fill();
+  g.lineWidth = 4; for (const sx of [-1, 1]) {
+    const x = 256 + sx * 136; g.beginPath(); g.moveTo(x, 232); g.lineTo(x - 56, 306); g.moveTo(x, 232); g.lineTo(x + 56, 306); g.stroke();
+    g.beginPath(); g.moveTo(x - 66, 306); g.quadraticCurveTo(x, 372, x + 66, 306); g.closePath(); g.fill();
+  }
+  g.fillStyle = '#1b1306'; g.font = 'bold 54px Georgia, serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('$', 256, 470);
+});
 const dialTex = canvasTex(256, 256, (g, w, h) => {
   g.fillStyle = '#10141a'; g.beginPath(); g.arc(128, 128, 126, 0, 7); g.fill();
   g.strokeStyle = '#c9d2dc'; g.fillStyle = '#e8eef5'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = 'bold 20px system-ui';
@@ -274,6 +311,7 @@ const gunM = M(0x2d3138, { map: steelTex, metalness: 0.9, roughness: 0.4, envMap
 const lightSteelM = M(0xd7dee8, { map: steelTex, metalness: 1, roughness: 0.26, envMapIntensity: 1.25 });
 const rivetM = M(0x9aa4b0, { metalness: 1, roughness: 0.3, envMapIntensity: 1.1 });
 const chainM = M(0x9aa3ad, { metalness: 1, roughness: 0.35 });
+const violetTrimM = new THREE.MeshBasicMaterial({ color: 0x8a52ff, toneMapped: false });
 const redTrimM = new THREE.MeshBasicMaterial({ color: 0xc41818, toneMapped: false });
 const chainGeo = new THREE.TorusGeometry(0.07, 0.022, 6, 14), rivetGeo = new THREE.SphereGeometry(1, 8, 6);
 const _o = new THREE.Object3D();
@@ -362,7 +400,7 @@ function sign(g, text, y, color, bg) {
   const t = textTex(text, color, bg, 512, 96, 'bold 58px system-ui');
   for (const s of [-1, 1]) {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.45), new THREE.MeshBasicMaterial({ map: t }));
-    m.position.set(0, y, s * (T / 2 + 0.17)); if (s < 0) m.rotation.y = Math.PI; g.add(m);
+    m.position.set(0, y, s * (T / 2 + 0.17)); if (s < 0) m.rotation.y = Math.PI; g.add(m); (sign.out = sign.out || []).push(m);
   }
 }
 function bioPanel(g, d, x) {
@@ -418,7 +456,10 @@ function wall(px, pz, rot, kind) {
   rects.push(d.blocker);
 
   if (slide) {
-    const sk = kind === 'skull', ch = kind === 'chest', leafM = sk ? gunM : steelM;
+    const sk = kind === 'skull', ch = kind === 'chest' || kind === 'mystery' || kind === 'merchant', leafM = sk ? gunM : ch ? steelM.clone() : steelM;
+    if (ch) { d.art = { chest: [], mystery: [], merchant: [] }; d.leafMat = leafM; d.trimM = yellowM.clone(); d.merchPlates = []; }
+    const A = (t, o) => { d.art[t].push(o); return o; };
+    const plateMat = (tex, ei) => new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: ei, roughness: 0.4, metalness: 0.5, alphaTest: 0.4 });
     for (const s of [-1, 1]) {
       bx(g, 0.26, dh, T + 0.24, s * (dw / 2 + 0.13), dh / 2, 0, darkSteel);
       bx(g, 0.07, dh - 0.12, T + 0.3, s * (dw / 2 + 0.035), dh / 2 - 0.06, 0, lightSteelM);      // bevel edge
@@ -426,7 +467,7 @@ function wall(px, pz, rot, kind) {
     }
     bx(g, dw + 0.5, 0.3, T + 0.24, 0, dh - 0.15, 0, darkSteel);
     bx(g, dw + 0.1, 0.07, T + 0.3, 0, dh - 0.335, 0, lightSteelM);
-    for (const z of [-1, 1]) bx(g, dw + 0.5, 0.06, 0.02, 0, dh - 0.15, z * (T / 2 + 0.131), ch ? yellowM : sk ? redTrimM : hazardM, 0.8);
+    for (const z of [-1, 1]) bx(g, dw + 0.5, 0.06, 0.02, 0, dh - 0.15, z * (T / 2 + 0.131), ch ? d.trimM : sk ? redTrimM : hazardM, 0.8);
     const rv = []; for (const sx of [-1, 1]) for (const sz of [-1, 1]) { for (let k = 0; k < 9; k++) rv.push([sx * (dw / 2 + 0.13), 0.3 + k * (dh - 0.9) / 8, sz * (T / 2 + 0.125), 0.035, 0.035, 0.035]); }
     inst(g, rivetGeo, rivetM, rv);
     g.add(d.leaf);
@@ -444,11 +485,16 @@ function wall(px, pz, rot, kind) {
       if (ch) {
         for (let i = 0; i < 6; i++) {
           const y = 0.42 + i * 0.64;
-          bx(d.leaf, lw - 0.3, 0.34, 0.03, 0, y, z + s * 0.01, darkSteel, 1);
-          bx(d.leaf, lw - 0.36, 0.26, 0.05, 0, y, z + s * 0.02, yellowM, 1);
+          A('chest', bx(d.leaf, lw - 0.3, 0.34, 0.03, 0, y, z + s * 0.01, darkSteel, 1));
+          A('chest', bx(d.leaf, lw - 0.36, 0.26, 0.05, 0, y, z + s * 0.02, d.trimM, 1));
         }
-        const plate = new THREE.Mesh(new THREE.PlaneGeometry(2.1, 2.1), new THREE.MeshStandardMaterial({ map: moneyTex, emissiveMap: moneyTex, emissive: 0xffffff, emissiveIntensity: 0.35, roughness: 0.4, metalness: 0.5, alphaTest: 0.4 }));
-        plate.position.set(0, lh / 2, s * 0.17); if (s < 0) plate.rotation.y = Math.PI; d.leaf.add(plate);
+        for (const yy of [0.5, lh - 0.5]) { A('mystery', bx(d.leaf, lw - 0.5, 0.05, 0.02, 0, yy, s * 0.14, violetTrimM, 1)); A('merchant', bx(d.leaf, lw - 0.5, 0.05, 0.02, 0, yy, s * 0.14, goldM, 1)); }
+        for (const [tp, tx, ei] of [['chest', moneyTex, 0.35], ['mystery', mysteryTex, 0.5], ['merchant', merchantTex, 0.3]]) {
+          const plate = A(tp, new THREE.Mesh(new THREE.PlaneGeometry(2.1, 2.1), plateMat(tx, ei)));
+          plate.position.set(0, lh / 2, s * 0.17); if (s < 0) plate.rotation.y = Math.PI; d.leaf.add(plate);
+          if (tp === 'merchant') d.merchPlates.push(plate);
+          if (tp !== 'chest') { const gs = glowSprite(d.leaf, glowMat(tp === 'mystery' ? 0x9a5cff : 0xffc040, 0.5), 3.4, 0, lh / 2, s * 0.15); A(tp, gs); }
+        }
       } else if (sk) {
         for (const yy of [0.5, lh - 0.5]) bx(d.leaf, lw - 0.5, 0.05, 0.02, 0, yy, s * 0.14, redTrimM, 1);
         const pl = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.6), new THREE.MeshStandardMaterial({ map: skullTex, emissiveMap: skullTex, emissive: 0xffffff, emissiveIntensity: 0.2, roughness: 0.5, metalness: 0.2, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
@@ -461,7 +507,17 @@ function wall(px, pz, rot, kind) {
     }
     for (let i = 0; i < 3; i++) cyl(d.leaf, 0.055, 0.5, darkSteel, lw / 2 - 0.1, 0.8 + i * 1.3, 0, 'x'); // deadbolts
     keypad(g, dw / 2 + 0.6, false);
-    sign(g, ch ? 'TREASURY' : sk ? 'DANGER' : 'SECURE', dh + 0.62, ch ? '#ffd54a' : sk ? '#ff5a4a' : '#f1f1f1', ch ? '#1b1508' : sk ? '#1a0e0e' : '#23262c');
+    if (ch) {
+      for (const [tp, tx, c1, c2] of [['chest', 'TREASURY', '#ffd54a', '#1b1508'], ['mystery', 'MYSTERY', '#c9a7ff', '#150c26'], ['merchant', 'MERCHANT', '#ffd54a', '#241808']]) { sign.out = []; sign(g, tx, dh + 0.62, c1, c2); sign.out.forEach(m => A(tp, m)); }
+      const TY = { chest: [0xa9b6c6, 0xf2b705], mystery: [0x6a58a8, 0x8a52ff], merchant: [0xc9a25a, 0xe0a82a] };
+      d.setType = t => {
+        if (!d.art[t]) return; d.kind = t;
+        for (const k in d.art) d.art[k].forEach(o => { o.visible = k === t; });
+        d.leafMat.color.setHex(TY[t][0]); d.trimM.color.setHex(TY[t][1]);
+        if (t === 'merchant' && GK.merchantLogo && !d.merchSwapped) { try { const c = GK.merchantLogo(512); if (c) { d.merchSwapped = true; if (!GK._mtex) { GK._mtex = new THREE.CanvasTexture(c); GK._mtex.colorSpace = THREE.SRGBColorSpace; } d.merchPlates.forEach(p => { p.material.map = p.material.emissiveMap = GK._mtex; p.material.needsUpdate = true; }); } } catch (e) {} }
+      };
+      d.setType(kind);
+    } else sign(g, sk ? 'DANGER' : 'SECURE', dh + 0.62, sk ? '#ff5a4a' : '#f1f1f1', sk ? '#1a0e0e' : '#23262c');
     statusLights(g, d, dh + 0.2);
     for (const s of [-1, 1]) for (const sx of [-1, 1]) beacon(g, d, sx * (dw / 2 + 0.5), dh + 0.4, s, 1, true);
   } else {
@@ -566,11 +622,14 @@ for (let i = 0; i < 9; i++) {
   const [cx, cz] = rc(i), col = i % 3, row = Math.floor(i / 3);
   // east neighbour and south neighbour, or an outer wall on the edge
   const kd = (a, b) => (a === 4 || b === 4) ? 'vault' : 'skull';
-  wall(cx + R / 2, cz, Math.PI / 2, col < 2 ? kd(i, i + 1) : 'chest');
-  wall(cx, cz + R / 2, 0, row < 2 ? kd(i, i + 3) : 'chest');
-  if (col === 0) wall(cx - R / 2, cz, Math.PI / 2, 'chest');
-  if (row === 0) wall(cx, cz - R / 2, 0, 'chest');
+  const outerKind = (x, z) => { const c = CHEST_ROOMS.find(r => Math.abs(r.wallX - x) < 0.01 && Math.abs(r.wallZ - z) < 0.01); return 'chest'; };
+  wall(cx + R / 2, cz, Math.PI / 2, col < 2 ? kd(i, i + 1) : outerKind(cx + R / 2, cz));
+  wall(cx, cz + R / 2, 0, row < 2 ? kd(i, i + 3) : outerKind(cx, cz + R / 2));
+  if (col === 0) wall(cx - R / 2, cz, Math.PI / 2, outerKind(cx - R / 2, cz));
+  if (row === 0) wall(cx, cz - R / 2, 0, outerKind(cx, cz - R / 2));
 }
+layoutHooks.push(types => { for (const d of doors) { if (!d.setType) continue; const c = CHEST_ROOMS.find(r => Math.abs(r.wallX - d.gx) < 0.01 && Math.abs(r.wallZ - d.gz) < 0.01); if (c) d.setType(c.type); } });
+if (GK.layout) layoutHooks[layoutHooks.length - 1](GK.layout);
 // static world never moves: freeze matrices so the per-frame scene graph update skips them
 scene.updateMatrixWorld(true);
 {
@@ -821,6 +880,8 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
 }
 function applyChests(a) { GK.applyChests(a); }
 // CHEST-END
+// MYSTERY-BEGIN (contents of the random mystery rooms: owned by the mystery agent; defines GK.buildMysteryContents(room, group, variant))
+// MYSTERY-END
 // MAP-BEGIN (wall maps in the spawn rooms: owned by the map agent)
 {
   const MW = 1024, MH = 740, MS = 13.2, MOX = 360, MOY = 372; // canvas size, px per metre, map origin (world 0,0)
@@ -983,11 +1044,12 @@ const roomKeyAt = (x, z) => {   // grid rooms inside +-18 m, chest rooms beyond
   if (Math.abs(x) > 18) return chestKeyOf(gi(z) * 3 + (x < 0 ? 0 : 2), x < 0 ? 'W' : 'E');
   return String(gi(x) + 3 * gi(z));
 };
+const roomTypeName = t => (GK.ROOM_TYPE_NAMES && GK.ROOM_TYPE_NAMES[t]) || { chest: 'Treasure room', mystery: 'Mystery room', merchant: 'Merchant' }[t] || 'Treasure room';
 const doorLabel = (key, id) => {
   const d = DINFO[id], mine = d.a === key, other = mine ? d.b : d.a, dir = mine ? d.da : d.db;
-  const dest = other[0] === 'c' ? 'Treasure room' : other === '4' ? 'VAULT' : 'Room ' + (+other + 1);
-  const k = doors[id] && ['chest', 'skull', 'vault'].includes(doors[id].kind) ? doors[id].kind : d.kind;
-  return { dir, dest, kind: k };
+  const ck = a => a[0] === 'c' ? (CHEST_ROOMS[+a.slice(1)].type || 'chest') : null, ot = ck(other);
+  const dest = ot ? roomTypeName(ot) : other === '4' ? 'VAULT' : 'Room ' + (+other + 1);
+  return { dir, dest, kind: ot || d.kind };
 };
 const fmtT = ms => { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
 
@@ -1017,7 +1079,7 @@ const cpGlowTex = (() => { const c = document.createElement('canvas'); c.width =
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
 const cpFrameMat = new THREE.MeshStandardMaterial({ color: 0x1c1f24, roughness: 0.5, metalness: 0.8 });
 const cpGlowMat = new THREE.MeshBasicMaterial({ map: cpGlowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.55, toneMapped: false });
-const CP_KIND = { chest: '#ffc83a', skull: '#ff6a55', vault: '#5fd0ff' };
+const CP_KIND = { chest: '#ffc83a', skull: '#ff6a55', vault: '#5fd0ff', mystery: '#b07cff', merchant: '#ffd23a' };
 const cpRR = (g, x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
 function cpIcon(g, kind, cx, cy, r) {
   g.save(); g.translate(cx, cy);
@@ -1029,6 +1091,11 @@ function cpIcon(g, kind, cx, cy, r) {
     g.fillStyle = '#d99a22'; g.beginPath(); g.moveTo(-22 * k, -6 * k); g.lineTo(-22 * k, -12 * k); g.quadraticCurveTo(0, -28 * k, 22 * k, -12 * k); g.lineTo(22 * k, -6 * k); g.closePath(); g.fill();
     g.fillStyle = '#ffd95a'; g.fillRect(-22 * k, -7 * k, 44 * k, 5 * k); g.fillRect(-3 * k, -7 * k, 6 * k, 22 * k);
     g.fillStyle = '#fff3b0'; g.beginPath(); g.arc(0, 5 * k, 3.4 * k, 0, 7); g.fill();
+  } else if (kind === 'mystery') {
+    g.fillStyle = '#b07cff'; g.font = '900 ' + Math.round(60 * k) + 'px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.shadowColor = '#8a4cff'; g.shadowBlur = 10 * k; g.fillText('?', 0, 3 * k); g.shadowBlur = 0;
+  } else if (kind === 'merchant') {
+    g.fillStyle = '#ffd23a'; g.beginPath(); g.arc(0, 0, 24 * k, 0, 7); g.fill(); g.strokeStyle = '#a8741a'; g.lineWidth = 3 * k; g.stroke();
+    g.beginPath(); g.arc(0, 0, 17 * k, 0, 7); g.stroke(); g.fillStyle = '#a8741a'; g.font = '900 ' + Math.round(26 * k) + 'px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('$', 0, 2 * k);
   } else if (kind === 'skull') {
     g.fillStyle = '#f2ead8'; g.beginPath(); g.arc(0, -4 * k, 20 * k, 0, 7); g.fill(); cpRR(g, -12 * k, 6 * k, 24 * k, 18 * k, 4 * k); g.fill();
     g.fillStyle = '#0a121c'; for (const s of [-1, 1]) { g.beginPath(); g.arc(s * 8 * k, -4 * k, 5.5 * k, 0, 7); g.fill(); }
@@ -1056,7 +1123,7 @@ function cpDraw(p) {
   for (let y = 0; y < H; y += 32) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
   g.textBaseline = 'middle'; g.textAlign = 'left'; g.fillStyle = '#e9f3ff'; g.font = 'bold 40px system-ui, sans-serif'; g.fillText('DOOR CONTROL', 24, 38);
   g.textAlign = 'right'; g.fillStyle = '#7fb4e8'; g.font = '600 26px system-ui, sans-serif';
-  g.fillText(p.key[0] === 'c' ? 'TREASURE ROOM' : p.key === '4' ? 'VAULT' : 'ROOM ' + (+p.key + 1), W - 24, 40);
+  g.fillText(p.key[0] === 'c' ? roomTypeName(CHEST_ROOMS[+p.key.slice(1)].type || 'chest').toUpperCase() : p.key === '4' ? 'VAULT' : 'ROOM ' + (+p.key + 1), W - 24, 40);
   g.fillStyle = '#4aa8ff'; g.fillRect(24, 70, W - 48, 4);
   p.buttons.forEach((b, i) => {
     const L = doorLabel(p.key, b.id), sel = selSet.has(b.id), opn = openSet.has(b.id), hov = p.hover === i;
@@ -1139,6 +1206,7 @@ renderer.domElement.addEventListener('click', () => {
 GK.panelClick = (room, idx) => { const ids = ROOM_DOORS[String(room)]; if (ids && ids[idx] !== undefined) net.send({ sel: ids[idx] }); };   // test helper: same message as a click
 GK.roundInfo = () => ({ n: RS.n, left: roundLeft(), dur: RS.dur, sel: RS.sel, open: RS.open, votes: RS.votes, fizzled: RS.fizzled });
 GK._applyRound = applyRound;   // test hook
+layoutHooks.push(() => panelsDirty());
 GK.ROOM_DOORS = ROOM_DOORS; GK.roomKeyAt = roomKeyAt;
 
 {
@@ -1690,7 +1758,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     },
   };
   meP = mk(false); list = [meP, mk(true), mk(true), mk(true), mk(true)];
-  setTimeout(() => { net.onmessage && net.onmessage({ you: meP.id, layout: GKITEMS.randomLayout(), chests: Array.from({ length: CHEST_ROOMS.length }, () => Math.floor(Math.random() * WEAPONS.length)), ...rmsg() }); sendInv(); sendMatch(); emit(); }, 50);
+  setTimeout(() => { net.onmessage && net.onmessage({ you: meP.id, ...(() => { const layout = GKITEMS.randomLayout(); return { layout, mystery: layout.map(t => t === 'mystery' ? GKITEMS.randomMystery() : null) }; })(), chests: Array.from({ length: CHEST_ROOMS.length }, () => Math.floor(Math.random() * WEAPONS.length)), ...rmsg() }); sendInv(); sendMatch(); emit(); }, 50);
   botPlan();
   setInterval(() => {
     const now = performance.now();
@@ -1729,7 +1797,7 @@ const actors = new Map();
 let me = 0, spawned = false;
 const P = { x: 0, z: 0, yaw: 0, pitch: 0, speed: 0 };
 const handleMsg = d => {
-  if (d.layout) applyLayout(d.layout);
+  if (d.layout) applyLayout(d.layout, d.mystery);
   if (d.chests) applyChests(d.chests);
   if (d.drops) applyDrops(d.drops);
   if (d.inv) setInv(d.inv);

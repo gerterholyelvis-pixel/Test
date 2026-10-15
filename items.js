@@ -12,6 +12,16 @@
   const ITEMS = {};   // key -> { key, type: 'weapon' | 'armor', name, attack | health }
   for (const k in WEAPONS) ITEMS['w:' + k] = { key: 'w:' + k, type: 'weapon', name: WEAPONS[k].name, attack: WEAPONS[k].attack };
   for (const k in ARMOR) ITEMS['a:' + k] = { key: 'a:' + k, type: 'armor', name: ARMOR[k].name, health: ARMOR[k].health };
+  const BASE_PRICE = { 'w:dagger': 40, 'w:club': 60, 'w:mace': 90, 'w:staff': 70, 'w:scepter': 150, 'w:sword': 55, 'w:axe': 100, 'w:spear': 85, 'w:bow': 65,
+    'a:rags': 30, 'a:vest': 60, 'a:harness': 110, 'a:robe': 90, 'a:royal': 180 };   // gold
+  for (const k in ITEMS) ITEMS[k].price = BASE_PRICE[k];
+  // A merchant's stock for one match: 5 different random items, each with a gold price (base price +-20%, rounded to 5).
+  function randomShop() {
+    const keys = Object.keys(ITEMS);
+    for (let i = keys.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [keys[i], keys[j]] = [keys[j], keys[i]]; }
+    return keys.slice(0, 5).map(key => ({ key, price: Math.max(5, Math.round(BASE_PRICE[key] * (0.8 + Math.random() * 0.4) / 5) * 5) }));
+  }
+  const START_GOLD = 100;   // placeholder starting gold so the merchant can be tried out
   const START = [   // starting gear per goblin type: 0 small, 1 medium, 2 big, 3 wizard, 4 king
     { weapon: 'w:dagger', armor: 'a:rags' }, { weapon: 'w:club', armor: 'a:vest' }, { weapon: 'w:mace', armor: 'a:harness' },
     { weapon: 'w:staff', armor: 'a:robe' }, { weapon: 'w:scepter', armor: 'a:royal' },
@@ -27,6 +37,18 @@
     const EDGE = [['chest', 60], ['mystery', 40]], CORNER = [['chest', 50], ['mystery', 25], ['merchant', 25]], edgeIds = [2, 5, 6, 9];
     return Array.from({ length: 12 }, (_, id) => pick(edgeIds.includes(id) ? EDGE : CORNER));
   }
-  root.GKITEMS = { randomLayout, WEAPONS, ARMOR, ITEMS, START, KNOWLEDGE, CHEST_WEAPONS, SLOTS };
+  // What is inside one MYSTERY room (rolled by the server per match, or locally in the offline demo), all six equally likely:
+  //   { kind: 'weapon', key: 'w:axe' } | { kind: 'armor', key: 'a:vest' } | { kind: 'enemy', enemy: 'rat'|'spider'|'skeleton'|'mushroom' }
+  //   | { kind: 'stations', stations: [two different of 'recycler','knowledge','workbench'] } | { kind: 'gold', amount: 50..500 } | { kind: 'plushie' }
+  function randomMystery() {
+    const r = a => a[Math.floor(Math.random() * a.length)], kinds = ['weapon', 'armor', 'enemy', 'stations', 'gold', 'plushie'], kind = r(kinds);
+    if (kind === 'weapon') return { kind, key: r(Object.keys(WEAPONS).map(k => 'w:' + k)) };
+    if (kind === 'armor') return { kind, key: r(Object.keys(ARMOR).map(k => 'a:' + k)) };
+    if (kind === 'enemy') return { kind, enemy: r(['rat', 'spider', 'skeleton', 'mushroom']) };
+    if (kind === 'stations') { const st = ['recycler', 'knowledge', 'workbench']; st.splice(Math.floor(Math.random() * 3), 1); return { kind, stations: st }; }
+    if (kind === 'gold') return { kind, amount: 50 + 10 * Math.floor(Math.random() * 46) };
+    return { kind: 'plushie' };
+  }
+  root.GKITEMS = { randomShop, START_GOLD, randomMystery, randomLayout, WEAPONS, ARMOR, ITEMS, START, KNOWLEDGE, CHEST_WEAPONS, SLOTS };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.GKITEMS;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -76,11 +76,11 @@ function renderChars() {
   box.style.display = '';
   for (const c of list) {
     const card = document.createElement('div'); card.className = 'ccard';
-    card.appendChild(headCanvas(c.goblin, 64));
+    card.appendChild(headCanvas(c.goblin, 56));
     const info = document.createElement('div'); info.className = 'cinfo';
     const n = document.createElement('div'); n.className = 'cname'; n.textContent = c.name; info.appendChild(n);
     const t = document.createElement('div'); t.className = 'ctype'; t.textContent = GK.NAMES[c.goblin] || 'Goblin'; info.appendChild(t);
-    const w = document.createElement('div'); w.className = 'cwins'; w.appendChild(trophyCanvas(24));
+    const w = document.createElement('div'); w.className = 'cwins'; w.appendChild(trophyCanvas(20));
     const l = document.createElement('span'); l.textContent = 'Victories'; const b = document.createElement('b'); b.textContent = fixedWins(c); w.append(l, b); info.appendChild(w);
     card.appendChild(info);
     const p = document.createElement('button'); p.className = 'cplay'; p.textContent = 'Play'; p.onclick = () => startGame({ goblin: c.goblin, wins: fixedWins(c), charId: c.id });

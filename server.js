@@ -53,7 +53,9 @@ const avgWins = m => { let s = 0; for (const p of m.players.values()) s += p.win
 const tolerance = w => w <= 5 ? 1 : Math.ceil(w * 0.25);
 function newMatch() {
   const m = { id: nextMatch++, players: new Map(), round: 1, dur: 30000, endsAt: Date.now() + 30000, sel: {}, open: [], drops: [], nextDrop: 1, dirty: false, lastRound: 0,
-    chests: Array.from({ length: 12 }, () => Math.floor(Math.random() * 6)), layout: GKITEMS.randomLayout() }; // weapon index per chest room
+    chests: Array.from({ length: 12 }, () => Math.floor(Math.random() * 6)), layout: GKITEMS.randomLayout() };
+  m.shops = m.layout.map(x => x === 'merchant' ? GKITEMS.randomShop() : null);   // each merchant's 5 items with gold prices, rolled once per match
+  m.mystery = m.layout.map(x => x === 'mystery' ? GKITEMS.randomMystery() : null);   // what is inside each mystery room, rolled once per match // weapon index per chest room
   matches.set(m.id, m); return m;
 }
 const VAULT = ROOM_DOORS['4'] || []; // the 4 doors touching the middle vault room
@@ -159,7 +161,7 @@ wss.on('connection', (ws, req) => {
   const p = { id, wins, ws, ...spawn() }; p.room = String(p.box); equip(p, goblin);
   const m = findMatch(wins); p.match = m; m.players.set(ws, p); m.dirty = true;
   ws.on('error', () => {});
-  sendTo(ws, { you: id, chests: m.chests, layout: m.layout, drops: m.drops, ...roundState(m), match: matchInfo(m) });
+  sendTo(ws, { you: id, chests: m.chests, layout: m.layout, mystery: m.mystery, shops: m.shops, drops: m.drops, ...roundState(m), match: matchInfo(m) });
   sendTo(ws, { inv: p.inv });
   broadcastMatch(m);
   let tokens = 40, last = Date.now(); // rate limit: ~30 msg/s sustained, burst 40
