@@ -2,67 +2,138 @@
 <html><head><meta charset="utf-8"><title>Goblin King</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
 <style>
-html,body{margin:0;height:100%;background:#12091f;color:#e8d9ff;font-family:system-ui,sans-serif;overflow:hidden}
-canvas{display:block;width:100%;height:100%}
-</style></head>
-<body><canvas id="c"></canvas>
-<script>
-const NAMES = ['Small Goblin', 'Goblin', 'Big Goblin', 'Goblin Wizard', 'GOBLIN KING'];
-const SIZE = [0.7, 0.9, 1.15, 0.95, 1.1];
-const SKIN = ['#7bd35a', '#5fbf3f', '#3f9a2c', '#5fbf8f', '#8fd23a'];
-const cv = document.getElementById('c'), g = cv.getContext('2d');
-let players = [], me = 0, W, H;
+html,body{margin:0;height:100%;background:#12091f;overflow:hidden;font-family:system-ui,sans-serif;color:#e8d9ff}
+canvas{display:block}
+#hud{position:fixed;top:0;left:0;right:0;text-align:center;padding-top:2vh;pointer-events:none;text-shadow:0 2px 8px #000}
+#me{font-size:clamp(20px,4vw,38px);font-weight:700;color:#ffd75e}
+#cnt{font-size:clamp(13px,2vw,18px);color:#b9a3e6}
+</style>
+<script type="importmap">{"imports":{"three":"/three/three.module.js"}}</script>
+</head>
+<body><div id="hud"><div id="me">Connecting...</div><div id="cnt"></div></div>
+<script type="module">
+import * as THREE from 'three';
 
-function resize() { W = cv.width = innerWidth * devicePixelRatio; H = cv.height = innerHeight * devicePixelRatio; }
+const NAMES = ['Small Goblin', 'Goblin', 'Big Goblin', 'Goblin Wizard', 'GOBLIN KING'];
+const SCALE = [0.7, 1, 1.35, 1.05, 1.25];
+const SKIN = [0x86d65a, 0x5fbf3f, 0x3f8f2c, 0x4fbf9a, 0x9fd62a];
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x12091f);
+scene.fog = new THREE.Fog(0x12091f, 14, 30);
+const cam = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+
+scene.add(new THREE.HemisphereLight(0xb9a3ff, 0x2a1646, 1.1));
+const sun = new THREE.DirectionalLight(0xfff0d0, 2.2);
+sun.position.set(4, 9, 5); sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6 });
+scene.add(sun);
+
+// 3x3 board of raised tiles; middle one is darker
+const CELL = 2.2, tiles = [];
+const tileGeo = new THREE.BoxGeometry(CELL - 0.15, 0.4, CELL - 0.15);
+for (let i = 0; i < 9; i++) {
+  const mat = new THREE.MeshStandardMaterial({ color: i === 4 ? 0x2a1646 : 0x4a2a80, roughness: 0.6 });
+  const t = new THREE.Mesh(tileGeo, mat);
+  t.position.set(((i % 3) - 1) * CELL, -0.2, (Math.floor(i / 3) - 1) * CELL);
+  t.receiveShadow = true; scene.add(t); tiles.push(t);
+}
+const floor = new THREE.Mesh(new THREE.CircleGeometry(30, 48), new THREE.MeshStandardMaterial({ color: 0x0b0615 }));
+floor.rotation.x = -Math.PI / 2; floor.position.y = -0.45; floor.receiveShadow = true; scene.add(floor);
+
+const M = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.7 });
+function mesh(geo, mat, x = 0, y = 0, z = 0) { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; return m; }
+
+function makeGoblin(type) {
+  const g = new THREE.Group(), skin = M(SKIN[type]);
+  const body = mesh(new THREE.SphereGeometry(0.42, 20, 16), skin, 0, 0.45, 0); body.scale.set(1, 1.1, 0.9);
+  const head = mesh(new THREE.SphereGeometry(0.34, 20, 16), skin, 0, 1.08, 0);
+  g.add(body, head);
+  for (const s of [-1, 1]) {
+    const ear = mesh(new THREE.ConeGeometry(0.1, 0.5, 8), skin, s * 0.42, 1.15, 0); ear.rotation.z = -s * 1.2; g.add(ear);
+    const eye = mesh(new THREE.SphereGeometry(0.08, 10, 8), M(0xffffff), s * 0.13, 1.14, 0.3);
+    const pupil = mesh(new THREE.SphereGeometry(0.04, 8, 8), M(0x111111), s * 0.13, 1.14, 0.37);
+    const leg = mesh(new THREE.SphereGeometry(0.14, 10, 8), skin, s * 0.2, 0.08, 0.1);
+    g.add(eye, pupil, leg);
+  }
+  g.add(mesh(new THREE.ConeGeometry(0.06, 0.16, 6), skin, 0, 1.05, 0.34)); // nose
+  if (type === 3) { // wizard hat + staff
+    const hat = mesh(new THREE.ConeGeometry(0.36, 0.9, 16), M(0x5a2bb8), 0, 1.7, 0); hat.rotation.z = 0.15;
+    const brim = mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.05, 20), M(0x4a2398), 0, 1.3, 0);
+    const staff = mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.5, 8), M(0x7a5230), 0.6, 0.75, 0.2);
+    const orb = mesh(new THREE.SphereGeometry(0.12, 12, 10), new THREE.MeshStandardMaterial({ color: 0x66ccff, emissive: 0x2299ff, emissiveIntensity: 1.5 }), 0.6, 1.55, 0.2);
+    g.add(hat, brim, staff, orb);
+  }
+  if (type === 4) { // king: crown with gems + cape
+    const gold = new THREE.MeshStandardMaterial({ color: 0xffc933, metalness: 0.8, roughness: 0.25 });
+    const band = mesh(new THREE.CylinderGeometry(0.28, 0.3, 0.14, 16), gold, 0, 1.42, 0); g.add(band);
+    for (let i = 0; i < 5; i++) {
+      const a = i / 5 * Math.PI * 2;
+      g.add(mesh(new THREE.ConeGeometry(0.07, 0.2, 6), gold, Math.sin(a) * 0.27, 1.6, Math.cos(a) * 0.27));
+    }
+    g.add(mesh(new THREE.SphereGeometry(0.06, 8, 8), new THREE.MeshStandardMaterial({ color: 0xff2244, emissive: 0xaa0022 }), 0, 1.45, 0.3));
+    const cape = mesh(new THREE.BoxGeometry(0.7, 0.9, 0.06), M(0xb3122b), 0, 0.55, -0.4); cape.rotation.x = 0.12; g.add(cape);
+  }
+  g.scale.setScalar(SCALE[type]);
+  return g;
+}
+
+// state sync
+const actors = new Map(); // id -> {group, base, t0}
+let me = 0;
+const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
+ws.onmessage = e => {
+  const d = JSON.parse(e.data);
+  if (d.you) me = d.you;
+  if (!d.players) return;
+  const ids = new Set(d.players.map(p => p.id));
+  for (const [id, a] of actors) if (!ids.has(id)) { scene.remove(a.group); actors.delete(id); }
+  for (const p of d.players) if (!actors.has(p.id)) {
+    const group = makeGoblin(p.goblin);
+    scene.add(group);
+    actors.set(p.id, { group, box: p.box, goblin: p.goblin, t0: performance.now() });
+  }
+  // spread goblins sharing a box
+  const byBox = {};
+  for (const p of d.players) (byBox[p.box] ||= []).push(p);
+  for (const list of Object.values(byBox)) list.forEach((p, k) => {
+    const a = actors.get(p.id), n = list.length, off = (k - (n - 1) / 2) * 0.8;
+    a.base = new THREE.Vector3(((p.box % 3) - 1) * CELL + off, 0, (Math.floor(p.box / 3) - 1) * CELL);
+  });
+  const mine = d.players.find(p => p.id === me);
+  document.getElementById('me').textContent = mine ? 'You are: ' + NAMES[mine.goblin] : 'Connecting...';
+  document.getElementById('cnt').textContent = 'Goblin King  ·  ' + d.players.length + ' online';
+};
+
+function resize() { renderer.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); }
 addEventListener('resize', resize); resize();
 
-const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
-ws.onmessage = e => { const d = JSON.parse(e.data); if (d.you) me = d.you; if (d.players) players = d.players; };
+// gentle camera orbit; drag / swipe to rotate
+let yaw = 0, drag = null;
+addEventListener('pointerdown', e => drag = e.clientX);
+addEventListener('pointerup', () => drag = null);
+addEventListener('pointermove', e => { if (drag !== null) { yaw -= (e.clientX - drag) * 0.006; drag = e.clientX; } });
 
-function goblin(x, y, s, t, mine) {
-  g.save(); g.translate(x, y); g.scale(s, s);
-  if (mine) { g.strokeStyle = '#ffd75e'; g.lineWidth = 4; g.beginPath(); g.ellipse(0, 52, 38, 10, 0, 0, 7); g.stroke(); }
-  g.fillStyle = SKIN[t];
-  g.beginPath(); g.ellipse(0, 25, 24, 28, 0, 0, 7); g.fill();             // body
-  g.beginPath(); g.arc(0, -14, 24, 0, 7); g.fill();                         // head
-  g.beginPath(); g.moveTo(-20, -18); g.lineTo(-46, -34); g.lineTo(-22, -4); g.fill(); // ears
-  g.beginPath(); g.moveTo(20, -18); g.lineTo(46, -34); g.lineTo(22, -4); g.fill();
-  g.fillStyle = '#fff'; g.beginPath(); g.arc(-9, -17, 6, 0, 7); g.arc(9, -17, 6, 0, 7); g.fill();
-  g.fillStyle = '#220'; g.beginPath(); g.arc(-8, -16, 3, 0, 7); g.arc(10, -16, 3, 0, 7); g.fill();
-  g.strokeStyle = '#220'; g.lineWidth = 2.5; g.beginPath(); g.arc(0, -6, 9, 0.2, 2.9); g.stroke(); // grin
-  if (t === 3) { // wizard hat + stars
-    g.fillStyle = '#5a2bb8'; g.beginPath(); g.moveTo(-26, -30); g.lineTo(0, -88); g.lineTo(26, -30); g.fill();
-    g.fillRect(-32, -34, 64, 8);
-    g.fillStyle = '#ffe36e'; g.beginPath(); g.arc(0, -52, 4, 0, 7); g.fill();
+renderer.setAnimationLoop(now => {
+  const portrait = innerHeight > innerWidth, dist = portrait ? 15 : 11.5;
+  const ang = yaw + Math.sin(now / 6000) * 0.12;
+  cam.position.set(Math.sin(ang) * dist, dist * 0.8, Math.cos(ang) * dist);
+  cam.lookAt(0, 0.3, 0);
+  for (const [id, a] of actors) {
+    if (!a.base) continue;
+    const age = Math.min((now - a.t0) / 600, 1), pop = 1 - Math.pow(1 - age, 3);
+    a.group.position.set(a.base.x, (1 - pop) * 4 + Math.abs(Math.sin(now / 350 + id)) * 0.08, a.base.z);
+    a.group.rotation.y = Math.sin(now / 1500 + id) * 0.4;
+    if (id === me) a.group.rotation.y += Math.sin(now / 200) * 0.05;
   }
-  if (t === 4) { // crown
-    g.fillStyle = '#ffd13d'; g.beginPath();
-    g.moveTo(-24, -32); g.lineTo(-24, -58); g.lineTo(-12, -44); g.lineTo(0, -62); g.lineTo(12, -44); g.lineTo(24, -58); g.lineTo(24, -32); g.fill();
-    g.fillStyle = '#e33'; g.beginPath(); g.arc(0, -40, 4, 0, 7); g.fill();
-  }
-  g.restore();
-}
-
-function draw() {
-  g.fillStyle = '#12091f'; g.fillRect(0, 0, W, H);
-  const side = Math.min(W, H * 0.8) * 0.94, cell = side / 3;
-  const ox = (W - side) / 2, oy = (H - side) / 2 + H * 0.04;
-  for (let i = 0; i < 9; i++) {
-    const x = ox + (i % 3) * cell, y = oy + Math.floor(i / 3) * cell;
-    g.fillStyle = i === 4 ? '#2a1646' : '#3a2160'; g.strokeStyle = '#7b4fd0'; g.lineWidth = 3 * devicePixelRatio;
-    g.beginPath(); g.roundRect(x + 5, y + 5, cell - 10, cell - 10, 18); g.fill(); g.stroke();
-    const here = players.filter(p => p.box === i);
-    here.forEach((p, k) => {
-      const off = here.length > 1 ? (k - (here.length - 1) / 2) * cell * 0.3 : 0;
-      goblin(x + cell / 2 + off, y + cell * 0.45, cell / 150 * SIZE[p.goblin], p.goblin, p.id === me);
-    });
-  }
-  const mine = players.find(p => p.id === me);
-  g.fillStyle = '#ffd75e'; g.textAlign = 'center'; g.font = `bold ${H * 0.04}px system-ui`;
-  g.fillText(mine ? 'You are: ' + NAMES[mine.goblin] : 'Connecting...', W / 2, H * 0.07);
-  g.fillStyle = '#9d86c9'; g.font = `${H * 0.025}px system-ui`;
-  g.fillText('Goblin King  -  ' + players.length + ' online', W / 2, H * 0.11);
-  requestAnimationFrame(draw);
-}
-draw();
+  const mine = actors.get(me);
+  tiles.forEach((t, i) => t.material.emissive.setHex(mine && mine.box === i ? 0x4a3a00 : 0));
+  renderer.render(scene, cam);
+});
 </script></body></html>

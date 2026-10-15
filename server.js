@@ -1,6 +1,12 @@
 const http = require('http'), fs = require('fs'), { WebSocketServer } = require('ws');
 const page = fs.readFileSync(__dirname + '/index.html');
-const srv = http.createServer((q, r) => { r.writeHead(200, { 'content-type': 'text/html' }); r.end(page); });
+const path = require('path');
+const THREE_DIR = path.join(__dirname, 'node_modules/three/build');
+const srv = http.createServer((q, r) => {
+  const m = q.url.match(/^\/three\/(three\.(?:module|core)\.js)$/); // serve three.js ourselves, no CDN
+  if (m) { r.writeHead(200, { 'content-type': 'text/javascript' }); return r.end(fs.readFileSync(path.join(THREE_DIR, m[1]))); }
+  r.writeHead(200, { 'content-type': 'text/html' }); r.end(page);
+});
 const wss = new WebSocketServer({ server: srv });
 const players = new Map();
 let nextId = 1;
