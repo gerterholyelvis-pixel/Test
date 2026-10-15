@@ -7,10 +7,11 @@ canvas{display:block}
 #hud{position:fixed;top:0;left:0;right:0;text-align:center;padding-top:2vh;pointer-events:none;text-shadow:0 2px 8px #000}
 #me{font-size:clamp(20px,4vw,38px);font-weight:700;color:#ffd75e}
 #cnt{font-size:clamp(13px,2vw,18px);color:#b9a3e6}
+#v{position:fixed;bottom:3vh;left:50%;transform:translateX(-50%);padding:10px 22px;font:600 16px system-ui;color:#12091f;background:#ffd75e;border:0;border-radius:20px}
 </style>
 <script type="importmap">{"imports":{"three":"/three/three.module.js"}}</script>
 </head>
-<body><div id="hud"><div id="me">Connecting...</div><div id="cnt"></div></div>
+<body><div id="hud"><div id="me">Connecting...</div><div id="cnt"></div></div><button id="v">Overview</button>
 <script type="module">
 import * as THREE from 'three';
 
@@ -25,27 +26,33 @@ document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x12091f);
-scene.fog = new THREE.Fog(0x12091f, 14, 30);
-const cam = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
-
-scene.add(new THREE.HemisphereLight(0xb9a3ff, 0x2a1646, 1.1));
-const sun = new THREE.DirectionalLight(0xfff0d0, 2.2);
-sun.position.set(4, 9, 5); sun.castShadow = true;
-sun.shadow.mapSize.set(1024, 1024);
-Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6 });
-scene.add(sun);
-
-// 3x3 board of raised tiles; middle one is darker
-const CELL = 2.2, tiles = [];
-const tileGeo = new THREE.BoxGeometry(CELL - 0.15, 0.4, CELL - 0.15);
+const cam = new THREE.PerspectiveCamera(75, 1, 0.1, 150);
+const R = 6, H = R, DOOR = 2.6, DH = 3.4, T = 0.25; // room = R-sized cube, doorway width/height
+scene.add(new THREE.AmbientLight(0xb9a3ff, 0.9));
+const wallMat = new THREE.MeshStandardMaterial({ color: 0x6b4fa8, roughness: 0.8 });
+const ceilings = [];
+const box = (w, h, d, x, y, z, mat) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); scene.add(m); return m; };
 for (let i = 0; i < 9; i++) {
-  const mat = new THREE.MeshStandardMaterial({ color: i === 4 ? 0x2a1646 : 0x4a2a80, roughness: 0.6 });
-  const t = new THREE.Mesh(tileGeo, mat);
-  t.position.set(((i % 3) - 1) * CELL, -0.2, (Math.floor(i / 3) - 1) * CELL);
-  t.receiveShadow = true; scene.add(t); tiles.push(t);
+  const cx = ((i % 3) - 1) * R, cz = (Math.floor(i / 3) - 1) * R;
+  box(R, T, R, cx, -T / 2, cz, new THREE.MeshStandardMaterial({ color: i === 4 ? 0x2a1646 : 0x3d2670, roughness: 0.6 }));
+  ceilings.push(box(R, T, R, cx, H + T / 2, cz, new THREE.MeshStandardMaterial({ color: 0x2a1c4d })));
+  const lamp = new THREE.PointLight(new THREE.Color().setHSL(0.72 + i * 0.03, 0.7, 0.7), 70, 0, 2);
+  lamp.position.set(cx, H - 0.8, cz); scene.add(lamp);
+  box(0.5, 0.15, 0.5, cx, H - 0.3, cz, new THREE.MeshBasicMaterial({ color: 0xffeeaa }));
 }
-const floor = new THREE.Mesh(new THREE.CircleGeometry(30, 48), new THREE.MeshStandardMaterial({ color: 0x0b0615 }));
-floor.rotation.x = -Math.PI / 2; floor.position.y = -0.45; floor.receiveShadow = true; scene.add(floor);
+// walls on every room boundary; interior ones get a doorway so all 9 cubes connect
+for (let line = -1; line <= 2; line++) for (let k = 0; k < 3; k++) {
+  const edge = (line - 0.5) * R, mid = (k - 1) * R, inner = line === 0 || line === 1;
+  for (const vert of [false, true]) { // vert: wall at x=edge running along z, else wall at z=edge running along x
+    const px = vert ? edge : mid, pz = vert ? mid : edge, w = vert ? T : R, d = vert ? R : T;
+    if (!inner) { box(w, H, d, px, H / 2, pz, wallMat); continue; }
+    const side = (R - DOOR) / 2, off = (DOOR + side) / 2;
+    for (const sg of [-1, 1]) vert
+      ? box(T, H, side, px, H / 2, pz + sg * off, wallMat)
+      : box(side, H, T, px + sg * off, H / 2, pz, wallMat);
+    box(w, H - DH, d, px, DH + (H - DH) / 2, pz, wallMat);
+  }
+}
 
 const M = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.7 });
 function mesh(geo, mat, x = 0, y = 0, z = 0) { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; return m; }
@@ -80,7 +87,7 @@ function makeGoblin(type) {
     g.add(mesh(new THREE.SphereGeometry(0.06, 8, 8), new THREE.MeshStandardMaterial({ color: 0xff2244, emissive: 0xaa0022 }), 0, 1.45, 0.3));
     const cape = mesh(new THREE.BoxGeometry(0.7, 0.9, 0.06), M(0xb3122b), 0, 0.55, -0.4); cape.rotation.x = 0.12; g.add(cape);
   }
-  g.scale.setScalar(SCALE[type]);
+  g.scale.setScalar(SCALE[type] * 1.5);
   return g;
 }
 
@@ -99,13 +106,11 @@ ws.onmessage = e => {
     scene.add(group);
     actors.set(p.id, { group, box: p.box, goblin: p.goblin, t0: performance.now() });
   }
-  // spread goblins sharing a box
-  const byBox = {};
-  for (const p of d.players) (byBox[p.box] ||= []).push(p);
-  for (const list of Object.values(byBox)) list.forEach((p, k) => {
-    const a = actors.get(p.id), n = list.length, off = (k - (n - 1) / 2) * 0.8;
-    a.base = new THREE.Vector3(((p.box % 3) - 1) * CELL + off, 0, (Math.floor(p.box / 3) - 1) * CELL);
-  });
+  for (const p of d.players) {
+    const a = actors.get(p.id), ang = p.id * 2.4; // stable ring position per player, same on every client
+    a.box = p.box;
+    a.base = new THREE.Vector3(((p.box % 3) - 1) * R + Math.cos(ang) * 1.8, 0, (Math.floor(p.box / 3) - 1) * R + Math.sin(ang) * 1.8);
+  }
   const mine = d.players.find(p => p.id === me);
   document.getElementById('me').textContent = mine ? 'You are: ' + NAMES[mine.goblin] : 'Connecting...';
   document.getElementById('cnt').textContent = 'Goblin King  ·  ' + d.players.length + ' online';
@@ -114,26 +119,43 @@ ws.onmessage = e => {
 function resize() { renderer.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); }
 addEventListener('resize', resize); resize();
 
-// gentle camera orbit; drag / swipe to rotate
-let yaw = 0, drag = null;
-addEventListener('pointerdown', e => drag = e.clientX);
+// look around (inside) or orbit (overview) by dragging
+let inside = true, yaw = 0, pitch = 0, orbit = 0, drag = null, aimed = false;
+const vbtn = document.getElementById('v');
+const toggle = () => { inside = !inside; vbtn.textContent = inside ? 'Overview' : 'Go inside'; };
+vbtn.onclick = toggle; vbtn.onpointerdown = e => e.stopPropagation();
+addEventListener('keydown', e => e.key === 'v' && toggle());
+addEventListener('pointerdown', e => drag = e);
 addEventListener('pointerup', () => drag = null);
-addEventListener('pointermove', e => { if (drag !== null) { yaw -= (e.clientX - drag) * 0.006; drag = e.clientX; } });
+addEventListener('pointermove', e => {
+  if (!drag) return;
+  const dx = e.clientX - drag.clientX, dy = e.clientY - drag.clientY; drag = e;
+  if (inside) { yaw -= dx * 0.005; pitch = Math.max(-1.2, Math.min(1.2, pitch - dy * 0.005)); } else orbit -= dx * 0.006;
+});
+cam.rotation.order = 'YXZ';
 
 renderer.setAnimationLoop(now => {
-  const portrait = innerHeight > innerWidth, dist = portrait ? 15 : 11.5;
-  const ang = yaw + Math.sin(now / 6000) * 0.12;
-  cam.position.set(Math.sin(ang) * dist, dist * 0.8, Math.cos(ang) * dist);
-  cam.lookAt(0, 0.3, 0);
+  const mine = actors.get(me);
+  if (mine && mine.base && !aimed) { // face the middle of your cube at the start
+    const cx = ((mine.box % 3) - 1) * R, cz = (Math.floor(mine.box / 3) - 1) * R;
+    yaw = Math.atan2(-(cx - mine.base.x), -(cz - mine.base.z)); aimed = true;
+  }
   for (const [id, a] of actors) {
     if (!a.base) continue;
     const age = Math.min((now - a.t0) / 600, 1), pop = 1 - Math.pow(1 - age, 3);
     a.group.position.set(a.base.x, (1 - pop) * 4 + Math.abs(Math.sin(now / 350 + id)) * 0.08, a.base.z);
-    a.group.rotation.y = Math.sin(now / 1500 + id) * 0.4;
-    if (id === me) a.group.rotation.y += Math.sin(now / 200) * 0.05;
+    a.group.rotation.y = Math.atan2(-a.base.x + ((a.box % 3) - 1) * R, -a.base.z + (Math.floor(a.box / 3) - 1) * R) + Math.PI;
+    a.group.visible = !(inside && id === me);
   }
-  const mine = actors.get(me);
-  tiles.forEach((t, i) => t.material.emissive.setHex(mine && mine.box === i ? 0x4a3a00 : 0));
+  wallMat.transparent = !inside; wallMat.opacity = inside ? 1 : 0.22; wallMat.depthWrite = inside; wallMat.needsUpdate = true;
+  ceilings.forEach(c => c.visible = inside);
+  if (inside && mine && mine.base) {
+    cam.fov = 75; cam.position.set(mine.base.x, 2.4, mine.base.z); cam.rotation.set(pitch, yaw, 0);
+  } else {
+    const dist = innerHeight > innerWidth ? 34 : 26;
+    cam.fov = 45; cam.position.set(Math.sin(orbit + 0.3) * dist, dist * 0.75, Math.cos(orbit + 0.3) * dist); cam.lookAt(0, 2, 0);
+  }
+  cam.updateProjectionMatrix();
   renderer.render(scene, cam);
 });
 </script></body></html>
