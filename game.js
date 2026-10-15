@@ -10,6 +10,21 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const rc = i => [((i % 3) - 1) * R, (Math.floor(i / 3) - 1) * R];
 const roomAt = (x, z) => clamp(Math.round(x / R), -1, 1) + 1 + (clamp(Math.round(z / R), -1, 1) + 1) * 3;
 const $ = id => document.getElementById(id);
+const GK = window.GK = window.GK || {};
+GK.mode = 'menu';                         // 'menu' (title, settings, wheel) or 'play'
+GK.settings = Object.assign({ sens: 1, fov: 75, scale: 1, invertY: false, tags: true }, GK.settings || {});
+const DOORS_OPEN = false;                 // doors stay shut for now
+const CS = 8;                             // chest room size
+const WEAPONS = ['Rusty Sword', 'Battle Axe', 'War Spear', 'Spiked Mace', 'Short Bow', 'Dagger'];
+// One chest room behind every outer wall: edge rooms get 1, corner rooms get 2 (12 in total)
+const CHEST_ROOMS = [];
+for (let i = 0; i < 9; i++) {
+  if (i === 4) continue;
+  const col = i % 3, row = Math.floor(i / 3), cx0 = (col - 1) * R, cz0 = (row - 1) * R, sides = [];
+  if (row === 0) sides.push(['N', 0, -1]); if (col === 0) sides.push(['W', -1, 0]); if (col === 2) sides.push(['E', 1, 0]); if (row === 2) sides.push(['S', 0, 1]);
+  for (const [side, dx, dz] of sides) CHEST_ROOMS.push({ id: CHEST_ROOMS.length, parent: i, side, dx, dz, cx: cx0 + dx * (R / 2 + CS / 2), cz: cz0 + dz * (R / 2 + CS / 2), wallX: cx0 + dx * R / 2, wallZ: cz0 + dz * R / 2 });
+}
+GK.CHEST_ROOMS = CHEST_ROOMS; GK.WEAPONS = WEAPONS;
 
 // ---------- renderer ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -238,10 +253,10 @@ scene.add(new THREE.HemisphereLight(0xffffff, 0xeeebe4, 2.1));
 for (let i = 0; i < 9; i++) {
   const [cx, cz] = rc(i), col = i % 3, row = Math.floor(i / 3);
   // east neighbour and south neighbour, or an outer wall on the edge
-  wall(cx + R / 2, cz, Math.PI / 2, col < 2 ? (i === 4 || i + 1 === 4 ? 'vault' : 'secure') : null);
-  wall(cx, cz + R / 2, 0, row < 2 ? (i === 4 || i + 3 === 4 ? 'vault' : 'secure') : null);
-  if (col === 0) wall(cx - R / 2, cz, Math.PI / 2, null);
-  if (row === 0) wall(cx, cz - R / 2, 0, null);
+  wall(cx + R / 2, cz, Math.PI / 2, col < 2 ? (i === 4 || i + 1 === 4 ? 'vault' : 'secure') : 'secure');
+  wall(cx, cz + R / 2, 0, row < 2 ? (i === 4 || i + 3 === 4 ? 'vault' : 'secure') : 'secure');
+  if (col === 0) wall(cx - R / 2, cz, Math.PI / 2, 'secure');
+  if (row === 0) wall(cx, cz - R / 2, 0, 'secure');
 }
 // static world never moves: freeze matrices so the per-frame scene graph update skips them
 scene.updateMatrixWorld(true);
@@ -249,6 +264,12 @@ scene.updateMatrixWorld(true);
   const dyn = new Set(); doors.forEach(d => d.leaf.traverse(o => dyn.add(o)));
   scene.traverse(o => { if (o !== scene && !dyn.has(o) && !o.isLight) { o.matrixAutoUpdate = false; } });
 }
+
+// CHEST-BEGIN (chest rooms, chests, weapons: owned by the chest agent)
+function applyChests(weaponIdx) { /* called with an array of 12 weapon indices, one per CHEST_ROOMS entry */ }
+// CHEST-END
+// MAP-BEGIN (wall maps in the spawn rooms: owned by the map agent)
+// MAP-END
 
 // ---------- goblins ----------
 const SPH = new THREE.SphereGeometry(1, 24, 16), CONE = new THREE.ConeGeometry(1, 1, 10), CAP = new THREE.CapsuleGeometry(1, 1, 6, 12);
@@ -727,7 +748,7 @@ function makeNet() {
     send(m) { if (m.m && meP) { [meP.x, meP.z, meP.yaw] = m.m; meP.box = roomAt(meP.x, meP.z); } if (m.reroll) { const o = list.indexOf(meP); seq++; meP = mk(false); meP.id = list[o].id; list[o] = meP; } },
   };
   meP = mk(false); list = [meP, mk(true), mk(true), mk(true), mk(true)];
-  setTimeout(() => { net.onmessage && net.onmessage({ you: meP.id }); emit(); }, 50);
+  setTimeout(() => { net.onmessage && net.onmessage({ you: meP.id, chests: Array.from({ length: CHEST_ROOMS.length }, () => Math.floor(Math.random() * WEAPONS.length)) }); emit(); }, 50);
   setInterval(() => {
     for (const b of list) {
       if (!b.bot) continue;
@@ -753,11 +774,13 @@ function dropGoblin(g) { // free GPU memory of a removed goblin (shared geometry
   const lm = g.userData.label && g.userData.label.material.map; if (lm) lm.dispose();
   g.traverse(o => { if (o.geometry) o.geometry.dispose(); [].concat(o.material || []).forEach(m => m.dispose()); });
 }
-const net = makeNet();
+let netReal = null;
+const net = { send: m => netReal && netReal.send(m) };
 const actors = new Map();
 let me = 0, spawned = false;
 const P = { x: 0, z: 0, yaw: 0, pitch: 0, speed: 0 };
-net.onmessage = d => {
+const handleMsg = d => {
+  if (d.chests) applyChests(d.chests);
   if (d.you) me = d.you;
   if (!d.players) return;
   const ids = new Set(d.players.map(p => p.id));
@@ -777,8 +800,11 @@ net.onmessage = d => {
   const mine = actors.get(me);
   $('me').textContent = mine ? 'You are: ' + NAMES[mine.goblin] : 'Connecting...';
   $('cnt').textContent = 'Goblin King  ·  ' + actors.size + ' online';
+  if (mine && !assigned) { assigned = true; GK.onAssigned && GK.onAssigned(mine.goblin); }
 };
-if (window.GK_OFFLINE) { $('rr').style.display = 'block'; $('rr').onclick = e => { net.send({ reroll: 1 }); e.stopPropagation(); }; $('rr').onpointerdown = e => e.stopPropagation(); }
+let assigned = false;
+function connect() { if (netReal) return; netReal = makeNet(); netReal.onmessage = handleMsg; }
+if (window.GK_OFFLINE) { $('rr').onclick = e => { net.send({ reroll: 1 }); e.stopPropagation(); }; $('rr').onpointerdown = e => e.stopPropagation(); }
 
 // ---------- input ----------
 const keys = new Set(); let inside = true, drag = false;
@@ -788,12 +814,12 @@ addEventListener('keyup', e => keys.delete(e.code));
 addEventListener('blur', () => keys.clear());
 const canvas = renderer.domElement;
 const lockOk = () => document.pointerLockElement === canvas;
-$('play').onclick = () => { $('play').style.display = 'none'; try { const r = canvas.requestPointerLock(); r && r.catch && r.catch(() => {}); } catch (e) {} };
+
 canvas.addEventListener('click', () => { if (!lockOk()) try { const r = canvas.requestPointerLock(); r && r.catch && r.catch(() => {}); } catch (e) {} });
 canvas.addEventListener('mousedown', () => drag = true); addEventListener('mouseup', () => drag = false);
 addEventListener('mousemove', e => {
   if (!lockOk() && !drag) return;
-  P.yaw = wrapPi(P.yaw - e.movementX * 0.0022); P.pitch = clamp(P.pitch - e.movementY * 0.0022, -1.45, 1.45);
+  const k = 0.0022 * GK.settings.sens; P.yaw = wrapPi(P.yaw - e.movementX * k); P.pitch = clamp(P.pitch - e.movementY * k * (GK.settings.invertY ? -1 : 1), -1.45, 1.45);
 });
 let orbit = 0.4;
 function resize() { renderer.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); }
@@ -812,6 +838,7 @@ const wrapPi = a => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI)
 let last = performance.now(), sendT = 0;
 function frame(now) {
   const dt = clamp((now - last) / 1000, 0.001, 0.05); last = now; const t = now / 1000;
+  if (GK.mode !== 'play') { GK.menu && GK.menu.render(now, dt); requestAnimationFrame(frame); return; }
   const mine = actors.get(me);
   // my movement
   if (mine && spawned) {
@@ -830,7 +857,7 @@ function frame(now) {
   // doors
   for (const d of doors) {
     let near = false;
-    for (const a of actors.values()) if (Math.hypot(a.x - d.gx, a.z - d.gz) < (d.kind === 'vault' ? 6.2 : 4.6)) { near = true; break; }
+    if (DOORS_OPEN) for (const a of actors.values()) if (Math.hypot(a.x - d.gx, a.z - d.gz) < (d.kind === 'vault' ? 6.2 : 4.6)) { near = true; break; }
     const dur = d.kind === 'vault' ? 2.4 : 0.8;
     d.p = clamp(d.p + (near ? 1 : -1) * dt / dur, 0, 1);
     if (d.kind === 'secure') d.leaf.position.x = d.p * (DW + 0.15);
@@ -854,7 +881,7 @@ function frame(now) {
     const u = a.group.userData, g = a.group;
     g.position.set(a.x, 0, a.z); g.rotation.y = a.yaw + Math.PI;
     g.visible = !(inside && id === me);
-    u.label.visible = id !== me;
+    u.label.visible = id !== me && GK.settings.tags;
     const walk = clamp(a.speed / 3.5, 0, 1); a.phase += dt * a.speed * 2.3;
     u.legs[0].rotation.x = Math.sin(a.phase) * 0.75 * walk; u.legs[1].rotation.x = -Math.sin(a.phase) * 0.75 * walk;
     u.rig.position.y = Math.abs(Math.sin(a.phase)) * 0.06 * walk;
@@ -873,7 +900,7 @@ function frame(now) {
   ceilings.forEach(c => c.visible = inside);
   if (inside && mine && spawned) {
     const eye = 1.5 * SCALE[mine.goblin];
-    cam.fov = 75; cam.position.set(P.x, eye + Math.sin(mine.phase) * 0.035 * clamp(P.speed / 3.5, 0, 1), P.z);
+    cam.fov = GK.settings.fov; cam.position.set(P.x, eye + Math.sin(mine.phase) * 0.035 * clamp(P.speed / 3.5, 0, 1), P.z);
     cam.rotation.set(P.pitch, P.yaw, 0);
   } else {
     if (!inside) orbit += dt * 0.05;
@@ -885,5 +912,11 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+const lockNow = () => { try { const r = canvas.requestPointerLock(); r && r.catch && r.catch(() => {}); } catch (e) {} };
+GK.renderer = renderer; GK.scene = scene; GK.build = buildGoblin; GK.NAMES = NAMES; GK.SCALE = SCALE; GK.glowTex = glowTex; GK.textTex = textTex;
+GK.start = () => { connect(); return new Promise(res => { if (assigned) res(actors.get(me).goblin); else { const prev = GK.onAssigned; GK.onAssigned = g => { GK.onAssigned = prev; res(g); }; } }); }; // connects and resolves with my goblin type
+GK.enter = () => { GK.mode = 'play'; GK.applySettings(); if (window.GK_OFFLINE) $('rr').style.display = 'block'; lockNow(); };   // call from a click
+GK.applySettings = () => { renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * GK.settings.scale); resize(); };
+GK.skipMenu = () => { connect(); GK.mode = 'play'; };   // for tests
 window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw, pitch) { P.x = x; P.z = z; P.yaw = yaw; P.pitch = pitch || 0; spawned = true; }, toggleOverview() { inside = !inside; }, build: buildGoblin };
 })();

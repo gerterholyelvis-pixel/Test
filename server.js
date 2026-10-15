@@ -6,7 +6,8 @@ const read = f => fs.readFileSync(path.join(__dirname, f));
 const srv = http.createServer((q, r) => {
   const m = q.url.match(/^\/three\/(three\.(?:module|core)\.js)$/); // three.js is served from here, no CDN
   if (m) { r.writeHead(200, { 'content-type': 'text/javascript' }); return r.end(fs.readFileSync(path.join(THREE_DIR, m[1]))); }
-  if (q.url.startsWith('/game.js')) { r.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }); return r.end(read('game.js')); }
+  const js = q.url.match(/^\/(game|menu)\.js/); // client scripts
+  if (js) { r.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }); return r.end(read(js[1] + '.js')); }
   r.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' }); r.end(read('index.html'));
 });
 const wss = new WebSocketServer({ server: srv, maxPayload: 256 }); // oversize frames close the socket
@@ -15,6 +16,7 @@ const clamp = v => Math.max(-LIM, Math.min(LIM, v));
 const boxOf = (x, z) => Math.max(0, Math.min(2, Math.round(x / R) + 1)) + 3 * Math.max(0, Math.min(2, Math.round(z / R) + 1));
 const players = new Map();
 let nextId = 1, dirty = false;
+const chests = Array.from({ length: 12 }, () => Math.floor(Math.random() * 6)); // weapon index per chest room, rolled once per server start
 
 // 0 small 30%, 1 medium 30%, 2 big 30%, 3 wizard 9%, 4 king 1%
 function rollGoblin() {
@@ -38,7 +40,7 @@ wss.on('connection', ws => {
   const p = { id, goblin: rollGoblin(), ...spawn() };
   players.set(ws, p);
   ws.on('error', () => {});
-  ws.send(JSON.stringify({ you: id }));
+  ws.send(JSON.stringify({ you: id, chests }));
   dirty = true;
   let tokens = 40, last = Date.now(); // rate limit: ~30 msg/s sustained, burst 40
   ws.on('message', (raw, isBinary) => {
