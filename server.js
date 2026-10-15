@@ -108,7 +108,19 @@ function recalc(p) { // derived stats from the equipped items
 function equip(p, goblin) { // give a player a goblin type with its starting gear and otherwise empty inventory
   const s = G.START[goblin];
   p.goblin = goblin; p.inv = { backpack: Array(G.SLOTS.backpack).fill(null), quick: Array(G.SLOTS.quick).fill(null), weapon: s.weapon, armor: s.armor };
-  p.stats = null; recalc(p);
+  p.stats = null; recalc(p); p.gold = G.START_GOLD;
+}
+const sendGold = p => { if (p.ws) sendTo(p.ws, { gold: p.gold }); };
+function buy(m, p, roomId, idx) { // returns null on success or a failure reason
+  if (!Number.isInteger(roomId) || !Number.isInteger(idx) || roomId < 0 || roomId >= m.shops.length || p.room !== 'c' + roomId) return 'room';
+  const shop = m.shops[roomId], it = shop && shop[idx];
+  if (!it) return 'room';
+  if (it.sold) return 'sold';
+  if (p.gold < it.price) return 'gold';
+  if (p.inv.backpack.indexOf(null) < 0) return 'space';
+  giveItem(p, it.key); p.gold -= it.price; it.sold = true;
+  sendGold(p); bcast(m, { shops: m.shops });
+  return null;
 }
 const sendInv = p => { if (p.ws) sendTo(p.ws, { inv: p.inv }); };
 function giveItem(p, key) { // first free backpack slot; false when full or unknown item
@@ -150,7 +162,7 @@ function win(ws, p) { // everything carried goes home with the winner, nothing i
   const m = p.match; if (p.dead || !m) return;
   const items = allItems(p.inv);
   p.dead = true; leave(m, ws);
-  sendTo(ws, { won: { items } });
+  sendTo(ws, { won: { items, gold: p.gold } });
 }
 
 wss.on('connection', (ws, req) => {
@@ -162,7 +174,7 @@ wss.on('connection', (ws, req) => {
   const m = findMatch(wins); p.match = m; m.players.set(ws, p); m.dirty = true;
   ws.on('error', () => {});
   sendTo(ws, { you: id, chests: m.chests, layout: m.layout, mystery: m.mystery, shops: m.shops, drops: m.drops, ...roundState(m), match: matchInfo(m) });
-  sendTo(ws, { inv: p.inv });
+  sendTo(ws, { inv: p.inv }); sendGold(p);
   broadcastMatch(m);
   let tokens = 40, last = Date.now(); // rate limit: ~30 msg/s sustained, burst 40
   ws.on('message', (raw, isBinary) => {
@@ -181,6 +193,11 @@ wss.on('connection', (ws, req) => {
     } else if (dbg && d.kill) { die(ws, p);   // test hooks, only with GK_DEBUG=1
     } else if (dbg && d.win) { win(ws, p);
     } else if (dbg && typeof d.give === 'string') { giveItem(p, d.give);
+    } else if (dbg && Array.isArray(d.tp) && d.tp.length === 2 && d.tp.every(v => typeof v === 'number' && Number.isFinite(v))) {
+      p.x = clamp(d.tp[0]); p.z = clamp(d.tp[1]); p.box = boxOf(p.x, p.z); p.room = roomKeyOf(p.x, p.z); m.dirty = true;
+    } else if (dbg && Number.isFinite(d.gold)) { p.gold = Math.max(0, Math.floor(d.gold)); sendGold(p);
+    } else if (Array.isArray(d.buy) && d.buy.length === 2) {
+      const why = buy(m, p, d.buy[0], d.buy[1]); if (why) sendTo(ws, { buyFail: why });
     } else if (Array.isArray(d.mv) && d.mv.length === 2) {
       if (move(p, d.mv[0], d.mv[1])) { sendInv(p); m.dirty = true; }
     } else if (typeof d.drop === 'string') {

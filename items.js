@@ -38,13 +38,19 @@
     return Array.from({ length: 12 }, (_, id) => pick(edgeIds.includes(id) ? EDGE : CORNER));
   }
   // What is inside one MYSTERY room (rolled by the server per match, or locally in the offline demo), all six equally likely:
-  //   { kind: 'weapon', key: 'w:axe' } | { kind: 'armor', key: 'a:vest' } | { kind: 'enemy', enemy: 'rat'|'spider'|'skeleton'|'mushroom' }
+  //   { kind: 'weapon', key: 'w:axe' } | { kind: 'armor', key: 'a:vest' } | { kind: 'enemy', enemy: 'troll'|'archer'|'speedy'|'dumb'|'regular' }
   //   | { kind: 'stations', stations: [two different of 'recycler','knowledge','workbench'] } | { kind: 'gold', amount: 50..500 } | { kind: 'plushie' }
   function randomMystery() {
     const r = a => a[Math.floor(Math.random() * a.length)], kinds = ['weapon', 'armor', 'enemy', 'stations', 'gold', 'plushie'], kind = r(kinds);
     if (kind === 'weapon') return { kind, key: r(Object.keys(WEAPONS).map(k => 'w:' + k)) };
     if (kind === 'armor') return { kind, key: r(Object.keys(ARMOR).map(k => 'a:' + k)) };
-    if (kind === 'enemy') return { kind, enemy: r(['rat', 'spider', 'skeleton', 'mushroom']) };
+    if (kind === 'enemy') {   // enemy goblins: troll 2%, archer 8%, speedy 20%, dumb 30%, regular 50%
+      // the stated numbers add up to 110, so they are used as relative weights (about 1.8 / 7.3 / 18.2 / 27.3 / 45.5 %)
+      const W = [['troll', 2], ['archer', 8], ['speedy', 20], ['dumb', 30], ['regular', 50]];
+      let x = Math.random() * 110; let enemy = 'regular';
+      for (const [e, w] of W) { if ((x -= w) < 0) { enemy = e; break; } }
+      return { kind, enemy };
+    }
     if (kind === 'stations') { const st = ['recycler', 'knowledge', 'workbench']; st.splice(Math.floor(Math.random() * 3), 1); return { kind, stations: st }; }
     if (kind === 'gold') return { kind, amount: 50 + 10 * Math.floor(Math.random() * 46) };
     return { kind: 'plushie' };
