@@ -152,7 +152,7 @@ const vaultM = M(0x70787f, { map: steelTex, metalness: 0.9, roughness: 0.38, env
 const darkSteel = M(0x2a2e35, { metalness: 0.8, roughness: 0.45, envMapIntensity: 0.9 });
 const hazardM = M(0xffffff, { map: hazardTex, roughness: 0.6 });
 const glassM = new THREE.MeshStandardMaterial({ color: 0x07131c, roughness: 0.05, metalness: 0.2, emissive: 0x0b3a55, emissiveIntensity: 0.8 });
-const panelM = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xfff6e6).multiplyScalar(2.4), toneMapped: false });   // HDR so the bloom pass picks the ceiling panels up
+const panelM = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xfff6e6).multiplyScalar(5), toneMapped: false });   // HDR so the bloom pass picks the ceiling panels up
 const aoM = new THREE.MeshBasicMaterial({ map: aoTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, side: THREE.DoubleSide, fog: false });
 const cornerM = new THREE.MeshBasicMaterial({ map: cornerTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, side: THREE.DoubleSide });
 
@@ -3229,7 +3229,7 @@ function ensureCss() {
     + '.gks .kl{position:absolute;left:5px;top:2px;font:800 12px system-ui,sans-serif;color:rgba(255,215,94,.8);text-shadow:0 1px 2px #000;pointer-events:none}'
     + '.gks canvas{pointer-events:none}.gks .sil{opacity:.2;filter:grayscale(1) brightness(1.5)}'
     + '.gkcoin{display:inline-block;width:13px;height:13px;border-radius:50%;vertical-align:-2px;background:radial-gradient(circle at 35% 30%,#fff3b0,#ffd24a 45%,#b8860b);border:1px solid #7a5a08;box-shadow:0 0 5px rgba(255,200,60,.6)}'
-    + '#gkInv .lab,#gkShop .lab{font:700 11px system-ui,sans-serif;letter-spacing:.16em;color:#b9b4ae;margin:0 0 6px;text-align:center}'
+    + '#gkInv .lab,#gkShop .lab,#gkRec .lab,#gkCraft .lab,#gkLoot .lab{font:700 11px system-ui,sans-serif;letter-spacing:.16em;color:#b9b4ae;margin:0 0 6px;text-align:center}'
     + '#gkInv button{cursor:pointer;font:700 13px system-ui,sans-serif;letter-spacing:.1em;border-radius:8px;padding:9px 16px}';
   document.head.appendChild(st);
 }
@@ -3620,7 +3620,7 @@ function paintRec() {
   if (!recPn) return;
   for (const id of ['b0', 'b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'q0', 'q1', 'q2']) for (const el of slotEls[id]) if (el.dataset.rec) {
     const k = invGet(myInv, id), ok = k != null && !!(itemsData().recycleYield && itemsData().recycleYield(k));
-    el.style.opacity = k == null || ok ? 1 : 0.3; el.style.outline = recSel === id ? '2px solid ' + GOLD : 'none'; el.title = k != null && !ok ? 'cannot recycle' : '';
+    paintSlot(el, id); el.style.opacity = k == null || ok ? 1 : 0.3; el.style.outline = recSel === id ? '2px solid ' + GOLD : 'none'; el.title = k != null && !ok ? 'cannot recycle' : '';
   }
   if (recSel && invGet(myInv, recSel) == null) recSel = null;
   const k = recSel ? invGet(myInv, recSel) : null, y = k && itemsData().recycleYield(k), pv = recPn.prev; pv.textContent = '';
@@ -3760,7 +3760,7 @@ function fxResize() {
     const rt = new THREE.WebGLRenderTarget(innerWidth * pr, innerHeight * pr, { type: THREE.HalfFloatType, samples: 4 });   // MSAA kept inside the composer
     const composer = new EffectComposer(renderer, rt);
     composer.addPass(new RenderPass(scene, cam));
-    const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.3, 0.35, 1.7);   // strength, radius, threshold (HDR, linear)
+    const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.35, 0.4, 2.6);   // strength, radius, threshold (HDR, linear)
     const bs = bloom.setSize.bind(bloom); bloom.setSize = (w, h) => bs(Math.max(1, w >> 1), Math.max(1, h >> 1));   // bloom at half resolution
     composer.addPass(bloom);
     composer.addPass(new OutputPass());   // tone mapping + sRGB
