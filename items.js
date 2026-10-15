@@ -17,9 +17,11 @@
     ['cuirass', 'Iron Cuirass', 'plate', 3.5, 112], ['banded', 'Banded Mail', 'plate', 3, 125], ['knight', "Knight's Plate", 'plate', 2.5, 140], ['dwarven', 'Dwarven Plate', 'plate', 2, 160],
     ['obsidian', 'Obsidian Armour', 'plate', 1.5, 185], ['dragon', 'Dragonscale Mail', 'mail', 1, 215], ['mythril', 'Mythril Hauberk', 'mail', 0.6, 250], ['aegis', "Titan's Aegis", 'plate', 0.4, 300],
   ];
-  const tierOf = c => c >= 7 ? 'common' : c >= 4.5 ? 'uncommon' : c >= 2.5 ? 'rare' : c >= 1 ? 'epic' : 'legendary';
-  // Weapons and armour have TIERS 1-5 shown next to their stats: tier 1 common ... tier 5 legendary (tierN). `tier` stays the rarity name used for colours.
-  const TIER_N = { common: 1, uncommon: 2, rare: 3, epic: 4, legendary: 5 };
+  // Tiers 0-5 are named: 0 common, 1 uncommon, 2 rare, 3 mythic, 4 legendary, 5 transcendent. Dropped items are tiers 1-5 (by drop chance); tier 0 is the base items the crafting bench can make.
+  const TIER_NAMES = ['common', 'uncommon', 'rare', 'mythic', 'legendary', 'transcendent'];
+  const tierOf = c => c >= 7 ? 'uncommon' : c >= 4.5 ? 'rare' : c >= 2.5 ? 'mythic' : c >= 1 ? 'legendary' : 'transcendent';
+  // `tierN` (0-5) is shown next to the stats; `tier` is its name and is used for colours.
+  const TIER_N = { common: 0, uncommon: 1, rare: 2, mythic: 3, legendary: 4, transcendent: 5 };
   const WEAPONS = {}, ARMOR = {}, ITEMS = {};
   for (const [k, name, family, chance, attack] of W) {
     WEAPONS[k] = { name, attack, family, chance, tier: tierOf(chance) };
@@ -36,20 +38,20 @@
   ];
   const RECIPES = [];   // { id, out, tier, cost: {part: n}, needs: knowledge required (0 for tier 0) }
   for (const [key, type, name, family, stat, cost] of BASE) {
-    ITEMS[key] = type === 'weapon' ? { key, type, name, attack: stat, family, chance: 0, tier: 'basic', tierN: 0, price: 10 + stat * 3 } : { key, type, name, health: stat, family, chance: 0, tier: 'basic', tierN: 0, price: 10 + Math.round(stat * 1.2) };
-    (type === 'weapon' ? WEAPONS : ARMOR)[key.slice(2)] = { name, [type === 'weapon' ? 'attack' : 'health']: stat, family, chance: 0, tier: 'basic' };
+    ITEMS[key] = type === 'weapon' ? { key, type, name, attack: stat, family, chance: 0, tier: 'common', tierN: 0, price: 10 + stat * 3 } : { key, type, name, health: stat, family, chance: 0, tier: 'common', tierN: 0, price: 10 + Math.round(stat * 1.2) };
+    (type === 'weapon' ? WEAPONS : ARMOR)[key.slice(2)] = { name, [type === 'weapon' ? 'attack' : 'health']: stat, family, chance: 0, tier: 'common' };
     RECIPES.push({ id: 'r:' + key, out: key, tier: 0, cost, needs: 0 });
   }
   // Higher-tier recipes unlock through the knowledge tree (tier N needs KNOWLEDGE_TIERS[N-1] knowledge); they will be added later.
   // class items (start-only, never dropped)
-  WEAPONS.staff = { name: 'Gnarled Staff', attack: 0, family: 'staff', chance: 0, tier: 'class' };
-  WEAPONS.scepter = { name: 'Royal Scepter', attack: 20, family: 'scepter', chance: 0, tier: 'class' };
-  ARMOR.robe = { name: 'Starry Robe', health: 60, family: 'robe', chance: 0, tier: 'class' };
-  ARMOR.royal = { name: 'Royal Mantle', health: 100, family: 'royal', chance: 0, tier: 'class' };
-  ITEMS['w:staff'] = { key: 'w:staff', type: 'weapon', name: 'Gnarled Staff', attack: 0, family: 'staff', chance: 0, tier: 'class', tierN: 2, price: 70 };
-  ITEMS['w:scepter'] = { key: 'w:scepter', type: 'weapon', name: 'Royal Scepter', attack: 20, family: 'scepter', chance: 0, tier: 'class', tierN: 2, price: 150 };
-  ITEMS['a:robe'] = { key: 'a:robe', type: 'armor', name: 'Starry Robe', health: 60, family: 'robe', chance: 0, tier: 'class', tierN: 2, price: 90 };
-  ITEMS['a:royal'] = { key: 'a:royal', type: 'armor', name: 'Royal Mantle', health: 100, family: 'royal', chance: 0, tier: 'class', tierN: 3, price: 180 };
+  WEAPONS.staff = { name: 'Gnarled Staff', attack: 0, family: 'staff', chance: 0, tier: 'rare' };
+  WEAPONS.scepter = { name: 'Royal Scepter', attack: 20, family: 'scepter', chance: 0, tier: 'rare' };
+  ARMOR.robe = { name: 'Starry Robe', health: 60, family: 'robe', chance: 0, tier: 'rare' };
+  ARMOR.royal = { name: 'Royal Mantle', health: 100, family: 'royal', chance: 0, tier: 'mythic' };
+  ITEMS['w:staff'] = { key: 'w:staff', type: 'weapon', name: 'Gnarled Staff', attack: 0, family: 'staff', chance: 0, tier: 'rare', tierN: 2, price: 70 };
+  ITEMS['w:scepter'] = { key: 'w:scepter', type: 'weapon', name: 'Royal Scepter', attack: 20, family: 'scepter', chance: 0, tier: 'rare', tierN: 2, price: 150 };
+  ITEMS['a:robe'] = { key: 'a:robe', type: 'armor', name: 'Starry Robe', health: 60, family: 'robe', chance: 0, tier: 'rare', tierN: 2, price: 90 };
+  ITEMS['a:royal'] = { key: 'a:royal', type: 'armor', name: 'Royal Mantle', health: 100, family: 'royal', chance: 0, tier: 'mythic', tierN: 3, price: 180 };
 
   const START = [   // starting gear per goblin type: 0 small, 1 medium, 2 big, 3 wizard, 4 king
     { weapon: 'w:dagger', armor: 'a:rags' }, { weapon: 'w:club', armor: 'a:vest' }, { weapon: 'w:mace', armor: 'a:harness' },
@@ -74,14 +76,14 @@
   const PARTS = [['wood', 'Wood'], ['metal', 'Metal'], ['leather', 'Leather'], ['cloth', 'Cloth'], ['gold', 'Gold'], ['bone', 'Bone'], ['gem', 'Gems'], ['string', 'String'], ['crystal', 'Crystal']].map(([key, name]) => ({ key, name }));
   const FAMILY_PARTS = { club: { wood: 3, bone: 1 }, dagger: { metal: 2, leather: 1 }, sword: { metal: 4, leather: 1 }, bow: { wood: 3, string: 2 }, axe: { metal: 3, wood: 2 }, spear: { wood: 3, metal: 2 }, mace: { metal: 3, wood: 2, bone: 1 },
     crossbow: { wood: 3, metal: 2, string: 2 }, flail: { metal: 3, wood: 2, leather: 1 }, halberd: { wood: 3, metal: 3, cloth: 1 }, hammer: { metal: 4, wood: 2 }, staff: { wood: 3, crystal: 1, cloth: 1 }, scepter: { gold: 3, gem: 1 } };
-  const TIER_MULT = { basic: 0.5, common: 1, uncommon: 1.5, rare: 2, epic: 3, legendary: 5, class: 1 };
+  const TIER_MULT = { common: 0.5, uncommon: 1, rare: 1.5, mythic: 2, legendary: 3, transcendent: 5 };
   function recycleYield(key) {   // -> { part: amount } for a weapon key, or null if the item cannot be recycled (armour is not recyclable yet)
     const it = ITEMS[key]; if (!it || it.type !== 'weapon') return null;
     const base = FAMILY_PARTS[it.family] || { metal: 2 }, m = TIER_MULT[it.tier] || 1, out = {};
     for (const k in base) out[k] = Math.max(1, Math.round(base[k] * m));
-    if (it.tier === 'rare') out.gold = (out.gold || 0) + 1;
-    if (it.tier === 'epic') { out.gold = (out.gold || 0) + 2; out.gem = (out.gem || 0) + 1; }
-    if (it.tier === 'legendary') { out.gold = (out.gold || 0) + 5; out.gem = (out.gem || 0) + 3; out.crystal = (out.crystal || 0) + 2; }
+    if (it.tier === 'mythic') out.gold = (out.gold || 0) + 1;
+    if (it.tier === 'legendary') { out.gold = (out.gold || 0) + 2; out.gem = (out.gem || 0) + 1; }
+    if (it.tier === 'transcendent') { out.gold = (out.gold || 0) + 5; out.gem = (out.gem || 0) + 3; out.crystal = (out.crystal || 0) + 2; }
     return out;
   }
   // ---- weighted random picks by drop chance (class items are never picked)
@@ -122,6 +124,6 @@
     return { kind: 'plushie' };
   }
   const CHEST_WEAPONS = ['w:sword', 'w:axe', 'w:spear', 'w:mace', 'w:bow', 'w:dagger'];   // legacy: old 6-entry chest list (indices), kept until the client reads chestKeys
-  root.GKITEMS = { randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, START, KNOWLEDGE, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, PARTS, recycleYield, brainKey, isBrain, brainKnowledge, brainGain, info };
+  root.GKITEMS = { randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, START, KNOWLEDGE, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, brainKey, isBrain, brainKnowledge, brainGain, info };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.GKITEMS;
 })(typeof window !== 'undefined' ? window : globalThis);

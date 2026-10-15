@@ -1,7 +1,7 @@
 // Procedural item icons (browser). GKICONS.canvas(key, size) -> <canvas>; GKICONS.draw(ctx, key, x, y, size) draws into a box.
 (function () {
   let steel = '#b8c2cc'; const dark = '#4a5058', wood = '#7a5230', gold = '#f0c040', leather = '#6b4a2f';
-  const TIER = { common: ['#b8c2cc', null], uncommon: ['#9fd3a8', null], rare: ['#8fb8ff', '#4a8dff'], epic: ['#d2a2ff', '#a455ff'], legendary: ['#ffd36a', '#ff9a1a'], class: ['#b8c2cc', null] };
+  const TIER = { common: ['#b8c2cc', null], uncommon: ['#9fd3a8', null], rare: ['#8fb8ff', '#4a8dff'], mythic: ['#d2a2ff', '#a455ff'], legendary: ['#ffd36a', '#ff9a1a'], transcendent: ['#c4fbff', '#3fe6ff'], class: ['#b8c2cc', null] };
   const DRAW_FAMILY = {};
   const DRAW = {
     'w:dagger': g => { blade(g, 0.18, 0.62, steel); hilt(g, 0.62, 0.3, leather); },

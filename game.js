@@ -886,7 +886,7 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
   const TIERS = {
     common: { col: 0xcfd8e0, size: 1, aura: 0 }, class: { col: 0xff9a3c, size: 1.05, aura: 0.25 },
     uncommon: { col: 0x6dff8a, size: 1.04, aura: 0.08, tint: [0xb4ffc4, 0x0c4a1a] }, rare: { col: 0x6aa8ff, size: 1.08, aura: 0.3, tint: [0x9cc4ff, 0x103a9a] },
-    epic: { col: 0xc08bff, size: 1.12, aura: 0.55, tint: [0xdcb6ff, 0x4a1a8a] }, legendary: { col: 0xffc040, size: 1.18, aura: 0.85, tint: [0xffe8a0, 0x8a5a00], sparks: 6 },
+    mythic: { col: 0xc08bff, size: 1.12, aura: 0.55, tint: [0xdcb6ff, 0x4a1a8a] }, transcendent: { col: 0x7ff4ff, size: 1.24, aura: 1.1, tint: [0xe8ffff, 0x1a5a8a], sparks: 10 }, legendary: { col: 0xffc040, size: 1.18, aura: 0.85, tint: [0xffe8a0, 0x8a5a00], sparks: 6 },
   };
   const itemOf = key => (window.GKITEMS && window.GKITEMS.ITEMS && window.GKITEMS.ITEMS[key]) || null;
   const hex6 = c => '#' + c.toString(16).padStart(6, '0');
@@ -1243,7 +1243,7 @@ MY.ringTexU = TEX.ring;
 // ---- tier styling
 const TIERS = MY.TIERS = {
   common: { c: 0xd8d2c0, css: '#e6e0d0', n: 0 }, uncommon: { c: 0x6dff8a, css: '#7dff9a', n: 1 }, rare: { c: 0x5aa8ff, css: '#6ab4ff', n: 2 },
-  epic: { c: 0xb36bff, css: '#c58cff', n: 3 }, legendary: { c: 0xffc83a, css: '#ffd24a', n: 4 }, class: { c: 0xffe08a, css: '#ffe9a8', n: 3 },
+  mythic: { c: 0xb36bff, css: '#c58cff', n: 3 }, legendary: { c: 0xffc83a, css: '#ffd24a', n: 4 }, transcendent: { c: 0x7ff4ff, css: '#8ff6ff', n: 5 }, class: { c: 0xffe08a, css: '#ffe9a8', n: 3 },
 };
 const tierMats = MY.tierMats = tier => {
   const t = TIERS[tier] || TIERS.common;
@@ -1251,10 +1251,10 @@ const tierMats = MY.tierMats = tier => {
     common: { blade: MM(0x8d8a84, { metalness: 0.6, roughness: 0.62 }), trim: MM(0x3c4048, { metalness: 0.9, roughness: 0.45 }), wood: MM(0x6b4325, { roughness: 0.85 }), lea: MM(0x5a3a22, { roughness: 0.85 }), cloth: MM(0x9a8460, { roughness: 1, side: THREE.DoubleSide }), metal: MM(0x80807c, { metalness: 0.7, roughness: 0.55 }) },
     uncommon: { blade: MM(0xcdd5de, { metalness: 0.9, roughness: 0.3, envMapIntensity: 1.3 }), trim: MM(0x9a6a38, { metalness: 0.8, roughness: 0.4 }), wood: MM(0x5e3a20, { roughness: 0.7 }), lea: MM(0x6a4426, { roughness: 0.7 }), cloth: MM(0x6a8a5a, { roughness: 1, side: THREE.DoubleSide }), metal: MM(0xb4bcc6, { metalness: 0.85, roughness: 0.35 }) },
     rare: { blade: MM(0xc2dcff, { metalness: 0.9, roughness: 0.2, envMapIntensity: 1.5, emissive: 0x1a4a9a, emissiveIntensity: 0.55 }), trim: MM(0xb9c4d4, { metalness: 0.95, roughness: 0.25 }), wood: MM(0x4a2e1a, { roughness: 0.55 }), lea: MM(0x3a4660, { roughness: 0.6 }), cloth: MM(0x3e5f9a, { roughness: 0.9, side: THREE.DoubleSide, emissive: 0x0a2050, emissiveIntensity: 0.4 }), metal: MM(0x9cb8e0, { metalness: 0.9, roughness: 0.25, emissive: 0x15407c, emissiveIntensity: 0.4 }) },
-    epic: { blade: MM(0x6a4a9a, { metalness: 0.9, roughness: 0.25, envMapIntensity: 1.4, emissive: 0x7a26d8, emissiveIntensity: 0.75 }), trim: MM(0x2a2236, { metalness: 0.9, roughness: 0.3, emissive: 0x401a70, emissiveIntensity: 0.4 }), wood: MM(0x2c2038, { roughness: 0.5, emissive: 0x2a0e50, emissiveIntensity: 0.4 }), lea: MM(0x40285c, { roughness: 0.6, emissive: 0x2a0e50, emissiveIntensity: 0.4 }), cloth: MM(0x6a3aa8, { roughness: 0.8, side: THREE.DoubleSide, emissive: 0x3a1380, emissiveIntensity: 0.5 }), metal: MM(0x6c4a9c, { metalness: 0.9, roughness: 0.25, emissive: 0x5a1ab0, emissiveIntensity: 0.6 }) },
+    mythic: { blade: MM(0x6a4a9a, { metalness: 0.9, roughness: 0.25, envMapIntensity: 1.4, emissive: 0x7a26d8, emissiveIntensity: 0.75 }), trim: MM(0x2a2236, { metalness: 0.9, roughness: 0.3, emissive: 0x401a70, emissiveIntensity: 0.4 }), wood: MM(0x2c2038, { roughness: 0.5, emissive: 0x2a0e50, emissiveIntensity: 0.4 }), lea: MM(0x40285c, { roughness: 0.6, emissive: 0x2a0e50, emissiveIntensity: 0.4 }), cloth: MM(0x6a3aa8, { roughness: 0.8, side: THREE.DoubleSide, emissive: 0x3a1380, emissiveIntensity: 0.5 }), metal: MM(0x6c4a9c, { metalness: 0.9, roughness: 0.25, emissive: 0x5a1ab0, emissiveIntensity: 0.6 }) },
     legendary: { blade: MM(0xffeaa8, { metalness: 1, roughness: 0.14, envMapIntensity: 1.8, emissive: 0xd89a14, emissiveIntensity: 0.85 }), trim: MM(0xf4c24d, { metalness: 1, roughness: 0.22, envMapIntensity: 1.6, emissive: 0x7a4a00, emissiveIntensity: 0.6 }), wood: MM(0x2a1a12, { roughness: 0.4, emissive: 0x4a2a00, emissiveIntensity: 0.4 }), lea: MM(0x7a1018, { roughness: 0.5, emissive: 0x3a0408, emissiveIntensity: 0.5 }), cloth: MM(0xd8b04a, { roughness: 0.6, side: THREE.DoubleSide, emissive: 0x7a4a00, emissiveIntensity: 0.55 }), metal: MM(0xffe08a, { metalness: 1, roughness: 0.16, envMapIntensity: 1.8, emissive: 0xc98a10, emissiveIntensity: 0.8 }) },
   };
-  S.class = S.legendary; const m = S[tier] || S.common; m.glow = BM(t.c); m.col = t.c; m.n = t.n; return m;
+  S.transcendent = Object.assign({}, S.legendary); S.class = S.legendary; const m = S[tier] || S.common; m.glow = BM(t.c); m.col = t.c; m.n = t.n; return m;
 };
 // ---- floor glow, spot cone, label
 const poolM = c => GS(c, 1);
@@ -1389,6 +1389,106 @@ MY.weaponProto = key => {
   return wcache[key] = out;
 };
 } // ---- end part 1
+{ // ---- part 2: armour models on a mannequin (origin = floor level of the stand)
+const MY = GK.mys, { GEO, cg, mk, grp, MM, BM, spike, fib, TEX, tierMats } = MY, PI = Math.PI;
+const dsc = {}, DS = mat => dsc[mat.uuid] || (dsc[mat.uuid] = Object.assign(mat.clone(), { side: THREE.DoubleSide }));
+const tmc = {}, texMat = (k, tex, color, o = {}) => tmc[k] || (tmc[k] = new THREE.MeshStandardMaterial({ map: tex, color, roughness: 0.55, metalness: 0.6, side: THREE.DoubleSide, envMapIntensity: 1, ...o }));
+const woodL = MM(0xb89a70, { roughness: 0.8 }), bone = MM(0xe8dfc0, { roughness: 0.6 });
+const open = (a, rt, rb, len, y, mat, seg = 24) => mk(a, cg(rt, rb, seg, true), DS(mat), 0, y, 0, 1, len, 1);
+const onCyl = (a, geo, mat, r, ang, y, sx, sy, sz, tilt = 0) => { const q = mk(a, geo, mat, Math.sin(ang) * r, y, Math.cos(ang) * r, sx, sy, sz); q.rotation.order = 'YXZ'; q.rotation.set(tilt, ang, 0); return q; };
+const mannequin = a => {
+  mk(a, cg(0.38, 0.42), MM(0x4a2c18, { roughness: 0.7 }), 0, 0.03, 0, 1, 0.06, 1); mk(a, cg(0.035, 0.035), woodL, 0, 0.45, 0, 1, 0.85, 1);
+  mk(a, cg(0.25, 0.2, 20), woodL, 0, 1.12, 0, 1, 0.62, 1); mk(a, GEO.sph, woodL, 0, 1.43, 0, 0.26, 0.04, 0.2); mk(a, GEO.box, woodL, 0, 1.4, 0, 0.74, 0.06, 0.07);
+  for (const s of [-1, 1]) mk(a, GEO.sph, woodL, s * 0.37, 1.4, 0, 0.055); mk(a, cg(0.06, 0.07), woodL, 0, 1.52, 0, 1, 0.12, 1); mk(a, GEO.sph, woodL, 0, 1.66, 0, 0.115, 0.13, 0.12);
+};
+const belt = (a, m, y = 0.9, r = 0.29, buckle = true) => { mk(a, GEO.tor, m.lea, 0, y, 0, r, r, r * 1.2, PI / 2).scale.z = 0.35; if (buckle) mk(a, GEO.box, m.trim, 0, y, r + 0.015, 0.08, 0.07, 0.025); };
+const sleeves = (a, mat, r = 0.09, len = 0.28) => { for (const s of [-1, 1]) { const q = open(a, r, r * 1.2, len, 1.3, mat, 12); q.position.x = s * 0.4; q.rotation.z = -s * 1.85; } };
+const AB = {
+  cloth(a, m, it, k) {
+    const col = m.cloth;
+    if (k === 'sack') {
+      const bm = texMat('burlap', TEX.burlap, 0xffffff, { metalness: 0, roughness: 1 }); TEX.burlap.repeat.set(5, 3);
+      mk(a, cg(0.3, 0.4, 24, true), bm, 0, 1.0, 0, 1, 0.9, 1); mk(a, GEO.tor, bm, 0, 1.44, 0, 0.3, 0.3, 0.5, PI / 2).scale.z = 0.4; for (const s of [-1, 1]) { mk(a, cg(0.1, 0.1, 14), MM(0x2a1c10), s * 0.33, 1.28, 0, 1, 0.02, 1.3, 0, 0, PI / 2); mk(a, GEO.tor, bm, s * 0.34, 1.28, 0, 0.11, 0.11, 0.5, 0, PI / 2, 0); }
+      mk(a, GEO.tor, MM(0x8a6a3a, { roughness: 1 }), 0, 0.98, 0, 0.35, 0.35, 0.9, PI / 2); mk(a, GEO.sph, bm, 0, 0.55, 0.3, 0.07, 0.04, 0.04); mk(a, GEO.sph, MM(0x8a6a3a), 0, 0.6, 0.4, 0.05);
+      for (let i = 0; i < 9; i++) spike(a, bm, Math.sin(i * 0.7) * 0.37, 0.58, Math.cos(i * 0.7) * 0.37, 0, -1, 0, 0.1, 0.03); return;
+    }
+    const mat = k === 'gambeson' ? texMat('quilt', TEX.quilt, col.color.getHex(), { metalness: 0, roughness: 1 }) : col;
+    if (k === 'gambeson') TEX.quilt.repeat.set(6, 3);
+    open(a, 0.29, k === 'gambeson' ? 0.34 : 0.32, 0.72, 1.08, mat); sleeves(a, mat, k === 'gambeson' ? 0.13 : 0.1, k === 'gambeson' ? 0.4 : 0.26);
+    mk(a, GEO.tor, mat, 0, 1.46, 0, 0.14, 0.14, 0.6, PI / 2).scale.z = 0.7; belt(a, { lea: MM(0x7a6a44, { roughness: 1 }), trim: m.trim }, 0.95, 0.31, false);
+    if (k === 'rags' || k === 'cloth') for (let i = 0; i < 14; i++) { const ang = i / 14 * PI * 2; spike(a, DS(col), Math.sin(ang) * 0.32, 0.74, Math.cos(ang) * 0.32, 0, -1, 0, 0.1 + 0.08 * ((i * 7) % 3) / 2, 0.06); }
+    const pc = [0x8a2a2a, 0x2a5a8a, 0x6a5a2a, 0x4a7a3a];
+    if (k !== 'sack') for (let i = 0; i < (k === 'cloth' ? 6 : 3); i++) { const q = onCyl(a, GEO.box, MM(pc[i % 4], { roughness: 1 }), 0.325, -0.9 + i * 0.7, 1.25 - (i % 3) * 0.18, 0.1, 0.1, 0.012); mk(q, GEO.box, MM(0x2a1c10), 0, 0, 0.007, 0.115, 0.012, 0.004); }
+    if (k === 'gambeson') { for (const y of [1.3, 1.1, 0.9]) mk(a, GEO.tor, MM(0x6a5a3a, { roughness: 1 }), 0, y, 0, 0.325, 0.325, 0.5, PI / 2).scale.z = 0.12; }
+  },
+  leather(a, m, it, k) {
+    const lea = DS(k === 'boiled' ? MM(0x3a2414, { roughness: 0.3, metalness: 0.2, emissive: m.lea.emissive.getHex(), emissiveIntensity: 0.3 }) : m.lea);
+    if (k === 'scraps') {
+      [[0.3, 1.38, 0.2], [0.325, 1.2, 0.2], [0.3, 1.03, 0.2], [0.33, 0.86, 0.18]].forEach(([r, y, h], i) => { mk(a, cg(r, r + 0.02, 22, true), i % 2 ? lea : DS(MM(0x7a5230, { roughness: 0.9 })), 0, y, 0, 1, h, 1); for (let j = 0; j < 9; j++) { const an = j / 9 * PI * 2 + i; spike(a, i % 2 ? lea : DS(MM(0x7a5230)), Math.sin(an) * (r + 0.02), y - h / 2, Math.cos(an) * (r + 0.02), 0, -1, 0, 0.06, 0.035); } });
+      for (const s of [-1, 1]) mk(a, GEO.box, lea, s * 0.2, 1.43, 0, 0.1, 0.03, 0.34); mk(a, cg(0.01, 0.01, 6), MM(0xd8c8a0), 0, 1.1, 0.3, 1, 0.6, 1).rotation.z = 0.2; return;
+    }
+    open(a, 0.285, 0.26, 0.64, 1.1, lea); for (const s of [-1, 1]) mk(a, GEO.box, lea, s * 0.2, 1.43, 0, 0.1, 0.035, 0.36);
+    mk(a, GEO.box, MM(0x1e1208), 0, 1.15, 0.272, 0.05, 0.5, 0.012); for (let i = 0; i < 6; i++) mk(a, GEO.box, MM(0xd8c8a0), 0, 1.35 - i * 0.08, 0.282, 0.09, 0.012, 0.006, 0, 0, i % 2 ? 0.5 : -0.5);
+    belt(a, m, 0.84, 0.265);
+    if (k === 'vest') for (let r = 0; r < 3; r++) for (let j = 0; j < 14; j++) { const an = -1.45 + j * 0.22; if (Math.abs(an) < 0.12) continue; mk(a, GEO.sph, m.trim, Math.sin(an) * 0.29, 1.3 - r * 0.15, Math.cos(an) * 0.29, 0.02); }
+    if (k === 'jerkin') { for (let i = 0; i < 7; i++) onCyl(a, GEO.sph, MM(0x2a1c10, { roughness: 1 }), 0.28, -1.2 + i * 0.5, 1.3 - (i % 3) * 0.15, 0.06, 0.04, 0.02); for (let i = 0; i < 14; i++) { const an = i / 14 * PI * 2; mk(a, GEO.sph, MM(0xe6dcc8, { roughness: 1 }), Math.sin(an) * 0.17, 1.47, Math.cos(an) * 0.17, 0.07); } }
+    if (k === 'boiled') { for (let i = 0; i < 5; i++) mk(a, GEO.tor, m.trim, 0, 1.38 - i * 0.12, 0, 0.275 - i * 0.004, 0.275 - i * 0.004, 0.5, PI / 2).scale.z = 0.12; for (const s of [-1, 1]) { mk(a, GEO.hemi, m.trim, s * 0.38, 1.42, 0, 0.17, 0.12, 0.17, 0, 0, -s * 0.3); mk(a, GEO.sph, m.trim, s * 0.36, 1.55, 0, 0.02); } }
+  },
+  mail(a, m, it, k) {
+    const sc = k === 'scale' || k === 'dragon', tex = sc ? TEX.scale : TEX.chain; tex.repeat.set(sc ? 5 : 8, sc ? 3 : 5);
+    const col = k === 'dragon' ? 0x3ad0a0 : k === 'mythril' ? 0xa8c8ff : k === 'scale' ? 0xb08a58 : k === 'brigandine' ? 0x8a8a8c : m.metal.color.getHex();
+    const mat = texMat('mail' + k + it.tier, tex, col, { emissive: k === 'dragon' ? 0x0a6a50 : k === 'mythril' ? 0x2a5ac8 : m.metal.emissive.getHex(), emissiveIntensity: k === 'dragon' ? 0.6 : k === 'mythril' ? 0.8 : 0.3, metalness: 0.7, roughness: 0.4 });
+    open(a, 0.29, 0.31, 0.8, 1.04, mat, 26); sleeves(a, mat, 0.1, 0.34); mk(a, cg(0.14, 0.18, 14, true), mat, 0, 1.55, 0, 1, 0.14, 1); belt(a, m, 0.9, 0.3);
+    for (let i = 0; i < 16; i++) { const an = i / 16 * PI * 2; spike(a, mat, Math.sin(an) * 0.315, 0.64, Math.cos(an) * 0.315, 0, -1, 0, 0.07, 0.04); }
+    if (k === 'brigandine') for (let i = 0; i < 4; i++) { const q = onCyl(a, GEO.box, MM(0x5a2a2a, { roughness: 0.9 }), 0.315, -0.52 + i * 0.35, 1.15, 0.18, 0.5, 0.014); for (const dy of [-0.18, 0, 0.18]) mk(q, GEO.sph, m.trim, 0, dy, 0.01, 0.014); }
+    if (k === 'dragon') { for (const s of [-1, 1]) for (let i = 0; i < 4; i++) spike(a, mk(a, GEO.dodec, MM(0x0a6a50), 0, 0, 0, 0).material, s * (0.34 + i * 0.03), 1.44 + i * 0.01, (i - 1.5) * 0.08, s, 1, 0, 0.18, 0.03); }
+    if (k === 'mythril') mk(a, GEO.oct, BM(0x9ad0ff), 0, 1.3, 0.3, 0.035, 0.055, 0.02);
+  },
+  harness(a, m, it) {
+    const lea = DS(m.lea); open(a, 0.27, 0.23, 0.6, 1.1, lea, 20); mk(a, GEO.sph, m.metal, 0, 1.22, 0.07, 0.29, 0.3, 0.2);
+    for (const s of [-1, 1]) { mk(a, GEO.box, m.lea, 0, 1.15, 0.265, 0.07, 0.8, 0.025, 0, 0, s * 0.62); mk(a, GEO.hemi, m.metal, s * 0.4, 1.43, 0, 0.23, 0.17, 0.21, 0, 0, -s * 0.45); for (let i = 0; i < 4; i++) spike(a, m.trim, s * (0.4 + (i - 1.5) * 0.045), 1.5 + (i % 2) * 0.02, (i - 1.5) * 0.07, s * 0.3, 1, 0, 0.14, 0.03); }
+    belt(a, m, 0.84, 0.25, false); mk(a, GEO.sph, bone, 0, 0.84, 0.27, 0.06, 0.055, 0.04); for (const s of [-1, 1]) mk(a, GEO.sph, MM(0x100808), s * 0.02, 0.85, 0.305, 0.012);
+    for (let i = 0; i < 5; i++) { const an = -0.9 + i * 0.45; onCyl(a, GEO.box, m.metal, 0.27, an, 0.68, 0.12, 0.22, 0.03, 0.08); }
+  },
+  plate(a, m, it, k) {
+    let metal = m.metal; if (k === 'obsidian') metal = MM(0x16121e, { metalness: 1, roughness: 0.1, envMapIntensity: 1.8, emissive: 0x2a0408, emissiveIntensity: 0.5 }); if (k === 'aegis') metal = MM(0xfff1c8, { metalness: 1, roughness: 0.12, envMapIntensity: 2, emissive: 0xd8a020, emissiveIntensity: 0.7 });
+    const wide = k === 'dwarven' ? 1.15 : 1, simple = k === 'cuirass';
+    const body = grp(a, 0, 0, 0); body.scale.x = wide;
+    mk(body, GEO.sph, metal, 0, 1.2, 0.02, 0.3, 0.31, 0.22); mk(body, cg(0.25, 0.3, 24, true), DS(metal), 0, 0.82, 0, 1, 0.34, 1); mk(body, cg(0.2, 0.14, 12), metal, 0, 1.52, 0, 1, 0.1, 1);
+    mk(body, GEO.box, m.trim, 0, 1.2, 0.235, 0.025, 0.5, 0.012);
+    for (const s of [-1, 1]) {
+      const n = simple ? 1 : 3; for (let i = 0; i < n; i++) mk(body, GEO.hemi, metal, s * (0.38 + i * 0.02), 1.43 - i * 0.07, 0, 0.2 - i * 0.015, 0.14, 0.19, 0, 0, -s * (0.4 + i * 0.1));
+      if (k === 'obsidian' || k === 'aegis') for (let i = 0; i < 3; i++) spike(body, metal, s * (0.42 + i * 0.03), 1.5 - i * 0.02, (i - 1) * 0.09, s * (k === 'aegis' ? 1.2 : 0.4), 1, 0, k === 'aegis' ? 0.5 : 0.22, 0.04);
+    }
+    if (k === 'banded') for (let i = 0; i < 6; i++) mk(body, GEO.tor, m.trim, 0, 1.4 - i * 0.12, 0.0, 0.3 - Math.abs(i - 1) * 0.02, 0.3 - Math.abs(i - 1) * 0.02, 0.5, PI / 2).scale.z = 0.14;
+    if (k !== 'cuirass') {   // helm
+      mk(a, GEO.sph, metal, 0, 1.67, 0, 0.14, 0.15, 0.14); mk(a, GEO.box, MM(0x050508), 0, 1.66, 0.125, 0.16, 0.025, 0.03); mk(a, cg(0.14, 0.14), m.trim, 0, 1.62, 0, 1, 0.03, 1);
+      if (k === 'knight' || k === 'aegis' || k === 'dwarven') { const pc = k === 'knight' ? 0xc02030 : k === 'aegis' ? 0xffffff : 0x8a3a1a; spike(a, MM(pc, { roughness: 0.8 }), 0, 1.78, -0.04, 0, 1, -0.5, 0.3, 0.05); }
+      if (k === 'dwarven') { for (const s of [-1, 1]) spike(a, bone, s * 0.12, 1.72, 0, s, 0.7, 0, 0.22, 0.04); for (let i = 0; i < 3; i++) mk(a, GEO.sph, MM(0xa05a20, { roughness: 1 }), (i - 1) * 0.045, 1.5 - i * 0.02, 0.17, 0.035, 0.1, 0.03); }
+      if (k === 'obsidian') for (const s of [-1, 1]) spike(a, metal, s * 0.1, 1.76, 0, s * 0.5, 1, 0, 0.22, 0.035);
+    }
+    if (k === 'knight') { mk(a, GEO.box, MM(0xc02030, { roughness: 0.9, side: THREE.DoubleSide }), 0, 0.8, 0.31, 0.3, 0.5, 0.012); mk(a, GEO.box, MM(0xf0e8d0), 0, 0.82, 0.318, 0.05, 0.36, 0.004); mk(a, GEO.box, MM(0xf0e8d0), 0, 0.88, 0.318, 0.2, 0.05, 0.004); }
+    if (k === 'obsidian') for (let i = 0; i < 6; i++) mk(body, GEO.box, BM(0xff3a1a), (i % 3 - 1) * 0.12, 1.1 + (i >> 1) * 0.1, 0.235 + 0.02 * (i % 2), 0.012, 0.14, 0.006, 0, 0, i * 0.7);
+    if (k === 'aegis') { mk(a, GEO.sph, BM(0xfff0b0), 0, 1.22, 0.245, 0.09, 0.09, 0.02); for (const s of [-1, 1]) for (let i = 0; i < 4; i++) mk(a, GEO.cone, metal, s * 0.46, 1.6 + i * 0.08, -0.08, 0.04, 0.4 - i * 0.04, 0.012, 0, 0, -s * (0.9 + i * 0.2)); }
+  },
+  robe(a, m, it) {
+    const cl = DS(MM(0x2a2a74, { roughness: 0.85, emissive: 0x0a0a30, emissiveIntensity: 0.6 })); open(a, 0.2, 0.44, 1.18, 0.88, cl, 28); sleeves(a, cl, 0.14, 0.4);
+    for (const s of [-1, 1]) { mk(a, GEO.cone, cl, s * 0.5, 1.1, 0, 0.17, 0.55, 0.17, 0, 0, -s * 0.2); spike(a, cl, s * 0.1, 1.5, -0.12, s * 0.4, 1, -0.3, 0.3, 0.07); }
+    mk(a, GEO.tor, MM(0xf4c24d, { metalness: 1, roughness: 0.25, emissive: 0x6a3d00, emissiveIntensity: 0.5 }), 0, 0.3, 0, 0.44, 0.44, 0.6, PI / 2).scale.z = 0.2; mk(a, GEO.tor, MM(0xf4c24d, { metalness: 1, roughness: 0.25 }), 0, 0.93, 0, 0.27, 0.27, 0.9, PI / 2).scale.z = 0.25;
+    for (let i = 0; i < 22; i++) { const q = onCyl(a, GEO.oct, BM(0xffe27a), 0.2 + (1.4 - (i * 0.37 % 1.0)) * 0.24 + 0.012, i * 0.9, 0.38 + (i * 0.37 % 1.0) * 1.0, 0.025, 0.025, 0.01); }
+  },
+  royal(a, m, it) {
+    const red = MM(0x8a0f1c, { roughness: 0.6, emissive: 0x2a0408, emissiveIntensity: 0.4, side: THREE.DoubleSide }), gold = MM(0xf4c24d, { metalness: 1, roughness: 0.22, emissive: 0x6a3d00, emissiveIntensity: 0.5 }), fur = MM(0xf4f0e8, { roughness: 1 });
+    open(a, 0.28, 0.25, 0.72, 1.08, MM(0x3a0a14, { roughness: 0.6, side: THREE.DoubleSide }), 22);
+    mk(a, new THREE.CylinderGeometry(0.34, 0.56, 1.25, 28, 1, true, PI - 1.35, 2.7), red, 0, 0.9, -0.02, 1, 1, 1); mk(a, new THREE.CylinderGeometry(0.34, 0.56, 1.25, 28, 1, true, PI - 1.35, 2.7), red, 0, 0.9, -0.02, 1.0, 1, 1).visible = false;
+    for (let i = 0; i < 16; i++) { const an = i / 16 * PI * 2; if (Math.abs(an - PI) < 0.5) continue; mk(a, GEO.sph, fur, Math.sin(an) * 0.3, 1.5, Math.cos(an) * 0.3, 0.095); }
+    for (const s of [-1, 1]) for (let i = 0; i < 7; i++) { mk(a, GEO.sph, fur, s * 0.14, 1.38 - i * 0.12, 0.27, 0.07); if (i % 2) mk(a, GEO.sph, MM(0x15110e), s * 0.14, 1.38 - i * 0.12, 0.33, 0.02); }
+    for (const s of [-1, 1]) mk(a, GEO.sph, gold, s * 0.17, 1.42, 0.3, 0.04); mk(a, GEO.tor, gold, 0, 1.42, 0.3, 0.17, 0.05, 0.4).rotation.z = 0; mk(a, GEO.tor, gold, 0, 0.62, 0, 0.275, 0.275, 0.9, PI / 2).scale.z = 0.2; belt(a, { lea: gold, trim: gold }, 0.86, 0.26);
+    mk(a, cg(0.12, 0.14), gold, 0, 1.78, 0, 1, 0.07, 1); for (let i = 0; i < 5; i++) { const an = i / 5 * PI * 2; spike(a, gold, Math.sin(an) * 0.125, 1.8, Math.cos(an) * 0.125, 0, 1, 0, 0.1, 0.025); mk(a, GEO.sph, gold, Math.sin(an) * 0.125, 1.92, Math.cos(an) * 0.125, 0.018); }
+  },
+};
+MY.AB = AB; MY.mannequin = mannequin;
+} // ---- end part 2
 // MYSTERY-END
 // MAP-BEGIN (wall maps in the spawn rooms: owned by the map agent)
 {
@@ -2202,9 +2302,9 @@ function buildGoblin(type) {
 const itemsData = () => window.GKITEMS || { ITEMS: {}, START: [], KNOWLEDGE: [], SLOTS: { backpack: 9, quick: 3 } };
 const infoOf = k => { const G = window.GKITEMS; return k == null ? null : (G && G.info && G.info(k)) || (G && G.ITEMS[k]) || null; };   // also knows goblin brains
 const itemName = k => { const it = infoOf(k); return it ? it.name : String(k); };
-const TIER_COL = { common: '#9aa0a8', uncommon: '#4fc35b', rare: '#4a9bff', epic: '#b06bff', legendary: '#ffb02e', class: '#ffd75e' };
-const tierN = k => { const it = infoOf(k); return it && it.tierN ? it.tierN : 0; };
-const tierTxt = k => tierN(k) ? 'Tier ' + tierN(k) : '';
+const TIER_COL = { common: '#9aa0a8', uncommon: '#4fc35b', rare: '#4a9bff', mythic: '#b06bff', legendary: '#ffb02e', transcendent: '#7ff4ff', class: '#ffd75e' };
+const tierN = k => { const it = infoOf(k); return it && it.tierN != null ? it.tierN : null; };   // null for brains
+const tierTxt = k => tierN(k) != null ? 'Tier ' + tierN(k) : '';
 const statTxt = k => { const it = infoOf(k); if (!it) return ''; return [tierTxt(k), it.type === 'weapon' ? 'Attack ' + it.attack : it.type === 'armor' ? 'Health ' + it.health : it.gain != null ? '+' + fmtN(it.gain) + ' knowledge' : ''].filter(Boolean).join(' · '); };
 const fmtN = n => Number.isInteger(+n) ? String(n) : String(+(+n).toFixed(1));   // keys -> names (plain names from an older server pass through)
 const emptyInv = () => ({ backpack: Array(9).fill(null), quick: Array(3).fill(null), weapon: null, armor: null });
@@ -2412,26 +2512,34 @@ function showStats(p, type) {   // small stat panel, bottom-left
     + '<div style="display:flex;justify-content:space-between"><span>Attack</span><span>' + st.attack + '</span></div>'
     + '<div style="display:flex;justify-content:space-between"><span>Knowledge</span><span id="hudKnow">' + fmtN(st.knowledge) + '</span></div>'
     + '<div style="display:flex;justify-content:space-between;align-items:center"><span>Gold</span><span><i class="gkcoin"></i> <b style="color:#ffd75e">' + myGold + '</b></span></div>'
-    + '<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,.12);font-weight:500;color:#cfd3dc"><div>Weapon: <b style="color:#f2efe6">' + gear.weapon + '</b> <small>(' + (myInv.weapon && tierN(myInv.weapon) !== 0 || myInv.weapon && infoOf(myInv.weapon) && infoOf(myInv.weapon).tierN === 0 ? 'Tier ' + tierN(myInv.weapon) + ', ' : '') + st.attack + ' dmg)</small></div>'
-    + '<div>Armour: <b style="color:#f2efe6">' + gear.armor + '</b> <small>(' + (myInv.armor && infoOf(myInv.armor) && infoOf(myInv.armor).tierN != null ? 'Tier ' + tierN(myInv.armor) + ', ' : '') + max + ' HP)</small></div>'
+    + '<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,.12);font-weight:500;color:#cfd3dc"><div>Weapon: <b style="color:#f2efe6">' + gear.weapon + '</b> <small>(' + (tierN(myInv.weapon) != null ? 'Tier ' + tierN(myInv.weapon) + ', ' : '') + st.attack + ' dmg)</small></div>'
+    + '<div>Armour: <b style="color:#f2efe6">' + gear.armor + '</b> <small>(' + (tierN(myInv.armor) != null ? 'Tier ' + tierN(myInv.armor) + ', ' : '') + max + ' HP)</small></div>'
     + (partsTotal() ? '<div>Materials: <b style="color:#f2efe6">' + partsTotal() + '</b> <small>(Tab)</small></div>' : '')
     + '<div>Backpack: <b style="color:#f2efe6">' + packN + ' / 9</b> <small>(Tab)</small></div></div>';
   statsEl.style.display = GK.mode === 'play' ? 'block' : 'none';
 }
 // ---- loot: what a dead goblin leaves behind (weapon, armour and everything in the inventory) ----
 const lootMeshes = new Map();
+let dropsList = [];
 function applyDrops(list) {
+  dropsList = list;
   const ids = new Set(list.map(d => d.id));
-  for (const [id, g] of lootMeshes) if (!ids.has(id)) { scene.remove(g); lootMeshes.delete(id); }
+  for (const [id, g] of lootMeshes) if (!ids.has(id) || g.userData.sig !== list.find(d => d.id === id).items.join('|')) { scene.remove(g); lootMeshes.delete(id); }
   for (const d of list) {
     if (lootMeshes.has(d.id)) continue;
-    const g = new THREE.Group(); g.position.set(d.x, 0, d.z);
+    const g = new THREE.Group(); g.position.set(d.x, 0, d.z); g.userData.sig = d.items.join('|');
+    if (d.items.some(k => infoOf(k) && infoOf(k).family === 'brain')) {   // the dead goblin's brain sits on top of the bag
+      const bm = new THREE.MeshStandardMaterial({ color: 0xf08aa8, emissive: 0xd0406a, emissiveIntensity: 0.55, roughness: 0.6 });
+      const br = new THREE.Mesh(new THREE.SphereGeometry(0.13, 14, 10), bm); br.scale.set(1.15, 0.85, 1); br.position.set(0, 0.8, 0); g.add(br);
+      const bg = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff6a9a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.55 })); bg.scale.set(0.9, 0.9, 1); bg.position.y = 0.8; g.add(bg);
+    }
     const sack = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 12), new THREE.MeshStandardMaterial({ color: 0x7a5a34, roughness: 0.9 })); sack.scale.y = 0.8; sack.position.y = 0.25; g.add(sack);
     const neck = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.25, 10), sack.material); neck.position.y = 0.58; g.add(neck);
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffd24a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.8 })); glow.scale.set(1.6, 1.6, 1); glow.position.y = 0.5; g.add(glow);
     const lab = new THREE.Sprite(new THREE.SpriteMaterial({ map: textTex(d.items.map(itemName).join(' · '), '#ffd75e', 'rgba(10,10,16,.6)', 640, 96, 'bold 40px system-ui'), transparent: true, depthWrite: false })); lab.scale.set(2.4, 0.36, 1); lab.position.y = 1.1; g.add(lab);
     scene.add(g); lootMeshes.set(d.id, g);
   }
+  if (typeof lootOpen !== 'undefined' && lootOpen) paintLoot();
 }
 let diedEl = null;
 function showDied(info) {
@@ -2453,7 +2561,7 @@ function showDeathScreen(info) {
   for (const id of ['hint', 'dot', 'rr', 'roundHud']) { const el = $(id); if (el) el.style.display = 'none'; }
   if (statsEl) statsEl.style.display = 'none';
   const rows = [['Goblin', NAMES[type]], ['Survived', Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0')], ['Round reached', n || 1], ['Distance travelled', Math.round(run.dist) + ' m'], ['Died in', where],
-    ['Starting weapon', gear.weapon + ' (' + st.attack + ' dmg)'], ['Starting armour', gear.armor + ' (' + st.health + ' HP)'], ['Dropped', ((info && info.items) || []).map(itemName).join(', ') || 'nothing']];
+    ['Starting weapon', gear.weapon + ' (' + [tierTxt((itemsData().START[type] || {}).weapon), st.attack + ' dmg'].filter(Boolean).join(', ') + ')'], ['Starting armour', gear.armor + ' (' + [tierTxt((itemsData().START[type] || {}).armor), st.health + ' HP'].filter(Boolean).join(', ') + ')'], ['Dropped', [...((info && info.items) || []), ...(info && info.brain ? [info.brain] : [])].map(k => itemName(k) + (tierN(k) != null ? ' (T' + tierN(k) + ')' : '')).join(', ') || 'nothing']];
   deathEl = document.createElement('div');
   deathEl.style.cssText = 'position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,rgba(60,0,0,.55),rgba(0,0,0,.88));font-family:system-ui,sans-serif;color:#f2efe6;opacity:0;transition:opacity .8s';
   deathEl.innerHTML = '<div style="width:min(520px,92vw);padding:28px 32px 26px;border-radius:16px;background:rgba(14,10,12,.82);border:1px solid rgba(255,90,74,.45);box-shadow:0 10px 60px rgba(0,0,0,.7)">'
@@ -2467,6 +2575,16 @@ function showDeathScreen(info) {
   document.body.appendChild(deathEl); requestAnimationFrame(() => { deathEl.style.opacity = 1; });
   $('deathQueue').onclick = () => { try { sessionStorage.setItem('gk.requeue', '1'); } catch (e) {} location.reload(); };   // fresh connection, new wheel roll
   $('deathMenu').onclick = () => location.reload();
+  if (window.GK_OFFLINE) {   // demo: come back as a new goblin right here; the loot pile stays and can be looted
+    const b = document.createElement('button'); b.id = 'deathAgain'; b.textContent = 'NEW GOBLIN (DEMO)';
+    b.style.cssText = 'flex:1;padding:13px 10px;border-radius:10px;border:1px solid rgba(255,215,94,.5);background:transparent;color:#ffd75e;font:700 14px system-ui,sans-serif;letter-spacing:.06em;cursor:pointer';
+    $('deathMenu').parentNode.appendChild(b);
+    b.onclick = () => {
+      deathEl.remove(); deathEl = null; GK.mode = 'play'; inside = true; winDone = false; run.t0 = performance.now(); run.dist = 0; myGold = 0;
+      for (const id of ['hint', 'dot']) { const el = $(id); if (el) el.style.display = ''; } const rr = $('rr'); if (rr) rr.style.display = 'block';
+      net.send({ reroll: 1 }); setTimeout(() => { GK.showStats(); lockNow(); }, 100);
+    };
+  }
   $('deathQueue').focus();
 }
 GK.showDeathScreen = showDeathScreen;
@@ -2768,8 +2886,7 @@ if (window.GK_OFFLINE) { $('rr').onclick = e => { net.send({ reroll: 1 }); e.sto
 const keys = new Set(); let inside = true, drag = false;
 addEventListener('keydown', e => {
   if (e.code === 'KeyK' && !e.repeat && window.GK_OFFLINE && GK.mode === 'play' && actors.get(me)) { // demo only: K = die, to see the loot drop and the death screen
-    const items = invReady ? invAll(myInv) : [GEAR[actors.get(me).goblin].weapon, GEAR[actors.get(me).goblin].armor];
-    (GK.demoDrops = GK.demoDrops || []).push({ id: Date.now(), x: P.x, z: P.z, items }); applyDrops(GK.demoDrops); showDeathScreen({ items });
+    const r = netReal && netReal.demoDie && netReal.demoDie(); showDeathScreen(r || { items: invAll(myInv) });
   }
   keys.add(e.code); if (e.code === 'KeyV' && !e.repeat) inside = !inside; });
 document.addEventListener('visibilitychange', () => keys.clear());
