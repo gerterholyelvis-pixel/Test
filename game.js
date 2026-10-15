@@ -2212,7 +2212,7 @@ if (GK.layout && GK.CHEST_ROOMS) { /* the rooms agent calls buildMysteryContents
     row(9, (x, y) => { g.fillStyle = '#2a3442'; g.fillRect(x - 14, y - 14, 28, 28); g.strokeStyle = '#9fb4cc'; g.lineWidth = 2; g.strokeRect(x - 14, y - 14, 28, 28); }, 'Vault');
     row(10, (x, y) => mysteryIcon(g, x, y, 0.95), 'Mystery room');
     row(11, (x, y) => merchantIcon(g, x, y, 0.85), 'Merchant');
-    g.fillStyle = '#7f95ad'; g.font = '22px system-ui, sans-serif'; g.fillText('All doors sealed', 722, 692); g.fillText('Rooms are random each match', 722, 718);
+    g.fillStyle = '#7f95ad'; g.font = '22px system-ui, sans-serif'; g.fillText('All doors sealed', 722, 692); g.fillText('Random rooms each match', 722, 718);
   }
   drawBase();
   const spawnRooms = [0, 1, 2, 3, 5, 6, 7, 8], panels = [];
@@ -3431,7 +3431,7 @@ function showVictory(info) {
   const rows = [['Goblin', NAMES[type]], ['Survived', Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0')], ['Round reached', n || 1], ['Distance travelled', Math.round(run.dist) + ' m'], ...(info && info.gold != null ? [['Gold left', info.gold]] : []), ['Victories', wins]];
   winEl = document.createElement('div');
   winEl.style.cssText = 'position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,rgba(70,50,0,.5),rgba(0,0,0,.88));font-family:system-ui,sans-serif;color:#f2efe6;opacity:0;transition:opacity .8s;overflow:auto';
-  winEl.innerHTML = '<div style="width:min(540px,92vw);padding:24px 32px 24px;border-radius:16px;background:rgba(16,13,6,.84);border:1px solid rgba(255,215,94,.55);box-shadow:0 10px 60px rgba(0,0,0,.7),0 0 50px rgba(255,200,60,.12)">'
+  winEl.innerHTML = '<div style="width:min(540px,92vw);max-height:96vh;overflow:auto;box-sizing:border-box;padding:20px 32px 20px;border-radius:16px;background:rgba(16,13,6,.84);border:1px solid rgba(255,215,94,.55);box-shadow:0 10px 60px rgba(0,0,0,.7),0 0 50px rgba(255,200,60,.12)">'
     + '<div style="text-align:center;color:' + GOLD + ';font-weight:800;font-size:clamp(34px,6vw,58px);letter-spacing:.1em;text-shadow:0 0 26px rgba(255,200,60,.55)">VICTORY</div>'
     + '<div style="text-align:center;color:#d8c98c;margin:2px 0 14px;letter-spacing:.06em;font-size:15px">' + (c ? '<b style="color:' + GOLD + '">' + esc(c.name) + '</b> now has <b style="color:' + GOLD + '">' + wins + '</b> victor' + (wins === 1 ? 'y' : 'ies') : 'Your run is won') + '</div>'
     + '<div style="display:grid;grid-template-columns:auto 1fr;gap:6px 22px;font-size:15px;font-variant-numeric:tabular-nums">'
