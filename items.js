@@ -29,6 +29,18 @@
     ARMOR[k] = { name, health, family, chance, tier: tierOf(chance) };
     ITEMS['a:' + k] = { key: 'a:' + k, type: 'armor', name, health, family, chance, tier: tierOf(chance), tierN: TIER_N[tierOf(chance)], price: Math.round((health * 1.4 + 10) / 5) * 5 };
   }
+  // ---- TIER 0 base items: what the crafting bench can make for everyone without unlocking anything from the knowledge tree. Never dropped (chance 0).
+  const BASE = [   // [key, type, name, family, stat, cost in parts]
+    ['w:sharpstick', 'weapon', 'Sharpened Stick', 'spear', 3, { wood: 2 }], ['w:stoneknife', 'weapon', 'Stone Knife', 'dagger', 5, { wood: 1, bone: 1 }], ['w:roughclub', 'weapon', 'Rough Club', 'club', 7, { wood: 3, bone: 1 }],
+    ['a:leafwrap', 'armor', 'Leaf Wrap', 'cloth', 10, { cloth: 2 }], ['a:ragwrap', 'armor', 'Rag Wrap', 'cloth', 15, { cloth: 3, string: 1 }], ['a:barkvest', 'armor', 'Bark Vest', 'leather', 22, { wood: 2, leather: 1, string: 1 }],
+  ];
+  const RECIPES = [];   // { id, out, tier, cost: {part: n}, needs: knowledge required (0 for tier 0) }
+  for (const [key, type, name, family, stat, cost] of BASE) {
+    ITEMS[key] = type === 'weapon' ? { key, type, name, attack: stat, family, chance: 0, tier: 'basic', tierN: 0, price: 10 + stat * 3 } : { key, type, name, health: stat, family, chance: 0, tier: 'basic', tierN: 0, price: 10 + Math.round(stat * 1.2) };
+    (type === 'weapon' ? WEAPONS : ARMOR)[key.slice(2)] = { name, [type === 'weapon' ? 'attack' : 'health']: stat, family, chance: 0, tier: 'basic' };
+    RECIPES.push({ id: 'r:' + key, out: key, tier: 0, cost, needs: 0 });
+  }
+  // Higher-tier recipes unlock through the knowledge tree (tier N needs KNOWLEDGE_TIERS[N-1] knowledge); they will be added later.
   // class items (start-only, never dropped)
   WEAPONS.staff = { name: 'Gnarled Staff', attack: 0, family: 'staff', chance: 0, tier: 'class' };
   WEAPONS.scepter = { name: 'Royal Scepter', attack: 20, family: 'scepter', chance: 0, tier: 'class' };
@@ -62,7 +74,7 @@
   const PARTS = [['wood', 'Wood'], ['metal', 'Metal'], ['leather', 'Leather'], ['cloth', 'Cloth'], ['gold', 'Gold'], ['bone', 'Bone'], ['gem', 'Gems'], ['string', 'String'], ['crystal', 'Crystal']].map(([key, name]) => ({ key, name }));
   const FAMILY_PARTS = { club: { wood: 3, bone: 1 }, dagger: { metal: 2, leather: 1 }, sword: { metal: 4, leather: 1 }, bow: { wood: 3, string: 2 }, axe: { metal: 3, wood: 2 }, spear: { wood: 3, metal: 2 }, mace: { metal: 3, wood: 2, bone: 1 },
     crossbow: { wood: 3, metal: 2, string: 2 }, flail: { metal: 3, wood: 2, leather: 1 }, halberd: { wood: 3, metal: 3, cloth: 1 }, hammer: { metal: 4, wood: 2 }, staff: { wood: 3, crystal: 1, cloth: 1 }, scepter: { gold: 3, gem: 1 } };
-  const TIER_MULT = { common: 1, uncommon: 1.5, rare: 2, epic: 3, legendary: 5, class: 1 };
+  const TIER_MULT = { basic: 0.5, common: 1, uncommon: 1.5, rare: 2, epic: 3, legendary: 5, class: 1 };
   function recycleYield(key) {   // -> { part: amount } for a weapon key, or null if the item cannot be recycled (armour is not recyclable yet)
     const it = ITEMS[key]; if (!it || it.type !== 'weapon') return null;
     const base = FAMILY_PARTS[it.family] || { metal: 2 }, m = TIER_MULT[it.tier] || 1, out = {};
@@ -110,6 +122,6 @@
     return { kind: 'plushie' };
   }
   const CHEST_WEAPONS = ['w:sword', 'w:axe', 'w:spear', 'w:mace', 'w:bow', 'w:dagger'];   // legacy: old 6-entry chest list (indices), kept until the client reads chestKeys
-  root.GKITEMS = { randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, START, KNOWLEDGE, KNOWLEDGE_TIERS, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, PARTS, recycleYield, brainKey, isBrain, brainKnowledge, brainGain, info };
+  root.GKITEMS = { randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, START, KNOWLEDGE, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, PARTS, recycleYield, brainKey, isBrain, brainKnowledge, brainGain, info };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.GKITEMS;
 })(typeof window !== 'undefined' ? window : globalThis);

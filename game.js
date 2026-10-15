@@ -1074,7 +1074,110 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
   const rebuildAll = () => { for (const s of slots) { if (s.built === s.cr.type && s.cr.type !== 'mystery') continue; buildInterior(s); } };
   layoutHooks.push(rebuildAll);
   if (GK.layout) rebuildAll(); else setTimeout(() => { if (!GK.layout) rebuildAll(); }, 4000);   // no layout from the server: show the defaults
-  // @@ROOMS@@
+  // ===== MYSTERY ROOM: violet shell, glowing rune circle, mist, a high floating question mark; the floor and centre stay free for the contents =====
+  const qGlyph = (key, fg, glow) => ctex('q' + key, 256, 256, (g, w, h) => { g.font = 'bold 210px Georgia, "Times New Roman", serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.shadowColor = glow; g.shadowBlur = 26; g.fillStyle = fg; g.fillText('?', w / 2, h / 2 + 14); g.shadowBlur = 8; g.fillText('?', w / 2, h / 2 + 14); });
+  function mysteryShell() {
+    const rr = (() => { let s = 99; return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; })();
+    const runes = (g, col, w) => {
+      const C = 512; g.strokeStyle = col; g.lineCap = 'round'; g.lineJoin = 'round';
+      for (const [r, lw] of [[420, 10], [390, 3], [320, 6], [250, 3]]) { g.lineWidth = lw * w; g.beginPath(); g.arc(C, C, r, 0, 7); g.stroke(); }
+      g.lineWidth = 4 * w; for (let k = 0; k < 2; k++) { g.beginPath(); for (let i = 0; i < 3; i++) { const a = k * Math.PI / 3 + i * 2.0944 - Math.PI / 2; g.lineTo(C + Math.cos(a) * 320, C + Math.sin(a) * 320); } g.closePath(); g.stroke(); }
+      for (let i = 0; i < 24; i++) {   // rune ticks between the outer rings
+        const a = i / 24 * 6.2832, c = Math.cos(a), s = Math.sin(a), px = -s, py = c; g.lineWidth = 4 * w; g.beginPath();
+        let x = C + c * 405, y = C + s * 405; g.moveTo(x - px * 10, y - py * 10);
+        for (let j = 0; j < 3; j++) { x = C + c * (396 + rr() * 22) + px * (rr() * 22 - 11); y = C + s * (396 + rr() * 22) + py * (rr() * 22 - 11); g.lineTo(x, y); }
+        g.stroke();
+      }
+      g.fillStyle = col; g.font = 'bold 110px Georgia, serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      for (let i = 0; i < 6; i++) { const a = i * 1.0472 - Math.PI / 2; g.fillText('?', C + Math.cos(a) * 285, C + Math.sin(a) * 285 + 8); }
+    };
+    const emi = ctex('myfloorE', 1024, 1024, (g, w, h) => { g.fillStyle = '#000'; g.fillRect(0, 0, w, h); runes(g, '#9a6bff', 1); }, false);
+    const tex = ctex('myfloor', 1024, 1024, (g, w, h) => {
+      g.fillStyle = '#1a1236'; g.fillRect(0, 0, w, h);
+      for (let ty = 0; ty < 8; ty++) for (let tx = 0; tx < 8; tx++) { g.fillStyle = `rgba(${(tx + ty) & 1 ? '70,50,140' : '10,5,30'},${0.2 + rr() * 0.15})`; g.fillRect(tx * 128, ty * 128, 128, 128); g.strokeStyle = 'rgba(150,120,255,.22)'; g.lineWidth = 2; g.strokeRect(tx * 128 + 1, ty * 128 + 1, 126, 126); }
+      speckle(g, w, h, 5000, 6, 0.1); runes(g, 'rgba(190,150,255,.55)', 1);
+    }, false);
+    return {
+      floor: M(0xffffff, { map: tex, emissiveMap: emi, emissive: 0xffffff, emissiveIntensity: 1.25, roughness: 0.3, metalness: 0.25, envMapIntensity: 0.8 }),
+      wall: M(0x9582e0, { map: plasterTex, bumpMap: bumpTex, bumpScale: 0.6, roughness: 0.9, envMapIntensity: 0.3, emissive: 0x2a1470, emissiveIntensity: 0.7 }),
+      ceil: M(0x6a58b0, { map: plasterTex, roughness: 0.95, emissive: 0x5a44b0, emissiveIntensity: 0.7 }),
+      panel: new THREE.MeshBasicMaterial({ color: 0xb59cff, toneMapped: false }),
+      band: M(0x8a5cff, { metalness: 0.5, roughness: 0.4, emissive: 0x7a44ff, emissiveIntensity: 1.3 }),
+    };
+  }
+  function buildMystery(slot) {
+    const g = slot.inner, cr = slot.cr;
+    const violetF = mat('vflame', () => new THREE.MeshBasicMaterial({ color: 0xa266ff, toneMapped: false })), violetF2 = mat('vflame2', () => new THREE.MeshBasicMaterial({ color: 0xece0ff, toneMapped: false }));
+    const goldQ = mat('qgoldDecal', () => new THREE.MeshBasicMaterial({ map: qGlyph('gold', '#ffd76a', '#ff9a20'), transparent: true, depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    const purpQ = mat('qpurpDecal', () => new THREE.MeshBasicMaterial({ map: qGlyph('purp', '#d9bfff', '#8a4cff'), transparent: true, depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    // --- the floating question mark, high above the floor ---
+    const qM = mat('qbody', () => M(0xb48cff, { metalness: 0.45, roughness: 0.28, emissive: 0x8a44ff, emissiveIntensity: 1.5, envMapIntensity: 1.5 })), qDot = mat('qdot', () => M(0xffd05a, { metalness: 1, roughness: 0.25, emissive: 0xff9a10, emissiveIntensity: 1.1, envMapIntensity: 1.6 }));
+    const qCurve = pts => new THREE.CatmullRomCurve3(pts.map(p => new THREE.Vector3(p[0], p[1], 0)));
+    const hookPts = []; for (let a = 200; a >= -70; a -= 22.5) { const r = a * Math.PI / 180; hookPts.push([Math.cos(r) * 0.55, 0.85 + Math.sin(r) * 0.55]); } hookPts.push([0.1, 0.18], [0.0, -0.12], [0.0, -0.34]);
+    const qGeo = kgeo('qtube', () => new THREE.TubeGeometry(qCurve(hookPts), 90, 0.13, 12, false)), qHalo = kgeo('qtube2', () => new THREE.TubeGeometry(qCurve(hookPts), 60, 0.24, 8, false));
+    const haloM = mat('qhalo', () => new THREE.MeshBasicMaterial({ color: 0x8a50ff, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide, fog: false }));
+    const qg = dyn(new THREE.Group()); qg.position.set(0, 4.35, 0); qg.scale.setScalar(0.95); g.add(qg);
+    mkm(qg, qGeo, qM, 0, 0, 0); mkm(qg, qHalo, haloM, 0, 0, 0); sph(qg, qDot, 0, -0.82, 0, 0.17); mkm(qg, qHalo, haloM, 0, 0, 0).scale.setScalar(1.0);
+    const cap = sph(qg, qDot, 0, -0.34, 0, 0.14, 0.06, 0.14);
+    const ring = dyn(new THREE.Group()); ring.position.set(0, 0.3, 0); qg.add(ring); const rg = tor(ring, qDot, 0, 0, 0, 1.1, 0.025); rg.rotation.x = Math.PI / 2.4; const rg2 = tor(ring, qM, 0, 0, 0, 0.9, 0.018); rg2.rotation.x = -Math.PI / 2.2; rg2.rotation.y = 0.6;
+    const hs = addGlow(qg, 0x8a50ff, 5.2, 0.5, 0, 0.3, 0), hs2 = addGlow(qg, 0xffc060, 2.4, 0.35, 0, 0.3, 0); dyn(hs); dyn(hs2);
+    const beam = mkm(g, tapG(0.12, 0.9, 20), mat('qbeam', () => new THREE.MeshBasicMaterial({ color: 0x8a50ff, transparent: true, opacity: 0.05, blending: THREE.AdditiveBlending, depthWrite: false, fog: false })), 0, 1.6, 0, 1, 3.2, 1);
+    const flameList = [];
+    // --- wall dressing: tapestries, rune tablets, violet sconces ---
+    const tapM = mat('tap', () => new THREE.MeshStandardMaterial({ map: ctex('tap', 256, 640, (c, w, h) => {
+      const gr = c.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#3a1a7a'); gr.addColorStop(1, '#190a40'); c.fillStyle = gr; c.fillRect(0, 0, w, h);
+      c.strokeStyle = '#d9a82b'; c.lineWidth = 10; c.strokeRect(10, 10, w - 20, h - 50); c.lineWidth = 3; c.strokeRect(26, 26, w - 52, h - 82);
+      c.fillStyle = '#d9a82b'; for (let i = 0; i < 8; i++) { c.beginPath(); c.moveTo(i * 32 + 4, h - 40); c.lineTo(i * 32 + 28, h - 40); c.lineTo(i * 32 + 16, h); c.fill(); }
+      c.shadowColor = '#ffb030'; c.shadowBlur = 24; c.fillStyle = '#ffd76a'; c.font = 'bold 300px Georgia, serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('?', w / 2, h / 2 - 10);
+      c.shadowBlur = 0; c.fillStyle = '#b894ff'; for (let i = 0; i < 14; i++) { const x = 40 + (i * 53) % 176, y = 50 + (i * 97) % 480; star4(c, x, y, 5 + i % 3 * 2); }
+    }), roughness: 0.9, side: THREE.DoubleSide, emissive: 0xffffff, emissiveIntensity: 0.4 }));
+    tapM.emissiveMap = tapM.map;
+    const plM = mat('tabl', () => { const t = ctex('tabl', 256, 320, (c, w, h) => {
+      c.fillStyle = '#17112e'; rrect(c, 4, 4, w - 8, h - 8, 26); c.fill(); c.strokeStyle = '#9a6bff'; c.lineWidth = 8; c.shadowColor = '#9a6bff'; c.shadowBlur = 14; rrect(c, 12, 12, w - 24, h - 24, 22); c.stroke(); c.shadowBlur = 0; c.strokeStyle = '#4a3a8a'; c.lineWidth = 3; rrect(c, 28, 28, w - 56, h - 56, 14); c.stroke();
+      c.shadowColor = '#b48cff'; c.shadowBlur = 30; c.fillStyle = '#e0ccff'; c.font = 'bold 230px Georgia, serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('?', w / 2, h / 2 + 14);
+    }); return new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0.9, roughness: 0.6 }); });
+    for (const x of [-2.6, 2.6]) { const t = pln(g, tapM, x, 3.45, -IN + 0.05, 1.1, 2.75); box(g, goldM, x, 4.88, -IN + 0.07, 1.3, 0.08, 0.1); for (const s of [-1, 1]) sph(g, goldM, x + s * 0.62, 4.88, -IN + 0.07, 0.07); }
+    for (const [x, z, ry] of [[-IN + 0.04, 0, Math.PI / 2], [IN - 0.04, 0, -Math.PI / 2], [-IN + 0.04, -2.2, Math.PI / 2], [IN - 0.04, -2.2, -Math.PI / 2]]) { const p = pln(g, plM, x, 2.9, z, 0.9, 1.125); p.rotation.y = ry; }
+    { const p = pln(g, plM, 0, 3.4, -IN + 0.04, 1.0, 1.25); }
+    for (const [sx, sz, ry] of [[-IN, 2.4, Math.PI / 2], [IN, 2.4, -Math.PI / 2], [-IN, -1.1, Math.PI / 2], [IN, -1.1, -Math.PI / 2], [-1.3, -IN, 0], [1.3, -IN, 0]]) {
+      const t = new THREE.Group(); t.position.set(sx, 2.5, sz); t.rotation.y = ry; g.add(t);
+      box(t, ironM, 0, 0, 0.04, 0.14, 0.14, 0.08); cyl2(t, ironM, 0, 0, 0.15, 0.025, 0.3).rotation.x = Math.PI / 2; tap(t, ironM, 0, 0.1, 0.3, 0.13, 0.06, 0.16, 10);
+      const f = dyn(cne(t, violetF, 0, 0.34, 0.3, 0.09, 0.3)), f2 = dyn(cne(t, violetF2, 0, 0.3, 0.3, 0.05, 0.2)), gl = dyn(addGlow(t, 0x8a50ff, 2.6, 0.7, 0, 0.36, 0.35));
+      flameList.push({ f, f2, gl, ph: Math.random() * 9 });
+    }
+    // --- corner props: sealed crates and urns with '?' glyphs ---
+    const woodD = mat('mywood', () => M(0xffffff, { map: woodTex, color: 0x8a78b8, roughness: 0.8, emissive: 0x120a30, emissiveIntensity: 0.4 }));
+    const crate = (x, z, s, ry, y0 = 0) => {
+      const c = new THREE.Group(); c.position.set(x, y0, z); c.rotation.y = ry; g.add(c);
+      bx(c, s, s, s, 0, s / 2, 0, woodD, 1); for (const k of [-0.28, 0.28]) { box(c, ironM, 0, s / 2, k * s * 1.2 * 0.8, s * 1.02, s * 0.12, s * 0.12); box(c, ironM, k * s * 1.2 * 0.8, s / 2, 0, s * 0.12, s * 1.02, s * 1.02); }
+      for (const [dx, dz, r] of [[0, 1, 0], [1, 0, Math.PI / 2]]) { const q = pln(c, goldQ, dx * (s / 2 + 0.012), s / 2, dz * (s / 2 + 0.012), s * 0.62, s * 0.62); q.rotation.y = r; }
+      const seal = sph(c, mat('wax', () => M(0xb01830, { roughness: 0.4, emissive: 0x500010, emissiveIntensity: 0.8 })), 0, s * 0.82, s / 2 + 0.01, 0.07, 0.07, 0.03);
+      return c;
+    };
+    crate(-2.95, -2.95, 0.95, 0.15); crate(-2.9, -2.9, 0.62, -0.5, 0.95); crate(-1.95, -3.2, 0.5, 0.3);
+    const urnGeo = kgeo('urn', () => { const pts = [[0, 0], [0.28, 0], [0.34, 0.08], [0.44, 0.3], [0.46, 0.5], [0.38, 0.75], [0.22, 0.88], [0.24, 0.98], [0.32, 1.06], [0.3, 1.1], [0.0, 1.1]].map(p => new THREE.Vector2(p[0], p[1])); return new THREE.LatheGeometry(pts, 24); });
+    const urnM = mat('urn', () => M(0x4a3a8a, { metalness: 0.25, roughness: 0.4, emissive: 0x20105a, emissiveIntensity: 0.7, envMapIntensity: 1.2 }));
+    for (const [x, z, s, ry] of [[2.9, -2.9, 1.05, 0.2], [2.0, -3.15, 0.75, -0.3], [3.2, -1.7, 0.7, 0.5]]) {
+      const u = new THREE.Group(); u.position.set(x, 0, z); u.rotation.y = ry; u.scale.setScalar(s); g.add(u);
+      mkm(u, urnGeo, urnM, 0, 0, 0); tor(u, goldM, 0, 0.78, 0, 0.4, 0.02); pln(u, purpQ, 0, 0.5, 0.474, 0.42, 0.42);
+    }
+    // --- mist and floating motes (additive, no lights) ---
+    const mistM = mat('mist', () => new THREE.SpriteMaterial({ map: glowTex, color: 0x6a48ff, transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+    const mist = []; for (let i = 0; i < 11; i++) { const s = dyn(new THREE.Sprite(mistM)); const a = i * 2.4, r = 1.2 + (i % 4) * 0.7; s.scale.set(3.4, 2, 1); s.userData.m = { a, r, sp: 0.12 + (i % 3) * 0.05, y: 0.3 + (i % 3) * 0.18 }; s.position.set(Math.cos(a) * r, s.userData.m.y, Math.sin(a) * r); g.add(s); mist.push(s); }
+    const N = 80, pp = new Float32Array(N * 3); for (let i = 0; i < N; i++) { const a = Math.random() * 6.283, r = 0.4 + Math.random() * 3.1; pp[i * 3] = Math.cos(a) * r; pp[i * 3 + 1] = 0.3 + Math.random() * 5; pp[i * 3 + 2] = Math.sin(a) * r; }
+    const pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.BufferAttribute(pp, 3));
+    const motes = dyn(new THREE.Points(pg, mat('motes', () => new THREE.PointsMaterial({ map: glowTex, color: 0xc0a4ff, size: 0.2, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, fog: false })))); motes.frustumCulled = false; g.add(motes);
+    addTick(g, (t) => {
+      qg.position.y = 4.35 + Math.sin(t * 0.9 + cr.id) * 0.15; qg.rotation.y = t * 0.45 + cr.id; ring.rotation.y = t * 0.8; ring.rotation.z = Math.sin(t * 0.5) * 0.3;
+      hs.material.opacity = 0.42 + 0.12 * Math.sin(t * 2.1); beam.material.opacity = 0.045 + 0.02 * Math.sin(t * 1.3);
+      motes.rotation.y = t * 0.03; motes.position.y = Math.sin(t * 0.4) * 0.15;
+      for (const s of mist) { const m = s.userData.m, a = m.a + t * m.sp; s.position.set(Math.cos(a) * m.r, m.y + Math.sin(t * 0.5 + m.a) * 0.06, Math.sin(a * 0.8) * m.r * 0.8); }
+      for (const q of flameList) { const k = 1 + 0.12 * Math.sin(t * 17 + q.ph) + 0.08 * Math.sin(t * 29 + q.ph * 2); q.f.scale.set(k * 0.95, k, k * 0.95); q.f2.scale.set(k, 0.9 + (k - 1) * 2, k); q.gl.material.opacity = 0.6 + (k - 1) * 1.4; }
+    });
+  }
+  function merchantShell() { return shellMats('chest'); }
+  function buildMerchant(slot) { }
+  // @@MERCHANT@@
   let lastT = -1, lastP = 0;
   function animate() {
     const t = performance.now() / 1000; if (t === lastT) return; const dt = Math.min(0.1, lastT < 0 ? 0.016 : t - lastT); lastT = t;
@@ -1101,6 +1204,191 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
 function applyChests(a) { GK.applyChests(a); }
 // CHEST-END
 // MYSTERY-BEGIN (contents of the random mystery rooms: owned by the mystery agent; defines GK.buildMysteryContents(room, group, variant))
+{ // ---- part 1: shared helpers, tier styling, weapon models
+const MY = GK.mys = GK.mys || {};
+const PI = Math.PI, Y = new THREE.Vector3(0, 1, 0);
+const GEO = MY.GEO = {
+  sph: new THREE.SphereGeometry(1, 20, 14), box: new THREE.BoxGeometry(1, 1, 1), cyl: new THREE.CylinderGeometry(1, 1, 1, 18), cone: new THREE.ConeGeometry(1, 1, 14),
+  cone4: new THREE.ConeGeometry(1, 1, 4), tor: new THREE.TorusGeometry(1, 0.12, 8, 32), oct: new THREE.OctahedronGeometry(1), dodec: new THREE.DodecahedronGeometry(1),
+  plane: new THREE.PlaneGeometry(1, 1), arc: new THREE.TorusGeometry(1, 0.06, 6, 14, PI), hemi: new THREE.SphereGeometry(1, 20, 10, 0, PI * 2, 0, PI / 2),
+};
+const cgc = {};
+const cg = MY.cg = (rt, rb, seg = 16, open = false) => { const k = rt + '_' + rb + '_' + seg + open; return cgc[k] || (cgc[k] = new THREE.CylinderGeometry(rt, rb, 1, seg, 1, open)); };
+const mk = MY.mk = (p, geo, mat, x = 0, y = 0, z = 0, sx = 1, sy = sx, sz = sx, rx = 0, ry = 0, rz = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); m.rotation.set(rx, ry, rz); p.add(m); return m; };
+const grp = MY.grp = (p, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) => { const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.set(rx, ry, rz); p.add(g); return g; };
+const dyn = MY.dyn = o => { o.userData.dyn = true; return o; };
+const mc = {};
+const MM = MY.MM = (c, o = {}) => { const k = c + '|' + JSON.stringify(o); return mc[k] || (mc[k] = M(c, o)); };
+const bmc = {};
+const BM = MY.BM = (c, op = 1, add = false, map = null) => { const k = c + '|' + op + '|' + add + '|' + (map ? map.uuid : ''); return bmc[k] || (bmc[k] = new THREE.MeshBasicMaterial({ color: c, opacity: op, transparent: add || op < 1, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending, depthWrite: !add && op >= 1, side: add ? THREE.DoubleSide : THREE.FrontSide, toneMapped: false, fog: false, map })); };
+const gsm = {};
+const GS = MY.GS = (c, op) => gsm[c + '|' + op] || (gsm[c + '|' + op] = new THREE.SpriteMaterial({ map: glowTex, color: c, transparent: true, opacity: op, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+const glow = MY.glow = (p, c, size, op, x = 0, y = 0, z = 0) => { const s = new THREE.Sprite(GS(c, op)); s.scale.set(size, size, 1); s.position.set(x, y, z); p.add(s); return s; };
+const _v = new THREE.Vector3();
+const spike = MY.spike = (p, mat, x, y, z, dx, dy, dz, len, r) => { _v.set(dx, dy, dz).normalize(); const m = new THREE.Mesh(GEO.cone, mat); m.scale.set(r, len, r); m.position.set(x + _v.x * len / 2, y + _v.y * len / 2, z + _v.z * len / 2); m.quaternion.setFromUnitVectors(Y, _v); p.add(m); return m; };
+const fib = MY.fib = n => Array.from({ length: n }, (_, i) => { const yy = 1 - 2 * (i + 0.5) / n, r = Math.sqrt(1 - yy * yy), a = i * 2.39996; return [Math.cos(a) * r, yy, Math.sin(a) * r]; });
+const canvasT = (w, h, f) => { const t = canvasTex(w, h, f); t.wrapS = t.wrapT = THREE.RepeatWrapping; return t; };
+const clampT = t => { t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; return t; };
+const TEX = MY.TEX = {
+  ring: clampT(canvasTex(256, 256, (g, w, h) => { const r = g.createRadialGradient(128, 128, 60, 128, 128, 128); r.addColorStop(0, 'rgba(255,255,255,0)'); r.addColorStop(0.72, 'rgba(255,255,255,.1)'); r.addColorStop(0.86, 'rgba(255,255,255,.95)'); r.addColorStop(0.92, 'rgba(255,255,255,.45)'); r.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = r; g.fillRect(0, 0, w, h); })),
+  shaft: clampT(canvasTex(16, 256, (g, w, h) => { const r = g.createLinearGradient(0, 0, 0, h); r.addColorStop(0, 'rgba(255,255,255,.75)'); r.addColorStop(0.55, 'rgba(255,255,255,.28)'); r.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = r; g.fillRect(0, 0, w, h); })),
+  streak: clampT(canvasTex(256, 16, (g, w, h) => { const r = g.createLinearGradient(0, 0, w, 0); r.addColorStop(0, 'rgba(255,255,255,0)'); r.addColorStop(1, 'rgba(255,255,255,.9)'); g.fillStyle = r; g.fillRect(0, 0, w, h); g.globalCompositeOperation = 'destination-in'; const v = g.createLinearGradient(0, 0, 0, h); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(0.5, 'rgba(0,0,0,1)'); v.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = v; g.fillRect(0, 0, w, h); })),
+  star: clampT(canvasTex(64, 64, (g, w, h) => { const r = g.createRadialGradient(32, 32, 0, 32, 32, 30); r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.15, 'rgba(255,255,255,.7)'); r.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = r; g.fillRect(0, 0, w, h); g.fillStyle = '#fff'; g.beginPath(); g.moveTo(32, 0); g.lineTo(36, 28); g.lineTo(64, 32); g.lineTo(36, 36); g.lineTo(32, 64); g.lineTo(28, 36); g.lineTo(0, 32); g.lineTo(28, 28); g.fill(); })),
+  chain: canvasT(128, 128, (g, w, h) => { g.fillStyle = '#6a6e76'; g.fillRect(0, 0, w, h); for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) { const cx = x * 16 + (y & 1 ? 8 : 0), cy = y * 16 + 8; g.strokeStyle = '#e6eaf0'; g.lineWidth = 3; g.beginPath(); g.arc(cx, cy, 6.5, 0, 7); g.stroke(); g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 1.5; g.beginPath(); g.arc(cx, cy, 9, 0, 7); g.stroke(); } }),
+  scale: canvasT(128, 128, (g, w, h) => { g.fillStyle = '#555'; g.fillRect(0, 0, w, h); for (let y = 0; y < 9; y++) for (let x = -1; x < 9; x++) { const cx = x * 16 + (y & 1 ? 8 : 0), cy = y * 14; const gr = g.createLinearGradient(cx, cy - 2, cx, cy + 16); gr.addColorStop(0, '#f2f2f2'); gr.addColorStop(1, '#8c8c8c'); g.fillStyle = gr; g.beginPath(); g.arc(cx, cy, 10, 0, PI); g.fill(); g.strokeStyle = 'rgba(0,0,0,.6)'; g.lineWidth = 1.5; g.stroke(); } }),
+  burlap: canvasT(64, 64, (g, w, h) => { g.fillStyle = '#c9b085'; g.fillRect(0, 0, w, h); for (let i = 0; i < 64; i += 3) { g.fillStyle = `rgba(80,55,20,${0.12 + 0.12 * Math.random()})`; g.fillRect(i, 0, 1.5, h); g.fillRect(0, i, w, 1.5); } }),
+  quilt: canvasT(64, 64, (g, w, h) => { g.fillStyle = '#d8d0bc'; g.fillRect(0, 0, w, h); g.strokeStyle = 'rgba(70,50,30,.7)'; g.lineWidth = 3; for (let i = 0; i <= 64; i += 32) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, h); g.stroke(); g.beginPath(); g.moveTo(0, i); g.lineTo(w, i); g.stroke(); } speckle(g, w, h, 200, 3, 0.1); }),
+};
+MY.ringTexU = TEX.ring;
+// ---- tier styling
+const TIERS = MY.TIERS = {
+  common: { c: 0xd8d2c0, css: '#e6e0d0', n: 0 }, uncommon: { c: 0x6dff8a, css: '#7dff9a', n: 1 }, rare: { c: 0x5aa8ff, css: '#6ab4ff', n: 2 },
+  epic: { c: 0xb36bff, css: '#c58cff', n: 3 }, legendary: { c: 0xffc83a, css: '#ffd24a', n: 4 }, class: { c: 0xffe08a, css: '#ffe9a8', n: 3 },
+};
+const tierMats = MY.tierMats = tier => {
+  const t = TIERS[tier] || TIERS.common;
+  const S = {
+    common: { blade: MM(0x8d8a84, { metalness: 0.6, roughness: 0.62 }), trim: MM(0x3c4048, { metalness: 0.9, roughness: 0.45 }), wood: MM(0x6b4325, { roughness: 0.85 }), lea: MM(0x5a3a22, { roughness: 0.85 }), cloth: MM(0x9a8460, { roughness: 1, side: THREE.DoubleSide }), metal: MM(0x80807c, { metalness: 0.7, roughness: 0.55 }) },
+    uncommon: { blade: MM(0xcdd5de, { metalness: 0.9, roughness: 0.3, envMapIntensity: 1.3 }), trim: MM(0x9a6a38, { metalness: 0.8, roughness: 0.4 }), wood: MM(0x5e3a20, { roughness: 0.7 }), lea: MM(0x6a4426, { roughness: 0.7 }), cloth: MM(0x6a8a5a, { roughness: 1, side: THREE.DoubleSide }), metal: MM(0xb4bcc6, { metalness: 0.85, roughness: 0.35 }) },
+    rare: { blade: MM(0xc2dcff, { metalness: 0.9, roughness: 0.2, envMapIntensity: 1.5, emissive: 0x1a4a9a, emissiveIntensity: 0.55 }), trim: MM(0xb9c4d4, { metalness: 0.95, roughness: 0.25 }), wood: MM(0x4a2e1a, { roughness: 0.55 }), lea: MM(0x3a4660, { roughness: 0.6 }), cloth: MM(0x3e5f9a, { roughness: 0.9, side: THREE.DoubleSide, emissive: 0x0a2050, emissiveIntensity: 0.4 }), metal: MM(0x9cb8e0, { metalness: 0.9, roughness: 0.25, emissive: 0x15407c, emissiveIntensity: 0.4 }) },
+    epic: { blade: MM(0x6a4a9a, { metalness: 0.9, roughness: 0.25, envMapIntensity: 1.4, emissive: 0x7a26d8, emissiveIntensity: 0.75 }), trim: MM(0x2a2236, { metalness: 0.9, roughness: 0.3, emissive: 0x401a70, emissiveIntensity: 0.4 }), wood: MM(0x2c2038, { roughness: 0.5, emissive: 0x2a0e50, emissiveIntensity: 0.4 }), lea: MM(0x40285c, { roughness: 0.6, emissive: 0x2a0e50, emissiveIntensity: 0.4 }), cloth: MM(0x6a3aa8, { roughness: 0.8, side: THREE.DoubleSide, emissive: 0x3a1380, emissiveIntensity: 0.5 }), metal: MM(0x6c4a9c, { metalness: 0.9, roughness: 0.25, emissive: 0x5a1ab0, emissiveIntensity: 0.6 }) },
+    legendary: { blade: MM(0xffeaa8, { metalness: 1, roughness: 0.14, envMapIntensity: 1.8, emissive: 0xd89a14, emissiveIntensity: 0.85 }), trim: MM(0xf4c24d, { metalness: 1, roughness: 0.22, envMapIntensity: 1.6, emissive: 0x7a4a00, emissiveIntensity: 0.6 }), wood: MM(0x2a1a12, { roughness: 0.4, emissive: 0x4a2a00, emissiveIntensity: 0.4 }), lea: MM(0x7a1018, { roughness: 0.5, emissive: 0x3a0408, emissiveIntensity: 0.5 }), cloth: MM(0xd8b04a, { roughness: 0.6, side: THREE.DoubleSide, emissive: 0x7a4a00, emissiveIntensity: 0.55 }), metal: MM(0xffe08a, { metalness: 1, roughness: 0.16, envMapIntensity: 1.8, emissive: 0xc98a10, emissiveIntensity: 0.8 }) },
+  };
+  S.class = S.legendary; const m = S[tier] || S.common; m.glow = BM(t.c); m.col = t.c; m.n = t.n; return m;
+};
+// ---- floor glow, spot cone, label
+const poolM = c => GS(c, 1);
+MY.pool = (p, c, r, op, x = 0, z = 0) => { const m = new THREE.Mesh(GEO.plane, BM(c, op, true, glowTex)); m.rotation.x = -PI / 2; m.position.set(x, 0.03, z); m.scale.set(r * 2, r * 2, 1); m.renderOrder = 2; p.add(m); return m; };
+MY.ring = (p, c, r, op, x = 0, z = 0) => { const m = new THREE.Mesh(GEO.plane, BM(c, op, true, TEX.ring), 0); m.material = BM(c, op, true, TEX.ring); m.rotation.x = -PI / 2; m.position.set(x, 0.035, z); m.scale.set(r * 2, r * 2, 1); m.renderOrder = 2; p.add(m); return m; };
+const cones = {};
+MY.spot = (p, c, x = 0, z = 0, h = 5.8, rt = 0.3, rb = 1.4, op = 0.5) => {
+  const k = h + '_' + rt + '_' + rb; const geo = cones[k] || (cones[k] = new THREE.CylinderGeometry(rt, rb, h, 28, 1, true));
+  const m = new THREE.Mesh(geo, BM(c, op, true, TEX.shaft)); m.position.set(x, h / 2 + 0.05, z); m.renderOrder = 3; p.add(m); return m;
+};
+const lc = {};
+const labelMat = MY.labelMat = (l1, c1, l2, c2) => {
+  const k = l1 + '|' + c1 + '|' + (l2 || '') + '|' + (c2 || ''); if (lc[k]) return lc[k];
+  const W = 1024, Hh = l2 ? 240 : 150, c = document.createElement('canvas'); c.width = W; c.height = Hh; const g = c.getContext('2d');
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  const fit = (t, px) => { let s = px; g.font = `bold ${s}px system-ui, sans-serif`; while (g.measureText(t).width > 920 && s > 18) { s -= 4; g.font = `bold ${s}px system-ui, sans-serif`; } return g.measureText(t).width; };
+  const w1 = fit(l1, 84), y1 = l2 ? 80 : Hh / 2, w2 = l2 ? (g.font = '', fit(l2, 56)) : 0;
+  const bw = Math.min(W - 8, Math.max(w1, w2) + 80);
+  g.fillStyle = 'rgba(10,6,20,.66)'; g.beginPath(); g.roundRect ? g.roundRect((W - bw) / 2, 6, bw, Hh - 12, 36) : g.rect((W - bw) / 2, 6, bw, Hh - 12); g.fill();
+  g.strokeStyle = c1; g.globalAlpha = 0.6; g.lineWidth = 4; g.stroke(); g.globalAlpha = 1;
+  fit(l1, 84); g.fillStyle = c1; g.fillText(l1, W / 2, y1 + 3);
+  if (l2) { fit(l2, 56); g.fillStyle = c2 || c1; g.fillText(l2, W / 2, 176); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return lc[k] = { mat: new THREE.SpriteMaterial({ map: t, transparent: true, depthWrite: false, fog: false }), aspect: W / Hh };
+};
+MY.lbl = (p, l1, c1, y, hgt = 0.55, l2, c2, x = 0, z = 0) => {
+  const L = labelMat(l1, c1, l2, c2), h = l2 ? hgt * 1.55 : hgt; const s = new THREE.Sprite(L.mat); s.scale.set(h * L.aspect, h, 1); s.position.set(x, y, z); s.renderOrder = 6; p.add(s); return s;
+};
+// ---- weapons (y up, normalised to a target length and centred on the origin)
+const norm = (g, len) => {
+  g.updateMatrixWorld(true); const b = new THREE.Box3().setFromObject(g), s = new THREE.Vector3(), c = new THREE.Vector3(); b.getSize(s); b.getCenter(c);
+  const k = len / Math.max(s.x, s.y, s.z), inner = new THREE.Group(), out = new THREE.Group(); g.position.sub(c); inner.add(g); inner.scale.setScalar(k); out.add(inner); return out;
+};
+const tube = (curve, r, seg = 24) => new THREE.TubeGeometry(curve, seg, r, 8, false);
+const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
+const fan = (g, mat, side, y, sy, len) => mk(g, GEO.cone, mat, side * (len / 2 + 0.03), y, 0, sy, len, 0.03, 0, 0, side > 0 ? PI / 2 : -PI / 2);
+const WB = {
+  club(g, m, it, key) {
+    if (key === 'stick') { mk(g, cg(0.05, 0.03), m.wood, 0, 0, 0, 1, 1.3, 1); mk(g, GEO.sph, m.wood, 0.03, 0.25, 0, 0.05); mk(g, cg(0.032, 0.035), m.lea, 0, -0.45, 0, 1, 0.3, 1); return; }
+    mk(g, cg(0.15, 0.065), m.wood, 0, 0.25, 0, 1, 0.8, 1); mk(g, cg(0.04, 0.045), m.wood, 0, -0.4, 0, 1, 0.55, 1); mk(g, GEO.sph, m.wood, 0, -0.7, 0, 0.065);
+    for (const y of [-0.5, -0.38, -0.26]) mk(g, cg(0.047, 0.047), m.lea, 0, y, 0, 1, 0.05, 1);
+    for (let i = 0; i < 16; i++) { const a = i * 2.4, y = -0.12 + (i / 15) * 0.74, r = 0.065 + 0.085 * ((y + 0.15) / 0.8); spike(g, m.trim, Math.cos(a) * r, y, Math.sin(a) * r, Math.cos(a), 0.2, Math.sin(a), 0.1, 0.018); }
+  },
+  dagger(g, m, it, key) {
+    const L = key === 'shadowfang' ? 0.72 : 0.55;
+    mk(g, GEO.cone4, m.blade, 0, 0.2 + L / 2 - 0.27, 0, 0.065, L, 0.014); mk(g, GEO.box, m.trim, 0, 0.2, 0.0, 0.012, L * 0.75, 0.02).position.y = 0.15 + L * 0.3;
+    mk(g, GEO.box, m.trim, 0, -0.07, 0, 0.24, 0.045, 0.06); mk(g, GEO.sph, m.trim, 0.12, -0.07, 0, 0.035); mk(g, GEO.sph, m.trim, -0.12, -0.07, 0, 0.035);
+    mk(g, cg(0.03, 0.03), m.lea, 0, -0.2, 0, 1, 0.22, 1); for (const y of [-0.13, -0.2, -0.27]) mk(g, cg(0.033, 0.033), m.trim, 0, y, 0, 1, 0.015, 1); mk(g, GEO.sph, m.trim, 0, -0.33, 0, 0.045);
+    if (key === 'shadowfang') { mk(g, GEO.oct, m.glow, 0, -0.07, 0.04, 0.03); for (let i = 0; i < 3; i++) spike(g, m.blade, 0.04, 0.35 + i * 0.12, 0, 1, 0.3, 0, 0.07, 0.015); }
+  },
+  sword(g, m, it, key) {
+    const big = key === 'claymore', sl = key === 'slayer', W = big ? 0.16 : sl ? 0.14 : 0.09, L = big ? 1.2 : sl ? 1.1 : key === 'ironsword' ? 0.95 : 0.85;
+    mk(g, GEO.box, m.blade, 0, L / 2, 0, W, L, 0.022); mk(g, GEO.cone4, m.blade, 0, L + 0.08, 0, W / 2, 0.17, 0.011);
+    mk(g, GEO.box, m.trim, 0, L * 0.5, 0.012, W * 0.22, L * 0.82, 0.008);
+    mk(g, GEO.box, m.trim, 0, 0, 0, W * 3 + 0.14, 0.05, 0.075); for (const s of [-1, 1]) mk(g, GEO.sph, m.trim, s * (W * 1.5 + 0.07), 0, 0, 0.04);
+    mk(g, cg(0.03, 0.033), m.lea, 0, -0.14, 0, 1, 0.24, 1); for (const y of [-0.08, -0.14, -0.2]) mk(g, cg(0.036, 0.036), m.trim, 0, y, 0, 1, 0.012, 1); mk(g, GEO.sph, m.trim, 0, -0.29, 0, 0.05);
+    if (key === 'sword') for (const [y, x, s] of [[0.2, 0.02, 0.05], [0.5, -0.02, 0.06], [0.7, 0.015, 0.04]]) mk(g, GEO.box, MM(0x6a3a1c, { roughness: 1 }), x, y, 0.012, s, s * 1.4, 0.006);
+    if (sl) { mk(g, GEO.box, BM(0xff3020), 0, L * 0.5, 0.016, 0.014, L * 0.7, 0.006); mk(g, GEO.oct, BM(0xff3020), 0, 0.0, 0.05, 0.03); }
+    if (big) mk(g, GEO.box, m.trim, 0, 0.18, 0, W + 0.03, 0.05, 0.03);
+  },
+  bow(g, m, it, key) {
+    const lg = key === 'longbow', H = lg ? 0.95 : 0.7, b = lg ? 0.3 : 0.27;
+    mk(g, tube(new THREE.QuadraticBezierCurve3(V3(0, -H, 0), V3(0, 0, 2 * b), V3(0, H, 0)), 0.024), m.wood);
+    mk(g, cg(0.006, 0.006, 6), MM(0xe8dcc0, { roughness: 0.6 }), 0, 0, 0, 1, 2 * H, 1);
+    mk(g, cg(0.036, 0.036), m.lea, 0, 0, b, 1, 0.26, 1, 0, 0, 0).rotation.x = 0; for (const s of [-1, 1]) mk(g, GEO.sph, m.trim, 0, s * H, 0, 0.03);
+    mk(g, cg(0.007, 0.007, 6), m.wood, 0, 0.0, b * 0.5, 1, 2 * H * 0.55, 1, PI / 2, 0, 0).position.set(0, 0, 0.25); mk(g, GEO.cone, m.blade, 0, 0, 0.25 + H * 0.55, 0.02, 0.07, 0.01, PI / 2, 0, 0);
+    if (m.n >= 2) mk(g, GEO.oct, m.glow, 0, 0.18, b + 0.03, 0.025);
+  },
+  axe(g, m, it, key) {
+    const hand = key === 'handaxe', exe = key === 'executioner', hl = hand ? 0.9 : exe ? 1.5 : 1.3, hy = hl / 2 - 0.2;
+    mk(g, cg(0.032, 0.04), m.wood, 0, 0, 0, 1, hl, 1); mk(g, GEO.sph, m.trim, 0, -hl / 2, 0, 0.045);
+    mk(g, GEO.box, m.trim, 0, hy, 0, 0.13, 0.36, 0.1); spike(g, m.trim, 0, hy + 0.18, 0, 0, 1, 0, 0.2, 0.04);
+    for (const dy of [-0.14, 0.14]) mk(g, cg(0.04, 0.04), m.lea, 0, hy + dy - (dy > 0 ? 0.3 : 0.12), 0, 1, 0.1, 1);
+    if (hand) fan(g, m.blade, 1, hy, 0.17, 0.3); else if (exe) { fan(g, m.blade, 1, hy, 0.42, 0.55); spike(g, m.trim, -0.06, hy, 0, -1, 0, 0, 0.2, 0.05); mk(g, GEO.sph, m.glow, 0.25, hy, 0.04, 0.03); } else { fan(g, m.blade, 1, hy, 0.25, 0.36); fan(g, m.blade, -1, hy, 0.25, 0.36); }
+    if (m.n >= 3) mk(g, GEO.oct, m.glow, 0, hy, 0.06, 0.03);
+  },
+  spear(g, m, it, key) {
+    const wy = key === 'wyrmspear';
+    mk(g, cg(0.025, 0.03), m.wood, 0, 0, 0, 1, 1.7, 1); mk(g, GEO.cone4, m.blade, 0, 1.02, 0, wy ? 0.1 : 0.07, wy ? 0.55 : 0.42, 0.02); mk(g, cg(0.04, 0.03), m.trim, 0, 0.8, 0, 1, 0.14, 1);
+    mk(g, cg(0.032, 0.032), m.trim, 0, -0.85, 0, 1, 0.1, 1); spike(g, m.trim, 0, -0.9, 0, 0, -1, 0, 0.12, 0.03);
+    spike(g, MM(0xaa2020, { roughness: 1, side: THREE.DoubleSide }), 0.02, 0.76, 0, 0, -1, 0, 0.22, 0.05);
+    if (wy) for (const s of [-1, 1]) { spike(g, m.blade, s * 0.04, 0.84, 0, s * 1, 0.7, 0, 0.26, 0.03); spike(g, m.blade, s * 0.04, 0.72, 0, s * 1, -0.2, 0, 0.18, 0.025); }
+  },
+  mace(g, m, it) {
+    mk(g, cg(0.03, 0.037), m.wood, 0, 0, 0, 1, 1.0, 1); mk(g, GEO.sph, m.trim, 0, 0.62, 0, 0.16); mk(g, cg(0.09, 0.07), m.trim, 0, 0.47, 0, 1, 0.08, 1);
+    for (const [x, y, z] of fib(16)) spike(g, m.trim, x * 0.15, 0.62 + y * 0.15, z * 0.15, x, y, z, 0.12, 0.03);
+    mk(g, GEO.sph, m.trim, 0, -0.5, 0, 0.045); for (const y of [-0.3, -0.2, -0.1]) mk(g, cg(0.036, 0.036), m.lea, 0, y, 0, 1, 0.03, 1);
+  },
+  crossbow(g, m, it) {
+    mk(g, GEO.box, m.wood, 0, 0, 0, 0.1, 1.0, 0.075); mk(g, GEO.box, m.wood, 0, -0.5, 0, 0.14, 0.14, 0.09); mk(g, tube(new THREE.QuadraticBezierCurve3(V3(-0.46, 0.2, 0), V3(0, 0.55, 0), V3(0.46, 0.2, 0)), 0.025), m.trim);
+    for (const s of [-1, 1]) mk(g, cg(0.006, 0.006, 6), MM(0xe8dcc0), s * 0.23, 0.12, 0, 1, 0.5, 1, 0, 0, -s * 0.9); mk(g, GEO.tor, m.trim, 0, 0.48, 0, 0.07, 0.07, 0.7, PI / 2, 0, 0);
+    mk(g, cg(0.012, 0.012, 6), m.wood, 0, 0.3, 0.055, 1, 0.65, 1); mk(g, GEO.cone, m.blade, 0, 0.66, 0.055, 0.025, 0.1, 0.012); mk(g, GEO.box, m.trim, 0, -0.2, -0.07, 0.03, 0.1, 0.02);
+    if (m.n >= 2) mk(g, GEO.oct, m.glow, 0, 0.1, 0.045, 0.025);
+  },
+  flail(g, m, it) {
+    mk(g, cg(0.03, 0.037), m.wood, 0, -0.1, 0, 1, 0.8, 1); mk(g, GEO.sph, m.trim, 0, -0.52, 0, 0.045); mk(g, GEO.tor, m.trim, 0, 0.3, 0, 0.05, 0.05, 0.05, PI / 2);
+    for (let i = 0; i < 7; i++) { const t = i / 6, x = 0.02 + 0.38 * t, y = 0.34 + 0.34 * t - 0.12 * t * t; const l = mk(g, GEO.tor, m.trim, x, y, 0, 0.04, 0.04, 0.04, 0, i % 2 ? PI / 2 : 0, 0.8); }
+    mk(g, GEO.sph, m.trim, 0.52, 0.62, 0, 0.14); for (const [x, y, z] of fib(14)) spike(g, m.trim, 0.52 + x * 0.14, 0.62 + y * 0.14, z * 0.14, x, y, z, 0.1, 0.028);
+  },
+  halberd(g, m, it) {
+    mk(g, cg(0.03, 0.036), m.wood, 0, 0, 0, 1, 2.0, 1); mk(g, GEO.cone4, m.blade, 0, 1.2, 0, 0.05, 0.4, 0.02); mk(g, GEO.box, m.trim, 0, 0.98, 0, 0.1, 0.16, 0.08);
+    fan(g, m.blade, 1, 0.84, 0.3, 0.38); spike(g, m.trim, -0.04, 0.82, 0, -1, -0.5, 0, 0.3, 0.035); mk(g, cg(0.042, 0.042), m.trim, 0, 0.72, 0, 1, 0.08, 1); mk(g, cg(0.04, 0.04), m.lea, 0, 0.0, 0, 1, 0.3, 1); spike(g, m.trim, 0, -1.0, 0, 0, -1, 0, 0.12, 0.03);
+    spike(g, MM(0xaa2020, { roughness: 1, side: THREE.DoubleSide }), 0.02, 0.68, 0, 0, -1, 0, 0.3, 0.05);
+  },
+  hammer(g, m, it) {
+    mk(g, cg(0.036, 0.042), m.wood, 0, 0, 0, 1, 1.4, 1); mk(g, GEO.box, m.trim, 0, 0.62, 0, 0.5, 0.3, 0.26); for (const s of [-1, 1]) { mk(g, cg(0.17, 0.17), m.blade, s * 0.27, 0.62, 0, 1, 0.08, 1, 0, 0, PI / 2); mk(g, GEO.box, m.blade, s * 0.1, 0.62, 0, 0.04, 0.34, 0.3); }
+    mk(g, GEO.sph, m.trim, 0, -0.7, 0, 0.05); for (const y of [-0.5, -0.4, -0.3, -0.2]) mk(g, cg(0.044, 0.044), m.lea, 0, y, 0, 1, 0.03, 1);
+    if (m.n >= 2) for (const s of [-1, 1]) mk(g, GEO.box, m.glow, 0, 0.62, s * 0.131, 0.28, 0.1, 0.006);
+  },
+  staff(g, m, it) {
+    mk(g, cg(0.03, 0.05), m.wood, 0, 0, 0, 1, 1.6, 1); for (const [y, a, s] of [[-0.4, 0.5, 0.05], [0.1, 2, 0.06], [0.45, 3.5, 0.05]]) mk(g, GEO.sph, m.wood, Math.cos(a) * 0.035, y, Math.sin(a) * 0.035, s, s * 1.3, s);
+    for (let i = 0; i < 3; i++) mk(g, GEO.tor, m.wood, 0, 0.92, 0, 0.13, 0.13, 0.13, 0.9 * i, i * 1.0, 0.4).scale.z = 0.8;
+    mk(g, GEO.sph, MM(0x7fd0ff, { emissive: 0x2a8cff, emissiveIntensity: 1.2, roughness: 0.1 }), 0, 0.92, 0, 0.085);
+  },
+  scepter(g, m, it) {
+    const gold = MM(0xf4c24d, { metalness: 1, roughness: 0.22, envMapIntensity: 1.6, emissive: 0x6a3d00, emissiveIntensity: 0.5 });
+    mk(g, cg(0.025, 0.03), gold, 0, 0, 0, 1, 1.0, 1); for (const y of [-0.3, 0.1, 0.35]) mk(g, GEO.tor, gold, 0, y, 0, 0.06, 0.06, 0.06, PI / 2);
+    mk(g, GEO.sph, gold, 0, 0.55, 0, 0.1); mk(g, GEO.oct, MM(0xff2a4a, { emissive: 0xff1030, emissiveIntensity: 1.1, roughness: 0.1 }), 0, 0.72, 0, 0.07, 0.11, 0.07);
+    for (let i = 0; i < 6; i++) { const a = i / 6 * PI * 2; spike(g, gold, Math.cos(a) * 0.08, 0.57, Math.sin(a) * 0.08, Math.cos(a), 1.2, Math.sin(a), 0.2, 0.025); }
+    spike(g, gold, 0, -0.5, 0, 0, -1, 0, 0.14, 0.035); mk(g, GEO.sph, gold, 0, -0.5, 0, 0.045);
+  },
+};
+MY.WB = WB;
+const wcache = {};
+MY.weaponProto = key => {
+  if (wcache[key]) return wcache[key];
+  const it = GKITEMS.ITEMS[key] || GKITEMS.ITEMS['w:sword'], k = key.slice(2), m = tierMats(it.tier);
+  let out = null;
+  const ck = GK.chestKit && GK.chestKit.weaponModel;
+  if (ck) { try { const w = ck(key); if (w) out = norm(w.clone ? w.clone(true) : w, 1.55); } catch (e) { out = null; } }
+  if (!out) { const g = new THREE.Group(); (WB[it.family] || WB.sword)(g, m, it, k); const len = { dagger: 1.1, sword: k === 'claymore' ? 2.0 : 1.7, club: 1.5, bow: k === 'longbow' ? 2.0 : 1.6, axe: k === 'handaxe' ? 1.3 : 1.7, spear: 2.1, mace: 1.6, crossbow: 1.5, flail: 1.5, halberd: 2.3, hammer: 1.7, staff: 2.0, scepter: 1.6 }[it.family] || 1.6; out = norm(g, len); }
+  return wcache[key] = out;
+};
+} // ---- end part 1
 // MYSTERY-END
 // MAP-BEGIN (wall maps in the spawn rooms: owned by the map agent)
 {
@@ -1912,7 +2200,13 @@ function buildGoblin(type) {
 
 // ---------- inventory rules (same as the server: also used by the offline simulation and for optimistic UI) ----------
 const itemsData = () => window.GKITEMS || { ITEMS: {}, START: [], KNOWLEDGE: [], SLOTS: { backpack: 9, quick: 3 } };
-const itemName = k => { const it = itemsData().ITEMS[k]; return it ? it.name : String(k); };   // keys -> names (plain names from an older server pass through)
+const infoOf = k => { const G = window.GKITEMS; return k == null ? null : (G && G.info && G.info(k)) || (G && G.ITEMS[k]) || null; };   // also knows goblin brains
+const itemName = k => { const it = infoOf(k); return it ? it.name : String(k); };
+const TIER_COL = { common: '#9aa0a8', uncommon: '#4fc35b', rare: '#4a9bff', epic: '#b06bff', legendary: '#ffb02e', class: '#ffd75e' };
+const tierN = k => { const it = infoOf(k); return it && it.tierN ? it.tierN : 0; };
+const tierTxt = k => tierN(k) ? 'Tier ' + tierN(k) : '';
+const statTxt = k => { const it = infoOf(k); if (!it) return ''; return [tierTxt(k), it.type === 'weapon' ? 'Attack ' + it.attack : it.type === 'armor' ? 'Health ' + it.health : it.gain != null ? '+' + fmtN(it.gain) + ' knowledge' : ''].filter(Boolean).join(' · '); };
+const fmtN = n => Number.isInteger(+n) ? String(n) : String(+(+n).toFixed(1));   // keys -> names (plain names from an older server pass through)
 const emptyInv = () => ({ backpack: Array(9).fill(null), quick: Array(3).fill(null), weapon: null, armor: null });
 function startInv(goblin) { const inv = emptyInv(), s = itemsData().START[goblin]; if (s) { inv.weapon = s.weapon || null; inv.armor = s.armor || null; } return inv; }
 const SLOT_RE = /^(b[0-8]|q[0-2]|weapon|armor)$/;
@@ -1920,7 +2214,7 @@ function invGet(inv, id) { return id === 'weapon' || id === 'armor' ? inv[id] : 
 function invSet(inv, id, v) { if (id === 'weapon' || id === 'armor') inv[id] = v; else (id[0] === 'b' ? inv.backpack : inv.quick)[+id.slice(1)] = v; }
 function slotAccepts(id, key) {
   if (key == null) return true;
-  const it = itemsData().ITEMS[key]; if (!it) return false;
+  const it = infoOf(key); if (!it) return false;
   return id === 'weapon' ? it.type === 'weapon' : id === 'armor' ? it.type === 'armor' : true;
 }
 function canMove(inv, from, to) { return SLOT_RE.test(from) && SLOT_RE.test(to) && from !== to && invGet(inv, from) != null && slotAccepts(to, invGet(inv, from)) && slotAccepts(from, invGet(inv, to)); }
@@ -1929,9 +2223,9 @@ function invMove(inv, from, to) {   // swaps when the target is occupied; return
   const a = invGet(inv, from), b = invGet(inv, to); invSet(inv, to, a); invSet(inv, from, b); return true;
 }
 function invDrop(inv, id) { if (typeof id !== 'string' || !SLOT_RE.test(id)) return null; const k = invGet(inv, id); if (k == null) return null; invSet(inv, id, null); return k; }
-function invStats(inv, goblin) {   // attack comes from the weapon, health from the armour, knowledge is innate
-  const I = itemsData().ITEMS, w = I[inv.weapon], a = I[inv.armor], hp = a ? a.health : 0;
-  return { knowledge: (itemsData().KNOWLEDGE || [])[goblin] != null ? itemsData().KNOWLEDGE[goblin] : STATS[goblin].knowledge, attack: w ? w.attack : 0, health: hp, maxHealth: hp };
+function invStats(inv, goblin, know) {   // attack comes from the weapon, health from the armour, knowledge is innate (+ brains eaten)
+  const w = infoOf(inv.weapon), a = infoOf(inv.armor), hp = a ? a.health : 0;
+  return { knowledge: know != null ? know : (itemsData().KNOWLEDGE || [])[goblin] != null ? itemsData().KNOWLEDGE[goblin] : STATS[goblin].knowledge, attack: w ? w.attack : 0, health: hp, maxHealth: hp };
 }
 function invAll(inv) { return [inv.weapon, inv.armor, ...inv.backpack, ...inv.quick].filter(k => k != null); }
 
@@ -1951,14 +2245,19 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     const box = [0, 1, 2, 3, 5, 6, 7, 8][Math.floor(Math.random() * 8)], [cx, cz] = rc(box);
     const x = cx + (Math.random() - 0.5) * 6, z = cz + (Math.random() - 0.5) * 6;
     const goblin = !bot && opts && opts.goblin != null ? opts.goblin | 0 : roll();
-    return { id: nid++, goblin, box, x, z, yaw: Math.atan2(-(cx - x), -(cz - z)), bot, tx: cx, tz: cz, wait: Math.random() * 2, seq, inv: startInv(goblin), gold: itemsData().START_GOLD != null ? itemsData().START_GOLD : 100, wins: bot ? Math.max(0, myWins + Math.floor(Math.random() * 3) - 1) : myWins };
+    return { id: nid++, goblin, box, x, z, yaw: Math.atan2(-(cx - x), -(cz - z)), bot, tx: cx, tz: cz, wait: Math.random() * 2, seq, inv: startInv(goblin), know: (itemsData().KNOWLEDGE || [])[goblin] != null ? itemsData().KNOWLEDGE[goblin] : STATS[goblin].knowledge, parts: Object.fromEntries((itemsData().PARTS || []).map(p => [p.key, 0])), gold: itemsData().START_GOLD != null ? itemsData().START_GOLD : 100, wins: bot ? Math.max(0, myWins + Math.floor(Math.random() * 3) - 1) : myWins };
   };
   const clone = v => JSON.parse(JSON.stringify(v));
   let layoutSim = null, shopsSim = null;
   const sendInv = () => net.onmessage && meP && net.onmessage({ inv: clone(meP.inv) });
   const sendGold = () => net.onmessage && meP && net.onmessage({ gold: meP.gold });
+  const sendParts = () => net.onmessage && meP && net.onmessage({ parts: clone(meP.parts) });
+  let dropsSim = [], nextDrop = 1, mysterySim = null;
+  const sendDrops = () => net.onmessage && net.onmessage({ drops: clone(dropsSim) });
+  const roomIdAt = () => CHEST_ROOMS.findIndex(C => Math.abs(meP.x - C.cx) <= 4 && Math.abs(meP.z - C.cz) <= 4);
+  const eatSim = key => { const gain = itemsData().brainGain(key); meP.know = Math.round((meP.know + gain) * 100) / 100; net.onmessage && net.onmessage({ ate: { gain, knowledge: meP.know } }); };
   const sendMatch = () => { const w = list.map(p => p.wins); net.onmessage && net.onmessage({ match: { size: 5, minWins: Math.min(...w), maxWins: Math.max(...w) } }); };
-  const entry = ({ id, goblin, box, x, z, yaw, seq, inv, wins }) => { const s = invStats(inv, goblin), I = itemsData().ITEMS; return { id, goblin, box, x, z, yaw, seq, stats: s, gear: { weapon: inv.weapon && I[inv.weapon] ? I[inv.weapon].name : null, armor: inv.armor && I[inv.armor] ? I[inv.armor].name : null }, wins }; };
+  const entry = ({ id, goblin, box, x, z, yaw, seq, inv, wins, know }) => { const s = invStats(inv, goblin, know); return { id, goblin, box, x, z, yaw, seq, stats: s, gear: { weapon: inv.weapon && infoOf(inv.weapon) ? infoOf(inv.weapon).name : null, armor: inv.armor && infoOf(inv.armor) ? infoOf(inv.armor).name : null }, wins }; };
   const emit = () => net.onmessage && net.onmessage({ players: list.map(entry) });
   // same round machine as server.js, run locally: 30 s first round, 45 s after; bots pick a door in their room each round
   const rs = { n: 1, dur: 30000, endsAt: performance.now() + 30000, sel: {}, open: [], fizzled: [] };
@@ -1970,15 +2269,42 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     onmessage: null,
     send(m) {
       if (Number.isInteger(m.sel) && meP) { const k = roomKeyAt(meP.x, meP.z); if ((ROOM_DOORS[k] || []).includes(m.sel) && rs.sel[k] !== m.sel) { rs.sel[k] = m.sel; emitRound(); } }
-      if (m.m && meP) { [meP.x, meP.z, meP.yaw] = m.m; meP.box = roomAt(meP.x, meP.z); } if (m.reroll) { const o = list.indexOf(meP); seq++; meP = mk(false); meP.id = list[o].id; list[o] = meP; sendInv(); sendGold(); emit(); }
+      if (m.m && meP) { [meP.x, meP.z, meP.yaw] = m.m; meP.box = roomAt(meP.x, meP.z); } if (m.reroll) { const o = list.indexOf(meP); seq++; meP = mk(false); meP.id = list[o].id; list[o] = meP; sendInv(); sendGold(); sendParts(); emit(); }
       if (Array.isArray(m.mv) && meP) { invMove(meP.inv, m.mv[0], m.mv[1]); sendInv(); emit(); }   // same rules as the server; always answer with the real inventory
       if (typeof m.drop === 'string' && meP) { invDrop(meP.inv, m.drop); sendInv(); emit(); }
+      if (typeof m.eat === 'string' && meP) {
+        const k = /^(b[0-8]|q[0-2])$/.test(m.eat) ? invGet(meP.inv, m.eat) : null;
+        if (itemsData().isBrain && itemsData().isBrain(k)) { invSet(meP.inv, m.eat, null); eatSim(k); }
+        sendInv(); emit();
+      }
+      if (typeof m.recycle === 'string' && meP) {
+        const id = roomIdAt(), L = id >= 0 && layoutSim ? layoutSim[id] : null, my = id >= 0 && mysterySim ? mysterySim[id] : null;
+        const has = L === 'merchant' || (L === 'mystery' && my && my.kind === 'stations' && my.stations.includes('recycler'));
+        const key = /^(b[0-8]|q[0-2])$/.test(m.recycle) ? invGet(meP.inv, m.recycle) : null, y = key && itemsData().recycleYield(key);
+        if (!has) net.onmessage && net.onmessage({ recycleFail: 'room' });
+        else if (!y) net.onmessage && net.onmessage({ recycleFail: 'item' });
+        else { invSet(meP.inv, m.recycle, null); for (const k in y) meP.parts[k] = (meP.parts[k] || 0) + y[k]; sendInv(); sendParts(); net.onmessage && net.onmessage({ recycled: { key, parts: y } }); emit(); }
+      }
+      if (Array.isArray(m.loot) && meP) {   // [dropId, index, 'take'|'eat', expectedKey]
+        const [did, idx, mode, exp] = m.loot, di = dropsSim.findIndex(x => x.id === did), dr = dropsSim[di], key = dr && dr.items[idx];
+        let why = !dr || key == null || (exp !== undefined && exp !== key) ? 'item' : Math.hypot(meP.x - dr.x, meP.z - dr.z) > 3 ? 'range' : null;
+        if (!why && mode === 'eat' && !(itemsData().isBrain && itemsData().isBrain(key))) why = 'item';
+        if (!why && mode !== 'eat' && meP.inv.backpack.indexOf(null) < 0) why = 'space';
+        if (why) { net.onmessage && net.onmessage({ lootFail: why }); sendDrops(); }
+        else { dr.items.splice(idx, 1); if (!dr.items.length) dropsSim.splice(di, 1); if (mode === 'eat') eatSim(key); else meP.inv.backpack[meP.inv.backpack.indexOf(null)] = key; sendInv(); sendDrops(); emit(); }
+      }
       if (Array.isArray(m.buy) && meP) {   // same checks and replies as the server
         const [rid, idx] = m.buy, C = CHEST_ROOMS[rid], it = shopsSim && shopsSim[rid] && shopsSim[rid][idx];
         const why = !C || !it || !layoutSim || layoutSim[rid] !== 'merchant' || Math.abs(meP.x - C.cx) > 4 || Math.abs(meP.z - C.cz) > 4 ? 'room' : it.sold ? 'sold' : meP.gold < it.price ? 'gold' : meP.inv.backpack.indexOf(null) < 0 ? 'space' : null;
         if (why) net.onmessage && net.onmessage({ buyFail: why });
         else { meP.inv.backpack[meP.inv.backpack.indexOf(null)] = it.key; meP.gold -= it.price; it.sold = true; sendInv(); sendGold(); net.onmessage && net.onmessage({ shops: clone(shopsSim) }); emit(); }
       } },
+    demoDie() {   // demo key K: everything (plus the goblin brain) drops where you stand; the pile stays in the match
+      if (!meP) return null;
+      const G = itemsData(), items = invAll(meP.inv), brain = G.brainKey ? G.brainKey(meP.know) : null;
+      dropsSim.push({ id: nextDrop++, x: +meP.x.toFixed(2), z: +meP.z.toFixed(2), items: brain ? [...items, brain] : items.slice() });
+      sendDrops(); return { items, brain };
+    },
     demoGive() {   // demo key G: a random item into the first free backpack slot
       if (!meP) return null;
       const keys = Object.keys(itemsData().ITEMS), i = meP.inv.backpack.indexOf(null); if (i < 0 || !keys.length) return null;
@@ -1986,7 +2312,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     },
   };
   meP = mk(false); list = [meP, mk(true), mk(true), mk(true), mk(true)];
-  setTimeout(() => { net.onmessage && net.onmessage({ you: meP.id, ...(() => { const layout = GKITEMS.randomLayout(); layoutSim = layout; shopsSim = layout.map(t => t === 'merchant' ? GKITEMS.randomShop() : null); return { layout, mystery: layout.map(t => t === 'mystery' ? GKITEMS.randomMystery() : null), shops: clone(shopsSim) }; })(), chests: Array.from({ length: CHEST_ROOMS.length }, () => Math.floor(Math.random() * WEAPONS.length)), chestKeys: Array.from({ length: CHEST_ROOMS.length }, () => GKITEMS.randomWeaponKey()), ...rmsg() }); sendInv(); sendGold(); sendMatch(); emit(); }, 50);
+  setTimeout(() => { net.onmessage && net.onmessage({ you: meP.id, ...(() => { const layout = GKITEMS.randomLayout(); layoutSim = layout; mysterySim = layout.map(t => t === 'mystery' ? GKITEMS.randomMystery() : null); shopsSim = layout.map(t => t === 'merchant' ? GKITEMS.randomShop() : null); return { layout, mystery: mysterySim, shops: clone(shopsSim) }; })(), chests: Array.from({ length: CHEST_ROOMS.length }, () => Math.floor(Math.random() * WEAPONS.length)), chestKeys: Array.from({ length: CHEST_ROOMS.length }, () => GKITEMS.randomWeaponKey()), ...rmsg() }); sendInv(); sendGold(); sendParts(); sendMatch(); emit(); }, 50);
   botPlan();
   setInterval(() => {
     const now = performance.now();
