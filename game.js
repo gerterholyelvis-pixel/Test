@@ -152,7 +152,7 @@ const vaultM = M(0x70787f, { map: steelTex, metalness: 0.9, roughness: 0.38, env
 const darkSteel = M(0x2a2e35, { metalness: 0.8, roughness: 0.45, envMapIntensity: 0.9 });
 const hazardM = M(0xffffff, { map: hazardTex, roughness: 0.6 });
 const glassM = new THREE.MeshStandardMaterial({ color: 0x07131c, roughness: 0.05, metalness: 0.2, emissive: 0x0b3a55, emissiveIntensity: 0.8 });
-const panelM = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xfff6e6).multiplyScalar(6), toneMapped: false });   // HDR so the bloom pass picks the ceiling panels up
+const panelM = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xfff6e6).multiplyScalar(2.4), toneMapped: false });   // HDR so the bloom pass picks the ceiling panels up
 const aoM = new THREE.MeshBasicMaterial({ map: aoTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, side: THREE.DoubleSide, fog: false });
 const cornerM = new THREE.MeshBasicMaterial({ map: cornerTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, side: THREE.DoubleSide });
 
@@ -670,7 +670,7 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
   const rnd = (() => { let s = 1234567; return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; })();
   const addGlow = (parent, color, size, op, x, y, z) => {
     const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color, transparent: true, opacity: op, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
-    s.scale.set(size, size, 1); s.position.set(x, y, z); parent.add(s); return s;
+    s.material.userData.own = true; s.scale.set(size, size, 1); s.position.set(x, y, z); parent.add(s); return s;
   };
   // ----- textures and materials -----
   const woodTex = canvasTex(256, 256, (g, w, h) => {
@@ -836,9 +836,185 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
   const labelMats = [];
   const getLabel = i => labelMats[i] || (labelMats[i] = new THREE.SpriteMaterial({ map: textTex(WEAPONS[i], '#' + RARITY[i].toString(16).padStart(6, '0'), 'rgba(12,8,4,.55)', 512, 96, 'bold 54px system-ui'), transparent: true, depthWrite: false, fog: false }));
 
-  // ----- chest rooms -----
+  // ----- more weapon families (club, crossbow, flail, halberd, hammer, staff, scepter) + tier styling -----
+  const rodBetween = (p, a, b, r, mat) => { const d = new THREE.Vector3().subVectors(b, a), m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, d.length(), 6), mat); m.position.copy(a).addScaledVector(d, 0.5); m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize()); p.add(m); return m; };
+  const crystalM = new THREE.MeshStandardMaterial({ color: 0x66aaff, emissive: 0x3377ff, emissiveIntensity: 1.6, roughness: 0.2, metalness: 0.1 });
+  const spikeRing = (p, cx, cy, n, r, len, mat) => { for (let i = 0; i < n; i++) { const y = 1 - (i + 0.5) * 2 / n, rr = Math.sqrt(1 - y * y), a = i * 2.39996, d = new THREE.Vector3(Math.cos(a) * rr, y, Math.sin(a) * rr); const c = cone(p, 0.03, len, mat, 0, 6); c.position.set(cx + d.x * r, cy + d.y * r, d.z * r); c.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d); } };
+  builders.push(
+    p => { // 6 club
+      cy2(p, 0.035, 0.11, 1.0, hwoodM, 0, 12); cy2(p, 0.04, 0.04, 0.28, leatherM, -0.34); wrap(p, -0.46, -0.22, 0.041, 5); ball(p, 0.05, goldM, -0.52);
+      for (let i = 0; i < 9; i++) { const a = i * 2.4, d = new THREE.Vector3(Math.cos(a), 0, Math.sin(a)), c = cone(p, 0.022, 0.1, steel2, 0, 6); c.position.set(d.x * 0.1, 0.18 + (i % 3) * 0.13, d.z * 0.1); c.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d); }
+    },
+    p => { // 7 crossbow
+      bx(p, 0.07, 1.0, 0.1, 0, 0, 0, hwoodM, 1); bx(p, 0.1, 0.3, 0.12, 0, -0.45, 0, hwoodM, 1);
+      for (const s of [-1, 1]) { const l = bx(p, 0.5, 0.045, 0.05, s * 0.24, 0.32, 0, steel2, 1); l.rotation.z = s * 0.25; rodBetween(p, new THREE.Vector3(s * 0.47, 0.38, 0), new THREE.Vector3(0, 0.02, 0), 0.006, leatherM); }
+      cy2(p, 0.012, 0.012, 0.55, hwoodM, 0.3, 6).position.z = 0.07; cone(p, 0.03, 0.12, steel2, 0.62, 4).position.z = 0.07; bx(p, 0.1, 0.02, 0.1, 0, 0.58, 0, goldM, 1);
+      const st = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.012, 6, 14), ironM); st.position.y = 0.5; st.rotation.y = Math.PI / 2; p.add(st);
+    },
+    p => { // 8 flail
+      cy2(p, 0.03, 0.03, 0.7, hwoodM, -0.2, 10); cy2(p, 0.036, 0.036, 0.26, leatherM, -0.4); ball(p, 0.045, goldM, -0.58); cy2(p, 0.05, 0.05, 0.04, goldM, 0.16);
+      for (let i = 0; i < 5; i++) { const l = new THREE.Mesh(new THREE.TorusGeometry(0.035, 0.01, 6, 10), ironM); l.position.set(0.03 + i * 0.07, 0.24 + i * 0.07 - i * i * 0.006, 0); l.rotation.y = (i & 1) * Math.PI / 2; p.add(l); }
+      ball(p, 0.13, spikeM, 0).position.set(0.42, 0.5, 0); spikeRing(p, 0.42, 0.5, 12, 0.14, 0.14, spikeM);
+    },
+    p => { // 9 halberd
+      cy2(p, 0.025, 0.025, 1.9, hwoodM, 0, 10); cone(p, 0.045, 0.34, steel2, 1.12, 4); cy2(p, 0.04, 0.04, 0.05, goldM, 0.94); cy2(p, 0.04, 0.04, 0.05, goldM, 0.6); cy2(p, 0.036, 0.036, 0.3, leatherM, -0.2); cy2(p, 0.02, 0.02, 0.06, steel2, -0.97, 6);
+      const s = new THREE.Shape(); s.moveTo(0, 0.56); s.lineTo(0.4, 0.46); s.quadraticCurveTo(0.5, 0.22, 0.36, 0.0); s.lineTo(0, 0.14); s.closePath();
+      const g = new THREE.ExtrudeGeometry(s, { depth: 0.03, bevelEnabled: true, bevelSize: 0.012, bevelThickness: 0.012, bevelSegments: 1 }); g.translate(0.02, 0, -0.015);
+      const h = new THREE.Mesh(g, bladeM); h.position.y = 0.42; p.add(h); const hk = cone(p, 0.03, 0.24, steel2, 0.7, 5); hk.rotation.z = Math.PI / 2; hk.position.x = -0.12;
+    },
+    p => { // 10 warhammer
+      cy2(p, 0.03, 0.03, 1.3, hwoodM, 0, 10); cy2(p, 0.036, 0.036, 0.3, leatherM, -0.3); wrap(p, -0.42, -0.18, 0.037, 5); ball(p, 0.05, goldM, -0.66);
+      bx(p, 0.5, 0.22, 0.22, 0, 0.58, 0, ironM, 1); for (const s of [-1, 1]) bx(p, 0.04, 0.26, 0.26, s * 0.2, 0.58, 0, goldM, 1);
+      const sp = cone(p, 0.05, 0.22, spikeM, 0.58, 4); sp.rotation.z = Math.PI / 2; sp.position.x = -0.35; cone(p, 0.05, 0.2, spikeM, 0.78, 4);
+    },
+    p => { // 11 staff
+      cy2(p, 0.04, 0.03, 0.7, hwoodM, -0.55, 8).position.x = 0.01; cy2(p, 0.03, 0.04, 0.6, hwoodM, 0.05, 8).position.x = -0.015; cy2(p, 0.04, 0.03, 0.4, hwoodM, 0.55, 8);
+      for (const [y, a] of [[-0.3, 0.8], [0.2, 3], [0.45, 5]]) { const k = ball(p, 0.045, hwoodM, y); k.position.x = Math.cos(a) * 0.035; k.position.z = Math.sin(a) * 0.035; }
+      for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2, c = cone(p, 0.028, 0.34, hwoodM, 0.88, 6); c.position.set(Math.cos(a) * 0.09, 0.88, Math.sin(a) * 0.09); c.rotation.set(Math.sin(a) * 0.25, 0, -Math.cos(a) * 0.25); }
+      ball(p, 0.1, crystalM, 0.92); cy2(p, 0.03, 0.03, 0.2, leatherM, -0.2); wrap(p, -0.28, -0.12, 0.034, 4);
+    },
+    p => { // 12 scepter
+      cy2(p, 0.03, 0.03, 1.0, goldM, 0, 12); for (const y of [-0.25, 0.1, 0.38]) { const r = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.016, 8, 16), goldM); r.rotation.x = Math.PI / 2; r.position.y = y; p.add(r); }
+      ball(p, 0.06, goldM, -0.52); ball(p, 0.07, goldM, 0.5);
+      for (let i = 0; i < 5; i++) { const a = i * 1.2566, c = cone(p, 0.03, 0.2, goldM, 0.66, 5); c.position.set(Math.cos(a) * 0.09, 0.66, Math.sin(a) * 0.09); c.rotation.set(Math.sin(a) * 0.2, 0, -Math.cos(a) * 0.2); }
+      ball(p, 0.08, gemMs[0], 0.64);
+    },
+  );
+  WSCALE.push(1.3, 1.25, 1.3, 0.75, 1.0, 0.8, 1.3);
+  const FAM = { sword: 0, axe: 1, spear: 2, mace: 3, bow: 4, dagger: 5, club: 6, crossbow: 7, flail: 8, halberd: 9, hammer: 10, staff: 11, scepter: 12 };
+  const LEGACY_KEYS = ['w:sword', 'w:axe', 'w:spear', 'w:mace', 'w:bow', 'w:dagger'];
+  const TIERS = {
+    common: { col: 0xcfd8e0, size: 1, aura: 0 }, class: { col: 0xff9a3c, size: 1.05, aura: 0.25 },
+    uncommon: { col: 0x6dff8a, size: 1.04, aura: 0.08, tint: [0xb4ffc4, 0x0c4a1a] }, rare: { col: 0x6aa8ff, size: 1.08, aura: 0.3, tint: [0x9cc4ff, 0x103a9a] },
+    epic: { col: 0xc08bff, size: 1.12, aura: 0.55, tint: [0xdcb6ff, 0x4a1a8a] }, legendary: { col: 0xffc040, size: 1.18, aura: 0.85, tint: [0xffe8a0, 0x8a5a00], sparks: 6 },
+  };
+  const itemOf = key => (window.GKITEMS && window.GKITEMS.ITEMS && window.GKITEMS.ITEMS[key]) || null;
+  const hex6 = c => '#' + c.toString(16).padStart(6, '0');
+  const tintCache = new Map();
+  const tinted = (m, tier) => { const t = TIERS[tier]; if (!t || !t.tint) return m; const k = m.uuid + tier; let c = tintCache.get(k); if (!c) { c = m.clone(); c.color.multiply(new THREE.Color(t.tint[0])); c.emissive = new THREE.Color(t.tint[1]); c.emissiveIntensity = tier === 'uncommon' ? 0.35 : 0.8; tintCache.set(k, c); } return c; };
+  const auraMats = {};
+  const auraMat = tier => auraMats[tier] || (auraMats[tier] = new THREE.SpriteMaterial({ map: glowTex, color: TIERS[tier].col, transparent: true, opacity: 0.18 + 0.3 * TIERS[tier].aura, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+  const sparkMat = new THREE.SpriteMaterial({ map: glowTex, color: 0xfff2b0, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
+  const tierProtos = new Map(), keepGeo = new Set();
+  chestProto.traverse(o => o.geometry && keepGeo.add(o.geometry));
+  function tierProto(fam, tier) {
+    const k = fam + '|' + tier; let w = tierProtos.get(k); if (w) return w;
+    const t = TIERS[tier] || TIERS.common; w = getWeapon(fam).clone(); w.traverse(o => { if (o.geometry) keepGeo.add(o.geometry); if (o.isMesh && t.tint) o.material = tinted(o.material, tier); });
+    w.scale.setScalar(t.size);
+    if (t.aura > 0) { const s = new THREE.Sprite(auraMat(tier)); s.scale.setScalar(1.4 + t.aura * 1.4); s.position.y = 0.15; s.renderOrder = 4; w.add(s); }
+    if (t.sparks) for (let i = 0; i < t.sparks; i++) { const s = new THREE.Sprite(sparkMat); s.scale.setScalar(0.1 + (i % 3) * 0.05); const a = i * 1.7; s.position.set(Math.cos(a) * 0.35, -0.5 + i * 0.22, Math.sin(a) * 0.35); w.add(s); }
+    tierProtos.set(k, w); return w;
+  }
+  function armorModel(it) {
+    const tier = it.tier || 'common', t = TIERS[tier] || TIERS.common, fam = it.family;
+    const base = fam === 'cloth' ? 0x9a8a68 : fam === 'leather' ? 0x7a4e2c : fam === 'harness' ? 0x6a3a28 : fam === 'robe' ? 0x3a2a8a : fam === 'royal' ? 0x8a1020 : 0xaab3c0;
+    const metal = fam === 'mail' || fam === 'plate';
+    let mm = M(base, { roughness: metal ? 0.35 : 0.85, metalness: metal ? 0.9 : 0.05, envMapIntensity: metal ? 1.6 : 0.4 }); if (t.tint) mm = tinted(mm, tier);
+    const g = new THREE.Group(), sc = 0.85 * t.size;
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.26, 0.62, 14), mm); g.add(body);
+    for (const s of [-1, 1]) { const sh = ball(g, 0.15, mm, 0.28); sh.position.x = s * 0.34; sh.scale.set(1.1, 0.8, 1); const sl = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.09, 0.3, 10), mm); sl.position.set(s * 0.43, 0.14, 0); sl.rotation.z = s * 0.3; g.add(sl); }
+    const nk = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.04, 8, 14), mm); nk.rotation.x = Math.PI / 2; nk.position.y = 0.31; g.add(nk);
+    const belt = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.07, 14), leatherM); belt.position.y = -0.12; g.add(belt); bx(g, 0.1, 0.09, 0.05, 0, -0.12, 0.28, goldM, 1);
+    if (fam === 'plate') for (let i = 0; i < 3; i++) bx(g, 0.5, 0.025, 0.04, 0, 0.12 - i * 0.14, 0.31, goldM, 1);
+    g.scale.setScalar(sc);
+    const w = new THREE.Group(); w.add(g); if (t.aura > 0) { const s = new THREE.Sprite(auraMat(tier)); s.scale.setScalar(1.3 + t.aura * 1.3); w.add(s); }
+    w.traverse(o => o.geometry && keepGeo.add(o.geometry)); return w;
+  }
+  const armorProtos = new Map();
+  function weaponModel(key) {   // fresh Object3D for any item key ('w:axe', 'a:chain', ...), a family name or a legacy chest index; built along +y, ~1.5 m tall
+    if (typeof key === 'number') key = LEGACY_KEYS[key] || 'w:sword';
+    let it = itemOf(key) || itemOf('w:' + key);
+    if (!it) it = { type: 'weapon', family: FAM[String(key).replace(/^w:/, '')] != null ? String(key).replace(/^w:/, '') : 'sword', tier: 'common' };
+    if (it.type === 'armor') { const k = it.key || key; let a = armorProtos.get(k); if (!a) armorProtos.set(k, a = armorModel(it)); return a.clone(); }
+    const fam = FAM[it.family] != null ? FAM[it.family] : 0;
+    return tierProto(fam, it.tier || 'common').clone();
+  }
+  const labelCache = new Map();
+  const labelFor = key => {   // shared sprite material: 'Battle Axe · 30 dmg' in the tier colour
+    if (typeof key === 'number') key = LEGACY_KEYS[key] || 'w:sword'; let m = labelCache.get(key); if (m) return m;
+    const it = itemOf(key) || { name: String(key), attack: 0, tier: 'common' }, t = TIERS[it.tier] || TIERS.common;
+    m = new THREE.SpriteMaterial({ map: textTex(it.name + (it.attack != null && it.type !== 'armor' ? ' \u00b7 ' + it.attack + ' dmg' : it.health ? ' \u00b7 ' + it.health + ' HP' : ''), hex6(t.col), 'rgba(12,8,4,.6)', 640, 96, 'bold 46px system-ui'), transparent: true, depthWrite: false, fog: false });
+    labelCache.set(key, m); return m;
+  };
+
+  // ----- shared toolkit for the room interiors and the stations -----
   const CW = CS / 2, IN = CW - T / 2;
-  const roomTick = [];
+  const slots = [];                         // per outer room: { cr, g (shell group), shell, inner (rebuildable interior group), flames, built }
+  const cacheM = new Map(), cache = (k, f) => { let v = cacheM.get(k); if (v === undefined) { v = f(); cacheM.set(k, v); } return v; };
+  const kgeo = (k, f) => cache('g:' + k, () => { const g = f(); keepGeo.add(g); return g; });
+  const mat = (k, f) => cache('m:' + k, f);
+  const ctex = (k, w, h, draw, clamp = true) => cache('t:' + k, () => { const t = canvasTex(w, h, draw); if (clamp) t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; return t; });
+  const GB = kgeo('box', () => new THREE.BoxGeometry(1, 1, 1)), GS = kgeo('sph', () => new THREE.SphereGeometry(1, 20, 14)), GC = kgeo('cyl', () => new THREE.CylinderGeometry(1, 1, 1, 20)), GN = kgeo('cone', () => new THREE.ConeGeometry(1, 1, 14)), GP = kgeo('pln', () => new THREE.PlaneGeometry(1, 1));
+  const mkm = (p, geo, m, x, y, z, sx = 1, sy = sx, sz = sx) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.scale.set(sx, sy, sz); p.add(o); return o; };
+  const sph = (p, m, x, y, z, a, b = a, c = a) => mkm(p, GS, m, x, y, z, a, b, c);
+  const box = (p, m, x, y, z, w, h, d) => mkm(p, GB, m, x, y, z, w, h, d);
+  const cyl2 = (p, m, x, y, z, r, h) => mkm(p, GC, m, x, y, z, r, h, r);
+  const cne = (p, m, x, y, z, r, h) => mkm(p, GN, m, x, y, z, r, h, r);
+  const pln = (p, m, x, y, z, w, h) => mkm(p, GP, m, x, y, z, w, h, 1);
+  const tapG = (rt, rb, seg) => kgeo('tap' + rt + ',' + rb + ',' + seg, () => new THREE.CylinderGeometry(rt, rb, 1, seg));
+  const tap = (p, m, x, y, z, rt, rb, h, seg = 16) => mkm(p, tapG(rt, rb, seg), m, x, y, z, 1, h, 1);
+  const tor = (p, m, x, y, z, r, tube) => mkm(p, kgeo('tor' + (tube / r).toFixed(3), () => new THREE.TorusGeometry(1, tube / r, 8, 24)), m, x, y, z, r);
+  const tickList = [];                      // { root, fn(t, dt) }: run every frame while root is part of the scene
+  const addTick = (root, fn) => tickList.push({ root, fn });
+  const attached = o => { while (o.parent) o = o.parent; return o === scene; };
+  const freezeTree = root => root.traverse(o => { if (chestDyn.has(o)) return; o.updateMatrix(); o.matrixAutoUpdate = false; });
+  const dyn = o => { chestDyn.add(o); o.matrixAutoUpdate = true; return o; };
+  const disposeTree = root => root.traverse(o => {
+    chestDyn.delete(o);
+    if (o.geometry && !keepGeo.has(o.geometry)) o.geometry.dispose();
+    if (o.isInstancedMesh) o.dispose();
+    if (o.material && o.material.userData && o.material.userData.own) o.material.dispose();
+  });
+  const targetsOf = (arr, pred) => { for (let i = arr.length; i--;) if (pred(arr[i])) arr.splice(i, 1); };
+  GK.merchantTargets = GK.merchantTargets || []; GK.stationTargets = GK.stationTargets || [];
+  const prune = () => {
+    for (let i = chestSlots.length; i--;) if (!attached(chestSlots[i].holder)) chestSlots.splice(i, 1);
+    for (let i = tickList.length; i--;) if (!attached(tickList[i].root)) tickList.splice(i, 1);
+    targetsOf(GK.merchantTargets, o => !attached(o)); targetsOf(GK.stationTargets, o => !attached(o));
+  };
+  const nameSprites = new Map();
+  const nameplate = (parent, text, x, y, z, w = 2.4, col = '#ffe9a8') => {   // floating label, readable from the overview camera
+    let m = nameSprites.get(text + col); if (!m) nameSprites.set(text + col, m = new THREE.SpriteMaterial({ map: textTex(text, col, 'rgba(20,12,6,.7)', 512, 96, 'bold 52px system-ui'), transparent: true, depthWrite: false, fog: false }));
+    const s = new THREE.Sprite(m); s.scale.set(w, w * 96 / 512, 1); s.position.set(x, y, z); s.renderOrder = 6; parent.add(s); return s;
+  };
+  const plaqueMats = new Map();
+  const plaque = (parent, text, x, y, z, w, h, rotY = 0) => {   // framed brass plate on a wall or post (local +z faces the viewer)
+    let m = plaqueMats.get(text); if (!m) plaqueMats.set(text, m = new THREE.MeshStandardMaterial({ map: canvasTex(512, 128, (g, cw, ch) => {
+      g.fillStyle = '#2a1a0c'; g.fillRect(0, 0, cw, ch); g.strokeStyle = '#d9a82b'; g.lineWidth = 8; g.strokeRect(6, 6, cw - 12, ch - 12); g.lineWidth = 2; g.strokeRect(18, 18, cw - 36, ch - 36);
+      g.fillStyle = '#ffe9a8'; g.font = 'bold 62px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, cw / 2, ch / 2 + 4);
+    }), roughness: 0.6, metalness: 0.3, emissive: 0xffffff, emissiveIntensity: 0.12 }));
+    plaqueMats.get(text).emissiveMap = plaqueMats.get(text).map;
+    const o = pln(parent, m, x, y, z, w, h); o.rotation.y = rotY; return o;
+  };
+
+  // ----- the chest kit: one implementation of the chest + dais + floating weapon -----
+  function setSlotWeapon(s, k) {   // k: item key string ('w:axe'), family name or legacy index
+    if (k == null) return; if (typeof k === 'number') k = LEGACY_KEYS[k]; if (!k) return;
+    if (s.cur === k) return; s.cur = k;
+    while (s.holder.children.length) s.holder.remove(s.holder.children[0]);
+    const m = weaponModel(k); m.rotation.z = 0.35; s.holder.add(m);
+    m.traverse(o => { o.matrixAutoUpdate = false; o.updateMatrix(); }); m.matrixAutoUpdate = true;
+    const it = itemOf(k), t = TIERS[(it && it.tier) || 'common'] || TIERS.common;
+    s.wglow.material.color.setHex(t.col); s.label.material = labelFor(k); s.label.visible = true; s.holder.updateMatrixWorld(true);
+  }
+  function chestKitBuild(parent, x, z, rotY, opts = {}) {
+    const chest = chestProto.clone(); chest.position.set(x, 0, z); chest.rotation.y = rotY || 0; parent.add(chest);
+    const pool = new THREE.Mesh(new THREE.PlaneGeometry(5.5, 5.5), new THREE.MeshBasicMaterial({ map: glowTex, color: 0xffb040, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false, fog: false })); pool.material.userData.own = true; pool.rotation.x = -Math.PI / 2; pool.position.set(0, 0.02, 0.8); chest.add(pool);
+    const sh = new THREE.Group(); sh.position.set(0, 1.0, 0); chest.add(sh);
+    for (let k = 0; k < 2; k++) { const pl = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 3.4), shaftM); pl.position.y = 1.7; pl.rotation.y = k * Math.PI / 2; pl.renderOrder = 3; sh.add(pl); }
+    const glow = addGlow(chest, 0xffd060, 1.9, 0.6, 0, 1.2, 0); chestDyn.add(glow);
+    const holder = new THREE.Group(); holder.position.set(0, 2.0, 0); chest.add(holder); chestDyn.add(holder);
+    const wglow = addGlow(chest, 0xffffff, 1.8, 0.28, 0, 2.0, 0); chestDyn.add(wglow);
+    const label = new THREE.Sprite(labelFor('w:sword')); label.scale.set(2.9, 0.43, 1); label.position.set(0, 3.75, 0); label.renderOrder = 5; chest.add(label); chestDyn.add(label); label.visible = false;
+    const s = { holder, glow, wglow, label, cur: null, ph: (opts.id || 0) * 1.7 + (opts.id == null ? Math.random() * 6 : 0), base: 2.0, chest, id: opts.id };
+    chestSlots.push(s); freezeTree(chest); s.setWeapon = k => setSlotWeapon(s, k);
+    if (opts.weapon != null) setSlotWeapon(s, opts.weapon);
+    return s;
+  }
+  GK.chestKit = { buildChest: chestKitBuild, weaponModel, labelFor, setWeapon: setSlotWeapon, dispose: root => { disposeTree(root); } };
+  GK.disposeKit = root => { disposeTree(root); prune(); };
+  // ----- chest rooms -----
+  const roomTickUnused = [];
   for (const cr of CHEST_ROOMS) {
     const g = new THREE.Group(); g.position.set(cr.cx, 0, cr.cz); g.rotation.y = Math.atan2(-cr.dx, -cr.dz); scene.add(g);  // local +z faces the door
     bx(g, CS, 0.4, CS, 0, -0.2, 0, cFloorM, CS);
@@ -2270,7 +2446,7 @@ function fxResize() {
     const rt = new THREE.WebGLRenderTarget(innerWidth * pr, innerHeight * pr, { type: THREE.HalfFloatType, samples: 4 });   // MSAA kept inside the composer
     const composer = new EffectComposer(renderer, rt);
     composer.addPass(new RenderPass(scene, cam));
-    const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.42, 0.5, 1.5);   // strength, radius, threshold (HDR, linear)
+    const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.3, 0.35, 1.7);   // strength, radius, threshold (HDR, linear)
     const bs = bloom.setSize.bind(bloom); bloom.setSize = (w, h) => bs(Math.max(1, w >> 1), Math.max(1, h >> 1));   // bloom at half resolution
     composer.addPass(bloom);
     composer.addPass(new OutputPass());   // tone mapping + sRGB
@@ -2281,7 +2457,7 @@ function fxResize() {
         float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
         void main(){
           vec2 d = vUv - 0.5; float r2 = dot(d, d);
-          vec2 o = d * r2 * 0.014;   // tiny chromatic aberration, zero at the centre
+          vec2 o = d * r2 * 0.006;   // tiny chromatic aberration, zero at the centre
           vec3 c = vec3(texture2D(tDiffuse, vUv + o).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - o).b);
           c *= 1.0 - 0.34 * smoothstep(0.12, 0.62, r2);   // vignette
           c += (hash(vUv * 1024.0 + fract(uTime) * 61.0) - 0.5) * 0.022;   // film grain

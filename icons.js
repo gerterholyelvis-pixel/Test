@@ -23,6 +23,7 @@
   DRAW_FAMILY.flail = g => { g.fillStyle = wood; g.fillRect(-0.035, 0.45, 0.07, 0.48); g.strokeStyle = steel; g.lineWidth = 0.03; g.beginPath(); g.moveTo(0, 0.45); g.quadraticCurveTo(0.22, 0.3, 0.1, 0.18); g.stroke(); g.fillStyle = steel; circ(g, 0.1, 0.16, 0.13); spikes(g, 0.1, 0.16, 0.13, 8); };
   DRAW_FAMILY.halberd = g => { g.fillStyle = wood; g.fillRect(-0.025, 0.12, 0.05, 0.82); g.fillStyle = steel; poly(g, [[0, 0.0], [0.07, 0.16], [-0.07, 0.16]]); poly(g, [[0.02, 0.14], [0.32, 0.1], [0.28, 0.34], [0.02, 0.32]]); poly(g, [[-0.02, 0.2], [-0.16, 0.26], [-0.02, 0.3]]); };
   DRAW_FAMILY.hammer = g => { g.fillStyle = wood; g.fillRect(-0.035, 0.28, 0.07, 0.66); g.fillStyle = steel; g.fillRect(-0.24, 0.08, 0.48, 0.24); g.fillStyle = 'rgba(255,255,255,.35)'; g.fillRect(-0.24, 0.08, 0.48, 0.05); g.fillStyle = dark; g.fillRect(-0.24, 0.17, 0.48, 0.03); };
+  DRAW_FAMILY.brain = g => { const pink = '#e98aa6', dk = '#b5506f'; g.fillStyle = pink; circ(g, -0.14, 0.42, 0.2); circ(g, 0.14, 0.42, 0.2); circ(g, 0, 0.3, 0.2); circ(g, -0.1, 0.58, 0.17); circ(g, 0.1, 0.58, 0.17); g.strokeStyle = dk; g.lineWidth = 0.03; g.lineCap = 'round'; g.beginPath(); g.moveTo(0, 0.18); g.lineTo(0, 0.7); g.stroke(); g.beginPath(); g.arc(-0.16, 0.4, 0.1, 3.4, 5.6); g.stroke(); g.beginPath(); g.arc(0.16, 0.4, 0.1, 3.9, 6.1); g.stroke(); g.beginPath(); g.arc(-0.08, 0.6, 0.08, 3.5, 5.8); g.stroke(); g.beginPath(); g.arc(0.1, 0.6, 0.08, 3.6, 5.9); g.stroke(); g.fillStyle = dk; g.fillRect(-0.05, 0.72, 0.1, 0.12); };
   DRAW_FAMILY.cloth = g => shirt(g, '#9a8a6a', '#5f5240');
   DRAW_FAMILY.leather = g => { shirt(g, '#7a5232', '#3f2a1a'); g.fillStyle = '#c9a74a'; for (let i = 0; i < 4; i++) circ(g, -0.1 + (i % 2) * 0.2, 0.34 + Math.floor(i / 2) * 0.18, 0.025); };
   DRAW_FAMILY.mail = g => { shirt(g, steel, '#4a5058'); g.strokeStyle = 'rgba(0,0,0,.28)'; g.lineWidth = 0.012; for (let y = 0.2; y < 0.88; y += 0.07) { g.beginPath(); g.moveTo(-0.2, y); g.lineTo(0.2, y); g.stroke(); } };
@@ -37,7 +38,7 @@
   function spikes(g, x, y, r, n) { g.fillStyle = steel; for (let i = 0; i < n; i++) { const a = i * 6.2832 / n; poly(g, [[x + Math.cos(a - 0.2) * r, y + Math.sin(a - 0.2) * r], [x + Math.cos(a) * r * 1.5, y + Math.sin(a) * r * 1.5], [x + Math.cos(a + 0.2) * r, y + Math.sin(a + 0.2) * r]]); } }
   function shirt(g, a, b) { poly2(g, [[-0.18, 0.1], [0.18, 0.1], [0.38, 0.28], [0.3, 0.42], [0.22, 0.36], [0.22, 0.9], [-0.22, 0.9], [-0.22, 0.36], [-0.3, 0.42], [-0.38, 0.28]], a, b); }
   function draw(ctx, key, x, y, size) {
-    const it = window.GKITEMS && window.GKITEMS.ITEMS && window.GKITEMS.ITEMS[key], tier = (it && TIER[it.tier]) || TIER.common;
+    const it = window.GKITEMS && (window.GKITEMS.info ? window.GKITEMS.info(key) : window.GKITEMS.ITEMS[key]), tier = (it && TIER[it.tier]) || TIER.common;
     steel = tier[0];
     ctx.save(); ctx.translate(x + size / 2, y + size * 0.04); ctx.scale(size * 0.92, size * 0.92); ctx.lineJoin = 'round';
     if (tier[1]) { const gr = ctx.createRadialGradient(0, 0.5, 0, 0, 0.5, 0.62); gr.addColorStop(0, tier[1] + '77'); gr.addColorStop(1, tier[1] + '00'); ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(0, 0.5, 0.62, 0, 6.2832); ctx.fill(); }

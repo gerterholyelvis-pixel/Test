@@ -93,16 +93,17 @@ setInterval(() => { // one global timer steps every match
 // 0 small 30%, 1 medium 30%, 2 big 30%, 3 wizard 9%, 4 king 1%
 // Equipment decides combat stats: attack damage comes from the weapon (items.js), health from the armour.
 const G = require('./items.js'), ITEMS = G.ITEMS;
-const isItem = k => typeof k === 'string' && Object.prototype.hasOwnProperty.call(ITEMS, k);
+const info = k => (typeof k === 'string' && k.length < 40 && G.info(k)) || null; // any item key incl. goblin brains
+const isItem = k => !!info(k);
 const SLOT_IDS = new Set([...Array.from({ length: 9 }, (_, i) => 'b' + i), ...Array.from({ length: 3 }, (_, i) => 'q' + i), 'weapon', 'armor']);
 const getSlot = (inv, id) => id === 'weapon' ? inv.weapon : id === 'armor' ? inv.armor : (id[0] === 'b' ? inv.backpack : inv.quick)[+id.slice(1)];
 const setSlot = (inv, id, v) => { if (id === 'weapon') inv.weapon = v; else if (id === 'armor') inv.armor = v; else (id[0] === 'b' ? inv.backpack : inv.quick)[+id.slice(1)] = v; };
-const fits = (id, key) => key == null || (id === 'weapon' ? ITEMS[key].type === 'weapon' : id === 'armor' ? ITEMS[key].type === 'armor' : true);
+const fits = (id, key) => key == null || (id === 'weapon' ? info(key).type === 'weapon' : id === 'armor' ? info(key).type === 'armor' : true);
 const allItems = inv => [inv.weapon, inv.armor, ...inv.backpack, ...inv.quick].filter(Boolean);
 function recalc(p) { // derived stats from the equipped items
-  const w = p.inv.weapon && ITEMS[p.inv.weapon], a = p.inv.armor && ITEMS[p.inv.armor];
+  const w = p.inv.weapon && info(p.inv.weapon), a = p.inv.armor && info(p.inv.armor);
   const maxHealth = a ? a.health : 10;
-  p.stats = { knowledge: G.KNOWLEDGE[p.goblin], attack: w ? w.attack : 0, health: Math.min(p.stats ? p.stats.health : maxHealth, maxHealth), maxHealth };
+  p.stats = { knowledge: p.stats ? p.stats.knowledge : G.KNOWLEDGE[p.goblin], attack: w ? w.attack : 0, health: Math.min(p.stats ? p.stats.health : maxHealth, maxHealth), maxHealth };
   p.gear = { weapon: w ? w.name : 'None', armor: a ? a.name : 'None' };
 }
 function equip(p, goblin) { // give a player a goblin type with its starting gear and otherwise empty inventory
@@ -167,10 +168,35 @@ function spawn() {
 }
 function die(ws, p) { // a dead player drops everything where they fell and leaves the match
   const m = p.match; if (p.dead || !m) return;
-  const items = allItems(p.inv);
+  const items = allItems(p.inv), brain = G.brainKey(p.stats.knowledge); // the brain carries the victim's CURRENT knowledge
   p.dead = true; leave(m, ws); // the client goes back to the menu or requeues with a new connection
-  addDrop(m, p, items);
-  sendTo(ws, { died: { items } });
+  addDrop(m, p, [...items, brain]);
+  sendTo(ws, { died: { items, brain } });
+}
+function eatBrain(p, key) { // applies a brain's knowledge gain, returns the gain
+  const gain = G.brainGain(key);
+  p.stats.knowledge = Math.round((p.stats.knowledge + gain) * 100) / 100;
+  sendTo(p.ws, { ate: { gain, knowledge: p.stats.knowledge } }); p.match.dirty = true;
+  return gain;
+}
+function eat(p, slot) { // {eat: slotId}
+  if (typeof slot !== 'string' || !/^(b[0-8]|q[0-2])$/.test(slot)) return false;
+  const key = getSlot(p.inv, slot); if (!G.isBrain(key)) return false;
+  setSlot(p.inv, slot, null); eatBrain(p, key); sendInv(p); return true;
+}
+function loot(m, p, a) { // {loot:[dropId, index, 'take'|'eat', expectedKey?]}; returns null or a failure reason
+  if (!Array.isArray(a) || a.length < 3 || a.length > 4 || !Number.isInteger(a[0]) || !Number.isInteger(a[1]) || (a[2] !== 'take' && a[2] !== 'eat')) return 'item';
+  const di = m.drops.findIndex(x => x.id === a[0]), dr = m.drops[di];
+  if (!dr) return 'item';
+  if (Math.hypot(p.x - dr.x, p.z - dr.z) > 3) return 'range';
+  const key = dr.items[a[1]];
+  if (key == null || (a.length === 4 && a[3] !== key)) return 'item';
+  if (a[2] === 'eat') { if (!G.isBrain(key)) return 'item'; }
+  else if (p.inv.backpack.indexOf(null) < 0) return 'space';
+  dr.items.splice(a[1], 1); if (!dr.items.length) m.drops.splice(di, 1);
+  if (a[2] === 'eat') eatBrain(p, key); else giveItem(p, key);
+  bcast(m, { drops: m.drops }); m.dirty = true;
+  return null;
 }
 function win(ws, p) { // everything carried goes home with the winner, nothing is dropped
   const m = p.match; if (p.dead || !m) return;
@@ -210,6 +236,8 @@ wss.on('connection', (ws, req) => {
     } else if (dbg && Array.isArray(d.tp) && d.tp.length === 2 && d.tp.every(v => typeof v === 'number' && Number.isFinite(v))) {
       p.x = clamp(d.tp[0]); p.z = clamp(d.tp[1]); p.box = boxOf(p.x, p.z); p.room = roomKeyOf(p.x, p.z); m.dirty = true;
     } else if (dbg && Number.isFinite(d.gold)) { p.gold = Math.max(0, Math.floor(d.gold)); sendGold(p);
+    } else if (typeof d.eat === 'string') { eat(p, d.eat);
+    } else if (Array.isArray(d.loot)) { const why = loot(m, p, d.loot); if (why) sendTo(ws, { lootFail: why });
     } else if (typeof d.recycle === 'string') {
       const why = recycle(m, p, d.recycle); if (why) sendTo(ws, { recycleFail: why });
     } else if (Array.isArray(d.buy) && d.buy.length === 2) {

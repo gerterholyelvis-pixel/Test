@@ -46,6 +46,16 @@
   const KNOWLEDGE_TIERS = [20, 40, 60, 80, 100];   // the knowledge tree has 5 tiers; tier N needs this much knowledge
   const START_GOLD = 100;   // placeholder starting gold so the merchant can be tried out
 
+  // ---- GOBLIN BRAIN: a dead goblin drops its brain. Eating it gives 5% of the knowledge that goblin had.
+  // A brain is an item key 'm:brain:<knowledge of the dead goblin>' (e.g. 'm:brain:60'); use info(key) to read any item key including brains.
+  const brainKey = knowledge => 'm:brain:' + Math.round(knowledge * 10) / 10;
+  const isBrain = key => typeof key === 'string' && key.startsWith('m:brain:');
+  const brainKnowledge = key => isBrain(key) ? Math.max(0, parseFloat(key.slice(8)) || 0) : 0;
+  const brainGain = key => Math.round(brainKnowledge(key) * 0.05 * 100) / 100;   // knowledge you gain by eating it
+  function info(key) {
+    if (isBrain(key)) { const k = brainKnowledge(key); return { key, type: 'consumable', name: 'Goblin Brain', family: 'brain', tier: 'uncommon', chance: 0, knowledge: k, gain: brainGain(key), desc: 'Eat for +' + brainGain(key) + ' knowledge (5% of ' + k + ')' }; }
+    return ITEMS[key] || null;
+  }
   // ---- RECYCLER: weapons break down into parts (everyone can use a recycler). Yield depends on the weapon family and scales with its tier.
   const PARTS = [['wood', 'Wood'], ['metal', 'Metal'], ['leather', 'Leather'], ['cloth', 'Cloth'], ['gold', 'Gold'], ['bone', 'Bone'], ['gem', 'Gems'], ['string', 'String'], ['crystal', 'Crystal']].map(([key, name]) => ({ key, name }));
   const FAMILY_PARTS = { club: { wood: 3, bone: 1 }, dagger: { metal: 2, leather: 1 }, sword: { metal: 4, leather: 1 }, bow: { wood: 3, string: 2 }, axe: { metal: 3, wood: 2 }, spear: { wood: 3, metal: 2 }, mace: { metal: 3, wood: 2, bone: 1 },
@@ -98,6 +108,6 @@
     return { kind: 'plushie' };
   }
   const CHEST_WEAPONS = ['w:sword', 'w:axe', 'w:spear', 'w:mace', 'w:bow', 'w:dagger'];   // legacy: old 6-entry chest list (indices), kept until the client reads chestKeys
-  root.GKITEMS = { randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, START, KNOWLEDGE, KNOWLEDGE_TIERS, CHEST_WEAPONS, SLOTS, tierOf, PARTS, recycleYield };
+  root.GKITEMS = { randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, START, KNOWLEDGE, KNOWLEDGE_TIERS, CHEST_WEAPONS, SLOTS, tierOf, PARTS, recycleYield, brainKey, isBrain, brainKnowledge, brainGain, info };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.GKITEMS;
 })(typeof window !== 'undefined' ? window : globalThis);
