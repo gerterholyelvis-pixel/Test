@@ -3295,6 +3295,77 @@ const A_EARS = {};
     }
   }
   // ARMOUR2-END
+  // ARMOUR3-BEGIN: overlays for the ten families added with ARMOUR-3 (cloak, tabard, shell, thorn, runic, timber, stone, quill, shroud, ember). Everything scales with the type's body width `b`; no per-type branches.
+  const ARMOUR3_FAMS = { cloak: 1, tabard: 1, shell: 1, thorn: 1, runic: 1, timber: 1, stone: 1, quill: 1, shroud: 1, ember: 1 };
+  function gaArmor3(B, type, fam, trim, b) {
+    const R = [[0.2, 0.58], [0.335, 0.5], [0.365, 0.4], [0.36, 0.26], [0.365, 0.14], [0.35, 0.0], [0.33, -0.07]], zf = y => interp(R, y) * b * 0.92 + 0.02;
+    const pauld = (s, col, m, k = 1) => B.e(s * 0.43 * b, 0.55, 0, 0.17 * k, 0.1 * k, 0.17 * k, col, m, { r: [0, 0, -s * 0.3] });
+    if (fam === 'cloak') {   // short tunic, a cape hanging from the shoulders at the back, a bunched hood and a gold clasp
+      garment(B, R.slice(2), b, 0x5a4a30, CL, { fold: [8, 0.02, -0.1, 0.3] }); bandAt(B, 0.04, 0.36 * b, 0.022, 0x3a2a1a, LT);
+      const pts = R.map(([r, y]) => new THREE.Vector2(r * b * 1.08, y)); pts.push(new THREE.Vector2(0.36 * b * 1.08, -0.2));
+      B.add(new THREE.LatheGeometry(pts, 30, Math.PI - 2.1, 4.2), { p: [0, 0, -0.02], s: [1, 1, 0.95], c: 0x4a6a3a, m: CL, uv: 2 });
+      B.tor(0, 0.57, -0.02, 0.22 * b, 0.06, Math.PI / 2, 0, 0, 0x4a6a3a, CL); B.e(0, 0.6, -0.17 * b, 0.19 * b, 0.12, 0.13, 0x3e5a30, CL);
+      B.es(0, 0.5, zf(0.5) + 0.02, 0.025, 0.025, 0.018, trim, GD); for (const s of [-1, 1]) B.es(s * 0.1 * b, 0.52, zf(0.5) + 0.01, 0.018, 0.018, 0.012, 0xffc933, GD);
+    }
+    if (fam === 'tabard') {   // steel scale shirt under a long blue surcoat with a pale stripe
+      garment(B, R, b, 0x8a94a0, MT, { uv: 1 }); B.tor(0, 0.57, 0.01, 0.2 * b, 0.032, Math.PI / 2, 0, 0, 0x8c96a2, MT);
+      B.box(0, 0.12, zf(0.2) + 0.02, 0.4 * b, 0.62, 0.03, 0x2f5a8a, CL, { r: [-0.04, 0, 0] }); B.box(0, 0.14, -zf(0.2), 0.4 * b, 0.6, 0.03, 0x2f5a8a, CL, { r: [0.04, 0, 0] });
+      B.box(0, 0.12, zf(0.2) + 0.045, 0.07 * b, 0.5, 0.012, 0xe8dcc0, CL, { r: [-0.04, 0, 0] }); B.box(0, 0.3, zf(0.3) + 0.045, 0.2 * b, 0.06, 0.012, 0xe8dcc0, CL);
+      bandAt(B, 0.1, 0.375 * b, 0.026, 0x3a2418, LT); B.box(0, 0.1, 0.375 * b, 0.07, 0.06, 0.03, trim, GD);
+    }
+    if (fam === 'shell') {   // overlapping chitin bands, a domed shell on the back, ridged pauldrons
+      garment(B, R, b, 0x5a3a22, LT, { uv: 2.6 });
+      for (let i = 0; i < 6; i++) bandAt(B, 0.5 - i * 0.1, (interp(R, 0.5 - i * 0.1) + 0.015) * b, 0.04, i % 2 ? 0x6a4a2c : 0x8a6038, LT);
+      B.e(0, 0.2, -0.3 * b, 0.36 * b, 0.36, 0.2, 0x7a5028, LT); B.k(0, 0.5, -0.3 * b, 0.04, 0.16, -0.7, 0, 0xd8c08a, BN);
+      for (const s of [-1, 1]) for (let i = 0; i < 3; i++) B.e(s * (0.4 + i * 0.05) * b, 0.58 - i * 0.07, 0, 0.14 - i * 0.015, 0.07, 0.13, i % 2 ? 0x6a4a2c : 0x8a6038, LT, { r: [0, 0, -s * 0.3] });
+    }
+    if (fam === 'thorn') {   // hide jerkin wrapped in thorny bramble vines
+      garment(B, R, b, 0x4e5a34, LT, { uv: 2.6 });
+      for (let k = 0; k < 3; k++) {
+        const pts = []; for (let i = 0; i <= 12; i++) { const t = i / 12, y = 0.5 - t * 0.5, a = k * 2.1 + t * 8; pts.push([Math.sin(a) * (interp(R, y) + 0.015) * b, y, Math.cos(a) * (interp(R, y) + 0.015) * b * 0.92 + 0.02]); }
+        B.tube(pts, 0.016, 0.014, 0x3a2e1c, LT, { rad: 5, segs: 30 });
+        pts.forEach(([x, y, z], i) => { if (i % 2) { const a = Math.atan2(x, z); B.k(x, y, z, 0.014, 0.07, Math.cos(a) * 1.2, -Math.sin(a) * 1.2, 0xd8cdb0, BN); } });
+      }
+      for (const s of [-1, 1]) { pauld(s, 0x4e5a34, LT, 0.9); for (let i = 0; i < 4; i++) { const a = i * 1.6; B.k(s * 0.43 * b + Math.cos(a) * 0.07, 0.6, Math.sin(a) * 0.07, 0.02, 0.1, Math.sin(a) * 0.6, -Math.cos(a) * 0.6 - s * 0.3, 0xd8cdb0, BN); } }
+      bandAt(B, 0.0, 0.355 * b, 0.022, 0x2e1c10, LT);
+    }
+    if (fam === 'runic') {   // long blue tunic with glowing sigil bands
+      garment(B, [...R, [0.36, -0.2]], b, 0x3a3a6a, CL, { fold: [10, 0.04, -0.2, 0.4] }); bandAt(B, 0.02, 0.35 * b, 0.026, 0x2a1c3a, LT);
+      for (const y of [-0.17, -0.12]) bandAt(B, y, 0.37 * b, 0.01, 0x66e8ff, GEM); bandAt(B, 0.56, 0.21 * b, 0.012, 0x66e8ff, GEM);
+      for (let i = 0; i < 5; i++) { const y = 0.46 - i * 0.075; for (const x of [-0.07, 0.07]) B.box(x * b, y, zf(y) + 0.012, 0.012, 0.045 + (i % 2) * 0.02, 0.006, 0x66e8ff, GEM, { r: [0, 0, (i + (x > 0 ? 1 : 0)) % 2 ? 0.7 : -0.7] }); }
+      B.tor(0, 0.32, zf(0.32) + 0.012, 0.05, 0.008, 0, 0, 0, 0x66e8ff, GEM);
+    }
+    if (fam === 'timber') {   // wooden staves bound with iron hoops and log pauldrons
+      garment(B, R, b, 0x3a2a1a, LT, { uv: 2.6 }); const n = 16;
+      for (let i = 0; i < n; i++) { const a = (i + 0.5) / n * TAU, y = 0.26, rr = interp(R, y) * b + 0.012; B.box(Math.sin(a) * rr, y + 0.05, Math.cos(a) * rr * 0.92 + 0.02, 0.1, 0.52, 0.03, i % 2 ? 0x8a6a3e : 0x7a5a30, LT, { r: [0, a, 0] }); }
+      for (const y of [0.5, 0.3, 0.1]) bandAt(B, y, (interp(R, y) + 0.04) * b, 0.016, 0x4b5058, MT);
+      for (const s of [-1, 1]) B.cyl(s * 0.43 * b, 0.55, 0, 0.09, 0.09, 0.3, 0x8a6a3e, LT, { r: [0, 0, Math.PI / 2 + s * 0.3] });
+    }
+    if (fam === 'stone') {   // rock slabs strapped over a hide base, boulder pauldrons, a moss patch
+      garment(B, R, b, 0x3a2a1a, LT, { uv: 2.6 });
+      [[-0.15, 0.36, 0.14, 0.11, 0.1], [0.16, 0.34, 0.13, 0.12, 0.1], [0, 0.17, 0.17, 0.12, 0.1], [-0.2, 0.06, 0.11, 0.09, 0.09], [0.2, 0.08, 0.11, 0.09, 0.09]].forEach(([x, y, w, h, d], i) => { const a = Math.asin(Math.min(1, x / (interp(R, y) * b))); B.e(x * b, y, Math.cos(a) * interp(R, y) * b * 0.92 + 0.03, w, h, d, i % 2 ? 0x8a8a84 : 0x77777a, MT, { v: 0.2, r: [0, a * 0.7, i * 0.2 - 0.3] }); });
+      B.e(-0.04 * b, 0.46, zf(0.46) + 0.03, 0.09, 0.03, 0.05, 0x5f8a3f, LT);
+      for (const s of [-1, 1]) B.e(s * 0.43 * b, 0.55, 0, 0.15, 0.11, 0.15, s > 0 ? 0x8a8a84 : 0x77777a, MT, { v: 0.2, r: [0, 0, -s * 0.3] });
+      bandAt(B, 0.0, 0.37 * b, 0.022, 0x2e1c10, LT);
+    }
+    if (fam === 'quill') {   // scaled hide coat bristling with long quills
+      garment(B, R, b, 0x6a4a34, LT, { uv: 2.6 });
+      for (let row = 0; row < 6; row++) { const y = 0.5 - row * 0.1, n = 12 + row; for (let i = 0; i < n; i++) { const a = (i + row * 0.4) / n * TAU, rr = (interp(R, y) + 0.01) * b; B.k(Math.sin(a) * rr, y, Math.cos(a) * rr * 0.92 + 0.02, 0.014, 0.17 * (0.8 + 0.5 * hash3(i, row, 5)), Math.cos(a) * 1.1, -Math.sin(a) * 1.1, i % 3 ? 0xe8dcc0 : 0x2a1a12, BN); } }
+      for (const s of [-1, 1]) { pauld(s, 0x6a4a34, LT); for (let i = 0; i < 5; i++) { const a = i * 1.26; B.k(s * 0.43 * b + Math.cos(a) * 0.06, 0.6, Math.sin(a) * 0.07, 0.016, 0.2, Math.sin(a) * 0.6, -s * 0.8 - Math.cos(a) * 0.3, 0xe8dcc0, BN); } }
+      bandAt(B, 0.0, 0.355 * b, 0.022, 0x2a1a12, LT);
+    }
+    if (fam === 'shroud') {   // long tattered shroud with a hood and pale glowing hem
+      garment(B, [...R, [0.4, -0.2], [0.42, -0.3]], b, 0x2e2a3a, CL, { fold: [10, 0.06, -0.3, 0.3] }); ringTeeth(B, -0.28, 0.42 * b, 18, 0.06, 0.2, 0x2e2a3a, CL);
+      bandAt(B, -0.2, 0.4 * b, 0.01, 0xb8f0d8, GEM); bandAt(B, 0.56, 0.22 * b, 0.014, 0xb8f0d8, GEM); B.e(0, 0.6, -0.15 * b, 0.22 * b, 0.15, 0.16, 0x2e2a3a, CL); bandAt(B, 0.03, 0.36 * b, 0.022, 0x1a1620, LT);
+    }
+    if (fam === 'ember') {   // black plate with glowing fissures, horned pauldrons and a furnace gem
+      garment(B, R, b, 0x2a2024, MT, { uv: 1, segs: 40 });
+      for (let i = 0; i < 6; i++) { const a = -0.8 + i * 0.32, y0 = 0.4 + (i % 2) * 0.05, pts = []; for (let k = 0; k < 4; k++) { const y = y0 - k * 0.07, aa = a + ((i * 7 + k * 3) % 5 - 2) * 0.05, rr = (interp(R, y) + 0.012) * b; pts.push([Math.sin(aa) * rr, y, Math.cos(aa) * rr * 0.92 + 0.02]); } B.tube(pts, 0.008, 0.006, 0xff7a20, GEM, { rad: 4, segs: 8 }); }
+      B.es(0, 0.3, zf(0.3) + 0.03, 0.04, 0.055, 0.03, 0xff7a20, GEM); B.tor(0, 0.3, zf(0.3) + 0.015, 0.06, 0.012, 0, 0, 0, trim, GD); B.tor(0, 0.57, 0.01, 0.2 * b, 0.04, Math.PI / 2, 0, 0, 0x3a2e30, MT); bandAt(B, 0.02, 0.375 * b, 0.03, 0x4a3a3c, MT);
+      for (const s of [-1, 1]) { pauld(s, 0x3a2e30, MT, 1.15); B.k(s * 0.46 * b, 0.62, 0, 0.04, 0.2, 0, -s * 0.5, 0x4a3a3c, MT); B.k(s * 0.5 * b, 0.74, 0, 0.018, 0.1, 0, -s * 0.5, 0xff7a20, GEM); }
+    }
+  }
+  // ARMOUR3-END
   // ---- assemble one goblin
   function buildGoblin(type, demo) {
     const C = CFG[type], b = C.b, P = GAT[type], root = new THREE.Group(), rig = new THREE.Group(); root.add(rig); rig.scale.setScalar(SCALE[type]);
@@ -3351,7 +3422,7 @@ const A_EARS = {};
       const it = key && itemsData().ITEMS[key], fam = it && it.family;
       if (!fam || fam === P.fam) { if (u.armMesh) u.armMesh.visible = false; return; }
       const tier = it.tierN || 0, ck = type + ':ar:' + fam + ':' + tier; let geo = A.cache[ck];
-      if (!geo) { const B = new GB(); try { (ARMOUR2_FAMS[fam] ? gaArmor2 : gaArmor)(B, type, fam, GA_TIER[tier], b); } catch (e) { console.error(e); } geo = A.cache[ck] = B.finish(); }
+      if (!geo) { const B = new GB(); try { (ARMOUR3_FAMS[fam] ? gaArmor3 : ARMOUR2_FAMS[fam] ? gaArmor2 : gaArmor)(B, type, fam, GA_TIER[tier], b); } catch (e) { console.error(e); } geo = A.cache[ck] = B.finish(); }
       if (!u.armMesh) { u.armMesh = new THREE.Mesh(geo, u.mat || uber(type)); u.armMesh.userData.keep = 1; u.armMesh.scale.setScalar(1.015); torso.add(u.armMesh); }
       if (!u.armMesh) { u.armMesh = new THREE.Mesh(geo, u.mat || uber(type)); u.armMesh.userData.keep = 1; u.armMesh.scale.setScalar(1.015); torso.add(u.armMesh); }
       u.armMesh.geometry = geo; u.armMesh.visible = true;
@@ -3561,7 +3632,7 @@ const itemName = k => { const it = infoOf(k); return it ? it.name : String(k); }
 const TIER_COL = { common: '#9aa0a8', uncommon: '#4fc35b', rare: '#4a9bff', mythic: '#b06bff', legendary: '#ffb02e', transcendent: '#7ff4ff', class: '#ffd75e' };
 const tierN = k => { const it = infoOf(k); return it && it.tierN != null ? it.tierN : null; };   // null for brains
 const tierTxt = k => tierN(k) != null ? 'Tier ' + tierN(k) : '';
-const statTxt = k => { const it = infoOf(k); if (!it) return ''; return [tierTxt(k), it.type === 'weapon' ? 'Attack ' + it.attack : it.type === 'armor' ? 'Health ' + it.health + (it.speed ? (it.speed > 1 ? ' · Speed +' : ' · Speed -') + Math.round(Math.abs(it.speed - 1) * 100) + '%' : '') : it.gain != null ? '+' + fmtN(it.gain) + ' knowledge' : it.use ? it.desc : ''].filter(Boolean).join(' · '); };
+const statTxt = k => { const it = infoOf(k); if (!it) return ''; return [tierTxt(k), it.type === 'weapon' ? 'Attack ' + it.attack : it.type === 'armor' ? 'Health ' + it.health + (it.speed ? (it.speed > 1 ? ' · Speed +' : ' · Speed -') + Math.round(Math.abs(it.speed - 1) * 100) + '%' : '') + (it.thorns ? ' · Thorns ' + it.thorns : '') : it.gain != null ? '+' + fmtN(it.gain) + ' knowledge' : it.use ? it.desc : ''].filter(Boolean).join(' · '); };
 const fmtN = n => Number.isInteger(+n) ? String(n) : String(+(+n).toFixed(1));   // keys -> names (plain names from an older server pass through)
 const emptyInv = () => ({ backpack: Array(9).fill(null), quick: Array(3).fill(null), weapon: null, armor: null });
 function startInv(goblin) { const inv = emptyInv(), s = itemsData().START[goblin]; if (s) { inv.weapon = s.weapon || null; inv.armor = s.armor || null; } return inv; }
@@ -4732,7 +4803,7 @@ function buildRec() {
     const s = e.target.closest && e.target.closest('.gks[data-rec]'); if (!s) return;
     const id = s.dataset.id, k = invGet(myInv, id);
     if (k == null) return;
-    if (!(itemsData().recycleYield && itemsData().recycleYield(k))) { flashBad(id); say(recPn, 'Only weapons and utility items can be recycled'); return; }
+    if (!(itemsData().recycleYield && itemsData().recycleYield(k))) { flashBad(id); say(recPn, 'Weapons, armour and utility items can be recycled'); return; }
     recSel = id; paintRec();
   });
 }
@@ -4744,7 +4815,7 @@ function paintRec() {
   }
   if (recSel && invGet(myInv, recSel) == null) recSel = null;
   const k = recSel ? invGet(myInv, recSel) : null, y = k && itemsData().recycleYield(k), pv = recPn.prev; pv.textContent = '';
-  if (!k) { pv.innerHTML = '<div style="color:#8d8880;font-size:14px;line-height:1.5">Select a weapon from your backpack or quick slots<br>to see which materials it yields.<br><span style="font-size:12px">(armour and brains cannot be recycled)</span></div>'; return; }
+  if (!k) { pv.innerHTML = '<div style="color:#8d8880;font-size:14px;line-height:1.5">Select a weapon or armour from your backpack or quick slots<br>to see which materials it yields.<br><span style="font-size:12px">(brains and worn gear cannot be recycled)</span></div>'; return; }
   const it = infoOf(k), head = document.createElement('div'); head.style.cssText = 'display:flex;align-items:center;gap:10px'; head.appendChild(mkIcon(k, 46));
   const t = document.createElement('div'); t.style.textAlign = 'left'; t.innerHTML = '<b style="color:' + (TIER_COL[it.tier] || '#fff') + ';font-size:16px">' + it.name + '</b><div style="font-size:12px;color:#aaa59d">' + statTxt(k) + '</div>'; head.appendChild(t);
   const get = document.createElement('div'); get.className = 'yield'; get.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;justify-content:center;min-height:34px';

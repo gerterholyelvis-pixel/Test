@@ -24,6 +24,10 @@
     ['swiftwrap', 'Swiftwrap', 'light', 8, 26, 1.12], ['bonemail', 'Bone Plate', 'bone', 7, 52], ['furmantle', 'Fur Mantle', 'fur', 6, 60], ['scrapplate', 'Scrap Plate', 'scrap', 5, 70],
     ['reaver', 'Reaver Harness', 'spiked', 4.2, 88], ['lamellar', 'Lamellar Vest', 'lamellar', 3.4, 108], ['tower', 'Tower Plate', 'bulwark', 1.8, 175, 0.92],
     ['vaultbrig', 'Vaultguard Brigandine', 'gilded', 1.2, 205], ['gilded', 'Gilded Plate', 'gilded', 0.7, 235],
+    // ARMOUR-3: ten more families. 6th value = speed multiplier, 7th = thorns (flat damage a melee attacker takes back, never lethal; see hitTarget in server.js). Light pieces trade health for speed, heavy ones the reverse.
+    ['cloak', "Hunter's Cloak", 'cloak', 7.5, 36, 1.08], ['tabard', 'Sentry Tabard', 'tabard', 6, 68], ['carapace', 'Carapace', 'shell', 5.2, 84, 0.97], ['thornhide', 'Thornhide', 'thorn', 4.6, 80, 1, 3],
+    ['runed', 'Runed Vestments', 'runic', 3.6, 86, 1.06], ['ironbark', 'Ironbark Plate', 'timber', 3.2, 128, 0.95], ['cairn', 'Cairn Plate', 'stone', 2.2, 182, 0.9], ['quillhide', 'Quillhide Mail', 'quill', 2, 135, 0.97, 6],
+    ['shroud', 'Gravewalker Shroud', 'shroud', 1.6, 100, 1.1], ['emberforge', 'Emberforge Plate', 'ember', 0.5, 265, 0.95, 8],
   ];
   // Tiers 0-5 are named: 0 common, 1 uncommon, 2 rare, 3 mythic, 4 legendary, 5 transcendent. Dropped items are tiers 1-5 (by drop chance); tier 0 is the base items the crafting bench can make.
   const TIER_NAMES = ['common', 'uncommon', 'rare', 'mythic', 'legendary', 'transcendent'];
@@ -35,9 +39,10 @@
     WEAPONS[k] = { name, attack, family, chance, tier: tierOf(chance) };
     ITEMS['w:' + k] = { key: 'w:' + k, type: 'weapon', name, attack, family, chance, tier: tierOf(chance), tierN: TIER_N[tierOf(chance)], price: Math.round((attack * 3 + 20) / 5) * 5 };
   }
-  for (const [k, name, family, chance, health, speed] of A) {
+  for (const [k, name, family, chance, health, speed, thorns] of A) {
     ARMOR[k] = { name, health, family, chance, tier: tierOf(chance) };
     ITEMS['a:' + k] = { key: 'a:' + k, type: 'armor', name, health, family, chance, tier: tierOf(chance), tierN: TIER_N[tierOf(chance)], price: Math.round((health * 1.4 + 10) / 5) * 5 };
+    if (thorns) ARMOR[k].thorns = ITEMS['a:' + k].thorns = thorns;   // ARMOUR-3
     if (speed) ARMOR[k].speed = ITEMS['a:' + k].speed = speed;   // ARMOUR-2: movement multiplier while worn (missing = 1)
   }
   // ---- TIER 0 base items: what the crafting bench can make for everyone without unlocking anything from the knowledge tree. Never dropped (chance 0).
@@ -53,7 +58,8 @@
   }
   // Higher-tier recipes unlock through the knowledge tree (tier N needs KNOWLEDGE_TIERS[N-1] knowledge).
   // ARMOUR-2: some of the new armours can be built at the workbench (the rest are loot, merchant stock and the vault relic).
-  for (const [key, tier, cost] of [['a:swiftwrap', 1, { cloth: 3, string: 2 }], ['a:bonemail', 1, { bone: 5, string: 2 }], ['a:furmantle', 1, { leather: 3, cloth: 2, string: 1 }], ['a:scrapplate', 2, { metal: 4, leather: 2, string: 1 }], ['a:lamellar', 3, { metal: 5, leather: 3, string: 2 }]])
+  for (const [key, tier, cost] of [['a:swiftwrap', 1, { cloth: 3, string: 2 }], ['a:bonemail', 1, { bone: 5, string: 2 }], ['a:furmantle', 1, { leather: 3, cloth: 2, string: 1 }], ['a:scrapplate', 2, { metal: 4, leather: 2, string: 1 }], ['a:lamellar', 3, { metal: 5, leather: 3, string: 2 }],
+    ['a:cloak', 1, { leather: 3, cloth: 2, string: 1 }], ['a:tabard', 2, { cloth: 3, metal: 3, string: 1 }], ['a:carapace', 2, { bone: 5, leather: 2, string: 2 }], ['a:thornhide', 2, { wood: 4, leather: 2, string: 2 }], ['a:runed', 3, { cloth: 4, crystal: 1, string: 2 }], ['a:ironbark', 3, { wood: 6, metal: 3, leather: 2 }]])
     RECIPES.push({ id: 'r:' + key, out: key, tier, cost, needs: [20, 40, 60, 80, 100][tier - 1] });   // the values of KNOWLEDGE_TIERS below
   // class items (start-only, never dropped)
   WEAPONS.staff = { name: 'Gnarled Staff', attack: 0, family: 'staff', chance: 0, tier: 'rare' };
@@ -111,8 +117,23 @@
   const FAMILY_PARTS = { club: { wood: 3, bone: 1 }, dagger: { metal: 2, leather: 1 }, sword: { metal: 4, leather: 1 }, bow: { wood: 3, string: 2 }, axe: { metal: 3, wood: 2 }, spear: { wood: 3, metal: 2 }, mace: { metal: 3, wood: 2, bone: 1 },
     crossbow: { wood: 3, metal: 2, string: 2 }, flail: { metal: 3, wood: 2, leather: 1 }, halberd: { wood: 3, metal: 3, cloth: 1 }, hammer: { metal: 4, wood: 2 }, staff: { wood: 3, crystal: 1, cloth: 1 }, scepter: { gold: 3, gem: 1 } };
   const TIER_MULT = { common: 0.5, uncommon: 1, rare: 1.5, mythic: 2, legendary: 3, transcendent: 5 };
+  // ARMOUR-3: what each armour family breaks into; the tier multiplier and the gold/gem/crystal bonuses are the weapons' (same tail).
+  const ARMOR_PARTS = { cloth: { cloth: 3, string: 1 }, leather: { leather: 3, string: 1 }, mail: { metal: 4, leather: 1 }, harness: { leather: 3, metal: 2 }, plate: { metal: 5, leather: 1 },
+    light: { cloth: 2, string: 2 }, bone: { bone: 4, string: 1 }, fur: { leather: 2, cloth: 2, bone: 1 }, scrap: { metal: 3, leather: 1 }, spiked: { metal: 3, leather: 2 }, lamellar: { leather: 3, metal: 3 }, bulwark: { metal: 6 }, gilded: { metal: 4, gold: 2 },
+    cloak: { cloth: 2, leather: 1 }, tabard: { cloth: 2, metal: 2 }, shell: { bone: 4, leather: 1 }, thorn: { wood: 3, leather: 1, string: 1 }, runic: { cloth: 3, crystal: 1 }, timber: { wood: 5, leather: 1 }, stone: { metal: 3, bone: 2 },
+    quill: { leather: 2, bone: 3 }, shroud: { cloth: 3, bone: 1, crystal: 1 }, ember: { metal: 4, crystal: 1, gold: 1 } };
+  function armorYield(it) {
+    const base = ARMOR_PARTS[it.family]; if (!base || it.tier === 'common') return null;   // bench-craftable common armour never recycles (no craft loops)
+    const m = (TIER_MULT[it.tier] || 1) * 0.5, out = {};   // armour returns half what a weapon of its tier does, so a recycle never beats the recipe
+    for (const k in base) out[k] = Math.max(1, Math.round(base[k] * m));
+    if (it.tier === 'mythic') out.gold = (out.gold || 0) + 1;
+    if (it.tier === 'legendary') { out.gold = (out.gold || 0) + 2; out.gem = (out.gem || 0) + 1; }
+    if (it.tier === 'transcendent') { out.gold = (out.gold || 0) + 5; out.gem = (out.gem || 0) + 3; out.crystal = (out.crystal || 0) + 2; }
+    return out;
+  }
   function recycleYield(key) {   // -> { part: amount } for a weapon key, or null if the item cannot be recycled (armour is not recyclable yet)
     const it = ITEMS[key]; if (it && it.scrap) return { ...it.scrap };   // UTILITY: utility items break down into one or two parts
+    if (it && it.type === 'armor') return armorYield(it);   // ARMOUR-3: armour breaks down too (class robes are not recyclable)
     if (!it || it.type !== 'weapon') return null;
     const base = FAMILY_PARTS[it.family] || { metal: 2 }, m = TIER_MULT[it.tier] || 1, out = {};
     for (const k in base) out[k] = Math.max(1, Math.round(base[k] * m));
@@ -172,7 +193,10 @@
     return { dmg: w ? Math.max(1, w.attack) : COMBAT.unarmed, range: t.range || (isR ? COMBAT.ranged : COMBAT.melee), cd: t.cd || (w ? (SWING_CD[fam] || 600) : 500), ranged: isR };
   }
   const armorSpeed = key => { const it = key && ITEMS[key]; return (it && it.speed) || 1; };   // ARMOUR-2: movement multiplier of the worn armour
+  const armorThorns = key => { const it = key && ITEMS[key]; return (it && it.thorns) || 0; };   // ARMOUR-3: damage a melee attacker takes back
+  // ARMOUR-3: one number for 'which armour is better' that bots use: health, adjusted for speed (1% speed ~ 2% health) and thorns (1 point ~ 6 health).
+  const armorScore = key => { const it = key && ITEMS[key]; return it && it.type === 'armor' ? it.health * (1 + 2 * ((it.speed || 1) - 1)) + (it.thorns || 0) * 6 : 0; };
   const MAX_ARMOR_SPEED = Math.max(1, ...Object.values(ITEMS).map(i => i.speed || 1));
-  root.GKITEMS = { UTIL_KEYS, pickUtil, armorSpeed, MAX_ARMOR_SPEED, randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, WEAPON_TUNE, START, KNOWLEDGE, SPEED, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info };
+  root.GKITEMS = { UTIL_KEYS, pickUtil, armorSpeed, armorThorns, armorScore, MAX_ARMOR_SPEED, randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, WEAPON_TUNE, START, KNOWLEDGE, SPEED, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.GKITEMS;
 })(typeof window !== 'undefined' ? window : globalThis);
