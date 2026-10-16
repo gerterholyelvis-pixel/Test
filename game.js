@@ -1004,6 +1004,7 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
   }
   const armorProtos = new Map();
   function weaponModel(key) {   // fresh Object3D for any item key ('w:axe', 'a:chain', ...), a family name or a legacy chest index; built along +y, ~1.5 m tall
+    if (window.GKART) { const gm = GKART.model(key); if (gm) return gm; }   // ITEMART: custom sculpted model (itemart.js); the code below is the fallback
     if (typeof key === 'number') key = LEGACY_KEYS[key] || 'w:sword';
     let it = itemOf(key) || itemOf('w:' + key);
     if (!it) it = { type: 'weapon', family: FAM[String(key).replace(/^w:/, '')] != null ? String(key).replace(/^w:/, '') : 'sword', tier: 'common' };
@@ -4102,5 +4103,6 @@ GK.skipMenu = () => {   // for tests: straight into the rooms, with the title me
   const mn = $('menu'); if (mn) mn.classList.add('gone'); document.body.classList.remove('menu');
   GK.mode = 'play'; GK.start().then(() => { net.send({ enter: 1 }); GK.showStats(); });
 };
+if (window.GKART) requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => GKART.bake(renderer), 600)));   // ITEMART: bake the inventory icons in small batches once the first frame is up
 window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw, pitch) { P.x = x; P.z = z; P.yaw = yaw; P.pitch = pitch || 0; spawned = true; }, toggleOverview() { inside = !inside; }, build: buildGoblin };
 })();
