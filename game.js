@@ -3461,7 +3461,7 @@ function invAll(inv) { return [inv.weapon, inv.armor, ...inv.backpack, ...inv.qu
 // ---------- networking (real server, or a local simulation for the offline demo) ----------
 function makeNet(opts) {   // opts.goblin: play this goblin type (a saved character) instead of rolling one
   if (!window.GK_OFFLINE) {
-    const ws = new WebSocket(funUrl((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + (opts && opts.goblin != null ? '/?goblin=' + (opts.goblin | 0) + '&wins=' + (Math.max(0, (opts.wins | 0))) : (opts && opts.wins ? '/?wins=' + (opts.wins | 0) : ''))));
+    let ws = new WebSocket(funUrl((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + (opts && opts.goblin != null ? '/?goblin=' + (opts.goblin | 0) + '&wins=' + (Math.max(0, (opts.wins | 0))) : (opts && opts.wins ? '/?wins=' + (opts.wins | 0) : ''))));
     let lastM = '', lastMT = 0;   // NET: my position goes out only when it changed (plus a 1 s keepalive); attacks carry the server time I was seeing
     const net = { send: m => {
       if (ws.readyState !== 1) return;
@@ -3470,9 +3470,11 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
       ws.send(JSON.stringify(m));
     }, onmessage: null };
     const ping = () => ws.readyState === 1 && ws.send(JSON.stringify({ ping: performance.now() }));
-    ws.onopen = ping; setInterval(ping, 2000);   // NET: RTT and clock offset
-    ws.onmessage = e => { let d; try { d = JSON.parse(e.data); } catch (err) { return; } net.onmessage && net.onmessage(d); };
-    ws.onclose = () => { const m = document.getElementById('me'); if (m) m.textContent = 'Disconnected - reload to rejoin'; /* FEEL-BEGIN */ if (GK.feel) GK.feel.onClose(); /* FEEL-END */ };
+    setInterval(ping, 2000);   // NET: RTT and clock offset
+    const wire = w => { w.onopen = ping; w.onmessage = e => { let d; try { d = JSON.parse(e.data); } catch (err) { return; } net.onmessage && net.onmessage(d); }; w.onclose = () => { if (w !== ws) return; onClose(); }; };
+    GK.social.attach({ state: () => ws.readyState, drop: () => ws.close(), reopen: tk => { lastM = ''; ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/?token=' + encodeURIComponent(tk)); wire(ws); } });   // SOCIAL: reconnect with the token
+    const onClose = () => { if (GK.social.onClose()) return; const m = document.getElementById('me'); if (m) m.textContent = 'Disconnected - reload to rejoin'; /* FEEL-BEGIN */ if (GK.feel) GK.feel.onClose(); /* FEEL-END */ };
+    wire(ws);
     return net;
   }
   const roll = () => { const r = Math.random() * 100; return r < 30 ? 0 : r < 60 ? 1 : r < 90 ? 2 : r < 99 ? 3 : 4; };
@@ -3728,6 +3730,7 @@ const handleMsg = d => { handleMsg0(d); /* MATCH */ if (GK.matchOnMsg) GK.matchO
 const handleMsg0 = d => {
   if (d.s) return netSnap(d.s);   // NET: fast position snapshots (hot path)
   if (d.pong != null) return netPong(d);
+  if (d.emote || d.token || d.resumed || d.resumeFail) SOC.onMsg(d);   // SOCIAL
   if (d.fix) NETC.fix = d.fix;
   /* FEEL-BEGIN */ if (GK.feel) GK.feel.onMsg(d); /* FEEL-END */
   if (d.layout) applyLayout(d.layout, d.mystery);
@@ -3765,7 +3768,7 @@ const handleMsg0 = d => {
       actors.set(p.id, a);
       if (p.id === me) spawned = false;
     }
-    a.box = p.box; combatSync(a, p); vmGear(a, p); GA.gear(a, p); UNIQUE.sync(a, p);   // positions of existing goblins come from the snapshots (NET), not from this slow list
+    a.box = p.box; combatSync(a, p); vmGear(a, p); GA.gear(a, p); UNIQUE.sync(a, p); SOC.sync(a, p);   // positions of existing goblins come from the snapshots (NET), not from this slow list
     if (p.id === me && !spawned) { P.x = p.x; P.z = p.z; P.yaw = p.yaw; P.pitch = 0; a.x = p.x; a.z = p.z; spawned = true; }
   }
   const mine = actors.get(me);
@@ -5762,6 +5765,141 @@ function vmPose3(a, u) {   // arm/torso pose for one swing frame; combatTick res
 function vmEnd3(a, u) { const arm = u.arms[1]; arm.rotation.z = 0; arm.userData.el.rotation.x = 0; u.arms[0].userData.el.rotation.x = 0; }
 GK.vm = { state: VM, setWeapon(key) { if (typeof myInv === 'object') { myInv.weapon = key; invReady = true; } return key; }, swing: () => combatSwing(), tracers: VM.tracers };   // GK.vm.setWeapon is a test hook: local equip without the server
 // VIEWMODEL-END
+// SOCIAL-BEGIN (reconnect grace overlay + auto-retry, "disconnected" icon, goblin emotes on keys 4-7; see docs/reports/social.md)
+const SOC = (() => {
+  const S = { token: null, net: null, rc: null, unloading: false, lastEmote: 0 };
+  const EM = [{ name: 'Taunt', icon: '\u{1F624}', snd: 'emoteTaunt', dur: 1.7 }, { name: 'Laugh', icon: '\u{1F602}', snd: 'emoteLaugh', dur: 1.8 }, { name: 'Point', icon: '\u{1F449}', snd: 'emotePoint', dur: 1.5 }, { name: 'Dance', icon: '\u{1F3B5}', snd: 'emoteDance', dur: 2.6 }];
+  const KEYS = { Digit4: 0, Digit5: 1, Digit6: 2, Digit7: 3 }, BUBBLE_S = 2;
+  const sm = (a, b, x) => { const k = Math.min(1, Math.max(0, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
+  const mx = (o, p, v, e) => { o[p] += (v - o[p]) * e; };   // blend a joint toward the emote pose
+  const now = () => performance.now() / 1000;
+  try { S.token = sessionStorage.getItem('gk.token'); } catch (e) {}
+  addEventListener('beforeunload', () => { S.unloading = true; });
+  // ---- icon sprites (one texture per emote, one for the disconnected icon; sprites are created per goblin on demand)
+  const texes = {};
+  const bubbleTex = (key, draw) => {
+    if (texes[key]) return texes[key];
+    const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
+    g.fillStyle = 'rgba(250,246,232,.96)'; g.strokeStyle = '#1a1208'; g.lineWidth = 6; g.beginPath(); g.roundRect ? g.roundRect(8, 8, 112, 90, 22) : g.rect(8, 8, 112, 90); g.fill(); g.stroke();
+    g.beginPath(); g.moveTo(44, 96); g.lineTo(58, 122); g.lineTo(72, 96); g.closePath(); g.fill(); g.stroke(); g.fillRect(48, 92, 20, 8);
+    draw(g); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return texes[key] = t;
+  };
+  const emoTex = n => bubbleTex('e' + n, g => { g.font = '66px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#000'; g.fillText(EM[n].icon, 64, 56); });
+  const dcTex = () => bubbleTex('dc', g => {   // a crossed-out signal: three arcs and a red slash
+    g.strokeStyle = '#2a2a2a'; g.lineWidth = 8; g.lineCap = 'round';
+    for (let i = 1; i <= 3; i++) { g.beginPath(); g.arc(64, 78, 14 * i, Math.PI * 1.22, Math.PI * 1.78); g.stroke(); }
+    g.fillStyle = '#2a2a2a'; g.beginPath(); g.arc(64, 78, 6, 0, 7); g.fill();
+    g.strokeStyle = '#e02a1a'; g.lineWidth = 10; g.beginPath(); g.moveTo(34, 24); g.lineTo(94, 80); g.stroke();
+  });
+  function sprite(a, key) {   // lazily add a sprite to the goblin's group
+    const u = a.group.userData; if (a[key]) return a[key];
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthWrite: false, toneMapped: false })); s.renderOrder = 6; s.visible = false;
+    s.position.y = (u.label ? u.label.position.y : 2) + 0.5; a.group.add(s); return a[key] = s;
+  }
+  // ---- emotes
+  function play(a, n, mine) {   // start emote n on actor a (sound, bubble, pose clock)
+    if (!a || !EM[n]) return;
+    const t = now(); a.em = { n, t0: t }; a.emB = t;
+    const s = sprite(a, 'emoSpr'); s.material.map = emoTex(n); s.material.needsUpdate = true; s.visible = true;
+    snd(EM[n].snd, mine ? { vol: 0.9 } : { x: a.x, z: a.z, vol: 0.9 });
+  }
+  function pose(a, u, t) {   // called every frame per goblin after GA.anim: overlay the emote on the head, ears, arms and torso
+    const em = a.em; if (!em) return;
+    const tt = t - em.t0, D = EM[em.n].dur;
+    if (tt >= D) { a.em = null; }
+    else {
+      const k = tt / D, e = sm(0, 0.12, k) * (1 - sm(0.85, 1, k)), L = u.arms[0], R = u.arms[1], rig = u.rig, hd = u.head, to = u.torso, hu = u.hunch || 0;
+      if (em.n === 0) {   // taunt: both fists thump the chest, chin up
+        const b = Math.abs(Math.sin(tt * 11));
+        for (const [A, s] of [[L, 1], [R, -1]]) { mx(A.rotation, 'x', -0.7 - 0.3 * b, e); mx(A.rotation, 'z', s * 0.45, e); mx(A.userData.el.rotation, 'x', -2.1, e); }
+        mx(to.rotation, 'x', hu - 0.3 + 0.08 * b, e); mx(hd.rotation, 'x', -0.4, e); mx(hd.rotation, 'y', 0, e); rig.position.y += 0.03 * b * e;
+      } else if (em.n === 1) {   // laugh: belly shakes, head thrown back, ears flap, hands on the belly
+        const s = Math.sin(tt * 24);
+        mx(to.rotation, 'x', hu - 0.2 + 0.1 * s, e); mx(hd.rotation, 'x', -0.55 + 0.08 * s, e); mx(hd.rotation, 'y', 0, e); rig.position.y += Math.abs(s) * 0.04 * e;
+        for (const [A, sg] of [[L, 1], [R, -1]]) { mx(A.rotation, 'x', -0.45, e); mx(A.rotation, 'z', sg * 0.2, e); mx(A.userData.el.rotation, 'x', -1.5 + 0.1 * s, e); }
+        u.earL.rotation.z += 0.35 * s * e; u.earR.rotation.z -= 0.35 * s * e;
+      } else if (em.n === 2) {   // point: right arm straight out, poking, left hand on the hip, a stern look
+        const p = Math.sin(tt * 9) * 0.1;
+        mx(R.rotation, 'x', -1.5 + p, e); mx(R.rotation, 'z', 0.05, e); mx(R.userData.el.rotation, 'x', -0.08, e);
+        mx(L.rotation, 'z', -0.55, e); mx(L.userData.el.rotation, 'x', -1.7, e); mx(to.rotation, 'y', -0.25, e); mx(hd.rotation, 'y', 0.2, e); mx(hd.rotation, 'x', 0.05 + p * 0.3, e);
+      } else {   // dance: a little jig, arms alternate up and down, hips swing
+        const w = tt * 8.5, sn = Math.sin(w);
+        rig.position.y += Math.abs(sn) * 0.1 * e; mx(rig.rotation, 'z', sn * 0.14, e); mx(rig.rotation, 'y', Math.sin(w * 0.5) * 0.5, e);
+        mx(L.rotation, 'x', -1.1 - sn * 0.7, e); mx(L.rotation, 'z', -0.7, e); mx(R.rotation, 'x', -1.1 + sn * 0.7, e); mx(R.rotation, 'z', 0.7, e);
+        mx(L.userData.el.rotation, 'x', -0.5, e); mx(R.userData.el.rotation, 'x', -0.5, e);
+        mx(to.rotation, 'y', sn * 0.4, e); mx(hd.rotation, 'z', sn * 0.25, e); mx(hd.rotation, 'x', -0.1, e);
+        mx(u.legs[0].rotation, 'x', sn * 0.7, e); mx(u.legs[1].rotation, 'x', -sn * 0.7, e);
+      }
+    }
+  }
+  function bubble(a, u, t) {   // the speech-bubble icon: pops in, bobs, fades out after BUBBLE_S seconds
+    const s = a.emoSpr, tt = t - a.emB;
+    if (tt >= BUBBLE_S) { s.visible = false; a.emB = 0; return; }
+    const pop = 0.55 * (tt < 0.18 ? 1.25 * Math.sin(tt / 0.18 * Math.PI / 2) : 1.25 - 0.25 * sm(0.18, 0.35, tt));
+    s.scale.set(pop, pop, 1); s.material.opacity = 1 - sm(BUBBLE_S - 0.4, BUBBLE_S, tt); s.position.y = (u.label ? u.label.position.y : 2) + 0.5 + 0.04 * Math.sin(tt * 5);
+  }
+  function actor(a, u, id, t) {   // hook: per goblin per frame
+    if (a.dc !== a.dcShown) { a.dcShown = a.dc; const s = sprite(a, 'dcSpr'); s.material.map = dcTex(); s.material.needsUpdate = true; s.scale.set(0.55, 0.55, 1); s.material.opacity = 1; s.visible = !!a.dc; }
+    if (a.dc && a.dcSpr) a.dcSpr.position.y = (u.label ? u.label.position.y : 2) + 0.5 + 0.03 * Math.sin(t * 3);
+    if (a.em) pose(a, u, t);
+    if (a.emB) bubble(a, u, t);
+  }
+  function fp(t) {   // hook: after vmUpdate: my viewmodel hand does a matching small gesture
+    const a = actors.get(me), em = a && a.em; if (!em || !VM.root.visible) return;
+    const tt = t - em.t0, D = EM[em.n].dur; if (tt >= D) return;
+    const k = tt / D, e = sm(0, 0.12, k) * (1 - sm(0.85, 1, k)), r = VM.root;
+    if (em.n === 0) { const b = Math.abs(Math.sin(tt * 11)); r.position.x -= 0.18 * e; r.position.y += (0.16 + 0.03 * b) * e; r.rotation.x += (0.5 + 0.12 * b) * e; r.rotation.z += 0.3 * e; }
+    else if (em.n === 1) { const s = Math.sin(tt * 24); r.position.y += (0.05 + 0.02 * s) * e; r.position.x -= 0.06 * e; r.rotation.z += 0.08 * s * e; r.rotation.x += 0.15 * e; }
+    else if (em.n === 2) { const p = Math.sin(tt * 9) * 0.03; r.position.x -= 0.12 * e; r.position.y += 0.12 * e; r.position.z += (-0.18 + p) * e; r.rotation.x += 0.6 * e; }
+    else { const w = tt * 8.5; r.position.x += Math.sin(w) * 0.1 * e; r.position.y += (0.05 + Math.abs(Math.sin(w)) * 0.06) * e; r.rotation.z += Math.sin(w) * 0.25 * e; r.rotation.y += Math.sin(w * 0.5) * 0.2 * e; }
+  }
+  addEventListener('keydown', e => {   // keys 4-7 (no other handler uses Digit4..Digit7)
+    const n = KEYS[e.code]; if (n === undefined || e.repeat || e.ctrlKey || e.altKey || e.metaKey || GK.mode !== 'play' || invOpen || shopOpen || S.rc) return;
+    const a = actors.get(me), t = now(); if (!a || !spawned || t - S.lastEmote < 1) return;
+    S.lastEmote = t; play(a, n, true); net.send({ emote: n });
+  });
+  // ---- reconnect
+  let ov = null;
+  function overlay(head, text, menu) {
+    if (!ov) { ov = document.createElement('div'); ov.id = 'gkLost'; document.body.appendChild(ov); try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {} }
+    ov.innerHTML = '<div class="c"><h2></h2><p></p><div class="r"><button class="no" id="gkSocMenu">Main menu</button></div></div>';
+    ov.querySelector('h2').textContent = head; ov.querySelector('p').textContent = text; const b = ov.querySelector('.r'); if (!menu) b.style.display = 'none'; else document.getElementById('gkSocMenu').onclick = () => location.reload();
+  }
+  function stopRc() { if (S.rc) { clearInterval(S.rc.timer); } if (ov) { ov.remove(); ov = null; } }
+  function fail() {
+    if (S.rc) { clearInterval(S.rc.timer); S.rc.done = true; }
+    overlay('Connection lost', 'Could not get back into the match.', true); snd('deny');
+  }
+  function startRc() {
+    const rc = S.rc = { t0: performance.now(), last: -1e9, done: false };
+    const step = () => {
+      if (rc.done) return; const el = performance.now() - rc.t0, left = Math.ceil((15000 - el) / 1000);
+      if (left <= 0) return fail();
+      overlay('Connection lost', 'Reconnecting… ' + left, false);
+      if (el - rc.last >= 2000 && S.net && S.net.state() >= 2) { rc.last = el; S.net.reopen(S.token); }
+    };
+    rc.timer = setInterval(step, 500); step();
+  }
+  return {
+    attach: n => { S.net = n; },
+    onClose() {   // makeNet: the socket closed. true = handled here (a reconnect is running)
+      if (S.unloading) return true;
+      if (S.rc) return true;
+      if (!S.token || GK.mode !== 'play') return false;
+      startRc(); return true;
+    },
+    onMsg(d) {
+      if (d.token) { S.token = d.token; try { sessionStorage.setItem('gk.token', d.token); } catch (e) {} }
+      if (d.resumed && S.rc) { stopRc(); S.rc = null; toastMsg && toastMsg('Reconnected', true); }
+      if (d.resumeFail && S.rc && !S.rc.done) fail();
+      if (d.emote) { const a = actors.get(d.emote.id); if (a && d.emote.id !== me) play(a, d.emote.n, false); }
+    },
+    sync: (a, p) => { a.dc = !!p.dc; },
+    actor, fp, play, drop: () => { S.net && S.net.drop(); }, names: EM.map(x => x.name), state: S
+  };
+})();
+GK.social = SOC;
+// SOCIAL-END
 function frame(now) {
   const dt = clamp((now - last) / 1000, 0.001, 0.05); last = now; const t = now / 1000;
   if (GK.mode !== 'play' && GK.mode !== 'dead' && GK.mode !== 'win') { vmHide(); GK.menu && GK.menu.render(now, dt); requestAnimationFrame(frame); return; }
@@ -5830,6 +5968,7 @@ function frame(now) {
     const walk = clamp(a.speed / 3.5, 0, 1); a.phase += dt * a.speed * 2.3;
     GA.anim(a, u, id, t, dt, walk);   // GOBLINART: waddle, breathing, ear twitch, flinch, gear
     UNIQUE.actor(a, u, id, t);   // UNIQUE: knowledge glow, brain aura, king marker
+    SOC.actor(a, u, id, t);   // SOCIAL: emote pose, bubble, disconnected icon
   }
   GA.tick(dt);   // GOBLINART: death slumps
   UNIQUE.tick();   // UNIQUE: panel flash
@@ -5847,6 +5986,7 @@ function frame(now) {
     cam.fov = 50; cam.position.set(Math.sin(orbit) * dist, dist * 0.7, Math.cos(orbit) * dist); cam.lookAt(0, 0, 0);
   }
   vmUpdate(dt, t, mine);   // VIEWMODEL
+  SOC.fp(t);   // SOCIAL: first-person emote gesture
   cam.updateProjectionMatrix();
   merchantHoverTick();
   renderWorld(t);
