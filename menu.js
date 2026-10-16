@@ -46,7 +46,7 @@ $('s-fx').onchange = e => { GK.settings.fx = e.target.checked; GK.applySettings(
 // FULLSCREEN-BEGIN (fullscreen toggle, title-screen button, F key, 'start in fullscreen' option)
 const fsEl = document.documentElement;
 const fsOn = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
-function fsSet(on) {   // must run inside a user gesture (click / keydown)
+let fsSet = function (on) {   // must run inside a user gesture (click / keydown)
   try {
     if (on && !fsOn()) { const r = (fsEl.requestFullscreen || fsEl.webkitRequestFullscreen).call(fsEl, { navigationUI: 'hide' }); r && r.catch && r.catch(() => fsSync()); }
     else if (!on && fsOn()) { const r = (document.exitFullscreen || document.webkitExitFullscreen).call(document); r && r.catch && r.catch(() => fsSync()); }
@@ -69,6 +69,24 @@ addEventListener('keydown', e => {   // F in play (no other handler in game.js /
   if (e.code === 'KeyF' && !e.repeat && !e.ctrlKey && !e.altKey && !e.metaKey && GK.mode === 'play') { e.preventDefault(); fsSet(!fsOn()); }
 });
 GK.fullscreen = { on: fsOn, set: fsSet };
+// Sticky fullscreen: remember the wish and take it back on the next gesture when the browser dropped it unprompted
+// (page reloads between screens, Esc leaving pointer lock + fullscreen together, focus loss). Always the document element.
+const fsWishGet = () => { try { return localStorage.getItem('gk.fsWish') === '1'; } catch (e) { return false; } };
+const fsWishSet = v => { try { localStorage.setItem('gk.fsWish', v ? '1' : '0'); } catch (e) {} };
+let fsHeldEsc = 0, fsTry = 0;
+const fsSetOrig = fsSet;
+fsSet = function (on) { fsWishSet(on); fsSetOrig(on); }; GK.fullscreen.set = fsSet;   // explicit user toggles (F, button, checkbox, Start) update the wish
+function fsKeyLock() { try { if (fsOn() && navigator.keyboard && navigator.keyboard.lock) navigator.keyboard.lock(['Escape']).catch(() => {}); else if (!fsOn() && navigator.keyboard && navigator.keyboard.unlock) navigator.keyboard.unlock(); } catch (e) {} }   // Esc stays with the game (closes panels, keeps fullscreen); holding it still leaves
+document.addEventListener('fullscreenchange', fsKeyLock); document.addEventListener('webkitfullscreenchange', fsKeyLock);
+addEventListener('keydown', e => { if (e.code === 'Escape' && e.repeat) fsHeldEsc = performance.now(); }, true);
+document.addEventListener('fullscreenchange', () => { if (!fsOn() && performance.now() - fsHeldEsc < 2500) fsWishSet(false); });   // deliberate exit (held Esc) is respected
+function fsRetake(e) {
+  if (fsOn() || !fsWishGet() || e.isTrusted === false || e.code === 'Escape') return;
+  const t = performance.now(); if (t - fsTry < 800) return; fsTry = t;
+  fsSetOrig(true);
+}
+addEventListener('pointerdown', fsRetake, true); addEventListener('keydown', fsRetake, true);
+if (GK.settings.fsStart && !fsWishGet()) fsWishSet(true);
 // FULLSCREEN-END
 $('s-gfx').onchange = e => { try { localStorage.setItem('gk.gfxAuto', 'user'); } catch (er) {} GK.settings.gfx = e.target.value; GK.settings.fx = e.target.value !== 'low'; syncUI(); GK.applySettings(); save(); };   // the preset also switches post effects (Low = none)
 $('s-reset').onclick = () => { Object.assign(GK.settings, DEFAULTS); syncUI(); GK.applySettings(); save(); };
