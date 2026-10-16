@@ -670,7 +670,7 @@ wss.on('connection', (ws, req) => {
     if (p.dead || !d || typeof d !== 'object') return;
     const dbg = !!process.env.GK_DEBUG;
     /* MATCH-BEGIN */ if (d.cancel === 1) { if (m.phase === 'queue') { leave(m, ws); ws.close(); } return; }
-    if (d.ready === 1) { p.ready = true; if (m.phase === 'loading' && [...m.players.values()].every(q => q.ready)) beginCountdown(m); return; }
+    if (d.ready === 1) { p.ready = true; if (m.phase === 'loading') { const all = [...m.players.values()]; bcast(m, { readyN: { n: all.filter(q => q.ready).length, size: all.length } }); if (all.every(q => q.ready)) beginCountdown(m); } return; }   // readyN: how many goblins are ready (the loading screen shows it)
     if (!m.goAt || now < m.goAt) { if (d.m || d.atk === 1 || d.claim === 1 || d.sel !== undefined) return; }   // movement, attacks, claims and door picks are locked until GO
     /* MATCH-END */
     if (Array.isArray(d.m) && d.m.length === 3 && d.m.every(v => typeof v === 'number' && Number.isFinite(v))) { applyMove(m, ws, p, d.m[0], d.m[1], d.m[2], now);

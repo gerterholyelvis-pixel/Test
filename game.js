@@ -5842,7 +5842,7 @@ function mqBegin(offlineMode) {   // the match formed and the world is built: wa
   if (MQ.began) return; MQ.began = true; GK.locked = true;
   if (GK.menu && GK.menu.queueDone) GK.menu.queueDone();
   const go = () => { mqEnterWorld(); setTimeout(() => { net.send({ ready: 1 }); if (offlineMode) mqCountdown({ at: Date.now() + 3000, now: Date.now() }); }, 350); };
-  if (GK.menu && GK.menu.whenRevealed) GK.menu.whenRevealed(go, 6000); else go();
+  if (GK.menu && GK.menu.whenRevealed) GK.menu.whenRevealed(go, 7000, 1500); else go();
 }
 function mqEl() {
   if (MQ.el) return MQ.el;
@@ -5879,6 +5879,7 @@ GK.matchOnMsg = d => {   // called by handleMsg after it has processed a message
   if (d.queue) { mqResolve(d.goblin); if (GK.menu && GK.menu.queue) GK.menu.queue(d.queue.n, d.queue.size, d.queue.since); }
   if (d.matchStart) { mqResolve(((d.matchStart.players || []).find(p => p.id === d.matchStart.you) || {}).goblin); mqBegin(false); }
   if (d.countdown) mqCountdown(d.countdown);
+  if (d.readyN && GK.menu && GK.menu.ready) GK.menu.ready(d.readyN.n, d.readyN.size);
 };
 function mqOffline() {   // offline mode: hold the simulation's messages back, fake a ~2 s queue, then start like the server would
   const held = [], latest = {}; let flushed = false, n = 1, offId = 0;
