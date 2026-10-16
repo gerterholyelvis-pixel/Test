@@ -1,0 +1,33 @@
+# vb5.js: the four vaultbreaker heists (pure logic) and the server wiring notes
+
+`vb5.js` (UMD: `require('./vb5.js')` / `window.VB5`) implements PLAN-5x5-rooms section 4 on top of `activity.js` (merged from `worktree-agent-a100756f931b996f9`). No I/O, no timers, no `Date.now()`/`Math.random()`: the glue passes `ctx.now` and `ctx.rng`. All state is plain JSON (`_` keys are private/secret). Tests: `tests/vb5.test.js` (31 cases, fake glue, seeded RNG). Owner decision applied: the Ram is defended by a placeable barricade, body-blocking does nothing; the crown has no instant win (not this module).
+
+## Design in one paragraph
+State lives **per type** (`H.st[type]`), the manager `H` (one per match, `VB5.create`) maps cells to types and owns what persists: `H.breach[doorId]`, the per-goblin `limits`, the wedge ledger. The four specs are registered with `ACT.def` (`ram`, `locksmith`, `counting`, `keystone`, kind `vb`), so the generic `act` dispatcher works, but the wrappers `VB5.verb/tick/hurt/leave/died` add `H`, `cell` and the cell's vault `door` to the ctx. At each round boundary `roundBoundary` rekeys (resets machines, converts sacks), decays breach by 20, rolls limits, then applies the pre-rolled derangement.
+
+## What the glue must supply (ctx)
+`now, rng`, `a` (the anchor id of the message; `arg` = the `x` argument), `player(id)`, `occupants()` (alive goblins in this cell), `at(p, anchor)` (in the footprint; only used for the ram lane hazard), `spend(p, {gold,metal,elixir}, dry?)` (3rd arg true = check only; returns bool), `pay(p, gold)`, `hasItem/takeItem/giveItem(p, key)` (giveItem false = already holding one / full), `award(p, what, src)` (wrap `ACT.award`; vb rewards use `exempt:true`), `spawn(kind, anchorId, opts) -> npcId` (kinds `warden`, `wisp`; table `VB5.NPC`), `dmg(p, n, src)`, `push(p, 0, 2)` (lane-local sideways), `fx(kind, data, scope)`, `toastAll(text)`, `topClaimant()`, optional `doorLabel(doorId)`. Players: `p.lat` (smoothed latency, clamped to 120 ms by the judge), `p.carry`, `p.bot` + `p.skill` (bots' presses roll `0.45 + 0.3 * skill`).
+Item keys: `x:wedge, x:skeleton, x:goldleaf, x:runecharge, x:blank, x:crownseal` (`VB5.TOKENS`; the merger adds them to items.js, one slot, max 1, never sold) plus the existing `x:lockpick`.
+
+## Verbs (anchor / verb / x)
+- **Ram:** `B use x0|x1` crank a handle (opens a timing attempt, then `B tap`; `x2` slack the pawl, 1.5 s channel). `FL use` pull the lever (`x1` = spend a Rune Charge). `F buy x0|x1` place the barricade (2 metal or 10 elixir, 1.5 s channel, 60 hp, 20 s cooldown, one at a time); `F tap` chop it (10 hp, 0.7 s each; melee glue can call `VB5.hitBarricade`). `FR pick` take an Iron Wedge.
+- **Locksmith:** `L use x0|x1` grind a blank (2 metal / Iron Wedge, 3 s). `B use` open a pin attempt, `B tap` judge it. `B choose x0|x1|x2` cut (Lockpick / Skeleton Key / Fence; sudden: Crown Seal / n/a / Fence; 3 s channel). `B choose x9` jiggle (sabotage).
+- **Counting:** `B buy x0` writ (20/30/40, max 3), `x1` counter-writ (1.5x the next writ price, needs an uncancelled writ), `x2` bounty (sudden only, 30 +15 each). `R use` rob (`x1` with a Skeleton Key). `pick x=<sack id>` any anchor, within 1.8 m, picks up a dropped sack.
+- **Keystone:** `L|R|FL|FR use` light an unlit stone / feed a lit one; `choose x1` snuff. `B use` offer Gold Leaf. `stop` cancels channels everywhere.
+Failures use the framework strings (`room far busy cap cost item state cool carry`).
+
+## Hooks to call from server.js
+`VB5.hurt` from `actHurt`; `VB5.leave` from `actLeave` (a sack becomes gold on leaving the Counting House); `VB5.died(H, cell, victim, killer, ctx)` for a death in a vb room (drops the sack); `VB5.killed(H, killer, victim, ctx)` on **every** goblin kill (bounty payout); `VB5.onBribe(H, amount, now)` on every panel bribe (half into the strongbox); `VB5.npcGone(H, id)` when a warden/wisp dies; `VB5.wispSnuff(H, stoneId, ctx)` when a wisp has stood 2 s by a lit stone (`VB5.ksWispGoal` gives its target); `VB5.setSudden`, `VB5.wardActive(H, now)` (claims at half speed while armed), `VB5.quakeActive(H, now)` (claims frozen 3 s).
+
+## Round flow and state broadcast
+1. At the tally: `res = VB5.heistVotes(H, {sel, picked, bribes, bribeRule, vaultDoors, prevOpen, barred, alarm, sudden, now})` -> `{weights, extra, total, voted, fizzled, broken, open}`. `weights[roomKey] = 1 + picked + bribes (if rule) + keystone armed AT THE TALLY (that cell's room) + max(0, writs - counters) (the counting cell's room) + 1 if the picked door is Cracked`; total >= 2 opens every picked vault door (the 2-room rule, subsumed: one armed Keystone room is 2 alone), Broken doors always open, `barred` closes previously open (`prevOpen`) doors unless Broken, `alarm`/`sudden` open all four. `extra` is the part to add to the legacy `vaultVotes` per room.
+2. Then `VB5.roundBoundary(H, cell => ctxForCell)` (returns the new layout).
+3. `roundState` fields from `VB5.roundFields(H, now, msLeft)`: `vb {cell: type}`, `vbNext {cell: type}|null` (only when <= 15 s left or after `VB5.reveal(H)`, the Seer), `breach {doorId: 0..100}`, `armed [cell]`, `writs {cell: net}`.
+4. `actS` for a cell: `VB5.view(H, cell, now)` -> `{type, st}`; your own timing needle: `VB5.me(H, cell, id)` -> `{a, t0, per, wa, wb}`. Risk meter for the map/prop: `VB5.risk(H, cell, now)` -> `{kind: publicity|noise|alarm|resonance, v, max}`. The strongbox exact amount is `st.counting._box` (Hollow Oak whisper only); the public view shows `boxStage` 0..2.
+5. Bots: `VB5.botHint(H, cell, p, info)` -> `{score, next, maxStay: 45000}`; `next` is `{go}`, `{verb, a, x}` or null (leave).
+
+## Numbers chosen where the plan left them open
+Barricade cost/cooldown/hp above; ram strike power 8 per notch (a full strike 48 < barricade 60; overflow converts at 3 breach per 8 power); lane hazard 25 damage kept (a hazard, not a defence); a wedge drops once per door per threshold **per round** (stops decay-recross farming); strongbox capped at 300 (so interest cannot run away); max 4 sacks (160 gold) per robbery; Gold Leaf and writs/robbery are disabled or changed in sudden death as in the plan; cut limits: lockpick 1/round 2/match, skeleton 1/round, fence 3/round, crown seal 2/match; circuits pay 3 knowledge to lighters (2 circuits/round) and one Rune Charge (1/round).
+
+## Not done / merger notes
+No edits to server.js, world.js, game.js or items.js. Token item definitions, the `act` glue, anchors in world.js, the `vaultVotes` call (`extra` weights) and props/art are for the integrators. The glue must call the wrappers (not `ACT.verb` directly) so `H`/`cell`/`door` reach the specs, and must set `ctx.a`.
