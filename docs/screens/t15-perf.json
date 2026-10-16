@@ -1,0 +1,90 @@
+[
+ {
+  "fps": 60.1,
+  "msPerFrame": 16.65,
+  "maxFrameMs": 47.5,
+  "drawCallsPerFrame": 175.5,
+  "trisPerFrame": 87673,
+  "vfxUpdateMsPerFrame": 0.006,
+  "liveMax": 0,
+  "level": "low",
+  "stress": false
+ },
+ {
+  "fps": 60.1,
+  "msPerFrame": 16.64,
+  "maxFrameMs": 39.1,
+  "drawCallsPerFrame": 186.7,
+  "trisPerFrame": 98257,
+  "vfxUpdateMsPerFrame": 0.02,
+  "liveMax": 60,
+  "level": "low",
+  "stress": true
+ },
+ {
+  "fps": 58.2,
+  "msPerFrame": 17.19,
+  "maxFrameMs": 46.6,
+  "drawCallsPerFrame": 226.2,
+  "trisPerFrame": 123072,
+  "vfxUpdateMsPerFrame": 0.009,
+  "liveMax": 3,
+  "level": "medium",
+  "stress": false
+ },
+ {
+  "fps": 43.3,
+  "msPerFrame": 23.07,
+  "maxFrameMs": 327.8,
+  "drawCallsPerFrame": 211.1,
+  "trisPerFrame": 88669,
+  "vfxUpdateMsPerFrame": 0.089,
+  "liveMax": 210,
+  "level": "medium",
+  "stress": true
+ },
+ {
+  "fps": 20,
+  "msPerFrame": 49.92,
+  "maxFrameMs": 519.3,
+  "drawCallsPerFrame": 349.3,
+  "trisPerFrame": 277745,
+  "vfxUpdateMsPerFrame": 0.023,
+  "liveMax": 13,
+  "level": "high",
+  "stress": false
+ },
+ {
+  "fps": 8.2,
+  "msPerFrame": 122.12,
+  "maxFrameMs": 5149.3,
+  "drawCallsPerFrame": 499.7,
+  "trisPerFrame": 395001,
+  "vfxUpdateMsPerFrame": 0.03,
+  "liveMax": 240,
+  "level": "high",
+  "stress": true
+ },
+ {
+  "fps": 1.5,
+  "msPerFrame": 676.54,
+  "maxFrameMs": 1070,
+  "drawCallsPerFrame": 7871.1,
+  "trisPerFrame": 1902724,
+  "vfxUpdateMsPerFrame": 0,
+  "liveMax": 177,
+  "level": "ultra",
+  "stress": false
+ },
+ {
+  "fps": 2.6,
+  "msPerFrame": 378.42,
+  "maxFrameMs": 1124.1,
+  "drawCallsPerFrame": 7869.7,
+  "trisPerFrame": 1902790,
+  "vfxUpdateMsPerFrame": 0.017,
+  "liveMax": 138,
+  "level": "ultra",
+  "stress": true
+ }
+]

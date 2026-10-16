@@ -367,7 +367,9 @@ const dfxDust = dfxPool(700, false, 0.66, 0.68, 0.72), dfxSpark = dfxPool(500, t
 function dfxUpdate(dt) {
   dfxScale.value = renderer.domElement.height * 0.5 / Math.tan(cam.fov * Math.PI / 360);
   dfxStep(dfxDust, dt, 0.25, 1.4, 1.8, 0.42); dfxStep(dfxSpark, dt, -9, 0.3, -0.5, 1);
+  try { GKVFX.update(dt); } catch (e) {} // VFX
 }
+try { GKVFX.init(THREE, scene, cam, renderer, () => GK.settings.gfx); } catch (e) { console.error('vfx init failed', e); } // VFX (vfx.js: pooled particles, see its header for the API)
 function doorBurst(d) {
   const big = d.kind === 'vault', nd = big ? 90 : 34, ns = big ? 60 : 22, hw = d.dw / 2, R1 = Math.random;
   const wx = (lx, lz) => d.gx + d.ax[0] * lx + d.az[0] * lz, wz = (lx, lz) => d.gz + d.ax[1] * lx + d.az[1] * lz;
@@ -2562,7 +2564,7 @@ window.GKRULES = (() => {
   }
   function loop() {
     R.raf = 0; const now = performance.now(), live = R.bolts.size || R.crown; if (!live) return;
-    for (const [id, b] of R.bolts) { const t = (now - b.t0) / 1000; b.spr.position.set(b.x + b.vx * t, 1.1, b.z + b.vz * t); if (t * 10 > b.range + 1) { scene.remove(b.spr); R.bolts.delete(id); } }
+    for (const [id, b] of R.bolts) { const t = (now - b.t0) / 1000; b.spr.position.set(b.x + b.vx * t, 1.1, b.z + b.vz * t); try { GKVFX.bolt(id, b.spr.position, 0xb89cff, 0.016); } catch (e) {} /* VFX */ if (t * 10 > b.range + 1) { scene.remove(b.spr); R.bolts.delete(id); } }
     if (R.crown && R.ring) { const k = Math.min(1, (R.crown.p0 + (now - R.crown.t0) / R.crown.ms)); R.ring.geometry.setDrawRange(0, Math.max(0, Math.round(k * 96)) * 6); R.ring.rotation.z = now * 0.0006; }
     R.raf = requestAnimationFrame(loop);
   }
@@ -2585,7 +2587,7 @@ window.GKRULES = (() => {
       else { R.crown = { p0: d.crown.p, t0: performance.now(), ms: d.crown.ms }; t.style.display = ''; t.textContent = (d.crown.id === me ? 'YOU ARE' : d.crown.name + ' IS') + ' CLAIMING THE CROWN ' + Math.ceil(d.crown.ms * (1 - d.crown.p) / 1000) + 's'; ringMesh(); kick(); }
     }
     if (d.bolt) { const b = d.bolt, spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow(), color: 0xb89cff, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })); spr.scale.set(0.7, 0.7, 1); scene.add(spr); R.bolts.set(b.id, { spr, x: b.x, z: b.z, vx: b.vx, vz: b.vz, range: b.range, t0: performance.now() }); snd('swing', { x: b.x, z: b.z }); kick(); }
-    if (d.boltEnd) { const b = R.bolts.get(d.boltEnd.id); if (b) { scene.remove(b.spr); R.bolts.delete(d.boltEnd.id); } }
+    if (d.boltEnd) { const b = R.bolts.get(d.boltEnd.id); if (b) { try { GKVFX.boltHit(b.spr.position, 0xb89cff); GKVFX.boltEnd(d.boltEnd.id); } catch (e) {} /* VFX */ scene.remove(b.spr); R.bolts.delete(d.boltEnd.id); } }
     if (d.showdown && !R.showdown) { R.showdown = 1; toastMsg('THREE GOBLINS LEFT: every door is open!', false, 3500); }   // PACE
     if (d.klaxon) { toastMsg('KLAXON: doors close at the end of the round!', false); for (let i = 0; i < 3; i++) setTimeout(() => snd('tickLast'), i * 350); }
     if (d.bribeFail) toastMsg({ pick: 'Select a door first', gold: 'Not enough gold (50)', max: 'Bribe limit reached', room: 'Not at a room panel' }[d.bribeFail] || 'No bribe', false);
@@ -4190,6 +4192,7 @@ const handleMsg0 = d => {
   if (d.shops) applyShops(d.shops);
   if (d.gold != null) setGold(d.gold);
   if (d.buyFail) shopFail(d.buyFail);
+  if (d.claimed) try { GKVFX.glint({ x: P.x, y: 1.0, z: P.z }, d.claimed.key ? 0xb8e8ff : 0xffd75e, 14); } catch (e) {} /* VFX */
   if (d.claimed) toastMsg(d.claimed.key ? 'Took ' + ((infoOf(d.claimed.key) || {}).name || d.claimed.key) : '+' + d.claimed.gold + ' gold', true);
   if (d.claimFail && d.claimFail !== 'room') toastMsg({ taken: 'Already taken', space: 'Your backpack is full' }[d.claimFail] || 'Nothing to take', false);
   if (d.parts) setParts(d.parts);
@@ -4214,7 +4217,7 @@ const handleMsg0 = d => {
   if (d.exitOpen != null) toastMsg('A door unlocks', true, 1800);   // DOORGUARD
   if (!d.players) return;
   const ids = new Set(d.players.map(p => p.id));
-  for (const [id, a] of actors) if (!ids.has(id)) { if (!GA.die(a)) dropGoblin(a.group); actors.delete(id); }
+  for (const [id, a] of actors) if (!ids.has(id)) { if (!GA.die(a)) dropGoblin(a.group); else try { GKVFX.dissolve(a.x, a.z, 1.5 * (SCALE[a.goblin] || 1), 0xffd75e); } catch (e) {} /* VFX */ actors.delete(id); }
   for (const p of d.players) {
     let a = actors.get(p.id);
     if (a && a.goblin !== p.goblin) { dropGoblin(a.group); actors.delete(p.id); a = null; }
@@ -6765,6 +6768,7 @@ function combatMsg(d) {   // server messages: swing, hit, kills, match (goblins 
       if (!h.bleed) { const burst = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff3a2a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.9 }));   // red hit flash on the victim (sprite only, no lights)
       burst.scale.set(1.3, 1.3, 1); burst.position.set(v.x, 1.0 * (SCALE[v.goblin] || 1), v.z); scene.add(burst); CB.floats.push({ sp: burst, t: 0, flash: true }); }
     }
+    if (v && !h.bleed) try { const sc = SCALE[v.goblin] || 1, dx = v.x - (f ? f.x : v.x), dz = v.z - (f ? f.z : v.z - 1), l = Math.hypot(dx, dz) || 1, ak0 = h.to === me ? (invReady ? myInv.armor : null) : (v.gArm !== undefined ? vmArmKey(v.gArm) : null); GKVFX.hit({ x: v.x - dx / l * 0.3, y: 1.1 * sc, z: v.z - dz / l * 0.3 }, { x: dx / l, z: dz / l }, f && f.vmFam, ak0 && itemsData().ITEMS[ak0] && itemsData().ITEMS[ak0].family, h.dmg, h.dead); if (h.dead) GKVFX.ring(v.x, v.z, 0xffd75e, 1.5); } catch (e) {} // VFX
     if (!h.bleed) { const fam = f && f.vmFam, ak = h.to === me ? (invReady ? myInv.armor : null) : (v && v.gArm !== undefined ? vmArmKey(v.gArm) : null), ait = ak && itemsData().ITEMS[ak], armor = ait && ait.family; /* FEEL3: weapon and armour families pick the hit sound */
       if (h.to === me) { combatHurtFx(h.dmg, h.max); snd('hit', { fam, armor, vol: 0.7 }); snd('hurt'); try { GK.feel.hurt(h.dmg, h.max); } catch (e) {} if (f) feel2Arc(f); /* FEEL2 */ } else if (v) snd('hit', h.from === me ? { fam, armor } : { x: v.x, z: v.z, fam, armor }); }
   }
@@ -6817,7 +6821,7 @@ function combatTick(dt) {   // called every frame after the goblin loop: swing, 
     const u = a.group.userData;
     if (a.swing) {   // arm sweep over CB.SW seconds
       a.swing += dt / vmSw(a);   // VIEWMODEL: duration and pose depend on the weapon family
-      if (a.swing >= 1) { a.swing = 0; vmEnd3(a, u); } else vmPose3(a, u);
+      if (a.swing >= 1) { a.swing = 0; vmEnd3(a, u); } else { vmPose3(a, u); try { vfxSwing(id, a, u); } catch (e) {} /* VFX */ }
     }
     if (a.hitT > 0) {   // knockback + lean, purely visual (the real position never changes)
       a.hitT -= dt; const e = Math.max(0, a.hitT) / CB.HIT, s = Math.sin(Math.PI * (1 - e));
@@ -6837,6 +6841,27 @@ function combatTick(dt) {   // called every frame after the goblin loop: swing, 
 }
 GK.attack = combatSwing; GK.combatState = CB; GK.combatHurtFx = combatHurtFx;
 // COMBAT-END
+// VFX-BEGIN (T15: small glue for vfx.js: surface lookup and the weapon swing trail; everything else is called inline, tagged VFX)
+const vfxSurf = (x, z) => roomKeyAt(x, z) == WORLD.VAULT ? 'gold' : 'dust';
+const vfxTip = new THREE.Vector3(), vfxBase = new THREE.Vector3();
+function vfxSwing(id, a, u) {   // melee swings only: one pooled ribbon per goblin, sampled while the blow travels (no ribbon for bows and casters)
+  const cls = VM_CLASS[a.vmFam]; if (!cls || cls === 'bow' || cls === 'cast') return;
+  const p = a.swing, hit = VM_HITAT[cls]; if (p < hit - 0.3 || p > hit + 0.1) return;
+  const col = cls === 'smash' ? 0xe0a060 : 0x8fb0e8;
+  if (id === me && !a.group.visible) {   // first person: an arc in front of the camera
+    const k = clamp((p - (hit - 0.3)) / 0.4, 0, 1), sy = Math.sin(P.yaw), cy = Math.cos(P.yaw), fx = -sy, fz = -cy, rx = cy, rz = -sy;
+    let f = 0.95, sx = 0, h = 0;
+    if (cls === 'slash') { sx = 0.75 - 1.5 * k; h = 0.2 - 0.45 * k; } else if (cls === 'thrust') { f = 0.5 + 1.0 * k; sx = 0.25; h = -0.12; } else { f = 0.9; sx = 0.3; h = 0.55 - 1.1 * k; }
+    const f0 = cls === 'thrust' ? f - 0.4 : f - 0.2;
+    vfxTip.set(cam.position.x + fx * f + rx * sx, cam.position.y + h, cam.position.z + fz * f + rz * sx);
+    vfxBase.set(cam.position.x + fx * f0 + rx * sx * 0.6, cam.position.y + h - 0.05, cam.position.z + fz * f0 + rz * sx * 0.6);
+  } else {   // other goblins: the swinging arm extended by the weapon
+    const arm = u.arms[1]; arm.updateWorldMatrix(true, false);
+    vfxTip.set(0, -1.15, 0); arm.localToWorld(vfxTip); vfxBase.set(0, -0.6, 0); arm.localToWorld(vfxBase);
+  }
+  GKVFX.trail(id, vfxTip, vfxBase, col);
+}
+// VFX-END
 // VIEWMODEL-BEGIN (first-person weapon + goblin hands, per-family attack clips, third-person weapon socket + family swings; see docs/reports/viewmodel.md)
 // Rules: no lights, no render passes. The camera is a scene child so the viewmodel is lit by the environment map and emissive only. Hooks elsewhere: vmUpdate/vmHide (frame), vmSwing/vmHit (combat), vmGear (player list), vmSw/vmPose3 (combatTick).
 const VM = { root: new THREE.Group(), rp: new THREE.Group(), lp: new THREE.Group(), wm: new THREE.Group(), key: undefined, fam: 'fist', model: null, hand: [], t: -1, dur: 0.4, clip: null, side: 0, stop: 0, kick: 0, shake: 0, eq: 1, want: undefined, lyaw: 0, lpit: 0, lagX: 0, lagY: 0, fired: false, shook: false, tip: new THREE.Vector3(0, 0.9, 0), tracers: [], active: false };
@@ -7203,7 +7228,7 @@ const JUMP = (() => {
   const J = { y: 0, vy: 0, air: false, buf: 0, coy: COYOTE, dipT: 9 };
   const active = () => GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked && spawned;
   const dip = () => { const k = J.dipT / DIPT; return k >= 1 ? 0 : Math.sin(Math.PI * Math.min(1, k * 1.6)) * (1 - k); };   // 0..1 landing bump
-  const start = () => { J.air = true; J.vy = V0; J.coy = 0; J.buf = 0; snd('hup'); };
+  const start = () => { J.air = true; J.vy = V0; J.coy = 0; J.buf = 0; snd('hup'); try { GKVFX.jump(P.x, P.z, vfxSurf(P.x, P.z)); } catch (e) {} /* VFX */ };
   J.key = e => {
     if (e.code !== 'Space') return;
     const tg = e.target && e.target.tagName; if (tg === 'INPUT' || tg === 'TEXTAREA' || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -7217,7 +7242,7 @@ const JUMP = (() => {
     if (!J.air) { J.coy = COYOTE; if (on && J.buf > 0) start(); }   // coyote: there are no ledges yet, so the grace never decides anything; a jump pressed after walking off one would still count for 80 ms
     if (J.air) {
       J.y += J.vy * dt - 0.5 * G * dt * dt; J.vy -= G * dt;
-      if (J.y <= 0) { J.y = 0; J.vy = 0; J.air = false; J.dipT = 0; snd('thud'); if (on && J.buf > 0) start(); }
+      if (J.y <= 0) { J.y = 0; J.vy = 0; J.air = false; J.dipT = 0; snd('thud'); try { GKVFX.land(P.x, P.z, vfxSurf(P.x, P.z)); } catch (e) {} /* VFX */ if (on && J.buf > 0) start(); }
     }
   };
   J.camY = () => J.y - (GK.settings.bob === false ? 0 : 0.07 * dip());   // landing dip follows the head bob setting
@@ -7308,6 +7333,7 @@ function frame(now) {
     u.label.visible = id !== me && GK.settings.tags;
     if (window.GKTAGS && u.label.visible) { const tb = CB.bars.get(id), td = Math.hypot(cam.position.x - a.x, cam.position.y - (g.position.y + u.label.position.y), cam.position.z - a.z); window.GKTAGS.fit(u.label, td, true); if (tb && tb.sp.visible) window.GKTAGS.fit(tb.sp, td, true); }   // UI-TAGS: clamp size, fade up close
     const walk = clamp(a.speed / 3.5, 0, 1); a.phase += dt * a.speed * 2.7 / Math.pow(SCALE[u.type] || 1, 0.6);   // stride rate follows the leg length (small goblins scurry, big ones lumber) so the feet stay planted
+    try { GKVFX.foot(id, a.phase, a.speed, a.x, a.z, a.jy || 0, vfxSurf(a.x, a.z), 1, cam.position.x, cam.position.z); } catch (e) {} // VFX: footstep puffs
     /* PERF2-BEGIN: far goblins refresh their pose every 2nd / 3rd frame (the skipped dt is carried over); distant ones also drop to simpler geometry */
     let adt = dt;
     if (PERF2_ON) {
