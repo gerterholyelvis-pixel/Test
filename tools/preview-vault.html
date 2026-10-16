@@ -1,0 +1,69 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>vault art preview</title>
+<style>html,body{margin:0;height:100%;background:#111;overflow:hidden}canvas{display:block}#ui{position:fixed;left:8px;top:8px;font:12px system-ui;color:#ddd;background:#0008;padding:6px 8px;border-radius:6px;max-width:60vw}#ui button{margin:1px;font-size:11px}</style>
+<script type="importmap">{"imports":{"three":"/three/three.module.js","three/addons/":"/three/addons/"}}</script></head>
+<body><div id="ui"></div>
+<script type="module">
+// Standalone preview for rooms5art-vault.js.  ?view=ram|locksmith|counting|keystone|vault  &cam=name  &demo=1
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import * as V from '/rooms5art-vault.js';
+const q = new URLSearchParams(location.search);
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1); renderer.setSize(innerWidth, innerHeight); renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0; document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x15171c);
+const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; scene.environmentIntensity = 0.7;
+scene.add(new THREE.HemisphereLight(0xfff4e0, 0x8a8f9a, 0.9));
+const cam = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 100);
+const W = 22.5, D = 15, H = 6.5;
+const wallM = new THREE.MeshStandardMaterial({ color: 0xeeeae2, roughness: 0.9 }), floorM = new THREE.MeshStandardMaterial({ color: 0xd8d3c8, roughness: 0.6 });
+function shell(w, d, door) { // floor, ceiling, 4 walls (inside faces), vault door slab(s)
+  const g = new THREE.Group(); const f = new THREE.Mesh(new THREE.PlaneGeometry(w, d), floorM); f.rotation.x = -Math.PI / 2; g.add(f);
+  const c = new THREE.Mesh(new THREE.PlaneGeometry(w, d), wallM); c.rotation.x = Math.PI / 2; c.position.y = H; g.add(c);
+  for (const [x, z, ry, len] of [[0, -d / 2, 0, w], [0, d / 2, Math.PI, w], [-w / 2, 0, Math.PI / 2, d], [w / 2, 0, -Math.PI / 2, d]]) { const m = new THREE.Mesh(new THREE.PlaneGeometry(len, H), wallM); m.position.set(x, H / 2, z); m.rotation.y = ry; g.add(m); }
+  const slabM = new THREE.MeshStandardMaterial({ color: 0x70787f, metalness: 0.9, roughness: 0.38 });
+  for (const [x, z, ry] of door) { const s = new THREE.Mesh(new THREE.BoxGeometry(4.84, 5, 0.5), slabM); s.position.set(x, 2.5, z); s.rotation.y = ry; g.add(s); const lt = new THREE.PointLight(0xfff0dc, 0, 0); }
+  return g;
+}
+const lamp = new THREE.PointLight(0xfff4e8, q.get('vault') ? 16 : 11, 0, 1.2); lamp.position.set(0, H - 0.7, 0); scene.add(lamp);
+const view = q.get('view') || 'ram', PV = window.PV = { V, THREE, scene, cam, renderer, view };
+let room = null, dress = null;
+const clock = new THREE.Clock(); let T = 0;
+if (view === 'vault') {
+  scene.add(shell(22.5, 22.5, [[0, -11.25 - 0.2, 0], [0, 11.25 + 0.2, Math.PI], [-11.25 - 0.2, 0, Math.PI / 2], [11.25 + 0.2, 0, -Math.PI / 2]]));
+  // stand-ins for the existing vault: dais + four pillars
+  const gm = new THREE.MeshStandardMaterial({ color: 0x1d2128, metalness: 0.7, roughness: 0.4 }); const dais = new THREE.Mesh(new THREE.CylinderGeometry(3.35, 3.35, 0.16, 48), gm); dais.position.y = 0.08; scene.add(dais);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.52, H, 16), new THREE.MeshStandardMaterial({ color: 0x3a414d, metalness: 0.8, roughness: 0.34 })); p.position.set(sx * 5.4, H / 2, sz * 5.4); scene.add(p); }
+  dress = PV.dress = V.buildVaultDressing(THREE, {}, {}); scene.add(dress.group); lamp.intensity = 16;
+  dress.setTreasury(+q.get('t') || 0.7); [0.2, 0.5, 0.8, 1].forEach((v, i) => dress.setCoffer(i, v)); dress.setClaim(+q.get('claim') || 0.35, 0xff5a3a); dress.setDoorBar('N', true, true); dress.setDoorBar('E', false, true); dress.setBreach('S', 60); dress.setBreach('W', 100);
+  if (q.get('alarm')) dress.setAlarm(true); if (q.get('grate')) dress.setGrate(1);
+} else {
+  scene.add(shell(W, D, [[0, -D / 2 - 0.2, 0]]));
+  room = PV.room = V.buildVaultbreaker(THREE, {}, view, { lazy: true }); scene.add(room.group);
+  // debug solids
+  if (q.get('solids')) for (const s of room.solids) { const m = new THREE.Mesh(new THREE.CylinderGeometry(s.r, s.r, 1.2, 16), new THREE.MeshBasicMaterial({ color: 0xff00ff, wireframe: true })); m.position.set(s.x, 0.6, s.z); scene.add(m); }
+}
+const CAMS = {
+  ram: { from: [0, 3.6, -0.5], to: [0, 1.6, -5] }, ram_b: { from: [0, 3.2, -3.0], to: [0, 2, 7.5] }, ram_lane: { from: [5.5, 4.5, 2.5], to: [-1, 1.2, -5.5] },
+  locksmith: { from: [0, 3.2, -1.5], to: [0, 2.5, 7.5] }, lock_l: { from: [-3.5, 2.6, 4.5], to: [-11, 1.2, 0] }, lock_r: { from: [4, 2.8, 4.5], to: [11, 2.2, 0] }, lock_door: { from: [0, 3, 5], to: [0, 0.8, -6] },
+  counting: { from: [0, 3.2, -1.5], to: [0, 2.2, 7.5] }, count_l: { from: [-4, 2.6, 4.5], to: [-11, 1.8, 0] }, count_r: { from: [4, 2.8, 4.5], to: [11, 1.2, 0] }, count_door: { from: [0, 3, 5], to: [0, 0.8, -6] },
+  keystone: { from: [0, 3.4, 4.5], to: [0, 0.8, -5.5] }, key_b: { from: [0, 3.2, -1.5], to: [0, 2.2, 7.5] }, key_l: { from: [-4, 3, 3], to: [-11, 1.4, 0] }, key_wide: { from: [0, 5.2, 7.0], to: [0, 0.5, -3] },
+  vault: { from: [0, 6, 10.5], to: [0, 0.5, -4] }, vault_c: { from: [6, 5, 8], to: [-3, 1, -6] }, vault_door: { from: [0, 3.2, 3], to: [0, 2.4, -11] }, vault_corner: { from: [3, 3.5, 3], to: [-9, 0.8, -9] }, vault_top: { from: [0.1, 18, 0.1], to: [0, 0, 0] }, vault_n: { from: [-2, 2.2, -4], to: [-2, 2, -11] },
+};
+PV.setCam = name => { const c = CAMS[name]; if (!c) return; cam.position.set(...c.from); cam.lookAt(...c.to); cam.fov = c.fov || 62; cam.updateProjectionMatrix(); };
+PV.setCam(q.get('cam') || (view === 'vault' ? 'vault' : view));
+PV.shot = async (name, w = 1280, h = 720) => { renderer.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); renderer.render(scene, cam); const d = renderer.domElement.toDataURL('image/jpeg', 0.88); const r = await fetch('/save/' + name + '.jpg', { method: 'POST', body: d }); return r.text(); };
+PV.stats = () => ({ calls: renderer.info.render.calls, tris: renderer.info.render.triangles, mine: room ? room.stats() : null });
+PV.tick = (dt, t) => { if (room) room.update(dt, t); if (dress) dress.update(dt, t); };
+function frame() { const dt = Math.min(clock.getDelta(), 0.1); T += dt; PV.tick(dt, T); renderer.render(scene, cam); requestAnimationFrame(frame); }
+if (room) { room.setSkin(view, { flash: false }); }
+frame();
+addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); });
+// orbit-ish mouse look
+let drag = null; renderer.domElement.addEventListener('pointerdown', e => drag = [e.clientX, e.clientY]); addEventListener('pointerup', () => drag = null);
+addEventListener('pointermove', e => { if (!drag) return; const dx = e.clientX - drag[0], dy = e.clientY - drag[1]; drag = [e.clientX, e.clientY]; cam.rotation.order = 'YXZ'; cam.rotation.y -= dx * 0.004; cam.rotation.x -= dy * 0.004; });
+addEventListener('keydown', e => { const s = e.shiftKey ? 0.8 : 0.3, f = new THREE.Vector3(); cam.getWorldDirection(f); const r = new THREE.Vector3().crossVectors(f, cam.up).normalize(); if (e.key === 'w') cam.position.addScaledVector(f, s); if (e.key === 's') cam.position.addScaledVector(f, -s); if (e.key === 'a') cam.position.addScaledVector(r, -s); if (e.key === 'd') cam.position.addScaledVector(r, s); });
+// demo: animate states
+if (q.get('demo')) { const api = room && room.skin(view); PV.demo = true; }
+const ui = document.getElementById('ui'); ui.textContent = view + ' - drag to look, wasd to move';
+</script></body></html>
