@@ -13,7 +13,7 @@ This comes from a full audit: every QA and feature report, a code scan, `npm tes
 ## Hurts fun and fairness
 5. [ADDRESSED: vault-only healing, bot gang cap, misses] **Sudden death is a death sentence.** With every door open, even a fully geared player dies by round 3-4 in short-round tests. **Fix:** tune how bots converge, or add a safe zone or regen in the vault.
 6. [DONE: staffbolt on, 9 dmg] **Wizards can't fight**, because their staff does 0 damage. The `staffbolt` rule fixes this once the owner decides.
-7. **Reloading the page doesn't resume a match.** The reconnect token only works for the in-page retry. **Fix:** resume from sessionStorage on page load.
+7. **Reloading the page doesn't resume a match.** The reconnect token only works for the in-page retry. **Fix:** resume from sessionStorage on page load. **[fixed: reload-resume.md]**
 8. **Bots walk through pillars and furniture**, because the server only knows the walls. **Fix:** add furniture boxes to world.js.
 9. [PARTLY: 2-hop culling cap on Low/Medium] **Draw calls spike late in a match.** With every door open in sudden death, room culling shows all 21 rooms (2,500-3,500 calls, even on Low). **Fix:** a distance cull or lower detail for far rooms.
 

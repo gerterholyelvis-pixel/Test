@@ -20,4 +20,4 @@ Code: `server.js` and `game.js` blocks `SOCIAL-BEGIN/END` (the game.js block sit
 Browser (GK_DEBUG=1 GK_QUEUE_MS=2000, port 3160): token stored, keys 4 and 7 send emotes, first-person gesture seen in a screenshot, `GK.social.drop()` resumed within a moment (welcome with `resumed`), with reopening disabled the overlay counted `Reconnecting… 12` and ended on Main menu; no new console errors.
 
 ## Not tested
-Third-person emote poses were not seen on screen (overview is too far, no second human); joint signs were chosen from the existing animation code and may need tuning. Emoji glyphs depend on the system emoji font. Resuming during loading/countdown is untested. A page reload does not resume (the token is only used by the in-page retry). Audio not heard.
+Third-person emote poses were not seen on screen (overview is too far, no second human); joint signs were chosen from the existing animation code and may need tuning. Emoji glyphs depend on the system emoji font. Resuming during loading/countdown is untested. A page reload now resumes too: see reload-resume.md. Audio not heard.
