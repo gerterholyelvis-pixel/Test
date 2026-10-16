@@ -149,7 +149,7 @@ function newMatch() {
 }
 const VAULT = ROOM_DOORS['4'] || []; // the 4 doors touching the middle vault room
 const vaultVotes = m => { const rooms = Object.keys(m.sel).filter(k => VAULT.includes(m.sel[k])); return rule('bribe') ? rooms.reduce((n, k) => n + 1 + ((m.bribes && m.bribes[k]) || 0), 0) : rooms.length; }; // distinct rooms selecting a vault door (bribe rule: each room weighs 1 + its bribes)
-const roundState = m => ({ round: { n: m.round, left: Math.max(0, m.endsAt - Date.now()), dur: m.dur }, sel: m.sel, selBy: m.selBy || {}, lastSel: m.lastSel || {}, open: m.open, vaultVotes: vaultVotes(m), fizzled: m.fizzled || [], relic: m.relicKey && !m.relicTaken ? m.relicKey : null, ...(m.sudden ? { sudden: 1 } : null), ...ruleState(m) });
+const roundState = m => ({ round: { n: m.round, left: Math.max(0, m.endsAt - Date.now()), dur: m.dur }, sel: m.sel, selBy: m.selBy || {}, lastSel: m.lastSel || {}, open: m.open, vaultVotes: vaultVotes(m), fizzled: m.fizzled || [], relic: m.relicKey && !m.relicTaken ? m.relicKey : null, ...(m.sudden ? { sudden: 1 } : null), ...(m.showdown && !m.sudden ? { showdown: 1 } : null), ...ruleState(m) });
 const broadcastRound = m => bcast(m, roundState(m));
 const matchInfo = m => { let lo = Infinity, hi = -Infinity, n = 0, alive = 0; for (const p of m.players.values()) { if (p.npc) continue; n++; lo = Math.min(lo, p.wins); hi = Math.max(hi, p.wins); if (p.entered && !p.dead) alive++; } return { size: n, minWins: n ? lo : 0, maxWins: n ? hi : 0, alive }; };   // mystery enemies never count
 const broadcastMatch = m => bcast(m, { match: matchInfo(m) });
@@ -185,7 +185,7 @@ setInterval(() => { // one global timer steps every match
     if (!m.started) m.endsAt = now + m.dur;   // round 1 waits until someone has left the wheel and entered the rooms
     if (now >= m.endsAt) {
       const picked = [...new Set(Object.values(m.sel))], ok = vaultVotes(m) >= 2; // vault doors need 2 different rooms
-      const fresh = picked.filter(d => ok || !VAULT.includes(d)); m.open = ruleOpen(m, fresh); m.fizzled = ok ? [] : picked.filter(d => VAULT.includes(d)); m.lastSel = { ...m.sel }; m.sel = {}; m.selBy = {}; m.bribes = {}; m.round++; m.dur = NEXT_MS; m.endsAt = now + m.dur; suddenCheck(m); lootRound(m); broadcastRound(m); m.lastRound = now; }
+      const fresh = paceNoDoor(m, picked.filter(d => ok || !VAULT.includes(d))); m.open = ruleOpen(m, fresh); m.fizzled = ok ? [] : picked.filter(d => VAULT.includes(d)); m.lastSel = { ...m.sel }; m.sel = {}; m.selBy = {}; m.bribes = {}; m.round++; m.dur = NEXT_MS; m.endsAt = now + m.dur; suddenCheck(m); paceRound(m); lootRound(m); broadcastRound(m); m.lastRound = now; }
     else if (now - m.lastRound >= 1000) { m.lastRound = now; broadcastRound(m); }
     // COMBAT-BEGIN regen: 1 HP every 4 s once a player has not been hit for 6 s. SUDDEN DEATH: only inside THE VAULT (the sanctuary everyone converges on), nowhere else.
     for (const p of m.players.values()) if ((!m.sudden || p.room === '4') && p.entered && !p.dead && p.stats && p.stats.health < p.stats.maxHealth && now - (p.hurtAt || 0) >= C.regenIdle * RSCALE && now - (p.regenAt || 0) >= C.regenEvery * RSCALE) { p.regenAt = now; p.stats.health = Math.min(p.stats.maxHealth, p.stats.health + C.regenAmt); m.dirty = true; }
@@ -353,6 +353,27 @@ function timeLimit(m) {
   for (const [ws, q] of live.slice(1)) if (isHum(q)) die(ws, q);   // the beaten humans become spectators (checkWin ignores a decided match)
 }
 // SUDDEN-END
+// PACE-BEGIN (pacing and economy, docs/reports/fun-pacing.md): a bounty for kills, a little income each round, no dead round, and a showdown when three are left
+const PACE = { income: 10, bountyKill: 15, showdownAt: 3 };
+function paceBounty(p, t) {   // the killer takes half of the victim's gold plus 15 per kill the victim had made: beating the leader pays, and a runaway leader is a target. Mystery enemies pay nothing and carry nothing.
+  if (p.npc || t.npc) return 0;
+  const g = Math.min(t.gold || 0, 400), amt = Math.round((g / 2 + PACE.bountyKill * Math.max(0, (t.kills || 0))) / 5) * 5;
+  if (amt <= 0) return 0;
+  t.gold = Math.max(0, (t.gold || 0) - Math.round(g / 2)); p.gold = (p.gold || 0) + amt; sendGold(p); return amt;
+}
+function paceNoDoor(m, fresh) {   // a round that would open nothing at all (nobody picked) opens one outer door of a room that holds somebody, so a round is never dead time
+  if (fresh.length || m.sudden || rule('doorclose')) return fresh;
+  const rooms = [...new Set([...m.players.values()].filter(q => !q.npc && q.entered && !q.dead).map(q => q.room))].filter(r => ROOM_DOORS[r]);
+  const ds = rooms.length ? ROOM_DOORS[rooms[Math.floor(Math.random() * rooms.length)]].filter(d => !VAULT.includes(d)) : [];
+  return ds.length ? [ds[Math.floor(Math.random() * ds.length)]] : fresh;
+}
+function paceRound(m) {   // right after m.round++: round income for everyone still alive, and the showdown (every door opens) once only three goblins are left
+  if (m.ended || m.round < 2) return;
+  for (const q of m.players.values()) if (!q.npc && q.entered && !q.dead) { q.gold = (q.gold || 0) + PACE.income; sendGold(q); }
+  if (!m.sudden && !m.showdown && m.round >= 3 && (m.enteredEver || 0) >= 4 && matchInfo(m).alive <= PACE.showdownAt) m.showdown = true;
+  if (m.showdown && !m.sudden) { m.open = Array.from({ length: nDoors }, (_, i) => i); m.openLeft = {}; m.fizzled = []; }
+}
+// PACE-END
 
 // COMBAT-BEGIN (server-authoritative melee/ranged attacks, kills and the DEFAULT win rule: last goblin standing; see docs/FEATURES.md)
 function checkWin(m) {   // DEFAULT RULE (owner has not decided): >= 2 players entered the rooms, at least one died, exactly one living entered player is left -> that player wins
@@ -396,7 +417,7 @@ function hitTarget(m, ws, p, tws, t, dmg, now) {   // damage, hit broadcast, kil
   const hp = Math.max(0, t.stats.health - dmg);
   t.stats.health = hp; t.hurtAt = now; t.hitBy = p.id; m.dirty = true;   // hitBy: a bot notices whoever hurt it at once
   bcast(m, { hit: { from: p.id, to: t.id, dmg, hp, max: t.stats.maxHealth, dead: hp <= 0 } });
-  if (hp <= 0) { p.kills = (p.kills || 0) + 1; t.killedBy = p.id; { const kw = p.npc ? null : p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; t.killer = { name: p.name || 'Goblin', npc: !!p.npc, w: kw ? kw.name : (p.npc ? '' : 'Fists') }; } sendTo(ws, { kills: p.kills }); sendFeed(m, p, t); die(tws, t); }
+  if (hp <= 0) { p.kills = (p.kills || 0) + 1; const bounty = paceBounty(p, t); t.killedBy = p.id; { const kw = p.npc ? null : p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; t.killer = { name: p.name || 'Goblin', npc: !!p.npc, w: kw ? kw.name : (p.npc ? '' : 'Fists') }; } sendTo(ws, { kills: p.kills, ...(bounty ? { bounty } : null) }); sendFeed(m, p, t); die(tws, t); }
 }
 function boltWeapon(p) { if (!rule('staffbolt')) return false; const w = p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; return !!w && (w.family === 'staff' || w.family === 'scepter'); }
 function fireBolt(m, p, now) {   // staffbolt: a slow projectile straight ahead, 12 m range, never leaves the room it was fired in
