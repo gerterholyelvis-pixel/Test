@@ -199,6 +199,16 @@ h2.ph{font-size:var(--t4)}
 .sg .row{grid-template-columns:minmax(120px,.95fr) 1.1fr 46px;gap:var(--s2);padding:var(--s1) 0}
 .sg .row.chk{grid-template-columns:1fr auto}
 @media (max-width:760px){.sgrid{grid-template-columns:1fr}}
+
+/* controls: key list as two columns of key caps + action, same type scale as the other screens (markup untouched) */
+table.keys{display:block}
+table.keys tbody{display:grid;grid-template-columns:1fr 1fr;column-gap:calc(var(--s3) * 1.6);align-content:start}
+table.keys tr{display:grid;grid-template-columns:minmax(0,max-content) 1fr;align-items:center;gap:var(--s2);padding:var(--s1) 0;border-bottom:1px solid rgba(255,255,255,.06)}
+table.keys td{padding:0;display:block}
+table.keys td:first-child{width:auto;min-width:clamp(96px,11vw,140px);padding-right:0}
+table.keys td:last-child{font-size:var(--t2);line-height:1.15;color:#d8d2bf}
+#p-controls .note{margin-top:var(--s2)}
+@media (max-width:760px){table.keys tbody{grid-template-columns:1fr}}
 </style>
 <script type="importmap">{"imports":{"three":"/three/three.module.js","three/addons/":"/three/addons/"}}</script>
 </head>
