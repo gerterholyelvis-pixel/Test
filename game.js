@@ -2305,6 +2305,7 @@ if (GK.layout && GK.CHEST_ROOMS) { /* the rooms agent calls buildMysteryContents
     const g = p.ctx, i = p.room, [cx, cz] = rc(i), x = mx(cx - roomW(i) / 2), y = my(cz - roomD(i) / 2), w = roomW(i) * MS, h = roomD(i) * MS;
     const ph = 0.6;
     g.drawImage(base, 0, 0);
+    if (GK.mapIntel) GK.mapIntel(g, mx, my, MS);   // UNIQUE: faint arrows for last round's door picks
     g.save(); g.fillStyle = 'rgba(255,40,40,' + (0.16 + 0.16 * ph) + ')'; g.fillRect(x, y, w, h);
     g.shadowColor = '#ff2a2a'; g.shadowBlur = 14 + 14 * ph; g.strokeStyle = '#ff3030'; g.lineWidth = 7; g.strokeRect(x + 3, y + 3, w - 6, h - 6); g.restore();
     // label
@@ -2387,6 +2388,7 @@ function applyRound(d) {
   if (Number.isFinite(d.vaultVotes) && d.vaultVotes !== RS.votes) { RS.votes = d.vaultVotes; panelsDirty(); }
   if (d.sel && typeof d.sel === 'object') { const j = JSON.stringify(d.sel); if (j !== RS.selJ) { RS.selJ = j; RS.sel = d.sel; panelsDirty(); } }
   if (Array.isArray(d.open)) { const j = JSON.stringify(d.open); if (j !== RS.openJ) { RS.openJ = j; RS.open = d.open; GK.setDoorsOpen(d.open); panelsDirty(); } }
+  if (GK.unique) GK.unique.round(d); if (d.selBy) panelsDirty();   // UNIQUE: who made each pick, last round's picks
 }
 
 // ----- control panels -----
@@ -2463,6 +2465,7 @@ function cpDraw(p) {
     if (vlt) { g.font = '800 ' + Math.min(21, b.h * 0.18) + 'px system-ui, sans-serif'; g.fillStyle = sel ? (RS.votes < 2 ? '#8a0a00' : '#1a5a10') : '#ffb347'; g.fillText('NEEDS 2 PLAYERS · THE VAULT votes: ' + RS.votes + '/2', tx, iy + dy + Math.min(27, b.h * 0.24)); }
     if (opn) { g.fillStyle = '#18c25e'; cpRR(g, b.x + b.w - 100, iy - 20, 84, 40, 20); g.fill(); g.fillStyle = '#04200f'; g.textAlign = 'center'; g.font = '800 24px system-ui, sans-serif'; g.fillText('OPEN', b.x + b.w - 58, iy + 1); }
   });
+  if (GK.unique) GK.unique.panel(g, p);   // UNIQUE: picker badge + flash
   p.tex.needsUpdate = true; p.dirty = false;
 }
 function cpBuild(key, parent, w, h, x, y, z, rotY) {   // framed emissive screen, same look as the facility map
@@ -2789,10 +2792,12 @@ const GA = (() => {
   function earGeo(len, wid, droop, side, inner) {
     const s = new THREE.Shape(), L = len, W = wid * (inner ? 0.55 : 1);
     s.moveTo(0, W * 0.5); s.bezierCurveTo(L * 0.2, W * 1.15, L * 0.55, W * 1.0, L * 0.82, W * 0.1); s.lineTo(L, -W * 0.5); s.bezierCurveTo(L * 0.62, -W * 0.5, L * 0.25, -W * 0.7, 0, -W * 0.5); s.closePath();
-    const g = new THREE.ExtrudeGeometry(s, { depth: inner ? 0.006 : 0.02, bevelEnabled: true, bevelThickness: 0.012, bevelSize: 0.012, bevelSegments: 2, curveSegments: 14 }), p = g.attributes.position;
-    for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i), t = x / L; p.setXYZ(i, x * side, y - droop * t * t * L - (inner ? 0 : 0), z - 0.12 * t * t * L * 0.5 + (inner ? 0.014 : 0)); }
+    const g = new THREE.ExtrudeGeometry(s, { depth: inner ? 0.006 : 0.05, bevelEnabled: true, bevelThickness: inner ? 0.012 : 0.022, bevelSize: inner ? 0.012 : 0.018, bevelSegments: 3, curveSegments: 14 }), p = g.attributes.position;   // UNIQUE: thick outer ear, curled rim
+    for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i), t = x / L; p.setXYZ(i, x * side, y - droop * t * t * L, z - 0.12 * t * t * L * 0.5 + (inner ? 0.064 : 0) + earCup(L, wid, y * (inner ? 0.78 : 1), t)); }
     g.computeVertexNormals(); return g;
   }
+  const earCup = (L, wid, y, t) => 0.05 * (y / wid) * (y / wid) * (0.3 + 0.7 * Math.min(1, t * 1.4));   // UNIQUE: the ear is a shallow cup, its rim curling forward
+  A.earCup = earCup;
   A.earGeo = earGeo;
   A.hash3 = hash3; A.vnoise = vnoise; A.sstep = sstep; A.skinFn = skinFn; A.flat = flat; A.lin = lin;
 // ---- per-type look table: head scale, hunch, ear size, eye style (lid drop, angry tilt), limb thickness
@@ -2913,7 +2918,10 @@ function gaEarBake(B, type, s) {
   const sk = skinFn(CFG[type].skin, { tint: 0x203a10 });
   B.push([0, 0, 0], [0, 0, 0], [s, 1, 1]);
   B.add(earGeoFor(len, wid, droop, false), { c: sk, m: SK, uv: 1.5 });
-  B.add(earGeoFor(len, wid, droop, true), { c: 0xd98aa0, m: SK, v: 0.12, p: [0.02, 0, 0.012], s: [0.9, 0.78, 1] });
+  B.add(earGeoFor(len, wid, droop, true), { c: 0x9c6a74, m: SK, v: 0.12, p: [0.02, 0, 0.012], s: [0.9, 0.78, 1] });   // UNIQUE: darker, less saturated inner ear
+  const rim = (y0, c1, c2, y3) => { const pts = [], bz = (a, b, c, d, u) => (1 - u) ** 3 * a + 3 * (1 - u) ** 2 * u * b + 3 * (1 - u) * u * u * c + u ** 3 * d; for (let i = 0; i <= 10; i++) { const u = i / 10, x = bz(0, c1[0], c2[0], c2[2], u), y = bz(y0, c1[1], c2[1], y3, u), t = x / len; pts.push([x, y + Math.sign(y0) * 0.012 - droop * t * t * len, 0.03 - 0.06 * t * t * len + A.earCup(len, wid, y, t) + 0.016]); } return pts; };
+  B.tube(rim(wid * 0.5, [len * 0.2, wid * 1.15], [len * 0.55, wid * 1.0, len * 0.82], wid * 0.1), 0.017, 0.008, sk, SK, { rad: 6 });   // UNIQUE: rolled rim along the top edge
+  B.tube(rim(-wid * 0.5, [len * 0.25, -wid * 0.7], [len * 0.62, -wid * 0.5, len * 0.9], -wid * 0.4), 0.014, 0.007, sk, SK, { rad: 6 });   // and the bottom edge
   B.tube([[0.02, 0.03, 0.03], [len * 0.4, 0.07, 0.04], [len * 0.7, -0.01 - droop * 0.12, 0.05]], 0.012, 0.006, sk, SK, { rad: 5 });   // cartilage ridge
   if (type === 0) B.k(len * 0.7, 0.0 - droop * 0.2, 0.0, 0.03, 0.06, 0, 1.5, 0x14240c, DK);   // torn notch
   if (type === 1 || type === 4 || type === 2) for (let k = 0; k < (type === 4 ? 3 : 2); k++) B.tor(0.05 + k * 0.08, -0.07 - k * 0.012, 0.0, 0.032, 0.007, Math.PI / 2, 0, 0, 0xffc933, GD);
@@ -3237,7 +3245,7 @@ const A_EARS = {};
     const sh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: glowTex, color: 0x000000, transparent: true, opacity: 0.55, depthWrite: false }));
     sh.rotation.x = -Math.PI / 2; sh.position.y = 0.03; sh.scale.setScalar(1.1 * SCALE[type] * b * 1.4); root.add(sh);
     const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: textTex(NAMES[type], type === 4 ? '#ffd75e' : type === 3 ? '#c9a6ff' : '#f1f1f1', null, 512, 96, 'bold 52px system-ui'), transparent: true, depthWrite: false }));
-    label.scale.set(1.6, 0.3, 1); label.position.y = (type === 3 ? 2.35 : type === 4 ? 2.1 : 1.95) * SCALE[type]; root.add(label); u.label = label;
+    label.scale.set(1.6, 0.3, 1); label.position.y = [1.95, 1.95, 1.95, 2.85, 2.55][type] * SCALE[type]; root.add(label); u.label = label;   // UNIQUE: tag above the wizard hat / king crown
     root.userData = u;
     return root;
   }
@@ -3306,6 +3314,115 @@ const A_EARS = {};
   return A;
 })();
 // GOBLINART-END
+// UNIQUE-BEGIN (Goblin King's own features, docs/DESIGN-core-loop.md s1 and s4: panel politics, door intel, knowledge glow, brain aura, king bounty marker; see docs/reports/unique-features.md)
+const UNIQUE = (() => {
+  const U = {}, cl = (x, a, b) => Math.min(b, Math.max(a, x)), TAU2 = Math.PI * 2;
+  RS.selBy = {}; RS.lastSel = {}; RS.lastJ = '{}';
+  const soft = (c, g, w, h) => { const r = g.createRadialGradient(w / 2, h / 2, 1, w / 2, h / 2, Math.min(w, h) / 2); r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.35, 'rgba(255,255,255,.45)'); r.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = r; g.fillRect(0, 0, w, h); };
+  const mkTex = (w, h, fn) => { const c = document.createElement('canvas'); c.width = w; c.height = h; fn(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; };
+  // ---- panel politics (design s1, bullet 1): the round state carries selBy[room] = player id; the panel screen shows that goblin's head, and flashes when another goblin takes the pick
+  U.round = d => {   // called from applyRound
+    if (d.selBy && typeof d.selBy === 'object') {
+      const now = performance.now(), mine = roomKeyAt(P.x, P.z);
+      for (const k in d.selBy) {
+        const was = RS.selBy[k];
+        if (was !== undefined && was !== d.selBy[k] && CP[k]) { CP[k].flashUntil = now + 900; if (k === mine && d.selBy[k] !== me) snd('panel'); }
+      }
+      RS.selBy = d.selBy;
+    }
+    if (d.lastSel && typeof d.lastSel === 'object') { const j = JSON.stringify(d.lastSel); if (j !== RS.lastJ) { RS.lastJ = j; RS.lastSel = d.lastSel; if (GK.redrawMaps) GK.redrawMaps(); } }
+  };
+  U.panel = (g, p) => {   // end of cpDraw: picker badge in the header, flash overlay
+    const id = RS.selBy[p.key], sel = RS.sel[p.key] !== undefined, cx = p.W * 0.5 + 30, cy = 37, r = 31;
+    if (sel && id !== undefined) {
+      const a = actors.get(id), type = a ? a.goblin : -1;
+      g.save(); g.fillStyle = 'rgba(8,16,28,.9)'; g.strokeStyle = '#ffd24a'; g.lineWidth = 3; g.beginPath(); g.arc(cx, cy, r, 0, TAU2); g.fill(); g.stroke(); g.clip();
+      const hc = window.GKHEAD && type >= 0 ? window.GKHEAD(type, 64) : null;
+      if (hc) g.drawImage(hc, cx - r, cy - r, r * 2, r * 2); else { g.fillStyle = '#7f95ad'; g.font = 'bold 32px system-ui'; g.textAlign = 'center'; g.fillText('?', cx, cy + 1); }
+      g.restore(); g.save(); g.fillStyle = "#ffd24a"; g.font = "800 21px system-ui, sans-serif"; g.textAlign = "left"; g.fillText(id === me ? 'YOU' : 'PICKED BY', cx + r + 8, cy + 1); g.restore();
+    }
+    const left = (p.flashUntil || 0) - performance.now();
+    if (left > 0) { g.save(); g.globalAlpha = Math.min(0.6, left / 900 * 0.7) * (0.6 + 0.4 * Math.sin(left * 0.04)); g.fillStyle = '#ffe9a0'; g.fillRect(0, 0, p.W, p.H); g.restore(); }
+  };
+  // ---- door intel (design s1, bullet 2): faint arrows on the facility wall map for last round's picks
+  GK.mapIntel = (g, mx, my, MS) => {
+    for (const k in RS.lastSel) {
+      const d = DINFO[RS.lastSel[k]]; if (!d) continue; const dir = d.a === k ? d.da : d.db;
+      let cx, cz, w, h;
+      if (k[0] === 'c') { const c = CHEST_ROOMS[+k.slice(1)]; if (!c) continue; cx = c.cx; cz = c.cz; w = h = CS; } else { const i = +k; [cx, cz] = rc(i); w = roomW(i); h = roomD(i); }
+      const ux = dir === 'EAST' ? 1 : dir === 'WEST' ? -1 : 0, uz = dir === 'SOUTH' ? 1 : dir === 'NORTH' ? -1 : 0, ex = mx(cx + ux * w / 2) - ux * 13, ey = my(cz + uz * h / 2) - uz * 13;
+      g.save(); g.translate(ex, ey); g.rotate(Math.atan2(uz, ux)); g.globalAlpha = 0.62; g.fillStyle = '#1d6fd6'; g.strokeStyle = '#ffffff'; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(12, 0); g.lineTo(-8, -10); g.lineTo(-3, 0); g.lineTo(-8, 10); g.closePath(); g.fill(); g.stroke(); g.restore();
+    }
+    g.save(); g.fillStyle = '#7fd0ff'; g.strokeStyle = '#04101c'; g.globalAlpha = 0.85; g.font = '600 20px system-ui, sans-serif'; g.textAlign = 'left'; g.textBaseline = 'middle';
+    g.translate(900, 692); g.beginPath(); g.moveTo(12, 0); g.lineTo(-8, -10); g.lineTo(-3, 0); g.lineTo(-8, 10); g.closePath(); g.fill(); g.stroke(); g.fillText('Last picks', 20, 1); g.restore();
+  };
+  // ---- knowledge glow (design s4): eyes + a forehead rune that brighten with knowledge; one extra draw call per goblin, additive, no lights
+  const atlas = mkTex(256, 128, (g, w, h) => {
+    g.clearRect(0, 0, w, h); g.save(); g.beginPath(); g.rect(0, 0, 128, 128); g.clip(); soft(null, g, 128, 128); g.restore();
+    g.save(); g.translate(128, 0); g.strokeStyle = '#fff'; g.fillStyle = '#fff'; g.lineCap = 'round'; g.lineJoin = 'round'; g.shadowColor = '#fff'; g.shadowBlur = 6; g.lineWidth = 5;
+    g.beginPath(); g.moveTo(64, 6); g.lineTo(64, 122); g.moveTo(64, 34); g.lineTo(34, 18); g.moveTo(64, 34); g.lineTo(94, 18); g.moveTo(64, 66); g.lineTo(26, 46); g.moveTo(64, 66); g.lineTo(102, 46); g.moveTo(64, 94); g.lineTo(40, 112); g.moveTo(64, 94); g.lineTo(88, 112); g.stroke();
+    g.lineWidth = 3; g.beginPath(); g.arc(64, 64, 11, 0, TAU2); g.stroke(); g.beginPath(); g.moveTo(14, 70); g.quadraticCurveTo(26, 56, 34, 76); g.moveTo(114, 70); g.quadraticCurveTo(102, 56, 94, 76); g.stroke(); g.restore();
+  });
+  const knowGeo = type => {   // two eye glows + a rune patch bent over the forehead (head space; the head ellipsoid is 0.3 x 0.275 x 0.29 about y = 0.22)
+    const w = type === 2 ? 0.34 : 0.3, d = type === 2 ? 0.3 : 0.29, P = [], Uv = [], I = []; let n = 0;
+    for (const s of [-1, 1]) { const x = s * 0.125, y = 0.252, z = 0.29, q = 0.064; P.push(x - q, y - q, z, x + q, y - q, z, x + q, y + q, z, x - q, y + q, z); Uv.push(0, 0, 0.5, 0, 0.5, 1, 0, 1); I.push(n, n + 1, n + 2, n, n + 2, n + 3); n += 4; }
+    const NX = 8, NY = 5, x0 = -0.17, x1 = 0.17, y0 = 0.4, y1 = 0.5;
+    for (let j = 0; j <= NY; j++) for (let i = 0; i <= NX; i++) {
+      const x = x0 + (x1 - x0) * i / NX, y = y0 + (y1 - y0) * j / NY, q = 1 - (x / w) ** 2 - ((y - 0.22) / 0.275) ** 2, z = d * Math.sqrt(Math.max(0.02, q)) + 0.012;
+      P.push(x, y, z); Uv.push(0.5 + 0.5 * i / NX, j / NY);
+    }
+    for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) { const a = n + j * (NX + 1) + i, b = a + 1, c = a + NX + 1, e = c + 1; I.push(a, b, e, a, e, c); }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(Uv, 2)); g.setIndex(I); return g;
+  };
+  const geoCache = {}, cLow = new THREE.Color(0xff9a30), cHigh = new THREE.Color(0xa8f4ff);
+  const levelOf = (type, know) => { const base = (itemsData().KNOWLEDGE || [])[type] || 40; return cl(0.1 + 0.25 * cl(base / 100, 0, 1) + 0.65 * cl((know - base) / 24, 0, 1), 0, 1); };
+  U.levelOf = levelOf; U.flash = (key, ms) => { if (CP[key]) { CP[key].flashUntil = performance.now() + ms; CP[key].dirty = true; } };   // test hook
+  const auraTex = mkTex(128, 128, (g, w, h) => soft(null, g, w, h));
+  const crownTex = mkTex(128, 96, (g, w, h) => {
+    g.clearRect(0, 0, w, h); g.shadowColor = '#ffd24a'; g.shadowBlur = 8; g.fillStyle = '#ffd24a'; g.strokeStyle = '#3a2500'; g.lineWidth = 6; g.lineJoin = 'round';
+    g.beginPath(); g.moveTo(18, 74); g.lineTo(10, 28); g.lineTo(38, 50); g.lineTo(64, 14); g.lineTo(90, 50); g.lineTo(118, 28); g.lineTo(110, 74); g.closePath(); g.fill(); g.stroke();
+    g.shadowBlur = 0; g.fillStyle = '#b3122b'; g.beginPath(); g.arc(64, 56, 7, 0, TAU2); g.fill();
+  });
+  const markers = [];
+  const setup = (a, u) => {
+    const type = u.type, head = u.head, G = geoCache[type] || (geoCache[type] = knowGeo(type));
+    const mat = new THREE.MeshBasicMaterial({ map: atlas, color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.FrontSide, vertexColors: true });
+    const geo = G.clone(), nv = geo.attributes.position.count, col = new THREE.BufferAttribute(new Float32Array(nv * 3).fill(1), 3); geo.setAttribute('color', col);   // own colour attribute: the rune fades in separately from the eyes
+    const mesh = new THREE.Mesh(geo, mat); mesh.frustumCulled = false; mesh.renderOrder = 3; head.add(mesh); u.kg = { mesh, mat, col, rf: -1 };
+  };
+  U.actor = (a, u, id, t) => {   // every frame, from the goblin loop
+    if (!u.head || !u.rig) return;
+    if (!u.kg) setup(a, u);
+    const know = a.know != null ? a.know : (itemsData().KNOWLEDGE || [])[u.type], L = levelOf(u.type, know), pulse = 0.88 + 0.12 * Math.sin(t * (1.6 + L * 2.4) + id);
+    u.kgL = L; const m = u.kg.mat; m.color.copy(cLow).lerp(cHigh, L).multiplyScalar((0.3 + 1.6 * L) * pulse); m.opacity = 0.55 + 0.45 * L;
+    const rf = Math.pow(cl((L - 0.15) / 0.7, 0, 1), 1.2); if (Math.abs(rf - u.kg.rf) > 0.01) { u.kg.rf = rf; const ca = u.kg.col.array; ca.fill(rf, 24); u.kg.col.needsUpdate = true; }   // forehead rune: invisible at base knowledge, full at high
+    u.kg.mesh.visible = !(u.dead > 0);
+    // brain aura: a faint pulsing sprite behind a goblin that has eaten brains
+    const br = a.brains | 0;
+    if (br > 0 && !u.aura) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: auraTex, color: 0xb48cff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, opacity: 0 })); s.position.y = 1.05 * SCALE[u.type]; u.aura = s; a.group.add(s); }
+    if (u.aura) { const k = Math.min(br, 6); u.aura.visible = br > 0; u.aura.scale.setScalar((1.7 + 0.12 * k) * SCALE[u.type] * (1 + 0.06 * Math.sin(t * 2.2 + id))); u.aura.material.color.copy(cLow).lerp(cHigh, L).lerp(new THREE.Color(0xb48cff), 0.6); u.aura.material.opacity = (0.14 + 0.05 * k) * (0.7 + 0.3 * Math.sin(t * 2.2 + id)); }
+    // king bounty: a small crown marker seen through the walls from an adjacent room, within 12 m
+    if (u.type === 4 && id !== me) {
+      if (!u.crown) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: crownTex, transparent: true, depthTest: false, depthWrite: false, toneMapped: false, opacity: 0 })); s.renderOrder = 999; s.scale.set(0.5, 0.375, 1); s.userData.aid = id; s.userData.grp = a.group; u.crown = s; scene.add(s); markers.push(s); }   // a scene child, not part of the goblin: the room culling hides goblins in rooms we cannot see, and this marker must still draw
+      u.crown.position.set(a.x, 3.05, a.z);
+      const mk = roomKeyAt(P.x, P.z), kk = roomKeyAt(a.x, a.z), dist = Math.hypot(a.x - P.x, a.z - P.z);
+      const adj = mk !== undefined && kk !== undefined && mk !== kk && (ROOM_DOORS[mk] || []).some(i => DINFO[i].a === kk || DINFO[i].b === kk);
+      const show = adj && dist < 12 && GK.mode === 'play' && !(u.dead > 0); u.crown.visible = show;
+      if (show) u.crown.material.opacity = 0.9 * (1 - 0.45 * dist / 12) * (0.8 + 0.2 * Math.sin(t * 3));
+    }
+  };
+  U.sync = (a, p) => { if (p.stats && p.stats.knowledge != null) a.know = p.stats.knowledge; a.brains = p.brains | 0; };   // slow state
+  U.tick = () => {   // panel flash: keep a flashing screen redrawing, then one last redraw; drop crown markers of goblins that left
+    for (let i = markers.length - 1; i >= 0; i--) { const s = markers[i], a = actors.get(s.userData.aid); if (!a || a.group !== s.userData.grp) { scene.remove(s); s.material.dispose(); markers.splice(i, 1); } }
+    const now = performance.now();
+    for (const p of cpList) if (p.flashUntil) { p.dirty = true; if (now > p.flashUntil) p.flashUntil = 0; }
+  };
+  U.tagY = type => [1.95, 1.95, 1.95, 2.85, 2.55][type] * SCALE[type];   // name tag height: above the wizard's hat / the king's crown
+  return U;
+})();
+GK.unique = UNIQUE; panelsDirty();
+// UNIQUE-END
 const buildGoblin = GA.build; GK.ga = GA;   // GK.ga: test hook (build, anim, draws, caches)
 
 // ---------- inventory rules (same as the server: also used by the offline simulation and for optimistic UI) ----------
@@ -3645,7 +3762,7 @@ const handleMsg0 = d => {
       actors.set(p.id, a);
       if (p.id === me) spawned = false;
     }
-    a.box = p.box; combatSync(a, p); vmGear(a, p); GA.gear(a, p);   // positions of existing goblins come from the snapshots (NET), not from this slow list
+    a.box = p.box; combatSync(a, p); vmGear(a, p); GA.gear(a, p); UNIQUE.sync(a, p);   // positions of existing goblins come from the snapshots (NET), not from this slow list
     if (p.id === me && !spawned) { P.x = p.x; P.z = p.z; P.yaw = p.yaw; P.pitch = 0; a.x = p.x; a.z = p.z; spawned = true; }
   }
   const mine = actors.get(me);
@@ -5207,7 +5324,7 @@ function combatBar(a, id) {   // small health bar sprite over another goblin's h
   if (!b) {
     const c = document.createElement('canvas'); c.width = 128; c.height = 16; const tex = new THREE.CanvasTexture(c);
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
-    sp.scale.set(0.9, 0.11, 1); sp.position.y = a.group.userData.label.position.y + (a.goblin === 3 ? 0.75 : a.goblin === 4 ? 0.4 : 0.26); sp.renderOrder = 5; a.group.add(sp);
+    sp.scale.set(0.9, 0.11, 1); sp.position.y = a.group.userData.label.position.y + 0.26; sp.renderOrder = 5; a.group.add(sp);
     b = { a, c, tex, sp, sig: '' }; CB.bars.set(id, b);
   }
   const hp = Math.max(0, a.hp), max = a.maxHp || 1, sig = hp + '/' + max;
@@ -5524,8 +5641,10 @@ function frame(now) {
     u.label.visible = id !== me && GK.settings.tags;
     const walk = clamp(a.speed / 3.5, 0, 1); a.phase += dt * a.speed * 2.3;
     GA.anim(a, u, id, t, dt, walk);   // GOBLINART: waddle, breathing, ear twitch, flinch, gear
+    UNIQUE.actor(a, u, id, t);   // UNIQUE: knowledge glow, brain aura, king marker
   }
   GA.tick(dt);   // GOBLINART: death slumps
+  UNIQUE.tick();   // UNIQUE: panel flash
   combatTick(dt);   // COMBAT
   // camera
   ceilings.forEach(c => c.visible = inside);
@@ -5550,7 +5669,7 @@ const lockNow = requestLock;
 // FULLSCREEN-BEGIN
 GK.requestLock = requestLock; GK.lockOk = lockOk;   // menu.js fullscreen block: re-take the pointer lock after entering fullscreen
 // FULLSCREEN-END
-GK.renderer = renderer; GK.scene = scene; GK.build = t => buildGoblin(t, true); GK.NAMES = NAMES; GK.SCALE = SCALE; GK.glowTex = glowTex; GK.textTex = textTex;
+GK.net = net; GK.cam = cam; GK.P = P; GK.actors = actors; GK.renderer = renderer; GK.scene = scene; GK.build = t => buildGoblin(t, true); GK.NAMES = NAMES; GK.SCALE = SCALE; GK.glowTex = glowTex; GK.textTex = textTex;
 // MATCH-BEGIN (matchmaking: the wheel screen is the queue, the match start moves everyone into the rooms, a 3-2-1-GO countdown locks movement/attacks/interaction; see docs/reports/matchmaking.md)
 const MQ = { goblin: null, began: false, inWorld: false, offset: 0, at: 0, went: false, timer: 0, el: null, resolve: null, lastDigit: -1 };
 GK.locked = false;   // true from the match start until GO: the camera can look around, nothing else works

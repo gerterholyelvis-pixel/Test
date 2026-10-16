@@ -517,4 +517,5 @@ GK.menu = {
   hideWheel,
   /* MATCH-END */
 };
+window.GKHEAD = headCanvas;   // UNIQUE: panel screens draw the picker's goblin head
 })();
