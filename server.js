@@ -83,6 +83,7 @@ setInterval(() => { // one global timer steps every match
   const now = Date.now();
   for (const m of matches.values()) {
     /* MATCH-BEGIN */ if (matchTick(m, now)) continue; /* MATCH-END */
+    socGrace(m, now);   // SOCIAL: disconnected players whose grace period ran out die now
     botTick(m, now);   // BOTS: brains of bots and mystery enemies (~10 Hz)
     if (!m.started) m.endsAt = now + m.dur;   // round 1 waits until someone has left the wheel and entered the rooms
     if (now >= m.endsAt) {
@@ -188,7 +189,7 @@ function move(p, from, to) { // inventory move/swap, strictly validated
   setSlot(p.inv, to, a); setSlot(p.inv, from, b == null ? null : b);
   recalc(p); return true;
 }
-const pub = p => ({ ...(p.bot ? { bot: 1, name: p.name } : p.npc ? { npc: p.npc, name: p.name } : { name: p.name }), kills: p.kills || 0, brains: p.brains || 0, id: p.id, goblin: p.goblin, wins: p.wins, box: p.box, room: p.room, x: p.x, z: p.z, yaw: p.yaw, stats: p.stats, gear: p.gear }); // never includes the inventory
+const pub = p => ({ ...(p.bot ? { bot: 1, name: p.name } : p.npc ? { npc: p.npc, name: p.name } : { name: p.name }), kills: p.kills || 0, brains: p.brains || 0, ...(p.dc ? { dc: 1 } : null), id: p.id, goblin: p.goblin, wins: p.wins, box: p.box, room: p.room, x: p.x, z: p.z, yaw: p.yaw, stats: p.stats, gear: p.gear }); // never includes the inventory
 function addDrop(m, p, items) {
   if (!items.length) return;
   m.drops.push({ id: m.nextDrop++, x: +p.x.toFixed(2), z: +p.z.toFixed(2), items }); if (m.drops.length > 60) m.drops.shift();
@@ -670,15 +671,54 @@ function matchTick(m, now) {   // returns true when the normal round/combat tick
   return false;
 }
 /* MATCH-END */
+// SOCIAL-BEGIN (reconnect grace and emotes; see docs/reports/social.md)
+const GRACE_MS = process.env.GK_DEBUG && +process.env.GK_GRACE_MS > 0 ? +process.env.GK_GRACE_MS : 15000, EMOTE_MS = 1000, EMOTES = 4;   // GK_GRACE_MS only with GK_DEBUG=1 (tests)
+const socTokens = new Map();   // token -> player (only players of a started match are ever resumed)
+const socToken = p => { p.token = require('crypto').randomBytes(12).toString('hex'); socTokens.set(p.token, p); return p.token; };
+function socClose(m, ws, p) {   // socket closed: true when the close was handled here (stale socket, or grace period started); false = leave as usual
+  if (p.ws !== ws) return true;   // a resumed player's old socket: nothing to do
+  if (p.dead || m.ended || m.phase === 'queue' || !m.players.has(ws)) return false;
+  p.dc = Date.now(); p.ready = true; m.dirty = true;   // frozen in the world, still alive for bots and the win rule; a loading match does not wait for him
+  return true;
+}
+function socGrace(m, now) {   // after GRACE_MS without a socket the goblin dies normally (drops, brain)
+  for (const [ws, p] of [...m.players]) if (p.dc && now - p.dc >= GRACE_MS && !p.dead) { p.dc = 0; die(ws, p); }
+}
+function socResume(ws, token) {   // the player of this token, now bound to the new socket, or null
+  const p = socTokens.get(token), m = p && p.match;
+  if (!p || p.dead || !m || m.ended || m.phase === 'queue' || !m.players.has(p.ws)) return null;
+  const old = p.ws; m.players.delete(old); m.players.set(ws, p); p.ws = ws; p.dc = 0; m.dirty = true;
+  place(p, p.x, p.z);   // fresh speed budget: the time offline must not bank movement
+  if (old !== ws) { try { old.terminate(); } catch (e) {} }
+  return p;
+}
+function socWelcome(m, ws, p) {   // full resync: the welcome fields of startMatch, then the current round, players, drops, board and countdown
+  sendTo(ws, { token: p.token, resumed: 1, you: p.id, chests: m.chests, chestKeys: m.chestKeys, layout: m.layout, mystery: m.mystery, shops: m.shops, drops: m.drops, ...roundState(m), match: matchInfo(m), players: [...m.players.values()].map(pub), fix: [p.x, p.z] });
+  sendTo(ws, { inv: p.inv }); sendGold(p); sendParts(p);
+  if (m.phase === 'play') sendTo(ws, { board: { left: matchInfo(m).alive, rows: boardRows(m) } });
+  if (m.phase === 'countdown') sendTo(ws, { countdown: { at: m.goAt, now: Date.now() } });
+}
+function socEmote(m, ws, p, n, now) {   // {emote:n}: relayed to everyone else (specs included), at most one per second per player
+  if (!Number.isInteger(n) || n < 0 || n >= EMOTES || p.dc || m.phase === 'queue' || now - (p.emoteAt || 0) < EMOTE_MS) return;
+  p.emoteAt = now; const msg = JSON.stringify({ emote: { id: p.id, n } });
+  for (const w of m.players.keys()) if (w !== ws && w.readyState === 1) w.send(msg);
+  for (const w of m.specs.keys()) if (w !== ws && w.readyState === 1) w.send(msg);
+}
+setInterval(() => { for (const [t, p] of socTokens) if (p.dead || !p.match || !p.match.players.has(p.ws)) socTokens.delete(t); }, 60000).unref();
+// SOCIAL-END
 wss.on('connection', (ws, req) => {
   let q; try { q = new URL(req.url, 'http://x').searchParams; } catch { q = new URLSearchParams(); }
-  const g = q.get('goblin'), goblin = g !== null && /^[0-4]$/.test(g) ? +g : rollGoblin();
+  let p, m; const tk = q.get('token'), resumed = tk !== null ? socResume(ws, tk) : null;   // SOCIAL: ?token= resumes a player inside the grace period
+  if (tk !== null && !resumed) { sendTo(ws, { resumeFail: 1 }); return ws.close(); }
+  let goblin = 0;
+  if (resumed) { p = resumed; m = p.match; } else {
+  const g = q.get('goblin'); goblin = g !== null && /^[0-4]$/.test(g) ? +g : rollGoblin();
   const wq = q.get('wins'), wins = wq !== null && /^\d{1,9}$/.test(wq) ? Math.min(9999, +wq) : 0;
   const id = nextId++, nq = (q.get('name') || '').replace(/[^A-Za-z0-9 '\-]/g, '').trim().slice(0, 14);
-  const p = { id, wins, ws, name: nq || BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)], ...spawn() }; p.room = String(p.box); equip(p, goblin); place(p, p.x, p.z);
-  const m = findMatch(wins); p.match = m; m.players.set(ws, p); m.dirty = true;
+  p = { id, wins, ws, name: nq || BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)], ...spawn() }; p.room = String(p.box); equip(p, goblin); place(p, p.x, p.z);
+  m = findMatch(wins); p.match = m; m.players.set(ws, p); m.dirty = true; socToken(p); }
   ws.on('error', () => {});
-  /* MATCH-BEGIN */ sendTo(ws, { queue: queueInfo(m), goblin }); broadcastQueue(m, ws); if (m.players.size >= CAP) startMatch(m); /* MATCH-END */
+  if (resumed) socWelcome(m, ws, p); else { /* MATCH-BEGIN */ sendTo(ws, { queue: queueInfo(m), goblin, token: p.token }); broadcastQueue(m, ws); if (m.players.size >= CAP) startMatch(m); /* MATCH-END */ }
   let tokens = 40, last = Date.now(); // rate limit: ~30 msg/s sustained, burst 40
   ws.on('message', (raw, isBinary) => {
     const now = Date.now();
@@ -695,6 +735,7 @@ wss.on('connection', (ws, req) => {
     /* MATCH-END */
     if (Array.isArray(d.m) && d.m.length === 3 && d.m.every(v => typeof v === 'number' && Number.isFinite(v))) { applyMove(m, ws, p, d.m[0], d.m[1], d.m[2], now);
     } else if (typeof d.ping === 'number' && Number.isFinite(d.ping)) { sendTo(ws, { pong: d.ping, t: srvT() });
+    } else if (d.emote !== undefined) { socEmote(m, ws, p, d.emote, now);   // SOCIAL
     } else if (dbg && d.botstat) { sendTo(ws, { botstat: { n: BS.n, sum: BS.sum, max: BS.max, calls: BS.calls, bad: BS.bad } });
     } else if (dbg && d.kill) { die(ws, p);   // test hooks, only with GK_DEBUG=1
     } else if (dbg && d.win) { win(ws, p);
@@ -724,7 +765,7 @@ wss.on('connection', (ws, req) => {
       if (m.sel[p.room] !== d.sel) { m.sel[p.room] = d.sel; (m.selBy || (m.selBy = {}))[p.room] = p.id; broadcastRound(m); }
     }
   });
-  ws.on('close', () => { m.specs.delete(ws); leave(m, ws); if (!humans(m) && !m.specs.size) matches.delete(m.id); });
+  ws.on('close', () => { if (socClose(m, ws, p)) return; m.specs.delete(ws); leave(m, ws); if (!humans(m) && !m.specs.size) matches.delete(m.id); });
 });
 
 srv.listen(process.env.PORT || 3000, () => console.log('Goblin King on :' + (process.env.PORT || 3000)));

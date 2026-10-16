@@ -1,7 +1,7 @@
 // Goblin King audio: every sound is synthesised with WebAudio (oscillators, filtered noise, envelopes). No files, no licences.
 // window.GKAUDIO.play(name, opts)
 //   names: step, door, vaultDoor, panel, pickup, coins, buy, craft, recycle, invOpen, invClose, uiHover, uiClick, tick, tickLast,
-//          gong, eat, deny, hit, hurt, swing, death, victory
+//          gong, eat, deny, hit, hurt, swing, death, victory, emoteTaunt, emoteLaugh, emotePoint, emoteDance
 //   opts:  x, z    world position (metres): the sound is panned and attenuated relative to the listener (see setListener)
 //          vol     extra gain multiplier (default 1)
 //          pitch   playback-rate style multiplier (default 1; footsteps randomise it themselves)
@@ -182,6 +182,30 @@
       tone(out, 'sine', 140, t + 0.55, 0.22, 0.25, { f1: 220, a: 0.02 });
     },
     deny(out, t) { tone(out, 'square', 150, t, 0.1, 0.16, { f1: 120, a: 0.003 }); tone(out, 'square', 130, t + 0.12, 0.14, 0.16, { f1: 90, a: 0.003 }); },
+    // SOCIAL-BEGIN goblin emotes (keys 4-7): short, silly, vocal
+    emoteTaunt(out, t, o) {   // chest thumps and a gravelly "HAH!"
+      const p = num(o.pitch, 1);
+      for (let i = 0; i < 3; i++) { const tt = t + i * 0.17; tone(out, 'sine', 120 * p, tt, 0.12, 0.7, { f1: 55, a: 0.002 }); noise(out, tt, 0.07, 0.35, 'lowpass', 500, 200, 0.8, { a: 0.001 }); }
+      tone(out, 'sawtooth', 210 * p, t + 0.58, 0.32, 0.32, { f1: 130, a: 0.02 }); tone(out, 'square', 214 * p, t + 0.58, 0.3, 0.1, { f1: 128, a: 0.02, det: 35 });
+      noise(out, t + 0.58, 0.28, 0.3, 'bandpass', 1100, 600, 1.6, { a: 0.02 });
+    },
+    emoteLaugh(out, t, o) {   // "heh heh heh heh heh", running out of breath
+      const p = num(o.pitch, 1);
+      for (let i = 0; i < 5; i++) { const tt = t + i * 0.12, f = (380 - i * 28) * p; tone(out, 'sawtooth', f, tt, 0.09, 0.28, { f1: f * 0.8, a: 0.008 }); tone(out, 'square', f * 1.01, tt, 0.08, 0.07, { f1: f * 0.8, a: 0.008, det: 30 }); noise(out, tt, 0.08, 0.2, 'bandpass', 1500, 900, 1.5, { a: 0.006 }); }
+      tone(out, 'sawtooth', 300 * p, t + 0.66, 0.35, 0.22, { f1: 520 * p, a: 0.05 }); noise(out, t + 0.66, 0.3, 0.12, 'highpass', 2500, 2000, 0.6, { a: 0.08 });
+    },
+    emotePoint(out, t, o) {   // a squeaky "Oi! YOU!"
+      const p = num(o.pitch, 1);
+      tone(out, 'sawtooth', 330 * p, t, 0.11, 0.3, { f1: 520 * p, a: 0.006 }); tone(out, 'square', 332 * p, t, 0.1, 0.08, { f1: 520 * p, a: 0.006, det: 25 });
+      tone(out, 'sawtooth', 640 * p, t + 0.16, 0.2, 0.32, { f1: 380 * p, a: 0.01 }); tone(out, 'square', 644 * p, t + 0.16, 0.18, 0.08, { f1: 380 * p, a: 0.01, det: 25 });
+      noise(out, t + 0.16, 0.14, 0.18, 'bandpass', 1800, 1200, 1.2, { a: 0.01 }); ping(out, t + 0.38, 1320, 0.1, 0.25);
+    },
+    emoteDance(out, t, o) {   // a wobbly kazoo jig that ends in a boing
+      const p = num(o.pitch, 1), seq = [262, 330, 392, 330, 440, 392, 523];
+      seq.forEach((f, i) => { const tt = t + i * 0.13; tone(out, 'sawtooth', f * p, tt, 0.11, 0.2, { f1: f * p * 1.04, a: 0.01 }); tone(out, 'square', f * 2 * p, tt, 0.09, 0.05, { f1: f * 2.1 * p, a: 0.01, det: 20 }); if (i % 2 === 0) tone(out, 'sine', 90, tt, 0.1, 0.35, { f1: 55, a: 0.002 }); });
+      tone(out, 'sine', 180, t + 0.95, 0.4, 0.4, { f1: 520, a: 0.01 }); tone(out, 'triangle', 360, t + 0.95, 0.4, 0.12, { f1: 1040, a: 0.01 });
+    },
+    // SOCIAL-END
     // combat, provided for the combat agent to call: GKAUDIO.play('swing' | 'hit' | 'hurt' | 'death' | 'victory')
     swing(out, t, o) { const p = num(o.pitch, 1) * rnd(0.92, 1.1); noise(out, t, 0.2, 0.42, 'bandpass', 450 * p, 2600 * p, 1.1, { a: 0.07 }); },
     hit(out, t) {
