@@ -35,7 +35,7 @@ function flood(key, types, startXZ) {
         const loot = W.LOOT_IDS[0], home = W.HOME_IDS[0];
         eq(W.solidsOf('c' + loot, 'chest').length, 0, 'only mystery rooms and stations have props'); eq(W.solidsOf('c' + loot, 'merchant').length, 0); assert(W.solidsOf('c' + loot, 'mystery').length >= 4, 'mystery clutter');
         eq(W.solidsOf('c' + loot, 'forge').map(p => p.k), ['bench', 'bench'], 'the Master Forge footprint'); eq(W.solidsOf('c' + loot, 'grand').map(p => p.k), ['recycler'], 'the Grand Recycler footprint');
-        eq(W.solidsOf('c' + home, 'home').map(p => p.k).sort(), ['bench', 'bench', 'hcrate', 'recycler'], 'home furniture'); eq(W.solidsOf('c' + home, 'chest').length, 4);
+        eq(W.solidsOf('c' + home, 'home').map(p => p.k).sort(), ['bench', 'bench', 'hbox', 'hcrate', 'hpump', 'hscreen', 'recycler'], 'home furniture'); eq(W.solidsOf('c' + home, 'chest').length, 4);
       }],
       ['layout is deterministic and the types argument may be strings or CHEST_ROOMS-like objects', () => {
         const a = JSON.stringify(W.allProps(ALL_MYSTERY)), b = JSON.stringify(W.allProps(ALL_MYSTERY.map(t => ({ type: t }))));
