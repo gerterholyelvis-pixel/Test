@@ -4339,6 +4339,325 @@ fxBuildBlobs();
 layoutHooks.push(() => { fxCull.cls = new WeakMap(); try { fxBuildBlobs(); } catch (e) { console.warn('contact shadows skipped', e); } fxApplyQuality(true); });
 GK.gfx = { get fx() { return fx; }, cull: fxCull, merge: fxMergeStats, blob: fxBlob, quality: fxQ };   // test hook
 // FX-END
+// ROOMART-BEGIN (room art: floor trims, skirting caps, ceiling beams, wall seams, door hazard stripes, goblin graffiti decals, scattered props, vault treasure dressing, chest/mystery/merchant mood accents.
+// Visual only, no collision, no new lights. Per room the geometry is baked into a few merged static meshes (vertex-coloured solid, gold, ceiling, alpha decals, emissive accents) so the FX room culling handles them.
+// Layout is seeded from the room key, so every client sees the same rooms without network traffic. Hook: ROOMART.init() below (it also registers one layoutHooks entry).)
+const ROOMART = (() => {
+  const V3 = THREE.Vector3, PI = Math.PI;
+  const hashStr = s => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
+  const mul = seed => { let s = seed >>> 0; return () => { s = (s + 0x6D2B79F5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+  const BOXG = new THREE.BoxGeometry(1, 1, 1), CYLG = new THREE.CylinderGeometry(1, 1, 1, 10, 1), CONEG = new THREE.CylinderGeometry(0, 1, 1, 8, 1), SPHG = new THREE.SphereGeometry(1, 8, 6),
+    HEMG = new THREE.SphereGeometry(1, 10, 5, 0, PI * 2, 0, PI / 2), LINKG = new THREE.TorusGeometry(1, 0.2, 4, 8), ARCG = new THREE.TorusGeometry(1, 0.09, 4, 10, PI), OCTG = new THREE.SphereGeometry(1, 4, 2);
+  const _v = new V3(), _w = new V3(), _n3 = new THREE.Matrix3(), _M = new THREE.Matrix4(), _Q = new THREE.Quaternion(), _E = new THREE.Euler(0, 0, 0, 'YXZ'), _P = new V3(), _S = new V3();
+  class Acc {   // merged geometry builder; R = room matrix (local -> world)
+    constructor(R) { this.R = R; this.p = []; this.n = []; this.c = []; this.u = []; this.i = []; this.cnt = 0; }
+    add(geo, m, col) {
+      const pa = geo.attributes.position, na = geo.attributes.normal, ua = geo.attributes.uv, ix = geo.index, base = this.cnt; _n3.getNormalMatrix(m);
+      for (let k = 0; k < pa.count; k++) {
+        _v.fromBufferAttribute(pa, k).applyMatrix4(m); this.p.push(_v.x, _v.y, _v.z);
+        _w.fromBufferAttribute(na, k).applyMatrix3(_n3).normalize(); this.n.push(_w.x, _w.y, _w.z);
+        this.u.push(ua.getX(k), ua.getY(k)); this.c.push(col.r, col.g, col.b);
+      }
+      for (let k = 0; k < ix.count; k++) this.i.push(ix.getX(k) + base);
+      this.cnt += pa.count;
+    }
+    quad(c, n, up, hw, hh, rect, col) {   // decal quad in room-local space; n = facing normal, up = image up (perpendicular to n)
+      const right = new V3().crossVectors(up, n), a = c.clone().addScaledVector(right, -hw).addScaledVector(up, -hh), b = c.clone().addScaledVector(right, hw).addScaledVector(up, -hh),
+        d = c.clone().addScaledVector(right, hw).addScaledVector(up, hh), e = c.clone().addScaledVector(right, -hw).addScaledVector(up, hh);
+      const nw = n.clone().transformDirection(this.R), uv = [rect[0], rect[1], rect[2], rect[1], rect[2], rect[3], rect[0], rect[3]], base = this.cnt;
+      [a, b, d, e].forEach((q, k) => { q.applyMatrix4(this.R); this.p.push(q.x, q.y, q.z); this.n.push(nw.x, nw.y, nw.z); this.u.push(uv[k * 2], uv[k * 2 + 1]); this.c.push(col.r, col.g, col.b); });
+      this.i.push(base, base + 1, base + 2, base, base + 2, base + 3); this.cnt += 4;
+    }
+    geometry() {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(this.p, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(this.n, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(this.u, 2)); g.setAttribute('color', new THREE.Float32BufferAttribute(this.c, 3)); g.setIndex(this.i);
+      g.computeBoundingSphere(); g.computeBoundingBox(); return g;
+    }
+  }
+  const put = (a, g, x, y, z, rx, ry, rz, sx, sy, sz, c) => { _E.set(rx, ry, rz); _Q.setFromEuler(_E); _M.compose(_P.set(x, y, z), _Q, _S.set(sx, sy, sz)); _M.premultiply(a.R); a.add(g, _M, c); };
+  const cv = (hex, rnd, a = 0.12) => new THREE.Color(hex).multiplyScalar(1 + (rnd() - 0.5) * 2 * a);
+  const rot = (x, z, yaw) => [x * Math.cos(yaw) + z * Math.sin(yaw), -x * Math.sin(yaw) + z * Math.cos(yaw)];   // local offset -> offset after yaw about y
+  const WHITE = new THREE.Color(0xffffff);
+
+  // ---- materials and textures
+  const solidM = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0, envMapIntensity: 0.45, side: THREE.DoubleSide });
+  const goldVM = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 1, envMapIntensity: 1.4, emissive: 0x3a2000, emissiveIntensity: 0.6 });
+  const MOOD = { chest: 0xffb02e, mystery: 0xa04dff, merchant: 0x22e0cc };
+  const moodM = {}; for (const k in MOOD) moodM[k] = new THREE.MeshStandardMaterial({ color: 0x15110c, emissive: MOOD[k], emissiveIntensity: 2.3, roughness: 0.55 });
+  const AW = 1024, AH = 640;
+  const CELLS = { gob: [0, 0, 512, 256], crown: [512, 0, 256, 256], tally: [768, 0, 256, 256], arrow: [0, 256, 256, 256], mine: [256, 256, 256, 256], king: [512, 256, 512, 256], haz: [0, 512, 1024, 128] };
+  const SIZES = { gob: [1.5, 0.75], crown: [0.75, 0.75], tally: [0.7, 0.7], arrow: [0.95, 0.95], mine: [0.8, 0.8], king: [1.5, 0.75] };
+  const uvr = k => { const [x, y, w, h] = CELLS[k]; return [(x + 2) / AW, 1 - (y + h - 2) / AH, (x + w - 2) / AW, 1 - (y + 2) / AH]; };
+  const atlas = canvasTex(AW, AH, (g, w, h) => {
+    const rnd = mul(0xC0FFEE), INK = 'rgba(34,38,34,0.92)', RED = 'rgba(150,34,24,0.93)';
+    g.clearRect(0, 0, w, h); g.lineCap = 'round'; g.lineJoin = 'round';
+    const cell = (k, fn, wear = true) => {
+      const [x, y, cw, ch] = CELLS[k]; g.save(); g.beginPath(); g.rect(x, y, cw, ch); g.clip(); g.translate(x, y); fn(cw, ch);
+      if (wear) { g.globalCompositeOperation = 'destination-out'; for (let i = 0; i < cw * ch / 450; i++) { g.globalAlpha = 0.35 + rnd() * 0.55; g.fillRect(rnd() * cw, rnd() * ch, 1 + rnd() * 3, 1 + rnd() * 2); } }
+      g.restore();
+    };
+    const sl = (x0, y0, x1, y1, lw, col) => { g.strokeStyle = col; for (let p = 0; p < 2; p++) { g.lineWidth = lw * (p ? 0.55 : 1); g.beginPath(); g.moveTo(x0 + (rnd() - 0.5) * 3, y0 + (rnd() - 0.5) * 3); g.quadraticCurveTo((x0 + x1) / 2 + (rnd() - 0.5) * 7, (y0 + y1) / 2 + (rnd() - 0.5) * 7, x1 + (rnd() - 0.5) * 3, y1 + (rnd() - 0.5) * 3); g.stroke(); } };
+    const scrawl = (txt, cx, cy, size, col) => {
+      g.font = `900 ${size}px "Comic Sans MS","Marker Felt","Chalkboard SE",Impact,sans-serif`; g.textBaseline = 'middle'; g.textAlign = 'left'; g.fillStyle = col; g.strokeStyle = col; g.lineWidth = 2;
+      let tw = 0; const ws = [...txt].map(c => { const m = g.measureText(c).width; tw += m; return m; }); let x = cx - tw / 2;
+      [...txt].forEach((c, i) => { g.save(); g.translate(x, cy + (rnd() - 0.5) * size * 0.2); g.rotate((rnd() - 0.5) * 0.3); g.fillText(c, 0, 0); g.strokeText(c, 0, 0); g.restore(); x += ws[i]; });
+    };
+    const face = (x, y, r, col) => { g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 4; g.beginPath(); g.arc(x, y, r, 0, 7); g.stroke(); sl(x - r, y - r * 0.2, x - r * 1.6, y - r * 0.9, 4, col); sl(x + r, y - r * 0.2, x + r * 1.6, y - r * 0.9, 4, col); for (const s of [-1, 1]) { g.beginPath(); g.arc(x + s * r * 0.4, y - r * 0.15, r * 0.14, 0, 7); g.fill(); } sl(x - r * 0.4, y + r * 0.45, x + r * 0.4, y + r * 0.45, 4, col); };
+    cell('gob', () => { scrawl('GOB WOZ ERE', 256, 100, 80, RED); sl(60, 158, 440, 164, 6, RED); face(256, 212, 20, INK); });
+    cell('crown', () => {
+      g.strokeStyle = RED; g.lineWidth = 8; const pts = [[50, 190], [40, 80], [95, 135], [128, 50], [160, 135], [215, 80], [206, 190]];
+      for (let p = 0; p < 2; p++) { g.beginPath(); pts.forEach(([x, y], i) => { x += (rnd() - 0.5) * 6; y += (rnd() - 0.5) * 6; i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.closePath(); g.stroke(); }
+      sl(50, 190, 206, 192, 8, RED); for (const x of [128, 60, 196]) { g.fillStyle = RED; g.beginPath(); g.arc(x, 172, 7, 0, 7); g.fill(); }
+      for (let k = 0; k < 6; k++) { const x = 50 + rnd() * 156, l = 12 + rnd() * 34; sl(x, 194, x + (rnd() - 0.5) * 3, 194 + l, 4, RED); }
+    });
+    cell('tally', () => { for (let gI = 0; gI < 3; gI++) { const ox = 30 + (gI % 2) * 110, oy = 28 + gI * 72; for (let k = 0; k < 4; k++) sl(ox + k * 20, oy, ox + k * 20 + (rnd() - 0.5) * 4, oy + 54, 5, INK); sl(ox - 8, oy + 44, ox + 70, oy + 8, 5, INK); } });
+    cell('arrow', () => { sl(128, 220, 128, 70, 12, RED); sl(128, 30, 76, 100, 12, RED); sl(128, 30, 180, 100, 12, RED); scrawl('VAULT', 128, 238, 42, INK); });
+    cell('mine', () => { face(128, 70, 26, INK); scrawl('MINE!!', 128, 170, 78, INK); sl(30, 222, 226, 214, 5, INK); });
+    cell('king', () => { scrawl('KING SMELZ', 256, 96, 74, INK); sl(20, 96, 490, 100, 6, RED); sl(20, 120, 490, 70, 5, RED); face(256, 200, 22, RED); });
+    cell('haz', (cw, ch) => {   // yellow/black safety stripes, 8:1, worn
+      g.fillStyle = '#17171a'; g.fillRect(0, 0, cw, ch); g.fillStyle = '#e1ad1c';
+      for (let x = -128; x < cw + 128; x += 128) { g.beginPath(); g.moveTo(x, ch); g.lineTo(x + 64, ch); g.lineTo(x + 192, 0); g.lineTo(x + 128, 0); g.closePath(); g.fill(); }
+      for (let i = 0; i < 900; i++) { g.fillStyle = rnd() < 0.5 ? 'rgba(60,45,15,0.28)' : 'rgba(255,240,200,0.12)'; g.fillRect(rnd() * cw, rnd() * ch, 1 + rnd() * 4, 1 + rnd() * 3); }
+      g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillRect(0, 0, cw, 5); g.fillRect(0, ch - 5, cw, 5);
+    }, false);
+  });
+  atlas.wrapS = atlas.wrapT = THREE.ClampToEdgeWrapping;
+  const decalM = new THREE.MeshStandardMaterial({ map: atlas, transparent: true, depthWrite: false, roughness: 1, metalness: 0, envMapIntensity: 0.2, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+
+  // ---- prop builders (A = {S solid, G gold, C ceiling}); x,z local, y up
+  const GOLD = [0xffc83a, 0xf0b02a, 0xffd860, 0xd89a1c];
+  const coin = (A, x, y, z, rnd, tilt = 0) => put(A.G, CYLG, x, y, z, (rnd() - 0.5) * tilt, rnd() * 6.28, (rnd() - 0.5) * tilt, 0.062, 0.011, 0.062, cv(GOLD[(rnd() * 4) | 0], rnd, 0.08));
+  const coinScatter = (A, x, z, n, spread, rnd) => { for (let i = 0; i < n; i++) { const a = rnd() * 6.28, d = spread * Math.sqrt(rnd()), stack = rnd() < 0.25; coin(A, x + Math.cos(a) * d, 0.012 + (stack ? 0.012 : 0), z + Math.sin(a) * d, rnd, stack ? 0.5 : 0.15); } };
+  const coinPile = (A, x, z, r, h, rnd) => {
+    put(A.G, SPHG, x, 0, z, 0, 0, 0, r, h, r, cv(0xd8a028, rnd, 0.1));
+    const n = Math.round(r * r * 200); for (let i = 0; i < n; i++) { const t = rnd() * 6.28, d = r * Math.sqrt(rnd()) * 0.95, y = h * Math.sqrt(Math.max(0, 1 - (d / r) ** 2)); coin(A, x + Math.cos(t) * d, y + 0.01, z + Math.sin(t) * d, rnd, 0.8); }
+    coinScatter(A, x, z, Math.round(r * 9), r * 1.7, rnd);
+  };
+  const bone = (A, x, z, yaw, rnd) => {
+    const c = cv(0xe6dcc0, rnd, 0.06), L = 0.34 + rnd() * 0.18, [dx, dz] = rot(L / 2, 0, yaw);
+    put(A.S, CYLG, x, 0.03, z, 0, yaw, PI / 2, 0.021, L, 0.021, c); for (const s of [-1, 1]) for (const q of [-0.025, 0.025]) { const [ex, ez] = rot(0, q, yaw); put(A.S, SPHG, x + s * dx + ex, 0.032, z + s * dz + ez, 0, 0, 0, 0.034, 0.03, 0.034, c); }
+  };
+  const skull = (A, x, z, yaw, rnd) => {
+    const c = cv(0xe9e0c6, rnd, 0.05), d = cv(0x1a1a18, rnd, 0.1);
+    put(A.S, SPHG, x, 0.085, z, 0, yaw, 0, 0.1, 0.085, 0.11, c);
+    let [ox, oz] = rot(0, 0.07, yaw); put(A.S, BOXG, x + ox, 0.032, z + oz, 0, yaw, 0, 0.1, 0.04, 0.09, c);
+    for (const s of [-1, 1]) { [ox, oz] = rot(s * 0.04, 0.085, yaw); put(A.S, SPHG, x + ox, 0.1, z + oz, 0, 0, 0, 0.026, 0.026, 0.02, d); }
+  };
+  const ribs = (A, x, z, yaw, rnd) => { const c = cv(0xdcd2b6, rnd, 0.06); for (let i = 0; i < 4; i++) { const [ox, oz] = rot(i * 0.065, 0, yaw); put(A.S, ARCG, x + ox, 0, z + oz, 0, yaw + PI / 2, (rnd() - 0.5) * 0.3, 0.13, 0.11, 0.13, c); } };
+  const boneSet = (A, x, z, rnd) => {
+    const k = rnd(), yaw = rnd() * 6.28;
+    if (k < 0.35) { skull(A, x, z, yaw, rnd); bone(A, x + 0.25, z + 0.1, rnd() * 6.28, rnd); }
+    else if (k < 0.7) { ribs(A, x, z, yaw, rnd); bone(A, x - 0.2, z + 0.2, rnd() * 6.28, rnd); bone(A, x + 0.1, z - 0.25, rnd() * 6.28, rnd); }
+    else { for (let i = 0; i < 3 + ((rnd() * 3) | 0); i++) bone(A, x + (rnd() - 0.5) * 0.7, z + (rnd() - 0.5) * 0.7, rnd() * 6.28, rnd); if (rnd() < 0.6) skull(A, x + 0.3, z - 0.2, rnd() * 6.28, rnd); }
+  };
+  const bucket = (A, x, z, yaw, rnd) => {
+    const m = cv(0x8b949d, rnd, 0.08), dk = cv(0x23262b, rnd, 0.1), w = (u, v) => { const [a, b] = rot(u, v, yaw); return [x + a, z + b]; };
+    let [px, pz] = w(0, 0); put(A.S, CYLG, px, 0.195, pz, 0, yaw, PI / 2 + 0.04, 0.19, 0.32, 0.19, m);       // lying on its side, mouth toward -x
+    [px, pz] = w(-0.158, 0); put(A.S, CYLG, px, 0.198, pz, 0, yaw, PI / 2 + 0.04, 0.17, 0.02, 0.17, dk);
+    [px, pz] = w(0.16, 0.34); put(A.S, ARCG, px, 0.012, pz, -PI / 2, yaw + 0.5, 0, 0.17, 0.17, 0.17, cv(0x2f343b, rnd, 0.1));   // bail handle on the floor
+    [px, pz] = w(-0.5, 0.05); put(A.S, CYLG, px, 0.004, pz, 0, 0, 0, 0.42, 0.006, 0.3, cv(0x4a5864, rnd, 0.1));   // spilled puddle
+  };
+  const crate = (A, x, z, yaw, s, rnd) => {
+    const wood = cv(0x8c6a45, rnd, 0.1), dk = cv(0x5b4228, rnd, 0.1);
+    put(A.S, BOXG, x, s / 2, z, 0, yaw, 0, s, s, s, wood);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) { const [a, b] = rot(sx * s / 2, sz * s / 2, yaw); put(A.S, BOXG, x + a, s / 2, z + b, 0, yaw, 0, s * 0.1, s * 1.012, s * 0.1, dk); }
+    for (const f of [0, 1]) { const [a, b] = f ? rot(s / 2, 0, yaw) : rot(0, s / 2, yaw); put(A.S, BOXG, x + a * 1.002, s / 2, z + b * 1.002, 0, yaw + (f ? PI / 2 : 0), PI / 4 * (f ? 1 : -1), s * 1.2, s * 0.09, s * 0.03, dk); }
+    for (const q of [-0.3, 0, 0.3]) { const [a, b] = rot(0, q * s, yaw); put(A.S, BOXG, x + a, s * 1.006, z + b, 0, yaw, 0, s * 0.96, s * 0.012, s * 0.16, cv(0x9a7650, rnd, 0.1)); }
+  };
+  const sack = (A, x, z, rnd) => { put(A.S, SPHG, x, 0.17, z, 0, rnd() * 6, 0, 0.27, 0.19, 0.24, cv(0xb09a6e, rnd, 0.1)); put(A.S, CYLG, x, 0.35, z, 0, 0, 0, 0.07, 0.07, 0.07, cv(0x6a5a3a, rnd, 0.1)); };
+  const chain = (A, x, z, len, rnd) => {
+    const c = cv(0x2f343b, rnd, 0.1), n = Math.floor(len / 0.075), sw = (rnd() - 0.5) * 0.1;
+    put(A.C, BOXG, x, H - 0.02, z, 0, 0, 0, 0.16, 0.04, 0.16, cv(0x1d2025, rnd, 0.1));
+    for (let i = 0; i < n; i++) put(A.C, LINKG, x + sw * (i / n), H - 0.07 - i * 0.075, z, 0, (i % 2) * PI / 2, 0, 0.026, 0.045, 0.026, c);
+    put(A.C, ARCG, x + sw, H - 0.07 - n * 0.075 - 0.02, z, PI, rnd() * 6, 0, 0.07, 0.07, 0.07, c);
+  };
+  const helmet = (A, x, z, yaw, rnd) => {
+    const m = cv(0x56604c, rnd, 0.08), brass = cv(0x8a7a40, rnd, 0.1), bone2 = cv(0xe2d8b8, rnd, 0.05), w = (u, v) => { const [a, b] = rot(u, v, yaw); return [x + a, z + b]; };
+    let [px, pz] = w(0, 0); put(A.S, HEMG, px, 0.17, pz, 0, yaw, -PI / 2 + 0.1, 0.17, 0.15, 0.17, m);
+    put(A.S, LINKG, px, 0.17, pz, 0, yaw + PI / 2, 0, 0.17, 0.17, 0.17, brass);
+    [px, pz] = w(0.0, 0.17); put(A.S, CONEG, px, 0.2, pz, PI / 2 - 0.2, yaw, 0, 0.045, 0.19, 0.045, bone2);              // one horn
+    [px, pz] = w(0.0, -0.17); put(A.S, CONEG, px, 0.15, pz, -PI / 2, yaw, 0, 0.045, 0.05, 0.045, bone2);                  // snapped stub
+    [px, pz] = w(0.3, -0.35); put(A.S, CONEG, px, 0.04, pz, 0, yaw + 1.3, PI / 2, 0.04, 0.14, 0.04, bone2);                // the snapped-off horn tip
+    [px, pz] = w(0.12, 0.0); put(A.S, SPHG, px, 0.2, pz, 0, 0, 0, 0.05, 0.03, 0.05, cv(0x7a4a2a, rnd, 0.1));              // rust patch
+  };
+
+  // ---- room geometry helpers (room-local frame: x east, z south; walls at +-hx / +-hz; wall 0 N, 1 S, 2 W, 3 E)
+  const YAW = [0, 0, PI / 2, PI / 2], NRM = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+  const wp = (r, w, t, off) => w === 0 ? [t, -r.hz + off] : w === 1 ? [t, r.hz - off] : w === 2 ? [-r.hx + off, t] : [r.hx - off, t];
+  const segs = (r, w, sh, ge = 0) => { const L = (w < 2 ? r.hx : r.hz) - sh, g = r.gaps[w] ? r.gaps[w] + ge : 0; return (g ? [[-L, -g], [g, L]] : [[-L, L]]).filter(s => s[1] - s[0] > 0.05); };
+  const wbox = (a, r, w, t0, t1, y0, y1, o0, o1, col) => { const [x, z] = wp(r, w, (t0 + t1) / 2, (o0 + o1) / 2); put(a, BOXG, x, (y0 + y1) / 2, z, 0, YAW[w], 0, t1 - t0, y1 - y0, o1 - o0, col); };
+  const pickSeg = (list, rnd) => { const tot = list.reduce((s, q) => s + q[1] - q[0], 0); if (tot <= 0) return null; let k = rnd() * tot; for (const q of list) { const l = q[1] - q[0]; if (k < l) return q[0] + k; k -= l; } return list[0][0]; };
+
+  function buildRoom(r) {
+    const rnd = mul(hashStr('roomart:' + r.key)), S = new Acc(r.R), G = new Acc(r.R), C = new Acc(r.R), D = new Acc(r.R), E = new Acc(r.R), A = { S, G, C };
+    const big = r.vault, hx = r.hx, hz = r.hz;
+    // 1. skirting cap, floor trim lines, safety corner squares
+    const capC = cv(0xcfd3d8, rnd, 0.03), lineC = cv(0x46515d, rnd, 0.04), lineC2 = cv(0xa8b0b8, rnd, 0.03);
+    for (let w = 0; w < 4; w++) {
+      for (const [a, b] of segs(r, w, 0.02)) wbox(S, r, w, a, b, 0.2, 0.285, 0, 0.09, capC);
+      for (const [a, b] of segs(r, w, 0.46, 0.2)) { wbox(S, r, w, a, b, 0, 0.012, 0.42, 0.48, lineC); wbox(S, r, w, a, b, 0, 0.011, 0.5, 0.515, lineC2); }
+    }
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) put(S, BOXG, sx * (hx - 0.45), 0.008, sz * (hz - 0.45), 0, 0, 0, 0.2, 0.016, 0.2, cv(0xdca92c, rnd, 0.05));
+    // 2. wall panel seams (vertical reveals plus two horizontal ones)
+    const seamC = cv(0xa9afb6, rnd, 0.03), sp = r.kind === 'chest' ? 2.0 + rnd() * 0.4 : 2.0 + rnd() * 0.7;
+    for (let w = 0; w < 4; w++) {
+      for (const [a, b] of segs(r, w, 0.3, 0.08)) {
+        for (let t = a + rnd() * sp; t < b - 0.05; t += sp) wbox(S, r, w, t - 0.011, t + 0.011, 0.3, H - 0.55, 0, 0.014, seamC);
+        wbox(S, r, w, a, b, 2.69, 2.72, 0, 0.012, seamC);
+      }
+      for (const [a, b] of segs(r, w, 0.3)) wbox(S, r, w, a, b, 5.62, 5.65, 0, 0.012, seamC);
+    }
+    // 3. ceiling: cornice and coffer beams (separate mesh so the overview camera hides it together with the ceilings)
+    const beamC = cv(0xe4e1da, rnd, 0.02);
+    if (!big) for (let w = 0; w < 4; w++) wbox(C, r, w, -(w < 2 ? hx : hz), (w < 2 ? hx : hz), H - 0.24, H, 0, 0.12, cv(0xdad7cf, rnd, 0.02));
+    const uq = a => [...new Set(a.map(v => +v.toFixed(2)))].sort((p, q) => p - q), mids = a => { const u = uq(a), o = []; for (let i = 0; i + 1 < u.length; i++) o.push((u[i] + u[i + 1]) / 2); return o; };
+    for (const z of mids(r.panels.map(p => p[1]))) put(C, BOXG, 0, H - 0.17, z, 0, 0, 0, 2 * hx, 0.34, 0.3, beamC);
+    for (const x of (r.xBeams || mids(r.panels.map(p => p[0])))) put(C, BOXG, x, H - 0.17, 0, 0, 0, 0, 0.3, 0.34, 2 * hz, beamC);
+    // 4. hazard stripes at every door of this room (floor strip in front of the threshold)
+    for (const e of r.doors) {
+      const wdt = e.d.dw + 0.5, dep = wdt / 8, c = new V3(e.lp.x + e.sl.x * 0.95, 0.007, e.lp.z + e.sl.z * 0.95);
+      D.quad(c, new V3(0, 1, 0), new V3(e.t.z, 0, -e.t.x), wdt / 2, dep / 2, uvr('haz'), WHITE);
+    }
+    // 5. props, near walls and corners only, kept clear of door gaps
+    const occ = [], free = (x, z, rad) => !occ.some(o => Math.hypot(o[0] - x, o[1] - z) < o[2] + rad + 0.12);
+    const wallSpot = rad => { for (let k = 0; k < 30; k++) { const w = (rnd() * 4) | 0, t = pickSeg(segs(r, w, rad + 0.5, rad + 0.7), rnd); if (t == null) continue; const [x, z] = wp(r, w, t, rad + 0.28 + rnd() * 0.7); if (Math.abs(x) < hx - rad && Math.abs(z) < hz - rad && free(x, z, rad)) { occ.push([x, z, rad]); return [x, z, w]; } } return null; };
+    const cornerSpot = rad => { for (let k = 0; k < 16; k++) { const sx = rnd() < 0.5 ? -1 : 1, sz = rnd() < 0.5 ? -1 : 1, x = sx * (hx - 0.25 - rad - rnd() * 0.35), z = sz * (hz - 0.25 - rad - rnd() * 0.35); if (free(x, z, rad)) { occ.push([x, z, rad]); return [x, z]; } } return null; };
+    if (r.vault) vaultDress(r, A, rnd, occ);
+    if (r.kind === 'chest') {   // door-side corners only (the far wall carries banners, torches and the chest)
+      const cs = rad => { for (let k = 0; k < 10; k++) { const sx = rnd() < 0.5 ? -1 : 1, x = sx * (hx - 0.3 - rad - rnd() * 0.2), z = hz - 0.3 - rad - rnd() * 0.2; if (free(x, z, rad)) { occ.push([x, z, rad]); return [x, z]; } } return null; };
+      let p;
+      if (rnd() < 0.5 && (p = cs(0.3))) { crate(A, p[0], p[1], rnd() * 6, 0.5 + rnd() * 0.15, rnd); if (rnd() < 0.5) sack(A, p[0] + (p[0] < 0 ? 0.4 : -0.4), p[1] - 0.4, rnd); }
+      if ((p = cs(0.3))) { const k = rnd(); if (k < 0.3) helmet(A, p[0], p[1], rnd() * 6, rnd); else if (k < 0.6) bucket(A, p[0], p[1], rnd() * 6, rnd); else boneSet(A, p[0], p[1], rnd); }
+      for (let i = 0, n = 1 + ((rnd() * 2) | 0); i < n; i++) if ((p = cs(0.3))) coinScatter(A, p[0], p[1], 7 + ((rnd() * 8) | 0), 0.3, rnd);
+    } else {
+      const nCrates = 1 + ((rnd() * (big ? 3 : 2)) | 0), nBones = 2 + ((rnd() * 3) | 0), nCoins = 1 + ((rnd() * 3) | 0) + (big ? 2 : 0), nChains = 1 + ((rnd() * 3) | 0), bucketOn = rnd() < 0.5, helmetOn = rnd() < 0.45, sackOn = rnd() < 0.5;
+      for (let i = 0; i < nCrates; i++) { const p = cornerSpot(0.55); if (!p) break; const s = 0.7 + rnd() * 0.3, yaw = rnd() * 0.6 - 0.3; crate(A, p[0], p[1], yaw, s, rnd); if (rnd() < 0.5) { const [a, b] = rot(s * 0.9, s * 0.2, yaw); sack(A, p[0] + a, p[1] + b, rnd); } }
+      for (let i = 0; i < nBones; i++) { const p = rnd() < 0.5 ? cornerSpot(0.4) : wallSpot(0.4); if (p) boneSet(A, p[0], p[1], rnd); }
+      if (bucketOn) { const p = wallSpot(0.45); if (p) bucket(A, p[0], p[1], rnd() * 6, rnd); }
+      if (helmetOn) { const p = wallSpot(0.3); if (p) helmet(A, p[0], p[1], rnd() * 6, rnd); }
+      if (sackOn) { const p = wallSpot(0.3); if (p) sack(A, p[0], p[1], rnd); }
+      for (let i = 0; i < nCoins; i++) { const p = wallSpot(0.4); if (p) coinScatter(A, p[0], p[1], 8 + ((rnd() * 14) | 0), 0.38, rnd); }
+      for (let i = 0; i < nChains; i++) { const p = rnd() < 0.5 ? cornerSpot(0.15) : wallSpot(0.15); if (p) chain(A, p[0], p[1], 1.0 + rnd() * 2.2, rnd); }
+    }
+    // 6. graffiti on the walls (never over door gaps, the north wall's map/control panels, or each other) and a floor arrow toward the vault
+    const marks = [], kinds = ['gob', 'gob', 'gob', 'crown', 'crown', 'tally', 'tally', 'tally', 'mine', 'mine', 'king', 'king'];
+    const nG = r.kind === 'chest' ? 2 : big ? 3 : 3 + ((rnd() * 3) | 0), up = new V3(0, 1, 0);
+    for (let n = 0, tries = 0; n < nG && tries < 50; tries++) {
+      const k = kinds[(rnd() * kinds.length) | 0], sc = big || r.kind === 'chest' ? 0.7 : 1.15 + rnd() * 0.5, hw = SIZES[k][0] * sc / 2, hh = SIZES[k][1] * sc / 2;
+      const w = r.kind === 'chest' ? 1 : (rnd() * 4) | 0, t = pickSeg(segs(r, w, hw + 0.3, hw + 0.2), rnd); if (t == null) continue;
+      if (r.kind === 'chest' && (Math.abs(t) < 2.5 || hw > 0.4)) continue;
+      if (w === 0 && r.panelDX && Math.abs(Math.abs(t) - r.panelDX) < hw + 1.4) continue;
+      if (big && hh > 0.37) continue;
+      const y = big ? 0.6 : Math.max(0.4 + hh, 0.55 + rnd() * 0.95);
+      if (marks.some(m => m[0] === w && Math.abs(m[1] - t) < m[2] + hw + 0.2)) continue;
+      marks.push([w, t, hw]); n++;
+      const [x, z] = wp(r, w, t, 0.012), nrm = NRM[w], nv = new V3(nrm[0], 0, nrm[1]), upv = up.clone().applyAxisAngle(nv, (rnd() - 0.5) * 0.18);
+      D.quad(new V3(x, y, z), nv, upv, hw, hh, uvr(k), WHITE);
+    }
+    if (r.kind === 'grid' && !big) {
+      const [vx, vz] = rc(WORLD.VAULT), dx = vx - r.cx, dz = vz - r.cz, l = Math.hypot(dx, dz), dir = new V3(dx / l, 0, dz / l);
+      D.quad(new V3(dir.x * 3.1, 0.008, dir.z * 3.1), new V3(0, 1, 0), dir, 0.5, 0.5, uvr('arrow'), WHITE);
+    }
+    if (r.kind === 'chest') moodAccents(r, E, S, C, rnd);
+    const out = [], add = (acc, mat, isCeil, name) => { if (!acc.cnt) return; const m = new THREE.Mesh(acc.geometry(), mat); m.name = name; m.matrixAutoUpdate = false; m.updateMatrix(); scene.add(m); out.push(m); if (isCeil) ceilings.push(m); };
+    add(S, solidM, false, 'roomartSolid'); add(G, goldVM, false, 'roomartGold'); add(C, solidM, true, 'roomartCeil'); add(D, decalM, false, 'roomartDecal'); add(E, moodM[r.type] || solidM, false, 'roomartMood');
+    return out;
+  }
+
+  // ---- the vault: coin piles around the medallion, corner hoards
+  function vaultDress(r, A, rnd, occ) {
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) for (const [a0, a1] of [[22, 36], [52, 66]]) {
+      const a = (a0 + rnd() * (a1 - a0)) * PI / 180, rad = 4.2 + rnd() * 0.8, x = sx * Math.cos(a) * rad, z = sz * Math.sin(a) * rad, pr = 0.4 + rnd() * 0.35;
+      coinPile(A, x, z, pr, 0.2 + rnd() * 0.2, rnd); r.piles.push([x, z, pr]);
+    }
+    for (let k = 0; k < 2; k++) { const sx = rnd() < 0.5 ? -1 : 1, sz = k ? -1 : 1, x = sx * (r.hx - 1.3), z = sz * (r.hz - 1.3); coinPile(A, x, z, 1.0 + rnd() * 0.2, 0.6, rnd); occ.push([x, z, 1.2]); crate(A, x - sx * 1.5, z + sz * 0.3, rnd() * 6, 0.8, rnd); }
+  }
+  // ---- chest / mystery / merchant mood accents (emissive only): floor inlay, ceiling cove and corner motifs
+  function moodAccents(r, E, S, C, rnd) {
+    const t = r.type, hx = r.hx;
+    for (let w = 0; w < 4; w++) {
+      for (const [a, b] of segs(r, w, 0.62, 0.2)) wbox(E, r, w, a, b, 0, 0.016, 0.54, 0.6, WHITE);
+      for (const [a, b] of segs(r, w, 0.02)) wbox(E, r, w, a, b, H - 0.52, H - 0.46, 0, 0.06, WHITE);
+    }
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      const x = sx * (hx - 0.5), z = sz * (hx - 0.5);
+      if (t === 'chest') { put(E, BOXG, x, 0.05, z, 0, 0.3 * sx, 0, 0.36, 0.1, 0.18, WHITE); put(E, BOXG, x - 0.22 * sx, 0.05, z + 0.02, 0, -0.2 * sz, 0, 0.36, 0.1, 0.18, WHITE); put(E, BOXG, x - 0.08 * sx, 0.15, z + 0.05, 0, 0.1, 0, 0.36, 0.1, 0.18, WHITE); }
+      else if (t === 'mystery') { const y = 3.0 + rnd() * 1.1; put(E, BOXG, x, (H + y) / 2, z, 0, 0, 0, 0.012, H - y, 0.012, WHITE); put(E, OCTG, x, y, z, 0, rnd() * 3, 0, 0.14, 0.3, 0.14, WHITE); }
+      else { put(C, BOXG, x, H - 0.75, z, 0, 0, 0, 0.014, 1.5, 0.014, new THREE.Color(0x2f343b)); put(E, BOXG, x, H - 1.65, z, 0, 0.4, 0, 0.2, 0.3, 0.2, WHITE); put(S, CONEG, x, H - 1.44, z, 0, 0, 0, 0.17, 0.1, 0.17, new THREE.Color(0x23262b)); }
+    }
+  }
+
+  // ---- vault floor veining + glinting sprites (once)
+  function vaultFloor() {
+    const [vx, vz] = rc(WORLD.VAULT), size = VSIZE - T - 0.4, rnd = mul(0xBEEF);
+    const tex = canvasTex(1024, 1024, (g, w, h) => {
+      g.clearRect(0, 0, w, h); g.lineCap = 'round';
+      for (let i = 0; i < 26; i++) { const x = rnd() * w, y = rnd() * h, rr = 60 + rnd() * 140, gr = g.createRadialGradient(x, y, 0, x, y, rr); gr.addColorStop(0, 'rgba(120,128,142,0.10)'); gr.addColorStop(1, 'rgba(120,128,142,0)'); g.fillStyle = gr; g.fillRect(x - rr, y - rr, rr * 2, rr * 2); }
+      const vein = (x, y, a, steps, lw, col, depth) => { g.strokeStyle = col; g.lineWidth = lw; g.beginPath(); g.moveTo(x, y); for (let s = 0; s < steps; s++) { a += (rnd() - 0.5) * 0.55; x += Math.cos(a) * (5 + rnd() * 7); y += Math.sin(a) * (5 + rnd() * 7); g.lineTo(x, y); if (depth < 2 && rnd() < 0.035) { g.stroke(); vein(x, y, a + (rnd() < 0.5 ? 1 : -1) * (0.5 + rnd() * 0.6), steps * 0.45, lw * 0.6, col, depth + 1); g.strokeStyle = col; g.lineWidth = lw; g.beginPath(); g.moveTo(x, y); } } g.stroke(); };
+      for (let i = 0; i < 70; i++) vein(rnd() * w, rnd() * h, rnd() * 6.28, 50 + rnd() * 150, 0.8 + rnd() * 2.2, `rgba(${55 + rnd() * 25 | 0},${62 + rnd() * 25 | 0},${78 + rnd() * 25 | 0},${0.18 + rnd() * 0.25})`, 0);
+      for (let i = 0; i < 14; i++) vein(rnd() * w, rnd() * h, rnd() * 6.28, 40 + rnd() * 110, 0.8 + rnd() * 1.6, `rgba(214,162,58,${0.25 + rnd() * 0.25})`, 0);
+    });
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(size, size).rotateX(-PI / 2), new THREE.MeshStandardMaterial({ map: tex, transparent: true, depthWrite: false, roughness: 0.28, metalness: 0, envMapIntensity: 0.9, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
+    m.name = 'roomartMarble'; m.position.set(vx, 0.006, vz); m.updateMatrix(); m.matrixAutoUpdate = false; scene.add(m); return m;
+  }
+  const glints = [];
+  function vaultGlints(piles) {
+    const [vx, vz] = rc(WORLD.VAULT), star = canvasTex(128, 128, (g, w, h) => {
+      const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64); gr.addColorStop(0, 'rgba(255,248,210,1)'); gr.addColorStop(0.12, 'rgba(255,214,110,0.55)'); gr.addColorStop(1, 'rgba(255,190,60,0)'); g.fillStyle = gr; g.fillRect(0, 0, w, h);
+      g.fillStyle = 'rgba(255,250,225,0.95)'; for (const [a, l] of [[0, 62], [PI / 2, 62], [PI / 4, 30], [-PI / 4, 30]]) { g.save(); g.translate(64, 64); g.rotate(a); g.beginPath(); g.moveTo(-l, 0); g.quadraticCurveTo(0, 2.5, l, 0); g.quadraticCurveTo(0, -2.5, -l, 0); g.fill(); g.restore(); }
+    });
+    const spots = [[vx, 1.25, vz, 2.3, 0.9, 0]].concat(piles.slice(0, 4).map((p, i) => [vx + p[0], 0.55, vz + p[1], 1.0, 1.3 + i * 0.37, i + 1]));
+    for (const [x, y, z, s, sp, ph] of spots) {
+      const mat = new THREE.SpriteMaterial({ map: star, color: 0xffe9a8, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
+      const spr = new THREE.Sprite(mat); spr.position.set(x, y, z); spr.scale.set(s, s, 1); scene.add(spr); glints.push({ spr, mat, s, sp, ph });
+    }
+    const tick = now => { for (const g of glints) { const k = 0.5 + 0.5 * Math.sin(now * 0.002 * g.sp + g.ph * 2.1), q = k * k * k, s = g.s * (0.35 + 0.65 * q); g.spr.scale.set(s, s, 1); g.mat.opacity = 0.25 + 0.7 * q; g.mat.rotation = now * 0.0002 * g.sp; } requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+  }
+
+  // ---- rooms
+  const built = new Map(), doorsByRoom = new Map();   // room key -> meshes; room key -> doors touching it
+  const mkRoom = (key, cx, cz, rotY, hx, hz, extra) => {
+    const R = new THREE.Matrix4().makeRotationY(rotY).setPosition(cx, 0, cz), Ri = R.clone().invert(), r = { key, cx, cz, R, Ri, hx, hz, gaps: [0, 0, 0, 0], doors: [], panels: [[0, 0]], piles: [], ...extra };
+    for (const e of doorsByRoom.get(key) || []) {
+      const lp = new V3(e.d.gx, 0, e.d.gz).applyMatrix4(Ri), sl = new V3(e.s[0], 0, e.s[1]).transformDirection(Ri), tg = new V3(e.d.ax[0], 0, e.d.ax[1]).transformDirection(Ri);
+      const w = Math.abs(lp.z + hz) < 0.8 ? 0 : Math.abs(lp.z - hz) < 0.8 ? 1 : Math.abs(lp.x + hx) < 0.8 ? 2 : Math.abs(lp.x - hx) < 0.8 ? 3 : -1;
+      if (w >= 0) r.gaps[w] = e.d.dw / 2 + 0.45;
+      r.doors.push({ d: e.d, lp, sl, t: tg });
+    }
+    return r;
+  };
+  const dispose = key => { for (const m of built.get(key) || []) { scene.remove(m); m.geometry.dispose(); const i = ceilings.indexOf(m); if (i >= 0) ceilings.splice(i, 1); } built.delete(key); };
+  let chestSig = '';
+  function build() {
+    if (!doorsByRoom.size) for (const d of doors) {
+      const ka = WORLD.roomKeyOf(d.gx + d.az[0] * 1.2, d.gz + d.az[1] * 1.2), kb = WORLD.roomKeyOf(d.gx - d.az[0] * 1.2, d.gz - d.az[1] * 1.2);
+      for (const [k, sg] of [[ka, 1], [kb, -1]]) { if (!doorsByRoom.has(k)) doorsByRoom.set(k, []); doorsByRoom.get(k).push({ d, s: [d.az[0] * sg, d.az[1] * sg] }); }
+    }
+    if (!built.size) {
+      for (let i = 0; i < 9; i++) {
+        const [cx, cz] = rc(i), vault = i === WORLD.VAULT, r = mkRoom(String(i), cx, cz, 0, roomW(i) / 2 - T / 2, roomD(i) / 2 - T / 2, { kind: 'grid', vault, panels: WORLD.panelOffsets(i), panelDX: WORLD.panelDX(i) });
+        built.set(r.key, buildRoom(r));
+        if (vault) { built.get(r.key).push(vaultFloor()); vaultGlints(r.piles); }
+      }
+    }
+    const sig = CHEST_ROOMS.map(c => c.type).join();
+    if (sig !== chestSig) {
+      chestSig = sig;
+      for (const cr of CHEST_ROOMS) {
+        const key = 'c' + cr.id; dispose(key);
+        const IN = WORLD.CS / 2 - T / 2, r = mkRoom(key, cr.cx, cr.cz, Math.atan2(-cr.dx, -cr.dz), IN, IN, { kind: 'chest', type: cr.type, panels: [[0, -1.8], [0, 1.4]], xBeams: [-1.6, 1.6] });
+        built.set(key, buildRoom(r));
+      }
+      if (typeof fxCull !== 'undefined') fxCull.cls = new WeakMap();
+    }
+  }
+  return { init() { try { build(); layoutHooks.push(() => { try { build(); } catch (e) { console.warn('roomart layout skipped', e); } }); } catch (e) { console.warn('roomart skipped', e); } }, built, glints };
+})();
+ROOMART.init();
+// ROOMART-END
 let orbit = 0.4;
 function resize() { renderer.setSize(innerWidth, innerHeight); fxResize(); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); }
 addEventListener('resize', resize); resize();
