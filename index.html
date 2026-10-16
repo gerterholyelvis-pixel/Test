@@ -348,6 +348,7 @@ body #roundHud .b{font-family:var(--disp)!important;font-weight:700!important;fo
 #rr:hover{color:#1a1104!important;background:linear-gradient(90deg,var(--gold2),var(--gold))!important;border-color:var(--gold)!important}
 /* the HUD gets out of the way while a panel is open (the panel shows the same numbers) */
 body:has(:is(#gkInv,#gkShop,#gkRec,#gkCraft,#gkLoot)[style*="display: flex"]) :is(#hud,#gkLeft,#gkHot,#hint){visibility:hidden}
+body:has(#gkHome.on) :is(#hud,#gkLeft,#gkHot,#hint,#gkMM,.hu-ctr){visibility:hidden}
 /* panels: inventory, merchant, recycler, workbench, loot */
 #gkInv *,#gkShop *,#gkRec *,#gkCraft *,#gkLoot *{font-family:var(--ui)!important}
 :is(#gkInv,#gkShop,#gkRec,#gkCraft,#gkLoot) :is([style*="font-size:11px"],[style*="font-size: 11px"],[style*=" 11px system"]){font-size:var(--gk-fs-xs)!important}
@@ -619,11 +620,14 @@ body:not(.tready) #menu h1.title,body:not(.tready) #p-main .mbtn{animation-play-
  </div>
 </div>
 
-<script src="/audio.js"></script><script src="/feel.js"></script><script src="/vfx.js"></script><script src="/hud5.js"></script><script src="/world.js"></script><script src="/items.js"></script><script src="/save.js"></script><script src="/icons.js"></script>
+<script src="/audio.js"></script><script src="/feel.js"></script><script src="/vfx.js"></script><script src="/hud5.js"></script><script src="/world.js"></script><script src="/items.js"></script><script src="/save.js"></script><script src="/icons.js"></script><script src="/homebase.js"></script><script src="/homeui.js"></script>
 <script type="module">
 import * as THREE from 'three';
 window.THREE = THREE;
 try { await import('/itemart.js'); } catch (e) { console.error('itemart failed, using the old item models', e); } // ITEMART: custom 3D item models + baked icons (window.GKART)
+// ROOMS5ART: the room art modules (home, 10 tree rooms, vaultbreakers + vault dressing); game.js builds them lazily and falls back to the plain rooms when one is missing
+window.GK5ART = {}; for (const [k, f] of [['home', 'home'], ['ta', 'trees-a'], ['tb', 'trees-b'], ['vault', 'vault']]) { try { window.GK5ART[k] = await import('/rooms5art-' + f + '.js'); } catch (e) { console.error('room art ' + f + ' failed, those rooms stay plain', e); } }
+try { window.GK5ART.merge = (await import('three/addons/utils/BufferGeometryUtils.js')).mergeGeometries; } catch (e) { console.error('mergeGeometries failed', e); }
 try { window.GKTAGS = await import('/client/ui/tags.js'); } catch (e) { console.error('tags failed, name tags use plain sprites', e); } // name tag + health bar atlas
 await import('/game.js');
 await import('/menu.js');

@@ -39,7 +39,7 @@ function cached(key, file, type) {
   if (cache.size < 500) cache.set(key, e);
   return e;
 }
-const CLIENT_JS = new Set(['game', 'menu', 'items', 'world', 'save', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker']);
+const CLIENT_JS = new Set(['game', 'menu', 'items', 'world', 'save', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)
 let CSP = '';
 function buildCsp() {   // the page has two inline scripts (importmap + module): allowed by hash, so no 'unsafe-inline' for scripts
   const page = cached('/index.html', path.join(ROOT_DIR, 'index.html'), 'text/html; charset=utf-8'), hashes = [];
@@ -49,7 +49,7 @@ function buildCsp() {   // the page has two inline scripts (importmap + module):
 function staticFor(url) {   // -> { body, type, cc } or null (404)
   const p = url.split('?')[0].split('#')[0];
   if (p === '/' || p === '/index.html') { const e = cached('/index.html', path.join(ROOT_DIR, 'index.html'), 'text/html; charset=utf-8'); return e && { ...e, cc: 'no-cache' }; }
-  const mm = p.match(/^\/([a-z0-9]+)\.js$/);
+  const mm = p.match(/^\/([a-z0-9-]+)\.js$/);   // ROOMS5ART: hyphens and digits allowed (the whitelist above still decides)
   if (mm && CLIENT_JS.has(mm[1])) { const e = cached(p, path.join(ROOT_DIR, mm[1] + '.js'), 'text/javascript; charset=utf-8'); return e && { ...e, cc: 'no-cache' }; }
   const cm = p.match(/^\/client\/((?:[a-z0-9_-]+\/)*[a-z0-9_-]+)\.js$/);   // client modules (client/**.js); no dots in the capture, so no traversal
   if (cm) { const e = cached(p, path.join(ROOT_DIR, 'client', cm[1] + '.js'), 'text/javascript; charset=utf-8'); return e && { ...e, cc: 'no-cache' }; }
@@ -192,6 +192,7 @@ setInterval(() => { // one global timer steps every match
     ruleTick(m, now);   // RULES: experimental rules (no-op unless GK_RULES is set)
     guardTick(m, now);   // DOORGUARD: nobody stays locked in a room, nobody stays stuck inside a prop
     A5.tick(m, now);   // ACT5: tree rooms, vaultbreakers, the vault (10 Hz inside)
+    elixirTick(m, now);   // ELIXIR: pumps, home security, sendables, bots at home
     if (!m.started) m.endsAt = now + m.dur;   // round 1 waits until someone has left the wheel and entered the rooms
     if (now >= m.endsAt) {
       const picked = [...new Set(Object.values(m.sel))], ok = vaultVotes(m) >= 2; // vault doors need 2 different rooms
@@ -379,7 +380,7 @@ function die(ws, p) { // a dead player drops everything where they fell and leav
   const items = allItems(p.inv), brain = G.brainKey(p.stats.knowledge); // the brain carries the victim's CURRENT knowledge
   m.deaths = (m.deaths || 0) + 1; p.dead = true; p.diedAt = Date.now(); m.dead.push(p);
   if (ws && ws.readyState === 1) m.specs.set(ws, p);   // FUN: a dead human stays subscribed as a spectator (snapshots, hits, feed) until the socket closes
-  addDrop(m, p, [...items, brain]);
+  addDrop(m, p, [...items, brain, ...elixirDeath(m, p)]);   // ELIXIR: carried elixir drops as a flask, the home dies
   sendTo(ws, { died: { items, brain, by: p.killedBy || null, ...(p.killer ? { killer: p.killer } : null) } });   // killer: { name, npc, w } for the death card
   leave(m, ws);
 }
@@ -643,6 +644,7 @@ function loot(m, p, a) { // {loot:[dropId, index, 'take'|'eat', expectedKey?]}; 
   if (dr.bait != null) return baitTake(m, p, dr, a[2]);   // USE2: Mimic Bait
   const key = dr.items[a[1]];
   if (key == null || (a.length === 4 && a[3] !== key)) return 'item';
+  if (G.isFlask(key)) return elixirTakeFlask(m, p, dr, di, a);   // ELIXIR: an Elixir Flask adds to the carried elixir
   if (a[2] === 'eat') { if (!G.isBrain(key)) return 'item'; }
   else if (p.inv.backpack.indexOf(null) < 0) return 'space';
   dr.items.splice(a[1], 1); if (!dr.items.length) m.drops.splice(di, 1);
@@ -674,7 +676,8 @@ function inBounds(x, z) {   // inside a room of the grid, or inside one of the 1
   const id = WORLD.attachedAt(x, z, SLACK);
   return id >= 0 && 'c' + id === roomKeyOf(x, z);
 }
-function pathOk(m, x0, z0, x1, z1) {   // walk the segment in 0.2 m steps: every room change must go through an OPEN door, inside its opening
+function pathOk(m, x0, z0, x1, z1, who) {   // walk the segment in 0.2 m steps: every room change must go through an OPEN door, inside its opening
+  if (who) who.lockDeny = false;   // ELIXIR: set again by homeGate when a Door Lock refuses this step
   const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 0.2)); let prev = roomKeyOf(x0, z0); const inside0 = WORLD.inProp(x0, z0, PROP_R, m.layout, true);
   for (let i = 1; i <= n; i++) {
     const x = x0 + (x1 - x0) * i / n, z = z0 + (z1 - z0) * i / n;
@@ -683,6 +686,7 @@ function pathOk(m, x0, z0, x1, z1) {   // walk the segment in 0.2 m steps: every
     const k = roomKeyOf(x, z); if (k === prev) continue;
     const d = DOOR_AT[prev + '|' + k];
     if (!d || !isOpen(m, d.id) || Math.abs((d.axis === 'x' ? x : z) - d.c) > d.hw) return false;
+    if (who && m.homes && isHome(k) && !homeGate(m, who, k, Date.now())) return false;   // ELIXIR: Door Lock pick bar
     prev = k;
   }
   return true;
@@ -696,8 +700,8 @@ function applyMove(m, ws, p, x, z, yaw, now, jy) {   // {m:[x,z,yaw]}: accept, o
   const dt = p.mvAt ? Math.min(0.5, (now - p.mvAt) / 1000) : 0.066; p.mvAt = now; const prevRoom = p.room;
   p.budget = Math.min(BUDGET, (p.budget == null ? BUDGET : p.budget) + dt * MAXV * (now < (p.tonicUntil || 0) + 500 ? G.ITEMS['x:tonic'].n : 1) * (G.charmEff(p.inv.charm, 'spd') || 1));   // UTILITY: a speed tonic raises the movement allowance
   const dist = Math.hypot(x - p.x, z - p.z);
-  if (dist > 0.0005 && (dist > p.budget + MOVE_SLACK || !pathOk(m, p.x, p.z, x, z))) {
-    if (now - (p.fixAt || 0) > 150) { p.fixAt = now; sendTo(ws, { fix: [r2(p.x), r2(p.z)] }); if (secFix(p, ws, now)) return false; }
+  if (dist > 0.0005 && (dist > p.budget + MOVE_SLACK || !pathOk(m, p.x, p.z, x, z, p))) {
+    if (now - (p.fixAt || 0) > 150) { p.fixAt = now; sendTo(ws, { fix: [r2(p.x), r2(p.z)] }); if (!p.lockDeny && secFix(p, ws, now)) return false; }   // ELIXIR: a Door Lock refusal is not a speed-hack correction
     if (yaw !== p.yaw) { p.yaw = yaw; p.sd = true; }
     return false;
   }
@@ -831,6 +835,7 @@ const NPC = {   // hp, dmg (per hit), cd ms, speed m/s, reaction ms [lo, hi], we
   speedy:  { hp: 30,  dmg: 6,  cd: 450,  speed: 6.4, react: [120, 220], weapon: 'w:dagger', loot: [1, 1], look: 0, name: 'Speedy' },
   dumb:    { hp: 50,  dmg: 8,  cd: 900,  speed: 2.6, react: [700, 1100], weapon: 'w:club', loot: [1, 0], look: 1, name: 'Dumb' },
   regular: { hp: 40,  dmg: 10, cd: 700,  speed: 4.2, react: [250, 400], weapon: 'w:sword', loot: [1, 0], look: 1, name: 'Goblin' },
+  rat:     { hp: 5,   dmg: 2,  cd: 900,  speed: 2.2, react: [500, 800], weapon: 'w:dagger', loot: [0, 0], look: 0, name: 'Rat' },   // ELIXIR: the Rat Swarm sendable (no loot)
 };
 function spawnNpc(m, id) {   // FUN: the enemy of mystery room c<id> appears when a goblin first walks in
   if (m.phase !== 'play' || m.npcSpawned.has(id)) return;
@@ -846,6 +851,7 @@ function spawnNpc(m, id) {   // FUN: the enemy of mystery room c<id> appears whe
 function noteRoom(m, p, prev) { if (p.room !== prev && !p.npc) A5.room(m, p, prev); /* ACT5 */ if (p.room !== prev && !p.npc && p.entered) { const mm = /^c(\d+)$/.exec(p.room); if (mm) spawnNpc(m, +mm[1]); } }
 function npcLoot(kind) {
   const S = NPC[kind], out = [];
+  if (!S.loot[0]) return out;   // ELIXIR: rats carry nothing
   for (let i = 0; i < S.loot[0]; i++) {
     let k = null; for (let t = 0; t < 40; t++) { k = (i % 2 ? G.randomArmorKey : G.randomWeaponKey)(); if (G.ITEMS[k].tierN >= S.loot[1]) break; }
     out.push(k);
@@ -1355,6 +1361,7 @@ function pickDest(m, p, now) {   // idle: where to go next (claimable rooms, the
     let s = Math.random() * 2 - dist[key] * 0.35, mm = /^c(\d+)$/.exec(key);
     if (mm) {
       const id = +mm[1], L = m.layout[id], my = m.mystery[id];
+      if (key === p.home) s += botHomeWant(m, p, now);   // ELIXIR: go home to collect a full pump and spend it
       if (L === 'chest' && !(p.claimed && p.claimed.has(id))) s += 5 + b.greed + (p.stats.health < p.stats.maxHealth * 0.5 ? 2 : 0);   // AI: wounded bots like quiet chest rooms
       else if (L === 'mystery' && my && ['weapon', 'armor', 'gold'].includes(my.kind) && !(p.claimed && p.claimed.has(id))) s += 5;
       else if (L === 'merchant' && !b.done[key] && p.gold >= 20) s += 2 + 4 * b.greed + (p.gold >= 60 ? 2 : 0);   // AI: greed, and rich bots shop
@@ -1399,7 +1406,7 @@ function botThink(m, p, now, dt) {
   if (now >= b.reactAt) {
     b.reactAt = now + (b.react ? rnd(b.react[0], b.react[1]) : rnd(200, 400));
     if (p.npc) {
-      const tg = fighter ? nearestEnemy(m, p, 6) : null;
+      const tg = fighter ? nearestEnemy(m, p, p.rat ? 40 : 6) : null;   // ELIXIR: rats see the whole room
       if (tg && tg.room === p.room) { if (!b.seenAt) b.seenAt = now; } else b.seenAt = 0; b.tgt = tg && b.seenAt && now - b.seenAt >= NPC_AGGRO ? tg : null;   // enemies wait until someone has stood in their room for NPC_AGGRO
     } else {
       const vis = fighter ? perceive(m, p, now) : null, prev = b.tgt;   // AI: only what the bot can see
@@ -1727,6 +1734,271 @@ function botLab(m, ws, p, cmd) {   // GK_DEBUG only, for tests. 'station': make 
   sendTo(ws, { botlab: { rec: BS.rec || 0, cra: BS.cra || 0, pos: bot ? [bot.x, bot.z] : null, junk: bot ? bot.inv.backpack.filter(k => k === 'w:stick').length : 0, room: bot ? bot.room : null, charm: bot ? bot.inv.charm : null, know: bot ? bot.stats.knowledge : null, pack: bot ? bot.inv.backpack.filter(Boolean) : null, wpn: bot ? bot.inv.weapon : null, armor: bot ? bot.inv.armor : null, nav: BS.nav || 0, yaw: bot ? bot.yaw : null, ai: bot ? { aggr: bot.brain.aggr, flee: bot.brain.flee, greed: bot.brain.greed, patience: bot.brain.patience } : null } });
 }
 // LOOT-END
+// ELIXIR-BEGIN (PLAN-5x5 1.7, 1.8; docs/reports/elixir-home-wiring.md). Pure rules live in elixir.js (pump, sinks) and homebase.js (upgrades, security, sends); this block holds the per-match state m.homes[homeKey] and the server effects.
+// m.homes[key] = homebase home {owner (player id), lv, box, snareArmed, ammo, dead, ...} + {key, ref (owner's player record), pump, pickSeen}. Carried elixir is p.elixir. Live sendables are m.sends, one send per player and round is m.sentRound[id] = round.
+const HB = require('./homebase.js'), EX = require('./elixir.js');
+const homeAt = (m, key) => (m.homes && typeof key === 'string' && m.homes[key]) || null;
+const hAnchor = (key, kind) => { const c = WORLD.CHEST[+key.slice(1)], a = WORLD.HOME_LAYOUT[kind]; return WORLD.attLocal(c, a[0], a[1]); };   // pump, screen, box, sentry in world metres
+const hState = (p, key, kind) => { const [x, z] = hAnchor(key, kind); return { id: p.id, alive: !p.dead, entered: !!p.entered, roomKey: p.room, homeKey: key, dist: Math.hypot(p.x - x, p.z - z) }; };
+const sendElixir = p => { if (p.ws) sendTo(p.ws, { elixir: p.elixir | 0 }); };
+const homeToast = (p, kind, text) => { if (p && p.ws && !p.dead) sendTo(p.ws, { homeToast: { kind, text } }); };
+const homeRes = (p, ok, reason, text) => { if (p.ws) sendTo(p.ws, { homeRes: { ok, ...(reason ? { reason } : null), ...(text ? { text } : null) } }); };
+const ENV = name => ({ id: 0, npc: 'env', name, x: 0, z: 0, kills: 0, stats: null, ws: null, inv: null, dead: false });   // the "attacker" of gas, plates, snares and sentries: no perks, no bounty, shown as an enemy in the feed
+const envHit = (m, t, dmg, now, name) => { if (t.dead || !t.entered || dmg <= 0) return; const e = [...m.players].find(([, q]) => q === t); if (e) hitTarget(m, null, ENV(name), e[0], t, dmg, now, name); };
+const homeRate = (p, now) => { const r = (p.hmRing || []).filter(t => now - t < 1000); p.hmRing = r; if (r.length >= HB.MSG_RATE * 2) return false; r.push(now); return true; };   // 8 msgs/s per player over every home message (the screen itself allows 4/s, homebase.canUseScreen)
+function homesInit(m, now) {   // at GO: a home record and a pump for every goblin, bots included
+  m.homes = {}; m.sends = []; m.sentRound = {};
+  for (const p of m.players.values()) if (!p.npc && typeof p.home === 'string' && WORLD.CHEST[+p.home.slice(1)]) {
+    p.elixir = 0; p.distills = 0; p.oils = 0; p.elxRoom = p.room;
+    m.homes[p.home] = Object.assign(HB.createHome(p.id), { key: p.home, ref: p, pump: EX.createPump(now, 1), pickSeen: {} });
+    sendElixir(p);
+  }
+}
+const activeSends = (m, now) => { const o = {}; for (const s of m.sends || []) if (HB.sendPhase(s, now) !== 'over' && !s.ended) o[s.room] = (o[s.room] || 0) + 1; return o; };
+function homeView(m, h, p, now) {   // what the owner sees on the Elixir Screen ({home}); everything else about a home stays on the server
+  const homes = {}; for (const k in m.homes) homes[k] = { owner: m.homes[k].ref.name, dead: m.homes[k].dead ? 1 : 0 };
+  return { key: h.key, lv: h.lv, ammo: h.ammo, snareArmed: h.snareArmed, dead: h.dead, box: h.box.map(k => ({ name: (info(k) || {}).name || k, n: 1 })), slots: HB.lockboxSlots(h), tank: EX.tick(h.pump, now), tankCap: EX.params(h.pump).cap, round: m.round, sentRound: m.sentRound[p.id] === m.round ? 1 : 0, distills: p.distills | 0, active: activeSends(m, now), elixir: p.elixir | 0, homes };
+}
+const pushHome = (m, h, now) => { const p = h.ref; if (p && p.ws && !p.dead) { sendTo(p.ws, { home: homeView(m, h, p, now) }); sendElixir(p); } };
+
+// ---- messages: {pump:1}, {base:{buy|act|send+room|crack}}, {lockbox:{put|take}}, {brew:'heal'|'tonic'}
+function pumpUse(m, p, now) {
+  const h = homeAt(m, p.room); if (!h || !EX.canUsePump(hState(p, p.room, 'pump'))) return homeRes(p, false, 'Too far from the pump');
+  const own = h.owner === p.id, r = EX.collect(h.pump, p.elixir | 0, now, own);
+  p.elixir = r.carried;
+  if (r.moved <= 0) return homeRes(p, false, (p.elixir | 0) >= EX.CARRY_CAP ? 'You carry all you can' : 'The tank is empty');
+  sendElixir(p); homeRes(p, true, null, '+' + r.moved + ' elixir');
+  if (r.raid && !h.dead && h.ref && !h.ref.dead) { homeToast(h.ref, 'raid', p.name + ' is draining your pump!'); sendTo(h.ref.ws, { pumpGlow: EX.RAID_GLOW_MS }); }
+  pushHome(m, h, now);
+}
+function baseMsg(m, p, b, now) {
+  if (!b || typeof b !== 'object' || Array.isArray(b)) return;
+  if (b.crack === 1) return crackStart(m, p, now);
+  const h = homeAt(m, p.home); if (!h || h.dead) return;
+  const gate = HB.canUseScreen(h, hState(p, p.home, 'screen'), now); if (!gate.ok) return homeRes(p, false, gate.reason === 'range' ? 'Too far from the screen' : gate.reason === 'rate' ? 'Slow down' : gate.reason);
+  let r = null;
+  if (typeof b.buy === 'string') {
+    r = HB.buy(h, b.buy, p);
+    if (r.ok) { if (b.buy === 'pump') EX.setLevel(h.pump, HB.pumpLevel(h), now); r.text = HB.UPGRADES[b.buy].name + ' bought'; }
+    else if (r.reason === 'max') r.reason = 'Already at the top level';
+  } else if (b.act === 'distill') {
+    r = EX.distill(p); if (r.ok) { G.addKnowledge(p, r.knowledge); m.dirty = true; r.text = '+' + r.knowledge + ' knowledge'; } else if (r.reason === 'max') r.reason = 'Three distills per match';
+  } else if (b.act === 'snareRearm') { r = HB.rearmSnare(h, p); if (!r.ok && r.reason === 'n/a') r.reason = 'Nothing to re-arm'; if (r.ok) r.text = 'Snare armed'; }
+  else if (b.act === 'sentryAmmo') { r = HB.buyAmmo(h, p); if (!r.ok && r.reason === 'n/a') r.reason = 'No sentry'; if (r.ok) r.text = 'Sentry reloaded'; }
+  else if (typeof b.send === 'string' && typeof b.room === 'string') r = sendStart(m, p, h, b.send, b.room, now);
+  else return;
+  if (!r) return;
+  homeRes(p, r.ok, r.ok ? null : r.reason, r.text); pushHome(m, h, now);
+}
+function lockboxMsg(m, p, b, now) {
+  const h = homeAt(m, p.home); if (!h || h.dead || !b || typeof b !== 'object') return;
+  const gate = HB.canUseScreen(h, hState(p, p.home, 'screen'), now); if (!gate.ok) return homeRes(p, false, gate.reason === 'range' ? 'Too far from the screen' : gate.reason);
+  if (b.put !== undefined) {
+    const slot = Number.isInteger(b.put) ? 'b' + b.put : b.put;
+    if (typeof slot !== 'string' || !/^(b[0-8]|q[0-2])$/.test(slot)) return homeRes(p, false, 'That cannot be stored');
+    const key = getSlot(p.inv, slot); if (!key) return homeRes(p, false, 'Nothing there');
+    if (!HB.boxPut(h, key)) return homeRes(p, false, 'The lockbox is full');
+    setSlot(p.inv, slot, null); sendInv(p);
+  } else if (Number.isInteger(b.take)) {
+    if (b.take < 0 || b.take >= h.box.length) return homeRes(p, false, 'Nothing there');
+    const key = h.box[b.take]; if (!giveItem(p, key)) return homeRes(p, false, 'Your backpack is full');
+    HB.boxTake(h, b.take);
+  } else return;
+  pushHome(m, h, now);
+}
+function brewAt(m, p, kind) {   // {brew}: any workbench; the home bench is owner-only. Returns null or a failure reason
+  if (typeof kind !== 'string' || !stationAt(m, p, 'workbench')) return 'room';
+  const h = homeAt(m, p.room); if (h && !HB.canUseStation(h, p.id)) return 'owner';
+  if (p.inv.backpack.indexOf(null) < 0) return 'space';
+  const r = EX.brew(p, kind); if (!r.ok) return r.reason;
+  giveItem(p, r.item === 'c:draught' ? 'x:draught' : r.item); sendElixir(p); sendTo(p.ws, { brewed: { key: r.item === 'c:draught' ? 'x:draught' : r.item, cost: r.cost } });
+  return null;
+}
+function homeRecycle(m, p, slot, refine) {   // {recycle:slot, refine?:1} inside a home: owner only, efficiency from the Recycler upgrade, or 100% for 4 elixir (Refine). Returns null or a failure reason
+  const h = homeAt(m, p.room); if (!h) return 'room';
+  if (!HB.canUseStation(h, p.id)) return 'owner';
+  if (typeof slot !== 'string' || !/^(b[0-8]|q[0-2])$/.test(slot)) return 'item';
+  const key = getSlot(p.inv, slot), base = key && G.recycleFor(key, p.perks); if (!base) return 'item';
+  let eff = h.dead ? 0.5 : HB.recyclerEff(h);
+  if (refine === true) { if ((p.elixir | 0) < EX.SINKS.refine) return 'elixir'; const r = EX.refine(p, 1); if (!r.ok) return r.reason; eff = r.eff; sendElixir(p); }
+  const y = G.recycleEff(base, eff); if (!y) return 'item';
+  setSlot(p.inv, slot, null); for (const k in y) p.parts[k] = (p.parts[k] || 0) + y[k];
+  sendInv(p); sendParts(p); sendTo(p.ws, { recycled: { key, parts: y, ...(refine === true ? { refined: 1 } : null) } }); m.dirty = true;
+  return null;
+}
+function homeMsg(m, ws, p, d, now) {   // the one entry for the home messages (validated here, then by homebase.js)
+  if (!m.homes || m.phase !== 'play' || m.ended || p.dead || !p.entered || !homeRate(p, now)) return;
+  if (d.pump === 1) pumpUse(m, p, now);
+  else if (d.base !== undefined) baseMsg(m, p, d.base, now);
+  else if (d.lockbox !== undefined) lockboxMsg(m, p, d.lockbox, now);
+  else if (d.brew !== undefined) { const why = brewAt(m, p, d.brew); if (why) sendTo(ws, { brewFail: why }); }
+}
+
+// ---- raids: crack a foreign lockbox (8 s, 14 s against Lock L2) within 1.5 m
+function crackStart(m, p, now) {
+  const h = homeAt(m, p.room); if (!h) return homeRes(p, false, 'Not a home');
+  const r = HB.startCrack(h, hState(p, p.room, 'box'), now);
+  if (!r.ok) return homeRes(p, false, r.reason === 'range' ? 'Too far from the box' : r.reason === 'busy' ? 'Someone is already cracking it' : 'Nothing to crack');
+  homeRes(p, true, null, 'Cracking the lockbox...');
+  if (h.ref && !h.ref.dead) homeToast(h.ref, 'raid', p.name + ' is cracking your lockbox!');
+}
+function crackTick(m, h, now) {
+  const c = h.crack; if (!c) return;
+  const q = [...m.players.values()].find(x => x.id === c.by);
+  if (!q || q.dead || q.room !== h.key || hState(q, h.key, 'box').dist > HB.CRACK_RANGE + 0.3) { HB.cancelCrack(h); return; }
+  if (now < c.doneAt) return;
+  const items = HB.finishCrack(h, q.id, now) || [], left = items.filter(k => !giveItem(q, k));
+  if (left.length) addDrop(m, q, left);
+  homeToast(q, 'good', items.length ? 'Lockbox cracked: ' + items.length + ' item' + (items.length > 1 ? 's' : '') : 'The box was empty'); sendInv(q);
+  if (h.ref && !h.ref.dead) { homeToast(h.ref, 'raid', 'Your lockbox was emptied by ' + q.name); pushHome(m, h, now); }
+}
+
+// ---- the lock: pathOk() asks homeGate() whenever a non-owner steps through a hatch into a home. A refused step starts the pick bar; it keeps running while he keeps pushing (600 ms grace).
+function homeGate(m, p, k, now) {
+  const h = homeAt(m, k); if (!h || p.npc) return true;
+  if (HB.hatchOk(h, p.id, now, { suddenDeath: !!m.sudden, showdown: !!m.showdown })) return true;
+  HB.startPick(h, p.id, now); h.pickSeen[p.id] = now; p.lockDeny = true;
+  if (now - (p.pickToast || 0) > 4000) { p.pickToast = now; homeToast(p, 'info', 'Picking the lock...'); }
+  return false;
+}
+
+// ---- sendables
+const SEND_WARN = { bell: 'Alarm bell! You show on every map', gas: 'Stink gas incoming!', rats: 'Rats incoming!', jam: 'Panel jammed!', spike: 'A trap is set in this room', leech: 'Someone is draining your pump!' };
+function sendStart(m, p, h, id, room, now) {
+  const th = homeAt(m, room), target = th ? { room, kind: 'home', owner: th.owner, dead: th.dead } : isArena(room) ? { room, kind: 'arena' } : null;
+  const spots = []; if (id === 'spike' && target && target.kind === 'arena') for (let i = 0; i < 24 && spots.length < 8; i++) { const [x, z] = WORLD.randomPoint(room); if (!WORLD.inProp(x, z, 0.8, m.layout, true) && !WORLD.inProp(x, z, 0.3, m.layout, true)) spots.push([x, z]); }
+  const ctx = { sender: p.id, senderRoom: p.home, round: m.round, elixir: p.elixir | 0, now, vaultKey: VK, target, sentRound: m.sentRound, active: (m.sends || []).filter(s => !s.ended).map(s => ({ room: s.room, endsAt: s.endsAt })), roundEndsAt: m.endsAt, spots };
+  const c = HB.checkSend(id, ctx); if (!c.ok) return { ok: false, reason: c.reason };
+  const s = HB.makeSend(id, ctx, Math.random); p.elixir -= c.cost; m.sentRound[p.id] = m.round;
+  Object.assign(s, { id: (m.sendN = (m.sendN || 0) + 1), byName: p.name, by: p }); m.sends.push(s);
+  return { ok: true, text: HB.SENDS[id].name + ' sent. The room has been warned.' };
+}
+function mkRat(m, room, now) {   // a rat is an NPC kind (like the mystery enemies): never counts as a goblin, no loot, dies to normal attacks
+  const S = NPC.rat; let x, z; for (let i = 0; i < 20; i++) { [x, z] = WORLD.randomPoint(room); if (!WORLD.inProp(x, z, 0.5, m.layout, true)) break; }
+  const key = { readyState: 0, npc: true }, p = { id: nextId++, wins: 0, ws: null, key, npc: 'rat', name: S.name, match: m, box: -1, yaw: 0, ready: true, entered: true, npcDmg: S.dmg, npcCd: S.cd };
+  equip(p, S.look); p.inv.weapon = S.weapon; p.inv.armor = null; recalc(p); p.stats.maxHealth = S.hp; p.stats.health = S.hp; p.stats.attack = S.dmg; p.gear = { weapon: 'Rat teeth', armor: 'None' };
+  place(p, x, z); p.home = [x, z]; p.brain = newBrain(p, S.speed); p.brain.react = S.react; p.rat = true; m.players.set(key, p); return p;
+}
+function sendTick(m, now) {
+  for (const s of m.sends) {
+    const ph = HB.sendPhase(s, now);
+    if (!s.warned) {   // the 3 s telegraph: only the occupants learn the sender (a toast naming him); the room itself shows a fx flag to everyone
+      s.warned = true;
+      for (const q of m.players.values()) if (q.room === s.room && !q.dead && q.entered && !q.npc) homeToast(q, 'send', SEND_WARN[s.kind] + (s.kind === 'leech' ? '' : '. Sent by ' + s.byName));
+      bcast(m, { homeFx: { id: s.id, kind: s.kind, room: s.room, warn: HB.TELEGRAPH_MS } });
+    }
+    if (ph === 'active' && !s.started) {
+      s.started = true; s.lastTick = s.startsAt;
+      if (s.kind === 'rats') { s.rats = Array.from({ length: HB.SENDS.rats.rats }, () => mkRat(m, s.room, now)); m.dirty = true; }
+      else if (s.kind === 'jam') { m.sealed = m.sealed || {}; m.sealed[s.room] = true; }   // the seal mechanism (sealing wax) is exactly "the pick is frozen until the round ends"
+      else if (s.kind === 'leech') {
+        const vh = homeAt(m, s.room); s.plan = vh ? EX.leechPlan(vh.pump, HB.hasGuard(vh), now) : { ok: false, total: 0 }; s.delivered = 0;
+        if (!s.plan.ok) { homeToast(s.by, 'info', vh && HB.hasGuard(vh) ? 'Pump Guard: the leech was blocked' : 'The leech found nothing'); s.endsAt = now; }
+        else if (vh.ref && !vh.ref.dead) homeToast(vh.ref, 'raid', s.byName + ' is draining your pump!');
+      }
+      bcast(m, { homeFx: { id: s.id, kind: s.kind, room: s.room, on: 1, ms: s.kind === 'jam' || s.kind === 'spike' ? Math.max(0, s.endsAt - now) : HB.SENDS[s.kind].ms, ...(DBG && s.spot ? { spot: s.spot } : null) } });   // the plate stays hidden; only the tests (GK_DEBUG) see where it is
+    }
+    if (ph === 'active' && s.started && !s.ended) {
+      if (s.kind === 'gas') { const n = HB.gasTicks(s, s.lastTick, now); s.lastTick = now; if (n > 0) for (const q of [...m.players.values()]) if (q.room === s.room && !q.npc) envHit(m, q, n * HB.SENDS.gas.dmg, now, 'Stink Gas'); }
+      else if (s.kind === 'spike' && s.spot) {
+        for (const q of [...m.players.values()]) if (q.room === s.room && !q.npc && !q.dead && q.entered && Math.hypot(q.x - s.spot[0], q.z - s.spot[1]) < 0.8) {
+          s.endsAt = now; q.snareUntil = now + HB.SENDS.spike.slowMs; if (q.ws) sendTo(q.ws, { snared: { ms: HB.SENDS.spike.slowMs, n: 0.35 } });
+          bcast(m, { homeFx: { id: s.id, kind: 'spike', room: s.room, hit: [+s.spot[0].toFixed(2), +s.spot[1].toFixed(2)] } }); envHit(m, q, HB.SENDS.spike.dmg, now, 'Spike Trap'); break;
+        }
+      } else if (s.kind === 'leech' && s.plan && s.plan.ok) {
+        const vh = homeAt(m, s.room), due = EX.leechDue(s.plan, s.delivered, now);
+        if (due > 0 && vh && !s.by.dead) { EX.tick(vh.pump, now); const amt = Math.min(due, vh.pump.tank, EX.CARRY_CAP - (s.by.elixir | 0)); if (amt > 0) { vh.pump.tank -= amt; s.by.elixir = (s.by.elixir | 0) + amt; s.delivered += amt; sendElixir(s.by); } }
+        if (s.by.dead) s.endsAt = now;
+      }
+    }
+    if ((HB.sendPhase(s, now) === 'over' || s.endsAt <= now) && s.started && !s.ended) {
+      s.ended = true;
+      if (s.rats) for (const r of s.rats) if (!r.dead) { r.dead = true; m.players.delete(r.key); m.dirty = true; }
+      bcast(m, { homeFx: { id: s.id, kind: s.kind, room: s.room, on: 0 } });
+    }
+  }
+  m.sends = m.sends.filter(s => !(s.ended || (HB.sendPhase(s, now) === 'over' && !s.started)));
+}
+
+// ---- the per-match tick (from the main loop, about 5 Hz): lazy pumps need none, this does pads, sentries, alarms, snares, sends, raids, bots and the owner's live view
+function elixirTick(m, now) {
+  if (m.phase !== 'play' || m.ended || !m.goAt || now < m.goAt) return;
+  if (!m.homes) homesInit(m, m.goAt);
+  if (now - (m.elxAt || 0) < 200) return; m.elxAt = now;
+  for (const h of Object.values(m.homes)) {
+    for (const pid in h.pickSeen) if (now - h.pickSeen[pid] > 600) { HB.cancelPick(h, +pid); delete h.pickSeen[pid]; }
+    crackTick(m, h, now);
+    const o = h.ref;
+    if (!h.dead && HB.level(h, 'sentry') && h.ammo > 0) {   // the Sentry Crossbow fires only while the owner is away, 8 damage / 1.5 s at the nearest non-owner in line of sight
+      const away = !o || o.dead || o.room !== h.key, [sx, sz] = hAnchor(h.key, 'sentry');
+      if (away) for (const q of [...m.players.values()]) {
+        if (q.room !== h.key || q.dead || !q.entered || q.npc || q.id === h.owner || WORLD.segBlocked(sx, sz, q.x, q.z, m.layout)) continue;
+        const sh = HB.sentryShot(h, false, true, now); if (sh) { envHit(m, q, sh.damage, now, 'Sentry'); bcast(m, { homeFx: { kind: 'sentry', room: h.key, to: q.id } }); } break;
+      }
+    }
+    if (o && !o.dead && o.entered && o.room === h.key && o.stats && o.stats.health < o.stats.maxHealth && now - (h.padAt || 0) >= 1000) {   // Healing Pad
+      const hp = HB.padHps(h, now - (o.hurtAt || 0), !!m.sudden); h.padAt = now; if (hp > 0) { o.stats.health = Math.min(o.stats.maxHealth, o.stats.health + hp); m.dirty = true; }
+    }
+  }
+  for (const p of m.players.values()) {   // room changes: alarm and snare when a non-owner steps into a home
+    if (p.npc || p.dead || !p.entered) continue;
+    if (p.elxRoom !== p.room) {
+      p.elxRoom = p.room; const h = homeAt(m, p.room);
+      if (h) {
+        for (const ev of HB.onEnter(h, p.id, p.name, now)) {
+          if (ev.type === 'alarm') { if (h.ref && !h.ref.dead) { homeToast(h.ref, 'alarm', ev.text); sendTo(h.ref.ws, { homePing: { room: h.key, name: p.name } }); } }
+          else if (ev.type === 'snare') { p.snareUntil = now + ev.rootMs; if (p.ws) sendTo(p.ws, { snared: { ms: ev.rootMs, n: 0.05 } }); homeToast(p, 'raid', 'A snare grabs your leg!'); envHit(m, p, ev.damage, now, 'Snare'); if (h.ref && !h.ref.dead) homeToast(h.ref, 'alarm', 'Your snare caught ' + p.name); }
+        }
+        if (h.owner === p.id) pushHome(m, h, now);
+      }
+    }
+  }
+  sendTick(m, now);
+  if (now - (m.elxSyncAt || 0) >= 1500) {   // owners see their pump and the HUD counter stay current
+    m.elxSyncAt = now;
+    for (const h of Object.values(m.homes)) { const o = h.ref; if (o && !o.dead && o.ws && o.entered) { if (o.room === h.key) pushHome(m, h, now); else sendElixir(o); } }
+  }
+  botHomes(m, now);
+}
+// ---- bots: when one is in his own home he collects a tank of 12 or more, then buys in a fixed order (pump first, then security), keeping a reserve of 8
+const botHomeWant = (m, p, now) => { const h = homeAt(m, p.home); if (!h || h.dead) return -1; const t = EX.tick(h.pump, now); return t >= 30 ? 9 : t >= 15 ? 4 : -1; };   // pickDest bonus for the bot's own home
+const BOT_BUYS = ['pump', 'alarm', 'pump', 'lock', 'recycler', 'snare', 'lock', 'guard'];
+function botHomes(m, now) {
+  if (now - (m.elxBotAt || 0) < 1000) return; m.elxBotAt = now;
+  for (const p of m.players.values()) {
+    if (!p.bot || p.dead || !p.entered) continue; const h = homeAt(m, p.home); if (!h || h.dead || p.room !== h.key) continue;
+    if (EX.tick(h.pump, now) >= 12) { const r = EX.collect(h.pump, p.elixir | 0, now, true); p.elixir = r.carried; }
+    const need = {}; let want = null; for (const id of BOT_BUYS) { need[id] = (need[id] || 0) + 1; if (HB.level(h, id) < need[id]) { want = id; break; } }
+    if (want && (p.elixir | 0) >= HB.nextCost(h, want) + 8) { const r = HB.buy(h, want, p); if (r.ok && want === 'pump') EX.setLevel(h.pump, HB.pumpLevel(h), now); }
+  }
+}
+// ---- death: the carried elixir becomes a flask in the pile, the pump stops, the home dies with its owner (upgrades gone, lock open, box spilled, dark screen)
+function elixirDeath(m, p) {   // from die(); returns the extra pile entries
+  const out = [], h = homeAt(m, p.home), now = Date.now(); if (!m.homes) return out;
+  const r = EX.onDeath(p, h && h.pump, now); if (r.drop) out.push('x:flask:' + Math.min(EX.CARRY_CAP, r.drop.n));
+  if (h && !h.dead && h.owner === p.id) {
+    const c = WORLD.CHEST[+h.key.slice(1)], spill = HB.dieHome(h); if (spill.length) addDrop(m, { x: c.cx, z: c.cz }, spill);
+    bcast(m, { homeDead: h.key });
+  }
+  return out;
+}
+function elixirTakeFlask(m, p, dr, di, a) {   // loot(): taking a flask adds its elixir to what you carry (the carry cap leaves the rest in the pile)
+  if (a[2] !== 'take') return 'item';
+  const key = dr.items[a[1]], r = EX.pickUpFlask(p.elixir | 0, G.flaskN(key)); if (r.got <= 0) return 'space';
+  p.elixir = r.carried; sendElixir(p);
+  if (r.left > 0) dr.items[a[1]] = 'x:flask:' + r.left; else { dr.items.splice(a[1], 1); if (!dr.items.length) m.drops.splice(di, 1); }
+  bcast(m, { drops: m.drops }); m.dirty = true; return null;
+}
+function elixirOil(p, bribesSoFar) { const r = EX.oilLock(p, bribesSoFar); if (r.ok) sendElixir(p); return r; }   // for the Counting House (vaultbreaker task): one vault bribe paid in 15 elixir; {ok, reason?} (shares the max of 3 with gold bribes)
+function elixirDbg(m, p, o) {   // GK_DEBUG test hook: {dbgElixir:{n, tank, lv:{id:level}}} sets carried elixir, the own tank and upgrade levels
+  const h = homeAt(m, p.home), now = Date.now(); if (!h || typeof o !== 'object') return;
+  if (o.dump) return sendTo(p.ws, { elixirDump: Object.values(m.homes).map(x => ({ name: x.ref.name, bot: !!x.ref.bot, dead: x.dead, lv: x.lv, tank: EX.tick(x.pump, now), elixir: x.ref.elixir | 0, at: x.ref.room })) });
+  if (Number.isFinite(o.n)) p.elixir = Math.max(0, Math.min(EX.CARRY_CAP, Math.floor(o.n)));
+  if (Number.isFinite(o.tank)) { h.pump.tank = Math.max(0, Math.min(EX.params(h.pump).cap, Math.floor(o.tank))); h.pump.t = now; }
+  if (o.lv && typeof o.lv === 'object') { for (const id in o.lv) if (HB.UPGRADES[id]) h.lv[id] = Math.max(0, Math.min(HB.UPGRADES[id].levels.length, o.lv[id] | 0)); EX.setLevel(h.pump, HB.pumpLevel(h), now); if (h.lv.snare) h.snareArmed = true; if (h.lv.sentry) h.ammo = HB.SENTRY.shots; }
+  pushHome(m, h, now);
+}
+// ELIXIR-END
 
 /* MATCH-BEGIN */
 const queueInfo = m => ({ n: m.players.size, size: CAP, since: Date.now() - m.formedAt });
@@ -1857,6 +2129,10 @@ wss.on('connection', (ws, req) => {
     } else if (d.act !== undefined) { A5.act(m, p, d.act, now);   // ACT5: an activity verb {act:{r,a,v,x?}}
     } else if (typeof d.lat === 'number' && Number.isFinite(d.lat)) { p.lat = Math.max(0, Math.min(1000, d.lat));   // ACT5: smoothed latency for the timing presses
     } else if (dbg && d.actDbg) { A5.debug(m, p, d.actDbg);   // ACT5 test hook
+    } else if (d.pump === 1 || d.base !== undefined || d.lockbox !== undefined || d.brew !== undefined) { homeMsg(m, ws, p, d, now);   // ELIXIR
+    } else if (dbg && d.dbgElixir) { elixirDbg(m, p, d.dbgElixir);
+    } else if (typeof d.recycle === 'string' && homeAt(m, p.room)) { const why = homeRecycle(m, p, d.recycle, d.refine === 1); if (why) sendTo(ws, { recycleFail: why });   // ELIXIR: the home recycler is owner-only and follows its upgrade
+    } else if (typeof d.craft === 'string' && homeAt(m, p.room) && !HB.canUseStation(homeAt(m, p.room), p.id)) { sendTo(ws, { craftFail: 'owner' });
     } else if (dbg && d.botstat) { sendTo(ws, { botstat: { n: BS.n, sum: BS.sum, max: BS.max, calls: BS.calls, bad: BS.bad, tick: TS, heap: process.memoryUsage().heapUsed, matches: matches.size, tokens: socTokens.size, ips: ipCount.size } });
     } else if (d.dbgFF === 1) { dbgFF(m, now);   // DEV: skip to 0:10 (ignored without GK_DEBUG)
     } else if (dbg && d.boom === 1) { m.boom = true;   // test hook: this match's tick throws from now on (tests/robust.test.js)

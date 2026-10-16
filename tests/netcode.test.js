@@ -30,23 +30,23 @@ const walk = async (c, x0, z0, x1, z1, secs, speed) => {   // send {m} every 66 
         c.send({ ping: 'x' }); c.send({ ping: null }); await sleep(100); assert(srv.alive()); await c.close();
       }],
       ['jump: {m:[x,z,yaw,cm]} reaches other players in the snapshot speed slot (v = speed + 100 * cm), stays 2D, ends with a grounded snapshot', async () => {
-        const [a, b] = await pair(srv, 0); a.send({ tp: [-15, -15] }); b.send({ tp: [-13, -15] }); await sleep(150);
+        const [a, b] = await pair(srv, 0); a.send({ tp: [-15, -12.5] }); b.send({ tp: [-13, -12.5] }); await sleep(150);
         const n = a.msgs.length, jumpCm = [0, 22, 54, 82, 90, 80, 52, 20];
-        for (const cm of jumpCm) { b.send({ m: [-13, -15, 0, cm] }); await sleep(66); }
-        b.send({ m: [-13, -15, 0] }); await sleep(250);
+        for (const cm of jumpCm) { b.send({ m: [-13, -12.5, 0, cm] }); await sleep(66); }
+        b.send({ m: [-13, -12.5, 0] }); await sleep(250);
         const mine = snapsOf(a, b.state.you, n), air = mine.filter(s => s.v >= 100);
         assert(air.length >= 4, 'jump reaches the other player: ' + JSON.stringify(mine.map(s => s.v)));
-        assert(air.every(s => s.x === -13 && s.z === -15), 'position unchanged: movement stays 2D');
+        assert(air.every(s => s.x === -13 && s.z === -12.5), 'position unchanged: movement stays 2D');
         const cms = air.map(s => Math.floor(s.v / 100)); assert(Math.max(...cms) >= 80 && Math.max(...cms) <= 90, 'peak height in cm: ' + cms);
         assert(air.every(s => s.v % 100 < 1), 'speed part stays 0 when standing still');
         eq(mine[mine.length - 1].v, 0, 'a final grounded snapshot ends the jump');
-        const bad = a.msgs.length; b.send({ m: [-13, -15, 0, 5000] }); await sleep(150);
+        const bad = a.msgs.length; b.send({ m: [-13, -12.5, 0, 5000] }); await sleep(150);
         assert(snapsOf(a, b.state.you, bad).every(s => Math.floor(s.v / 100) <= 100), 'jump height is clamped on the server');
-        b.send({ m: [-13, -15, 0] }); await sleep(100); await a.close(); await b.close();
+        b.send({ m: [-13, -12.5, 0] }); await sleep(100); await a.close(); await b.close();
       }],
       ['snapshots: flat {s:[t, id,x,z,yaw,speed,age,...]}, rounded, only movers, never yourself; moving does not resend the slow players list', async () => {
-        const [a, b] = await pair(srv, 0); a.send({ tp: [-15, -15] }); b.send({ tp: [-13, -15] }); await sleep(150);
-        const n = a.msgs.length, nb = b.msgs.length; await walk(b, -13, -15, -9.7, -15, 0.7, 4.6); await sleep(150);
+        const [a, b] = await pair(srv, 0); a.send({ tp: [-15, -12.5] }); b.send({ tp: [-13, -12.5] }); await sleep(150);
+        const n = a.msgs.length, nb = b.msgs.length; await walk(b, -13, -12.5, -9.7, -12.5, 0.7, 4.6); await sleep(150);
         const ms = a.msgs.slice(n), snaps = ms.filter(m => m.s);
         assert(snaps.length >= 5 && snaps.length <= 20, 'about 20 Hz while moving, got ' + snaps.length + ' in 0.85 s');
         for (const m of snaps) { assert(Array.isArray(m.s) && (m.s.length - 1) % 6 === 0 && m.s.length >= 7, 'shape ' + JSON.stringify(m)); assert(Number.isInteger(m.s[0]), 't is ms'); assert(m.s.slice(1).every(v => typeof v === 'number')); }
@@ -59,12 +59,12 @@ const walk = async (c, x0, z0, x1, z1, secs, speed) => {   // send {m} every 66 
         await a.close(); await b.close();
       }],
       ['speed: normal walking and sprinting are accepted, teleports and speed hacks get {fix:[x,z]}', async () => {
-        const [a, b] = await pair(srv, 10); await put(a, -15, -15); await put(b, -17, -15);
-        await walk(b, -17, -15, -12.5, -15, 0.6, 7.8); await sleep(100); eq(b.msgs.filter(m => m.fix), [], 'sprinting at 7.8 m/s was corrected');
+        const [a, b] = await pair(srv, 10); await put(a, -12.5, -12.5); await put(b, -17, -12.5);
+        await walk(b, -17, -12.5, -12.5, -12.5, 0.6, 7.8); await sleep(100); eq(b.msgs.filter(m => m.fix), [], 'sprinting at 7.8 m/s was corrected');
         const last = snapsOf(a, b.state.you).pop(); assert(Math.abs(last.x - -12.5) < 0.1, 'server followed to ' + last.x);
-        delete b.state.fix; b.send({ m: [-15, -15, 0] }); await b.until(x => x.state.fix, 2000, 'fix after a 4 m jump');
-        assert(Math.abs(b.state.fix[0] - -12.5) < 0.1 && Math.abs(b.state.fix[1] - -15) < 0.1, 'fix puts him back at the last good position: ' + b.state.fix);
-        delete b.state.fix; const n = b.msgs.length; await walk(b, -12.5, -15, -17, -15, 0.5, 20); await sleep(100);   // 20 m/s for 0.8 s
+        delete b.state.fix; b.send({ m: [-15, -12.5, 0] }); await b.until(x => x.state.fix, 2000, 'fix after a 4 m jump');
+        assert(Math.abs(b.state.fix[0] - -12.5) < 0.1 && Math.abs(b.state.fix[1] - -12.5) < 0.1, 'fix puts him back at the last good position: ' + b.state.fix);
+        delete b.state.fix; const n = b.msgs.length; await walk(b, -12.5, -12.5, -17, -12.5, 0.5, 20); await sleep(100);   // 20 m/s for 0.8 s
         const fixes = b.msgs.slice(n).filter(m => m.fix); assert(fixes.length >= 1, 'no fix for 20 m/s'); assert(fixes.length <= 6, 'fix spam: ' + fixes.length);
         const far = snapsOf(a, b.state.you).pop(); assert(far.x > -15, 'speed hacker got to ' + far.x + ' (should crawl)');
         await a.close(); await b.close();
@@ -85,8 +85,8 @@ const walk = async (c, x0, z0, x1, z1, secs, speed) => {   // send {m} every 66 
       ['lag compensation: melee uses the target position the attacker saw (rewound, capped at 200 ms)', async () => {
         const [a, b] = await pair(srv, 30, 0, 0); a.send({ enter: 1 }); b.send({ enter: 1 }); await a.until(x => x.state.match && x.state.match.alive === 2, 2000, 'both entered');
         const MACE_ATK = G.ITEMS[G.START[0].weapon].attack, reach = G.COMBAT.melee + G.COMBAT.slack;
-        await put(a, -15, -15, FACE_E); await put(b, -13, -15); await sleep(150);   // 2.0 m away: in reach
-        const n = a.msgs.length; b.send({ m: [-11.8, -15, 0] });   // one 1.2 m step: now 3.2 m away, out of reach
+        await put(a, -15, -12.5, FACE_E); await put(b, -13, -12.5); await sleep(150);   // 2.0 m away: in reach
+        const n = a.msgs.length; b.send({ m: [-11.8, -12.5, 0] });   // one 1.2 m step: now 3.2 m away, out of reach
         await a.until(x => snapsOf(x, b.state.you, n).some(s => s.x > -11.9), 1500, 'step seen');
         const first = snapsOf(a, b.state.you, n)[0], tSaw = first.t - first.age - 20;   // server time just before he moved away
         assert(3.2 > reach && 2.0 < reach, 'test geometry');

@@ -237,23 +237,28 @@ export function buildDoorCracks(THREE, helpers, opts = {}) {
 
 // ----------------------------------------------------------------------------------------------------------------- vaultbreaker
 const HX = SIZE.W / 2, HZ = SIZE.D / 2;
+// INTEGRATION (docs/reports/room-art-integration.md): every wall of a real vaultbreaker room has a door in its middle (3 arena doors + the vault door), so the three wall stations stand beside their doors:
+// B (the far wall) is moved +BX along its wall, L +LZ and R +RZ along theirs. The three spots lie on the 'map' side of the control panels on the room's north wall.
+export const LAYOUT = { BX: 4.7, LZ: 3.9, RZ: -3.9 };
+const BX = LAYOUT.BX, LZ = LAYOUT.LZ, RZ = LAYOUT.RZ;
+const shiftA = (anchors, B, L, R) => { const mv = (names, dx, dz) => { for (const n of names) { const a = anchors[n]; if (!a) continue; for (const o of Array.isArray(a) ? a : [a]) { o.x += dx; o.z += dz; } } }; mv(B, BX, 0); mv(L, 0, LZ); mv(R, 0, RZ); };
 const A = (x, z, r = 0.6, y = 0, extra) => ({ x, y, z, r, ...extra });
 /** Fixed footprints, identical for all four skins (the plan's anchor geometry): a few circles per solid box. */
 export function vaultbreakerSolids() {
   return [
-    { id: 'B', x: -0.8, z: HZ - 0.5, r: 0.58 }, { id: 'B', x: 0, z: HZ - 0.5, r: 0.58 }, { id: 'B', x: 0.8, z: HZ - 0.5, r: 0.58 },
-    { id: 'L', x: -HX + 0.6, z: 0, r: 0.72 }, { id: 'R', x: HX - 0.6, z: 0, r: 0.72 },
+    { id: 'B', x: BX - 0.8, z: HZ - 0.5, r: 0.58 }, { id: 'B', x: BX, z: HZ - 0.5, r: 0.58 }, { id: 'B', x: BX + 0.8, z: HZ - 0.5, r: 0.58 },
+    { id: 'L', x: -HX + 0.6, z: LZ, r: 0.72 }, { id: 'R', x: HX - 0.6, z: RZ, r: 0.72 },
     { id: 'FL', x: -3, z: -HZ + 2, r: 0.6 }, { id: 'FR', x: 3, z: -HZ + 2, r: 0.6 },
   ];
 }
 /** room-local solids -> world circles for a room at (cx, cz) turned by rotY (same rotation as `group.rotation.y`). */
 export function transformSolids(solids, cx, cz, rotY) { const c = Math.cos(rotY), s = Math.sin(rotY); return solids.map(o => ({ x: cx + o.x * c + o.z * s, z: cz - o.x * s + o.z * c, r: o.r })); }
-const BASE_ANCHORS = () => ({ B: A(0, HZ - 0.5, 1.2), L: A(-HX + 0.6, 0, 0.8), R: A(HX - 0.6, 0, 0.8), FL: A(-3, -HZ + 2), FR: A(3, -HZ + 2), F: A(0, -HZ + 2.5, 1.0, 0, { w: 2, d: 5 }), door: A(0, -HZ, 2.5) });
+const BASE_ANCHORS = () => ({ B: A(BX, HZ - 0.5, 1.2), L: A(-HX + 0.6, LZ, 0.8), R: A(HX - 0.6, RZ, 0.8), FL: A(-3, -HZ + 2), FR: A(3, -HZ + 2), F: A(0, -HZ + 2.5, 1.0, 0, { w: 2, d: 5 }), door: A(0, -HZ, 2.5) });
 
 // helper: a station group at wall position, local +z pointing into the room
 const station = (THREE, parent, x, z, ry) => { const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ry; parent.add(g); return g; };
 // station frame: the wall plane is z = 0 and the ROOM lies toward local -z (so "0.5 in front of the wall" is z = -0.5); local +x runs along the wall
-const WALL = { B: [0, HZ, 0], L: [-HX, 0, -Math.PI / 2], R: [HX, 0, Math.PI / 2], D: [0, -HZ, Math.PI] };
+const WALL = { B: [BX, HZ, 0], L: [-HX, LZ, -Math.PI / 2], R: [HX, RZ, Math.PI / 2], D: [0, -HZ, Math.PI] };
 
 // ============ RAM ============
 function buildRam(K, ctx) {
@@ -351,7 +356,7 @@ function buildRam(K, ctx) {
   layBarricade();
   const ghost = new THREE.Mesh(K.rbox(2.1, 1.1, 0.3, 0.05), new THREE.MeshBasicMaterial({ color: 0x7fe0ff, transparent: true, opacity: 0.32, blending: THREE.AdditiveBlending, depthWrite: false })); ghost.visible = false; ghost.position.y = 0.6; grp.add(ghost);
 
-  grp.add(st.build('ram-static')); Object.assign(anchors, { winch: A(0, HZ - 0.5, 1.2), crankL: A(-1.2, HZ - 1.0, 0.5, 1.7), crankR: A(1.2, HZ - 1.0, 0.5, 1.7), pawl: A(0, HZ - 1.1, 0.5, 0.9), lever: A(-3, -HZ + 2.7, 0.6, 1.0), wedgeRack: A(3, -HZ + 2.6, 0.6, 1.0), lane: anchors.F, ram: A(0, -4.4, 1.0, 2.8), doorImpact: A(0, -HZ + 0.1, 1.0, 2.6), tensionLamps: A(0, HZ - 0.72, 0.4, 2.6) });
+  grp.add(st.build('ram-static')); Object.assign(anchors, { winch: A(0, HZ - 0.5, 1.2), crankL: A(-1.2, HZ - 1.0, 0.5, 1.7), crankR: A(1.2, HZ - 1.0, 0.5, 1.7), pawl: A(0, HZ - 1.1, 0.5, 0.9), lever: A(-3, -HZ + 2.7, 0.6, 1.0), wedgeRack: A(3, -HZ + 2.6, 0.6, 1.0), lane: anchors.F, ram: A(0, -4.4, 1.0, 2.8), doorImpact: A(0, -HZ + 0.1, 1.0, 2.6), tensionLamps: A(0, HZ - 0.72, 0.4, 2.6) }); shiftA(anchors, ['winch', 'crankL', 'crankR', 'pawl', 'tensionLamps'], [], []);
   anchors.barricades = slotsA;
 
   let tension = 0, tTarget = 0, pull = 0, ang = 0, strike = null, lever = 0, leverT = 0, impact = 0, drum = 0;
@@ -441,7 +446,7 @@ function buildLocksmith(K, ctx) {
     const hg = new THREE.Group(); hg.position.set(-0.26, 0.36, 0.56); cg.add(hg); const hb = new K.Batch(0.4); const hw = 0.52;
     hb.box('darkIron', hw, 0.62, 0.05, hw / 2, 0, 0, { r: 0.012 }); for (let k = 0; k < 6; k++) hb.box('iron', 0.03, 0.54, 0.05, 0.05 + k * 0.085, 0, 0.04, { r: 0.008 }); hb.box('iron', hw, 0.04, 0.05, hw / 2, 0.2, 0.04, { r: 0.008 }); hb.box('iron', hw, 0.04, 0.05, hw / 2, -0.2, 0.04, { r: 0.008 }); hg.add(hb.build('hatch', true));
     const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), alarmMat); lamp.position.set(0, 1.28, 0); cg.add(lamp); return { hg, v: 0, vt: 0 }; });
-  Object.assign(anchors, { lockFace: A(0, HZ - 0.5, 1.0, 2.1), pins: xs.map((x, i) => A(x, HZ - 0.8, 0.3, pinY(SHEAR) - 0.4)), grindstone: A(-HX + 0.6, 0, 0.8, 1.0), bell: A(HX - 1.1, 0, 0.5, 3.0), noiseGauge: A(HX - 0.6, 1.5, 0.3, 2.1), grilleL: A(-3, -HZ + 2.6, 0.5, 0.4), grilleR: A(3, -HZ + 2.6, 0.5, 0.4), keyBoard: A(-HX + 0.9, -0.0, 0.5, 2.6) });
+  Object.assign(anchors, { lockFace: A(0, HZ - 0.5, 1.0, 2.1), pins: xs.map((x, i) => A(x, HZ - 0.8, 0.3, pinY(SHEAR) - 0.4)), grindstone: A(-HX + 0.6, 0, 0.8, 1.0), bell: A(HX - 1.1, 0, 0.5, 3.0), noiseGauge: A(HX - 0.6, 1.5, 0.3, 2.1), grilleL: A(-3, -HZ + 2.6, 0.5, 0.4), grilleR: A(3, -HZ + 2.6, 0.5, 0.4), keyBoard: A(-HX + 0.9, -0.0, 0.5, 2.6) }); shiftA(anchors, ['lockFace', 'pins'], ['grindstone', 'keyBoard'], ['bell', 'noiseGauge']);
   let noise = 0, nT = 0, swing = 0, ring = 0, grind = 0, grindT = 0, alarm = false, glow = 0, glowT = 0;
   const NC = i => (i < 5 ? 0x4fd16a : i < 8 ? 0xf0b430 : 0xff3a2a);
   const api = {
@@ -561,7 +566,7 @@ function buildCounting(K, ctx) {
     const sb2 = new K.Batch(1.0); [-0.4, 0, 0.4].forEach((sx, k) => { sb2.lathe('cloth', [[0, -0.34], [0.14, -0.32], [0.24, -0.2], [0.22, 0.0], [0.12, 0.16], [0.07, 0.24], [0.1, 0.3]], sx, 1.5 + (k === 1 ? -0.12 : 0), 0, { seg: 12, sy: 1, t: k === 1 ? 0xb89868 : 0xc8a874 });
       sb2.tor('leather', 0.09, 0.025, sx, 1.52 + (k === 1 ? -0.12 : 0) + 0.2, 0, { rx: Math.PI / 2, rs: 4, ts: 10 }); });
     const sm = sb2.build('sacks', true); hg.add(sm); const mesh = Object.values(sm.userData.meshes); return { grp: sm, meshes: mesh }; });
-  Object.assign(anchors, { desk: A(0, HZ - 0.5, 1.2, 1.1), clerk: A(0, HZ - 0.8, 0.4, 1.5), board: A(0, HZ - 0.1, 0.3, 3.7), scales: A(-HX + 0.6, 0, 0.8, 1.5), strongbox: A(HX - 0.7, 0, 0.8, 0.9), sackStandL: A(-3, -HZ + 2, 0.6, 1.5), sackStandR: A(3, -HZ + 2, 0.6, 1.5), clerkBell: A(0.65, HZ - 0.8, 0.3, 1.25) });
+  Object.assign(anchors, { desk: A(0, HZ - 0.5, 1.2, 1.1), clerk: A(0, HZ - 0.8, 0.4, 1.5), board: A(0, HZ - 0.1, 0.3, 3.7), scales: A(-HX + 0.6, 0, 0.8, 1.5), strongbox: A(HX - 0.7, 0, 0.8, 0.9), sackStandL: A(-3, -HZ + 2, 0.6, 1.5), sackStandR: A(3, -HZ + 2, 0.6, 1.5), clerkBell: A(0.65, HZ - 0.8, 0.3, 1.25) }); shiftA(anchors, ['desk', 'clerk', 'board', 'clerkBell'], ['scales'], ['strongbox']);
   let tilt = 0, tiltT = 0, lid = 0, lidT = 0.3, lvl = 0, lvlT = 0, alarm = false, rob = 0, pulse = 0;
   const api = {
     anchors, kind: 'counting',
@@ -616,7 +621,7 @@ function buildKeystone(K, ctx) {
   // floor glyph ring (4 slots show the circuit order; additive, vertex-coloured: next glows)
   const slotMesh = makeGlyphQuads(K, atlas, 4, 0.42, (i) => { const a = i * Math.PI / 2 + Math.PI / 4; return [sx0 + Math.cos(a) * 1.28, 0.075, sz0 + Math.sin(a) * 1.28, -Math.PI / 2, 0]; }); grp.add(slotMesh.mesh);
   // stones: tapered monolith + fire bowl + glyph face + flame
-  const stoneDefs = [{ x: -HX + 0.6, z: 0, ry: Math.PI / 2, name: 'L' }, { x: -3, z: -HZ + 2, ry: 0.35, name: 'FL' }, { x: 3, z: -HZ + 2, ry: -0.35, name: 'FR' }, { x: HX - 0.6, z: 0, ry: -Math.PI / 2, name: 'R' }];
+  const stoneDefs = [{ x: -HX + 0.6, z: LZ, ry: Math.PI / 2, name: 'L' }, { x: -3, z: -HZ + 2, ry: 0.35, name: 'FL' }, { x: 3, z: -HZ + 2, ry: -0.35, name: 'FR' }, { x: HX - 0.6, z: RZ, ry: -Math.PI / 2, name: 'R' }];
   const stoneG = stoneDefs.map(d => {
     const g = station(THREE, grp, d.x, d.z, d.ry), b = new K.Batch(0);
     b.box('darkStone', 1.0, 0.25, 1.0, 0, 0.125, 0, { r: 0.05 }); b.cyl('stone', 0.42, 0.55, 1.7, 0, 1.1, 0, { seg: 4, ry: Math.PI / 4, t: 0xd0c8b8 }); b.cyl('darkStone', 0.6, 0.48, 0.16, 0, 1.97, 0, { seg: 4, ry: Math.PI / 4 });
@@ -641,7 +646,7 @@ function buildKeystone(K, ctx) {
   // resonance lamps (three marks: 30/60/90) on the socket ring
   const resL = lampRow(K, grp, [30, 60, 90].map((v, i) => [sx0 + Math.cos(-0.5 + i * 0.5) * 0, 0.16, sz0 + (i - 1) * 0.0]), 0.001, [0x222222, 0x222222, 0x222222]); resL.mesh.visible = false;
   const resPos = [0, 1, 2].map(i => { const a = Math.PI * 0.82 + i * 0.28; return [sx0 + Math.cos(a) * 1.0, 0.17, sz0 + Math.sin(a) * 1.0]; }); const res = lampRow(K, grp, resPos, 0.06, [0x514836, 0x514836, 0x514836]);
-  Object.assign(anchors, { socket: A(sx0, sz0, 1.0, 0.1), stones: stoneDefs.map((d, i) => A(d.x, d.z, 0.7, 1.2, { glyph: i, name: d.name })), altar: A(0, HZ - 0.5, 1.2, 1.1), glyphRing: A(sx0, sz0, 1.5, 0.1), flameBowls: stoneDefs.map((d, i) => A(d.x, d.z, 0.4, 2.35)) });
+  Object.assign(anchors, { socket: A(sx0, sz0, 1.0, 0.1), stones: stoneDefs.map((d, i) => A(d.x, d.z, 0.7, 1.2, { glyph: i, name: d.name })), altar: A(BX, HZ - 0.5, 1.2, 1.1), glyphRing: A(sx0, sz0, 1.5, 0.1), flameBowls: stoneDefs.map((d, i) => A(d.x, d.z, 0.4, 2.35)) });
   const st = stoneDefs.map(() => ({ state: 'dark', frac: 0, k: 0 })); let order = [0, 1, 2, 3], progress = 0, armed = false, armedK = 0, reson = 0, altar = 0, altarT = 0;
   const FLAME_LIT = new THREE.Color(0xffa040), FLAME_ARM = new THREE.Color(0x7fe8ff), tmp = new THREE.Color();
   function relayoutSlots() { order.forEach((glyph, slot) => slotMesh.setGlyph(slot, glyph)); }
@@ -731,20 +736,20 @@ export function buildVaultbreaker(THREE, helpers, type = 'ram', opts = {}) {
   const K = getKit(THREE, helpers), root = new THREE.Group(); root.name = 'vaultbreaker';
   const shellB = new K.Batch(0), H = opts.H || SIZE.H;
   // name banner over B (frame, hangers), two door plates beside the vault door
-  shellB.box('brass', 7.5, 2.0, 0.14, 0, 5.2, HZ - 0.09, { r: 0.04, t: 0xe8c070 }); shellB.box('darkIron', 7.3, 0.12, 0.2, 0, 6.28, HZ - 0.1, { r: 0.03 });
-  for (const sx of [-3.3, 3.3]) { shellB.cyl('darkIron', 0.03, 0.03, 0.4, sx, 6.08, HZ - 0.12, { seg: 6 }); }
-  rivets(shellB, [[-3.55, 4.4, HZ - 0.17], [3.55, 4.4, HZ - 0.17], [-3.55, 6.0, HZ - 0.17], [3.55, 6.0, HZ - 0.17]], 'brass', 0.05);
+  shellB.box('brass', 6.2, 1.6, 0.14, BX, 5.5, HZ - 0.09, { r: 0.04, t: 0xe8c070 }); shellB.box('darkIron', 6.0, 0.12, 0.2, BX, 6.36, HZ - 0.1, { r: 0.03 });
+  for (const sx of [-2.7, 2.7]) { shellB.cyl('darkIron', 0.03, 0.03, 0.3, BX + sx, 6.2, HZ - 0.12, { seg: 6 }); }
+  rivets(shellB, [[BX - 2.9, 4.85, HZ - 0.17], [BX + 2.9, 4.85, HZ - 0.17], [BX - 2.9, 6.15, HZ - 0.17], [BX + 2.9, 6.15, HZ - 0.17]], 'brass', 0.05);
   for (const sx of [-1, 1]) { shellB.cyl('brass', 0.5, 0.5, 0.12, sx * 3.45, 3.0, -HZ + 0.1, { rx: Math.PI / 2, seg: 24 }); shellB.tor('brass', 0.52, 0.05, sx * 3.45, 3.0, -HZ + 0.14, { rs: 6, ts: 24 }); shellB.box('darkIron', 0.12, 0.3, 0.12, sx * 3.45, 2.4, -HZ + 0.08, { r: 0.02 }); }
   root.add(shellB.build('shell'));
   const bannerCan = document.createElement('canvas'); bannerCan.width = 1536; bannerCan.height = 384; const bctx = bannerCan.getContext('2d'), bannerTex = new THREE.CanvasTexture(bannerCan); bannerTex.colorSpace = THREE.SRGBColorSpace; bannerTex.anisotropy = 8;
   const bannerM = new THREE.MeshStandardMaterial({ map: bannerTex, emissiveMap: bannerTex, emissive: 0xffffff, emissiveIntensity: 0.85, roughness: 0.5, metalness: 0.2 });
-  const banner = new THREE.Mesh(new THREE.PlaneGeometry(7.2, 1.8), bannerM); banner.position.set(0, 5.2, HZ - 0.17); banner.rotation.y = Math.PI; root.add(banner);
+  const banner = new THREE.Mesh(new THREE.PlaneGeometry(5.8, 1.45), bannerM); banner.position.set(BX, 5.5, HZ - 0.17); banner.rotation.y = Math.PI; root.add(banner);
   const plateCan = document.createElement('canvas'); plateCan.width = plateCan.height = 128; const pctx = plateCan.getContext('2d'), plateTex = new THREE.CanvasTexture(plateCan); plateTex.colorSpace = THREE.SRGBColorSpace;
   const plateM = new THREE.MeshBasicMaterial({ map: plateTex }); for (const sx of [-1, 1]) { const p = new THREE.Mesh(new THREE.CircleGeometry(0.42, 24), plateM); p.position.set(sx * 3.45, 3.0, -HZ + 0.17); root.add(p); }
   const flashCan = document.createElement('canvas'); flashCan.width = 768; flashCan.height = 192; const fctx = flashCan.getContext('2d'); fctx.fillStyle = '#fff'; fctx.textAlign = 'center'; fctx.textBaseline = 'middle'; fctx.font = '900 118px Georgia, serif'; fctx.fillText('RE-KEYED', 384, 100);
   const flashTex = new THREE.CanvasTexture(flashCan); const flashM = new THREE.MeshBasicMaterial({ map: flashTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0, color: 0xffd070, fog: false });
-  const flashBox = new THREE.Mesh(new THREE.PlaneGeometry(7.2, 1.8), flashM); flashBox.position.set(0, 5.2, HZ - 0.2); flashBox.rotation.y = Math.PI; root.add(flashBox);
-  const bannerGlow = new THREE.Sprite(K.glowMat(0xffc860, 0.2)); bannerGlow.scale.set(11, 4, 1); bannerGlow.position.set(0, 5.2, HZ - 0.5); root.add(bannerGlow);
+  const flashBox = new THREE.Mesh(new THREE.PlaneGeometry(5.8, 1.45), flashM); flashBox.position.set(BX, 5.5, HZ - 0.2); flashBox.rotation.y = Math.PI; root.add(flashBox);
+  const bannerGlow = new THREE.Sprite(K.glowMat(0xffc860, 0.2)); bannerGlow.scale.set(9, 3.4, 1); bannerGlow.position.set(BX, 5.5, HZ - 0.5); root.add(bannerGlow);
   const cracks = buildDoorCracks(THREE, helpers, { w: 4.9, h: 5 }); cracks.group.position.set(0, 0, -HZ + (opts.crackZ ?? 0.07)); root.add(cracks.group);
   const skins = {}, ctx = { onImpact: opts.onImpact || null }; let cur = null, flashT = 0, time = 0, curType = null;
   const room = {
