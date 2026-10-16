@@ -3295,11 +3295,12 @@ function netFixStep(a, dt) {   // the server refused a move ({fix:[x,z]}): blend
 }
 // NET-END
 let netReal = null;
-const net = { send: m => netReal && netReal.send(m) };
+const net = { send: m => netReal && !(GK.locked && (m.atk || m.claim || m.m || m.sel !== undefined)) && netReal.send(m) };   // MATCH: those are locked until GO
 const actors = new Map();
 let me = 0, spawned = false;
 const P = { x: 0, z: 0, yaw: 0, pitch: 0, speed: 0 };
-const handleMsg = d => {
+const handleMsg = d => { handleMsg0(d); /* MATCH */ if (GK.matchOnMsg) GK.matchOnMsg(d); };
+const handleMsg0 = d => {
   if (d.s) return netSnap(d.s);   // NET: fast position snapshots (hot path)
   if (d.pong != null) return netPong(d);
   if (d.fix) NETC.fix = d.fix;
@@ -3625,7 +3626,7 @@ addEventListener('keydown', e => {
     if (i === qSel && k != null && infoOf(k) && infoOf(k).family === 'brain') eatSlot('q' + i); else setSel(i);   // pressing the selected slot's key eats a brain
     return;
   }
-  if (e.code === 'KeyE' && !invOpen) {   // one interact key: control panel, then merchant / station, then a loot pile underfoot
+  if (e.code === 'KeyE' && !invOpen) { if (GK.locked) return;   // one interact key: control panel, then merchant / station, then a loot pile underfoot
     if (cpInteract() || stationInteract()) return;
     if (nearestPile()) openStation('loot', nearestPile().id); else net.send({ claim: 1 });   // chest / mystery room contents
     return;
@@ -4356,7 +4357,7 @@ let last = performance.now(), sendT = 0;
 // COMBAT-BEGIN (left click swings the equipped weapon, server applies damage; floating numbers, hurt vignette, health bars; see docs/reports/combat.md)
 const CB = { last: 0, kills: 0, alive: 0, size: 0, floats: [], bars: new Map(), hud: null, hudSig: '', vig: null, SW: 0.34, HIT: 0.35 };
 function combatSwing() {   // left click: swing animation on my own goblin now, the server decides whether anything is hit
-  if (GK.mode !== 'play' || invOpen || shopOpen || !spawned) return false;
+  if (GK.mode !== 'play' || invOpen || shopOpen || !spawned || GK.locked) return false;
   const mine = actors.get(me); if (!mine) return false;
   const cb = itemsData().combat ? itemsData().combat(invReady ? myInv.weapon : null) : { cd: 600 }, now = performance.now();
   if (now - CB.last < cb.cd) return false;
@@ -4461,7 +4462,7 @@ function frame(now) {
   /* FEEL-BEGIN */ if (GK.feel) GK.feel.tick(dt, now); /* FEEL-END */
   const mine = actors.get(me);
   // my movement
-  if (mine && spawned && GK.mode === 'play' && !invOpen && !shopOpen) {
+  if (mine && spawned && GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked) {
     const f = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
     const s = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
     const sp = (keys.has('ShiftLeft') || keys.has('ShiftRight') ? 7.5 : 4.6) * (0.85 + 0.15 * SCALE[mine.goblin]);
@@ -4556,7 +4557,76 @@ const lockNow = requestLock;
 GK.requestLock = requestLock; GK.lockOk = lockOk;   // menu.js fullscreen block: re-take the pointer lock after entering fullscreen
 // FULLSCREEN-END
 GK.renderer = renderer; GK.scene = scene; GK.build = buildGoblin; GK.NAMES = NAMES; GK.SCALE = SCALE; GK.glowTex = glowTex; GK.textTex = textTex;
-GK.start = (opts) => { connect(opts); return new Promise(res => { if (assigned) res(actors.get(me).goblin); else { const prev = GK.onAssigned; GK.onAssigned = g => { GK.onAssigned = prev; res(g); }; } }); }; // connects and resolves with my goblin type
+// MATCH-BEGIN (matchmaking: the wheel screen is the queue, the match start moves everyone into the rooms, a 3-2-1-GO countdown locks movement/attacks/interaction; see docs/reports/matchmaking.md)
+const MQ = { goblin: null, began: false, inWorld: false, offset: 0, at: 0, went: false, timer: 0, el: null, resolve: null, lastDigit: -1 };
+GK.locked = false;   // true from the match start until GO: the camera can look around, nothing else works
+function mqResolve(g) { if (MQ.goblin == null && g != null && MQ.resolve) { MQ.goblin = g; MQ.resolve(g); } }
+function mqEnterWorld() {   // leave the wheel screen and show the rooms (the old GK.enter, without the click)
+  if (MQ.inWorld) return; MQ.inWorld = true;
+  if (GK.menu && GK.menu.hideWheel) GK.menu.hideWheel();
+  run.t0 = performance.now(); run.n0 = GK.roundInfo ? GK.roundInfo().n : 0; run.dist = 0; GK.mode = 'play';
+  GK.showStats(); GK.applySettings(); if (window.GK_OFFLINE) $('rr').style.display = 'block'; lockNow();
+}
+function mqBegin(offlineMode) {   // the match formed and the world is built: wait for the wheel reveal, then get ready
+  if (MQ.began) return; MQ.began = true; GK.locked = true;
+  if (GK.menu && GK.menu.queueDone) GK.menu.queueDone();
+  const go = () => { mqEnterWorld(); setTimeout(() => { net.send({ ready: 1 }); if (offlineMode) mqCountdown({ at: Date.now() + 3000, now: Date.now() }); }, 350); };
+  if (GK.menu && GK.menu.whenRevealed) GK.menu.whenRevealed(go, 6000); else go();
+}
+function mqEl() {
+  if (MQ.el) return MQ.el;
+  const st = document.createElement('style');
+  st.textContent = '@keyframes gkCountPop{0%{transform:scale(1.7);opacity:0}25%{transform:scale(1);opacity:1}80%{opacity:1}100%{transform:scale(.88);opacity:0}}';
+  document.head.appendChild(st);
+  const el = MQ.el = document.createElement('div');
+  el.style.cssText = 'position:fixed;left:0;right:0;top:50%;transform:translateY(-58%);z-index:80;text-align:center;pointer-events:none;display:none;font:900 clamp(96px,24vh,260px)/1 Georgia,"Times New Roman",serif;letter-spacing:.04em;color:' + GOLD + ';text-shadow:0 0 28px rgba(255,190,50,.65),0 4px 0 #6b4a05,0 10px 28px rgba(0,0,0,.8)';
+  document.body.appendChild(el); return el;
+}
+function mqShow(text, last) {
+  const el = mqEl(); el.style.display = 'block'; el.textContent = text;
+  el.style.animation = 'none'; void el.offsetWidth; el.style.animation = 'gkCountPop ' + (last ? '.9s' : '1s') + ' ease-out forwards';
+  if (last) el.style.color = '#fff3c0';
+}
+function mqCountdown(c) {   // {at: server ms of GO, now: server ms when sent} -> 3, 2, 1, GO
+  if (!c || !Number.isFinite(c.at) || MQ.at) return; MQ.at = c.at; MQ.offset = Number.isFinite(c.now) ? c.now - Date.now() : 0;
+  mqEnterWorld(); GK.locked = true;
+  const step = () => {
+    const rem = MQ.at - (Date.now() + MQ.offset);
+    if (rem <= 0) {
+      clearInterval(MQ.timer); GK.locked = false; MQ.went = true;
+      mqShow('GO!', true); snd('gong'); run.t0 = performance.now(); run.n0 = GK.roundInfo ? GK.roundInfo().n : 0;
+      if (window.GK_OFFLINE) net.send({ enter: 1 });   // the offline simulation starts its round timer on this; the real server ignores it
+      setTimeout(() => { if (MQ.el) MQ.el.style.display = 'none'; }, 900); return;
+    }
+    const d = Math.ceil(rem / 1000);
+    if (d !== MQ.lastDigit) { MQ.lastDigit = d; mqShow(String(d)); snd(d === 1 && itemsAudioHas('tickLast') ? 'tickLast' : 'tick'); }
+  };
+  const itemsAudioHas = n => !!(window.GKAUDIO && GKAUDIO.names ? GKAUDIO.names.includes(n) : false);
+  MQ.timer = setInterval(step, 50); step();
+}
+GK.matchOnMsg = d => {   // called by handleMsg after it has processed a message
+  if (d.queue) { mqResolve(d.goblin); if (GK.menu && GK.menu.queue) GK.menu.queue(d.queue.n, d.queue.size, d.queue.since); }
+  if (d.matchStart) { mqResolve(((d.matchStart.players || []).find(p => p.id === d.matchStart.you) || {}).goblin); mqBegin(false); }
+  if (d.countdown) mqCountdown(d.countdown);
+};
+function mqOffline() {   // offline mode: hold the simulation's messages back, fake a ~2 s queue, then start like the server would
+  const held = [], latest = {}; let flushed = false, n = 1, offId = 0;
+  netReal.onmessage = d => {
+    if (flushed) return handleMsg(d);
+    const ks = Object.keys(d); if (d.you) offId = d.you;
+    if (ks.length === 1 && (ks[0] === 'players' || ks[0] === 'round' || ks[0] === 'match' || ks[0] === 'swing')) latest[ks[0]] = d; else held.push(d);
+    if (ks[0] === 'players' && MQ.goblin == null) { const mine = d.players.find(p => p.id === offId); if (mine) { mqResolve(mine.goblin); GK.matchOnMsg({ queue: { n: 1, size: 8, since: 0 } }); } }
+  };
+  const tick = setInterval(() => { if (n < 8) { n++; GK.matchOnMsg({ queue: { n, size: 8, since: n * 250 } }); } }, 250);
+  setTimeout(() => {
+    clearInterval(tick); flushed = true;
+    for (const d of held) handleMsg(d); for (const k of ['match', 'round', 'players']) if (latest[k]) handleMsg(latest[k]);
+    GK.matchOnMsg({ queue: { n: 8, size: 8, since: 2000 } }); mqBegin(true);
+  }, 2100);
+}
+GK.cancelQueue = () => { net.send({ cancel: 1 }); };
+GK.start = (opts) => { return new Promise(res => { MQ.resolve = res; connect(opts); if (window.GK_OFFLINE) mqOffline(); }); };   // connects and joins the queue; resolves with my goblin type (the wheel result)
+// MATCH-END
 GK.enter = () => { run.t0 = performance.now(); run.n0 = GK.roundInfo ? GK.roundInfo().n : 0; run.dist = 0; GK.mode = 'play'; net.send({ enter: 1 }); GK.showStats(); GK.applySettings(); if (window.GK_OFFLINE) $('rr').style.display = 'block'; lockNow(); };   // call from a click; 'enter' starts the match's round timer
 GK.applySettings = () => { renderer.setPixelRatio(fxPixelRatio()); fxApplyQuality(); resize(); };
 GK.doors = doors;
@@ -4564,7 +4634,7 @@ GK.fxDebug = { get fx() { return fx; }, cam };   // test hook: post-effects stat
 GK.setDoorsOpen = ids => { const set = new Set(ids); doors.forEach(d => d.open = set.has(d.id)); };   // ids of doors that are open right now
 GK.skipMenu = () => {   // for tests: straight into the rooms, with the title menu hidden as a real Enter would
   const mn = $('menu'); if (mn) mn.classList.add('gone'); document.body.classList.remove('menu');
-  GK.mode = 'play'; GK.start().then(() => { net.send({ enter: 1 }); GK.showStats(); });
+  GK.mode = 'play'; GK.start();   // joins the queue; the match start and the countdown follow
 };
 // FEEL-BEGIN (read-only window into game state for feel.js: sounds, interaction prompts, disconnect overlay)
 GK.feelApi = { P, actors, doors, keys, CHEST_ROOMS, roomKeyAt, nearestPile, hover: () => ({ room: hoverRoom, kind: hoverKind }),

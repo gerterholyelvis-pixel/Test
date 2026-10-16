@@ -1,4 +1,4 @@
-// join shape, layout rules, enter starts the timer, rate limiting
+// join shape, layout rules, the round timer starts at GO, rate limiting (the test server uses GK_MATCH_SIZE=1 and no countdown, see lib.js)
 const L = require('./lib.js'), { connect, sleep, assert, eq } = L, W = require('../world.js'), G = require('../items.js');
 (async () => {
   const srv = await L.startServer(); let fail = 1;
@@ -30,10 +30,8 @@ const L = require('./lib.js'), { connect, sleep, assert, eq } = L, W = require('
           await c.close(); await sleep(120);
         }
       }],
-      ['enter starts the round timer (it holds at 30 s before)', async () => {
-        const c = await connect(srv.port); await sleep(1300);
-        assert(c.state.round.left >= 28500, 'timer ran before enter: ' + c.state.round.left);
-        c.send({ enter: 1 }); await c.until(x => x.state.round.left < 29000, 3500, 'timer to run after enter');
+      ['the round timer runs from GO (legacy enter is harmless)', async () => {
+        const c = await connect(srv.port); c.send({ enter: 1 }); await c.until(x => x.state.round.left < 29000, 3500, 'timer to run after GO');
         await c.close();
       }],
       ['spawn: players start in an outer room, never the vault', async () => {

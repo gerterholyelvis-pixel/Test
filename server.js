@@ -33,7 +33,12 @@ for (let i = 0; i < 9; i++) {
 }
 const roomKeyOf = WORLD.roomKeyOf, boxOf = WORLD.roomAt;
 // ---- matches: independent games, players are queued with similar victory counts ----
-const CAP = 8;
+// MATCH-BEGIN (matchmaking: players wait in a queue match (phase 'queue'); it closes at CAP players, or after QUEUE_MS with >= 2; then everyone loads in together. See docs/reports/matchmaking.md)
+const DBG = !!process.env.GK_DEBUG;
+const CAP = DBG && /^[1-8]$/.test(process.env.GK_MATCH_SIZE || '') ? +process.env.GK_MATCH_SIZE : 8;   // GK_MATCH_SIZE only works with GK_DEBUG=1
+const QUEUE_MS = process.env.GK_QUEUE_MS && +process.env.GK_QUEUE_MS >= 0 ? +process.env.GK_QUEUE_MS : 30000, MIN_START = Math.min(2, CAP);
+const READY_MS = DBG && process.env.GK_READY_MS && +process.env.GK_READY_MS >= 0 ? +process.env.GK_READY_MS : 8000, COUNT_MS = DBG && process.env.GK_COUNTDOWN_MS !== undefined && +process.env.GK_COUNTDOWN_MS >= 0 ? +process.env.GK_COUNTDOWN_MS : 3000;   // debug-only overrides for tests
+// MATCH-END
 const matches = new Map(); // id -> match
 let nextId = 1, nextMatch = 1;
 const sendTo = (ws, o) => { if (ws.readyState === 1) ws.send(typeof o === 'string' ? o : JSON.stringify(o)); };
@@ -42,7 +47,7 @@ const avgWins = m => { let s = 0; for (const p of m.players.values()) s += p.win
 const tolerance = w => w <= 5 ? 1 : Math.ceil(w * 0.25);
 function newMatch() {
   const R1 = process.env.GK_DEBUG && +process.env.GK_ROUND_MS > 0 ? +process.env.GK_ROUND_MS : 30000; // GK_DEBUG only: shorter round 1 so the tests run fast
-  const m = { id: nextMatch++, players: new Map(), round: 1, dur: R1, endsAt: Date.now() + R1, started: false, sel: {}, open: [], drops: [], nextDrop: 1, dirty: false, lastRound: 0,
+  const m = { id: nextMatch++, players: new Map(), round: 1, dur: R1, endsAt: Date.now() + R1, started: false, phase: 'queue', formedAt: Date.now(), goAt: 0, sel: {}, open: [], drops: [], nextDrop: 1, dirty: false, lastRound: 0,
     chests: Array.from({ length: 12 }, () => Math.floor(Math.random() * 6)), chestKeys: Array.from({ length: 12 }, () => GKITEMS.randomWeaponKey()), layout: GKITEMS.randomLayout() };
   m.shops = m.layout.map(x => x === 'merchant' ? GKITEMS.randomShop() : null);   // each merchant's 5 items with gold prices, rolled once per match
   m.mystery = m.layout.map(x => x === 'mystery' ? GKITEMS.randomMystery() : null);   // what is inside each mystery room, rolled once per match // weapon index per chest room
@@ -57,7 +62,7 @@ const broadcastMatch = m => bcast(m, { match: matchInfo(m) });
 function findMatch(wins) {
   let best = null;
   for (const m of matches.values()) {
-    if (m.players.size >= CAP) continue;
+    if (m.phase !== 'queue' || m.players.size >= CAP) continue;   // closed matches take no late joiners
     const d = m.players.size ? Math.abs(wins - avgWins(m)) : 0;
     if (m.players.size && d > tolerance(wins)) continue;
     if (!best || d < best.d || (d === best.d && m.players.size > best.m.players.size)) best = { m, d };
@@ -69,11 +74,12 @@ function leave(m, ws) { // remove a player from their match; empty matches disap
   if (!m.players.delete(ws)) return;
   m.dirty = true;
   if (gone && m.sel[gone.room] != null && ![...m.players.values()].some(q => q.room === gone.room)) { delete m.sel[gone.room]; broadcastRound(m); } // an empty room's door vote no longer counts
-  if (!m.players.size) matches.delete(m.id); else { broadcastMatch(m); checkWin(m); }
+  if (!m.players.size) matches.delete(m.id); else if (m.phase === 'queue') broadcastQueue(m); else { broadcastMatch(m); checkWin(m); }
 }
 setInterval(() => { // one global timer steps every match
   const now = Date.now();
   for (const m of matches.values()) {
+    /* MATCH-BEGIN */ if (matchTick(m, now)) continue; /* MATCH-END */
     if (!m.started) m.endsAt = now + m.dur;   // round 1 waits until someone has left the wheel and entered the rooms
     if (now >= m.endsAt) {
       const picked = [...new Set(Object.values(m.sel))], ok = vaultVotes(m) >= 2; // vault doors need 2 different rooms
@@ -329,6 +335,46 @@ function snapshots(m) {   // {s:[t, id,x,z,yaw,speed,age, ...]} with the players
 }
 // NET-END
 
+/* MATCH-BEGIN */
+const queueInfo = m => ({ n: m.players.size, size: CAP, since: Date.now() - m.formedAt });
+function broadcastQueue(m, except) { const msg = JSON.stringify({ queue: queueInfo(m) }); for (const ws of m.players.keys()) if (ws !== except && ws.readyState === 1) ws.send(msg); }
+function fillWithBots(m) { /* hook for the server bots that fill empty slots (a later task); runs after the real players have spawned */ }
+function startMatch(m) {   // close the queue match, give everyone their own outer room, tell them to load
+  if (m.phase !== 'queue') return;
+  m.phase = 'loading'; m.loadAt = Date.now();
+  const rooms = [0, 1, 2, 3, 5, 6, 7, 8]; for (let i = rooms.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [rooms[i], rooms[j]] = [rooms[j], rooms[i]]; }   // never the vault
+  let i = 0;
+  for (const p of m.players.values()) {
+    const box = rooms[i++ % rooms.length], [cx, cz] = WORLD.rc(box), [x, z] = WORLD.randomPoint(box);
+    Object.assign(p, { box, yaw: Math.atan2(-(cx - x), -(cz - z)), ready: false }); place(p, x, z);   // place() also resets the netcode speed budget and history
+  }
+  fillWithBots(m);
+  const players = [...m.players.values()].map(pub);
+  for (const [ws, p] of m.players) {
+    sendTo(ws, { you: p.id, chests: m.chests, chestKeys: m.chestKeys, layout: m.layout, mystery: m.mystery, shops: m.shops, drops: m.drops, ...roundState(m), match: matchInfo(m), players,
+      matchStart: { you: p.id, players, layout: m.layout, chests: m.chests, chestKeys: m.chestKeys, mystery: m.mystery, shops: m.shops, spawn: { box: p.box, x: p.x, z: p.z, yaw: p.yaw }, size: players.length } });
+    sendTo(ws, { inv: p.inv }); sendGold(p); sendParts(p);
+  }
+}
+function beginCountdown(m) {
+  if (m.phase !== 'loading') return;
+  m.phase = 'countdown'; m.goAt = Date.now() + COUNT_MS; bcast(m, { countdown: { at: m.goAt, now: Date.now() } });   // now: server clock, so clients can correct for clock skew
+}
+function matchTick(m, now) {   // returns true when the normal round/combat tick must be skipped for this match (still queueing)
+  if (m.phase === 'queue') {
+    if (m.players.size >= CAP || (m.players.size >= MIN_START && now - m.formedAt >= QUEUE_MS)) startMatch(m);
+    else if (now - (m.qSent || 0) >= 1000) { m.qSent = now; broadcastQueue(m); }
+    return m.phase === 'queue';
+  }
+  if (m.phase === 'loading' && now - m.loadAt >= READY_MS) beginCountdown(m);
+  if (m.phase === 'countdown' && now >= m.goAt) {   // GO: everyone is in, round 1 starts now
+    m.phase = 'play'; m.started = true; m.endsAt = now + m.dur;
+    for (const p of m.players.values()) p.entered = true;
+    m.enteredEver = m.players.size; broadcastMatch(m); broadcastRound(m); m.dirty = true;
+  }
+  return false;
+}
+/* MATCH-END */
 wss.on('connection', (ws, req) => {
   let q; try { q = new URL(req.url, 'http://x').searchParams; } catch { q = new URLSearchParams(); }
   const g = q.get('goblin'), goblin = g !== null && /^[0-4]$/.test(g) ? +g : rollGoblin();
@@ -337,9 +383,7 @@ wss.on('connection', (ws, req) => {
   const p = { id, wins, ws, ...spawn() }; p.room = String(p.box); equip(p, goblin); place(p, p.x, p.z);
   const m = findMatch(wins); p.match = m; m.players.set(ws, p); m.dirty = true;
   ws.on('error', () => {});
-  sendTo(ws, { you: id, chests: m.chests, chestKeys: m.chestKeys, layout: m.layout, mystery: m.mystery, shops: m.shops, drops: m.drops, ...roundState(m), match: matchInfo(m) });
-  sendTo(ws, { inv: p.inv }); sendGold(p); sendParts(p);
-  broadcastMatch(m);
+  /* MATCH-BEGIN */ sendTo(ws, { queue: queueInfo(m), goblin }); broadcastQueue(m, ws); if (m.players.size >= CAP) startMatch(m); /* MATCH-END */
   let tokens = 40, last = Date.now(); // rate limit: ~30 msg/s sustained, burst 40
   ws.on('message', (raw, isBinary) => {
     const now = Date.now();
@@ -349,6 +393,10 @@ wss.on('connection', (ws, req) => {
     let d; try { d = JSON.parse(raw.toString()); } catch { return; }
     if (p.dead || !d || typeof d !== 'object') return;
     const dbg = !!process.env.GK_DEBUG;
+    /* MATCH-BEGIN */ if (d.cancel === 1) { if (m.phase === 'queue') { leave(m, ws); ws.close(); } return; }
+    if (d.ready === 1) { p.ready = true; if (m.phase === 'loading' && [...m.players.values()].every(q => q.ready)) beginCountdown(m); return; }
+    if (!m.goAt || now < m.goAt) { if (d.m || d.atk === 1 || d.claim === 1 || d.sel !== undefined) return; }   // movement, attacks, claims and door picks are locked until GO
+    /* MATCH-END */
     if (Array.isArray(d.m) && d.m.length === 3 && d.m.every(v => typeof v === 'number' && Number.isFinite(v))) { applyMove(m, ws, p, d.m[0], d.m[1], d.m[2], now);
     } else if (typeof d.ping === 'number' && Number.isFinite(d.ping)) { sendTo(ws, { pong: d.ping, t: srvT() });
     } else if (dbg && d.kill) { die(ws, p);   // test hooks, only with GK_DEBUG=1
@@ -358,7 +406,7 @@ wss.on('connection', (ws, req) => {
       place(p, clamp(d.tp[0]), clamp(d.tp[1])); m.dirty = true;
     } else if (dbg && Number.isFinite(d.gold)) { p.gold = Math.max(0, Math.floor(d.gold)); sendGold(p);
     } else if (d.atk === 1) { attack(m, ws, p, now, d.rt);
-    } else if (d.enter === 1) { if (!p.entered) { p.entered = true; m.enteredEver = (m.enteredEver || 0) + 1; broadcastMatch(m); } if (!m.started) { m.started = true; m.endsAt = now + m.dur; broadcastRound(m); }
+    } else if (d.enter === 1) { /* legacy: the match start (GO) replaced it */
     } else if (typeof d.eat === 'string') { eat(p, d.eat);
     } else if (Array.isArray(d.loot)) { const why = loot(m, p, d.loot); if (why) sendTo(ws, { lootFail: why });
     } else if (typeof d.craft === 'string') {
