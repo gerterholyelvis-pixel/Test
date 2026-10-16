@@ -38,8 +38,8 @@ const TEX = {
     g.fillStyle = '#d6dadf'; g.fillRect(0, 0, s, s);
     for (let i = 0; i < 700; i++) { const x = r() * s, y = r() * s, l = 30 + r() * 160; g.fillStyle = r() < 0.5 ? 'rgba(255,255,255,' + r() * 0.09 + ')' : 'rgba(40,50,60,' + r() * 0.07 + ')'; wrapDraw(g, s, x, y, () => g.fillRect(x, y, l, 1 + r() * 1.5)); }
     for (let i = 0; i < 60; i++) { g.strokeStyle = r() < 0.5 ? 'rgba(255,255,255,0.35)' : 'rgba(20,24,30,0.28)'; g.lineWidth = 0.7; const x = r() * s, y = r() * s, a = r() * TAU, l = 10 + r() * 50; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke(); }
-    for (let i = 0; i < 160; i++) { g.fillStyle = 'rgba(25,30,36,' + (0.1 + r() * 0.3) + ')'; g.beginPath(); g.arc(r() * s, r() * s, 0.6 + r() * 2.2, 0, TAU); g.fill(); }
-    for (let i = 0; i < 10; i++) { const x = r() * s, y = r() * s, rr = 14 + r() * 36, gr = g.createRadialGradient(x, y, 0, x, y, rr); gr.addColorStop(0, 'rgba(70,60,50,0.28)'); gr.addColorStop(1, 'rgba(70,60,50,0)'); g.fillStyle = gr; wrapDraw(g, s, x, y, () => g.fillRect(x - rr, y - rr, rr * 2, rr * 2)); }
+    for (let i = 0; i < 60; i++) { g.fillStyle = 'rgba(25,30,36,' + (0.05 + r() * 0.14) + ')'; g.beginPath(); g.arc(r() * s, r() * s, 0.5 + r() * 1.4, 0, TAU); g.fill(); }
+    for (let i = 0; i < 10; i++) { const x = r() * s, y = r() * s, rr = 14 + r() * 36, gr = g.createRadialGradient(x, y, 0, x, y, rr); gr.addColorStop(0, 'rgba(95,72,50,0.16)'); gr.addColorStop(1, 'rgba(95,72,50,0)'); g.fillStyle = gr; wrapDraw(g, s, x, y, () => g.fillRect(x - rr, y - rr, rr * 2, rr * 2)); }
   }, 2, 2),
   leather: () => canvasTex('leather', 256, (g, s, r) => {   // pebbled hide with a stitched seam near both edges
     g.fillStyle = '#c9a585'; g.fillRect(0, 0, s, s);
@@ -296,7 +296,7 @@ const WF = {
     const { S, T, H } = c, L = p.len;
     if (p.branch) {   // gnarled stick
       const pts = []; for (let i = 0; i <= 8; i++) pts.push([Math.sin(i * 0.9) * 0.018, i / 8 * L, Math.cos(i * 1.3) * 0.014]);
-      b.add(H, sweep(pts, t => 0.021 + 0.004 * Math.sin(t * 9) + 0.007 * (1 - t), 8, 32));
+      b.add(H, sweep(pts, t => 0.027 + 0.005 * Math.sin(t * 9) + 0.008 * (1 - t), 8, 32));
       for (const [t, a, l] of [[0.35, 0.8, 0.12], [0.62, 3.2, 0.1], [0.8, 5.2, 0.09]]) { const y = t * L; b.aim(H, CONE(0.014, l, 6), Math.cos(a) * 0.02, y, Math.sin(a) * 0.02, Math.cos(a) * 0.9, 0.5, Math.sin(a) * 0.9); }
       b.add(H, SP(0.03, 8, 6), 0, L, 0, 0, 0, 0, 1, 0.7, 1);
       b.spine = { y0: L * 0.25, y1: L * 0.8, rx: 0.02, rz: 0.022, kind: 'shaft', gs: 0.02 }; b.gem = [0.015, L * 0.9, 0.02, 0.014]; return;
@@ -327,7 +327,10 @@ const WF = {
     b.add(T, TOR(0.03, 0.01, 6, 14), 0, L * 0.5, 0, PI / 2);
     const out = [[0.03, -0.1 * s], [0.1, -0.16 * s], ...bez([0.1, -0.16 * s], [0.18 * s + 0.05, -0.3 * s], [0.3 * s + 0.06, -0.52 * s], 6), ...bez([0.3 * s + 0.06, -0.52 * s], [0.68 * s + 0.05, 0], [0.3 * s + 0.06, 0.52 * s], 12), ...bez([0.3 * s + 0.06, 0.52 * s], [0.18 * s + 0.05, 0.3 * s], [0.1, 0.16 * s], 6), [0.03, 0.1 * s]];
     b.add(S, ext(polyShape(out), 0.012, 0.014, 0.008, 2), 0, ty, 0);
-    if (p.double) b.add(S, ext(polyShape(mirrorPts(out)), 0.012, 0.014, 0.008, 2), 0, ty, 0);
+    const EG = M('steel', 0xeef2f6, { rough: 0.2 }), ed = bez([0.3 * s + 0.06, -0.52 * s], [0.68 * s + 0.05, 0], [0.3 * s + 0.06, 0.52 * s], 12), ei = bez([0.3 * s + 0.06, 0.52 * s], [0.36 * s + 0.05, 0], [0.3 * s + 0.06, -0.52 * s], 12);
+    const edgePts = [[0.3 * s + 0.06, -0.52 * s], ...ed, ...ei];   // polished bevel along the cutting edge: worn light steel against the darker head
+    b.add(EG, ext(polyShape(edgePts), 0.03, 0.015, 0.006, 2), 0, ty, 0);
+    if (p.double) { b.add(S, ext(polyShape(mirrorPts(out)), 0.012, 0.014, 0.008, 2), 0, ty, 0); b.add(EG, ext(polyShape(mirrorPts(edgePts)), 0.03, 0.015, 0.006, 2), 0, ty, 0); }
     else { b.add(S, rbox(0.075, 0.3 * s, 0.055, 0.012), -0.01, ty, 0); b.aim(S, CONE(0.03, 0.08 + 0.05 * s, 5), -0.04, ty, 0, -1, 0, 0); }
     b.add(S, rbox(0.08, 0.2 * s + 0.04, 0.06, 0.012), 0, ty, 0);
     b.aim(T, CONE(0.026, 0.1, 6), 0, ty + 0.1 * s + 0.02, 0, 0, 1, 0); b.add(T, TOR(0.034, 0.008, 6, 12), 0, ty + 0.1 * s + 0.01, 0, PI / 2);
@@ -353,9 +356,9 @@ const WF = {
   bow(b, c, p) {
     const { S, T, H } = c, L = p.len, k = p.curve, N = 14, pts = [];
     for (let i = 0; i <= N; i++) { const t = i / N * 2 - 1; pts.push([k * t * t + (p.recurve || 0) * Math.pow(Math.abs(t), 7), t * L / 2, 0]); }
-    b.add(H, sweep(pts, t => 0.017 + 0.025 * Math.pow(Math.sin(PI * t), 0.7), 8, 40));
+    b.add(H, sweep(pts, t => 0.021 + 0.03 * Math.pow(Math.sin(PI * t), 0.7), 8, 40));
     b.add(S, SP(0.013, 8, 6), pts[N][0], L / 2, 0); b.add(S, SP(0.013, 8, 6), pts[0][0], -L / 2, 0);
-    b.add(T, sweep([[pts[N][0], L / 2, 0], [pts[N][0], 0, 0], [pts[0][0], -L / 2, 0]], 0.005, 4, 12));
+    b.add(T, sweep([[pts[N][0], L / 2, 0], [pts[N][0], 0, 0], [pts[0][0], -L / 2, 0]], 0.0065, 4, 12));
     gripPart(b, p.gripMat || H, -0.1, 0.1, 0.02, 0); b.add(T, rbox(0.035, 0.07, 0.035, 0.008), 0.0, 0.1, 0);
     if (p.wrap) for (let i = 0; i < 6; i++) b.add(T, TOR(0.026, 0.005, 4, 12), 0, -0.1 + i * 0.033, 0, PI / 2);
     b.spine = { x: 0, y0: L * 0.1, y1: L * 0.36, rx: 0.02, rz: 0.028, kind: 'shaft', gs: 0.02, one: false }; b.gem = [0, 0.14, 0.03, 0.016];
@@ -540,6 +543,8 @@ const AF = {
       for (let i = 0; i < 7; i++) { const a = -0.9 + i * 0.3, y0 = 0.62 + rr() * 0.12, pts = []; for (let k = 0; k < 4; k++) { const y = y0 + k * 0.08, aa = a + (rr() - 0.5) * 0.25, r = pr(y); pts.push([Math.sin(aa) * r * SX * 1.005, y, Math.cos(aa) * r * SZ * 1.012]); } b.add(cm, sweep(pts, 0.0065, 4, 6)); }
     }
     if (p.crest) b.add(G, ext(polyShape([[-0.03, 0], [0.03, 0], [0.045, 0.15], [0, 0.22], [-0.045, 0.15]]), 0.012, 0.01, 0.006, 2), 0, 1.22, 0);
+    if (b.key === 'a:knight') { const zf = radAt({})(0.85) * SZ + 0.014; b.add(G, rbox(0.04, 0.22, 0.02, 0.006), 0, 0.82, zf); b.add(G, rbox(0.15, 0.04, 0.02, 0.006), 0, 0.89, zf); }   // knight: heraldic cross on the breastplate
+    if (b.key === 'a:aegis') for (let i = 0; i < 8; i++) { const a = i / 8 * TAU, zf = radAt({})(0.88) * SZ; b.aim(G, CONE(0.012, 0.1, 4), Math.sin(a) * 0.055, 0.88 + Math.cos(a) * 0.075, zf + 0.02, Math.sin(a), Math.cos(a), 0.15); }   // aegis: sunburst rays around the great gem
     chestSpine(b, 0.72, 0.96); if (p.bigGem) { b.add(c.A || M('gem', 0x4a8dff, {}), OCT, 0, 0.88, pr(0.88) * SZ + 0.02, 0, 0, 0, 0.04, 0.06, 0.03); }
   },
   robe(b, c, p) {
@@ -701,7 +706,7 @@ function model(key) { const p = proto(key); return p ? p.clone() : null; }
 function drawCalls(key) { const p = proto(key); let n = 0; if (p) p.traverse(o => { if (o.isMesh || o.isSprite || o.isPoints) n++; }); return n; }
 
 // ---------- icon baking: private scene, own lights + PMREM room environment, offscreen float render target ----------
-const ICON = 160, RTS = 320, tune = { key: 1.3, fill: 0.4, rim: 0.9, hemi: 0.25, env: 0.6, expo: 0.95 };
+const ICON = (typeof window !== "undefined" && window.GK_ICON_PX) || 160, RTS = ICON * 2, tune = { key: 1.3, fill: 0.4, rim: 0.9, hemi: 0.25, env: 0.6, expo: 0.95 };
 const icons = new Map();
 let bakeJob = null;
 const allKeys = () => { const I = window.GKITEMS, ks = I ? Object.keys(I.ITEMS) : []; return ks.concat(['m:brain', 'gold'], PART_KEYS.map(k => 'part:' + k)); };
