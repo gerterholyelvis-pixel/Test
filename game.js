@@ -4071,7 +4071,7 @@ function combatSwing() {   // left click: swing animation on my own goblin now, 
   const mine = actors.get(me); if (!mine) return false;
   const cb = itemsData().combat ? itemsData().combat(invReady ? myInv.weapon : null) : { cd: 600 }, now = performance.now();
   if (now - CB.last < cb.cd) return false;
-  CB.last = now; mine.swing = 1e-4; net.send({ atk: 1 }); return true;
+  CB.last = now; mine.swing = 1e-4; net.send({ atk: 1 }); snd('swing'); return true;
 }
 canvas.addEventListener('mousedown', e => { if (e.button === 0 && (lockOk() || lockRefused)) combatSwing(); });   // the click that captures the mouse does not swing
 function combatSync(a, p) { if (p.stats && p.stats.health != null) { a.hp = p.stats.health; a.maxHp = p.stats.maxHealth || p.stats.health; } if (p.kills != null) a.kills = p.kills; }
@@ -4088,8 +4088,9 @@ function combatHurtFx(dmg, max) {   // red vignette + screen number when I am hu
   f.style.cssText = 'position:fixed;left:50%;top:58%;z-index:90;pointer-events:none;color:#ff4a3a;font:800 34px system-ui,sans-serif;text-shadow:0 2px 10px #000';
   document.body.appendChild(f); f.animate([{ opacity: 1, transform: 'translate(-50%,0)' }, { opacity: 0, transform: 'translate(-50%,-50px)' }], 900).onfinish = () => f.remove();
 }
+const snd = (n, o) => { try { window.GKAUDIO && GKAUDIO.play(n, o); } catch (e) {} };   // combat sounds (audio.js)
 function combatMsg(d) {   // server messages: swing, hit, kills, match (goblins left)
-  if (d.swing != null && d.swing !== me) { const a = actors.get(d.swing); if (a) a.swing = 1e-4; }
+  if (d.swing != null && d.swing !== me) { const a = actors.get(d.swing); if (a) { a.swing = 1e-4; snd('swing', { x: a.x, z: a.z, vol: 0.7 }); } }
   if (d.hit) {
     const h = d.hit, v = actors.get(h.to), f = actors.get(h.from);
     if (v) {
@@ -4100,7 +4101,7 @@ function combatMsg(d) {   // server messages: swing, hit, kills, match (goblins 
       const burst = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff3a2a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.9 }));   // red hit flash on the victim (sprite only, no lights)
       burst.scale.set(1.3, 1.3, 1); burst.position.set(v.x, 1.0 * (SCALE[v.goblin] || 1), v.z); scene.add(burst); CB.floats.push({ sp: burst, t: 0, flash: true });
     }
-    if (h.to === me) combatHurtFx(h.dmg, h.max);
+    if (h.to === me) { combatHurtFx(h.dmg, h.max); snd('hurt'); } else if (v) snd('hit', h.from === me ? {} : { x: v.x, z: v.z });
   }
   if (d.kills != null) { CB.kills = d.kills; toastMsg('Goblin defeated!  Kills: ' + d.kills, true); }
   if (d.match) { CB.alive = d.match.alive | 0; CB.size = d.match.size | 0; }
