@@ -222,7 +222,7 @@ table.keys td:last-child{font-size:var(--t2);line-height:1.15;color:#d8d2bf}
 .cbest{flex:none;width:clamp(40px,6vh,52px);height:clamp(40px,6vh,52px);display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#1b1813,#0e0c09);border:1px solid #4a4030}
 .cbest[data-t=uncommon]{border-color:#3d8f3a}.cbest[data-t=rare]{border-color:#3a78c8}.cbest[data-t=mythic]{border-color:#8a4fc8}.cbest[data-t=legendary]{border-color:#d98f1f;box-shadow:0 0 10px rgba(255,176,46,.35)}.cbest[data-t=transcendent]{border-color:#6fd8e0;box-shadow:0 0 12px rgba(143,246,255,.45)}
 .cbest canvas{max-width:88%;max-height:88%}
-@media (max-width:560px){.ccard{gap:var(--s2);flex-wrap:wrap}.cplay{margin-left:auto}.cport{width:64px!important;height:64px!important}}
+@media (max-width:560px){.ccard{display:grid;grid-template-columns:auto 1fr;grid-template-areas:'p i' 'b a';gap:var(--s2);align-items:center}.cport{grid-area:p;width:64px!important;height:64px!important}.cinfo{grid-area:i}.cbest{grid-area:b;justify-self:start}.cplay{grid-area:a;justify-self:end}.cname{white-space:normal}.ccard:hover,.ccard:focus-within{transform:none}}
 
 /* inventory (stash): framed slots by tier, same tooltip card as the characters screen */
 .igrid{grid-template-columns:repeat(8,1fr);gap:clamp(4px,.8vh,7px)}
