@@ -210,7 +210,7 @@ module.exports = function create(S) {
 
   // ---- activity NPCs: records in m.players like the mystery enemies (npc: kind), with their own small brain (npcThink)
   function spawnNpc(m, key, kind, anchorId, o) {
-    const A = m.act, N = NPCS[kind]; if (!N || A.npcs.size >= NPC_MAX || m.ended) return null;
+    const A = m.act, N = NPCS[kind]; if (!N || A.npcs.size >= NPC_MAX || m.ended || A.noSpawn) return null;
     const an = (ANCHORS[key] && (ANCHORS[key][anchorId] || ANCHORS[key].C)) || null, rr = WORLD.roomRect(key);
     let x = an ? an.x : rr.cx, z = an ? an.z : rr.cz;
     { let ux = rr.cx - x, uz = rr.cz - z; const l = Math.hypot(ux, uz); if (l < 0.3) { ux = 0; uz = 1; } else { ux /= l; uz /= l; } const off = an ? an.r + 0.9 : 0; x += ux * off; z += uz * off; }
@@ -368,7 +368,7 @@ module.exports = function create(S) {
     if (m.phase !== 'play' || !m.goAt || now < m.goAt || m.ended || p.dead || !p.entered || p.dc) return;
     const rb = p._ar || (p._ar = ACT.rate.make()); if (!ACT.rate.allow(rb, now)) return;
     if (a.r !== p.room) return;
-    const kd = kindOfKey(a.r), an = ANCHORS[a.r] && ANCHORS[a.r][a.a]; if (!kd || !an) return;
+    const kd = kindOfKey(a.r), an = kd && Object.prototype.hasOwnProperty.call(ANCHORS[a.r], a.a) ? ANCHORS[a.r][a.a] : null; if (!an) return;
     prep(p);
     const sack = kd === 'vb' && a.v === 'pick' && VB5.typeAt(A.H, a.r) === 'counting';   // a dropped coin sack: any anchor, the module checks 1.8 m
     if (a.v !== 'stop' && !sack && !ACT.reach(p, an)) return send(p, { actFail: 'far' });
@@ -495,7 +495,7 @@ module.exports = function create(S) {
   }
   const bribe = (m, amount) => { if (m.act && amount > 0) VB5.onBribe(m.act.H, amount, Date.now()); };   // half of every panel bribe goes into the strongbox
 
-  // ---- GK_DEBUG test hooks: {actDbg: {tree:[cell, type]} | {vb:[t7, t11, t13, t17]} | {claim: ms} | {breach:[doorId, v]} | {elixir: n} | {metal: n}}
+  // ---- GK_DEBUG test hooks: {actDbg: {tree:[cell, type], vb:[t7, t11, t13, t17], claim: ms, breach:[doorId, v], npcs: bool, elixir: n, metal: n}} (any subset)
   function debug(m, p, d) {
     const A = m.act; if (!A || !d || typeof d !== 'object') return;
     const now = Date.now();
@@ -503,6 +503,7 @@ module.exports = function create(S) {
     if (Array.isArray(d.vb) && d.vb.length === 4 && VB5.TYPES.every(t => d.vb.includes(t))) { A.H.order = d.vb.slice(); A.H.nextOrder = VB5.derange(A.H.order, A.rng); m.vb = VB5.layoutView(A.H, null).vb; S.broadcastRound(m); }
     if (Number.isFinite(d.claim)) A.vault.cap.acc[p.id] = Math.max(0, d.claim);
     if (Array.isArray(d.breach) && A.H.breach[d.breach[0]] != null && Number.isFinite(d.breach[1])) { A.H.breach[d.breach[0]] = Math.max(0, Math.min(100, d.breach[1])); S.broadcastRound(m); }
+    if (typeof d.npcs === 'boolean') A.noSpawn = !d.npcs;   // {npcs:false}: no activity NPCs in this match (deterministic tests)
     if (Number.isFinite(d.elixir)) p.elixir = Math.max(0, d.elixir);
     if (Number.isFinite(d.metal)) { p.parts.metal = Math.max(0, d.metal | 0); S.sendParts(p); }
     S.sendTo(p.ws, { actDbg: { trees: m.trees, vb: m.vb } });
