@@ -4052,7 +4052,7 @@ function combatSwing() {   // left click: swing animation on my own goblin now, 
   if (now - CB.last < cb.cd) return false;
   CB.last = now; mine.swing = 1e-4; net.send({ atk: 1 }); return true;
 }
-canvas.addEventListener('mousedown', e => { if (e.button === 0) combatSwing(); });
+canvas.addEventListener('mousedown', e => { if (e.button === 0 && (lockOk() || lockRefused)) combatSwing(); });   // the click that captures the mouse does not swing
 function combatSync(a, p) { if (p.stats && p.stats.health != null) { a.hp = p.stats.health; a.maxHp = p.stats.maxHealth || p.stats.health; } if (p.kills != null) a.kills = p.kills; }
 function combatFloat(text, pos, color, size) {   // floating damage number (a sprite that rises and fades)
   const c = document.createElement('canvas'); c.width = 160; c.height = 80; const g = c.getContext('2d');
