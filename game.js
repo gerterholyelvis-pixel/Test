@@ -25,15 +25,15 @@ const perf2Lod = { meshes: new WeakMap(), hi: new Map(), geo: new Map(), queue: 
 // PERF2-END
 const CS = WORLD.CS;                      // chest room size
 const WEAPONS = ['Rusty Sword', 'Battle Axe', 'War Spear', 'Spiked Mace', 'Short Bow', 'Dagger'];
-// One chest room behind every outer wall: edge rooms get 1, corner rooms get 2 (12 in total)
-// Three kinds of rooms behind the outer doors: 'chest' (a chest with a random weapon), 'mystery' (question mark, contents decided later) and 'merchant' (merchant goblin behind glass, knowledge tree, workbench, recycler).
-// Edge rooms (1,3,5,7) have only a chest room; each corner room (0,2,6,8) has a chest room plus one mystery or merchant room: 8 chest, 2 mystery, 2 merchant.
-const ROOM_TYPE_BY_ID = { 1: 'mystery', 4: 'merchant', 7: 'merchant', 10: 'mystery' };   // ids follow the CHEST_ROOMS creation order below
+// 16 attached rooms behind the perimeter cells (world.js CHEST, clockwise from the NW corner): even ids are HOMES (10x10), odd ids are loot rooms (8x8).
+// Loot room types (the server sends the layout): 'chest' (a chest with a random weapon), 'mystery' (question mark, contents decided later), 'merchant' (merchant goblin behind glass,
+// knowledge tree, workbench, recycler), 'forge' (Master Forge: a workbench) and 'grand' (Grand Recycler). Until the layout arrives homes show as homes and loot rooms as chest rooms.
+const LAYOUT_TYPES = ['home', 'forge', 'grand', 'chest', 'mystery', 'merchant'];
 const CHEST_ROOMS = [];
 const layoutHooks = [];   // functions called with the type array when the match's random room layout is known (room interiors, door emblems, maps and panels are built/updated from it)
-for (const c of WORLD.CHEST) CHEST_ROOMS.push({ ...c, type: ROOM_TYPE_BY_ID[c.id] || 'chest' });   // geometry (cx, cz, wallX, wallZ, dx, dz) comes from world.js
-function applyLayout(types, mystery) {   // types: 12 strings in CHEST_ROOMS order; mystery: 12 entries, null or the contents of that mystery room (GKITEMS.randomMystery)
-  if (!Array.isArray(types) || types.length !== CHEST_ROOMS.length || !types.every(t => t === 'chest' || t === 'mystery' || t === 'merchant')) return;
+for (const c of WORLD.CHEST) CHEST_ROOMS.push({ ...c, type: c.home ? 'home' : 'chest' });   // geometry (cx, cz, wallX, wallZ, dx, dz, size, home) comes from world.js
+function applyLayout(types, mystery) {   // types: 16 strings in CHEST_ROOMS order; mystery: 16 entries, null or the contents of that mystery room (GKITEMS.randomMystery)
+  if (!Array.isArray(types) || types.length !== CHEST_ROOMS.length || !types.every(t => LAYOUT_TYPES.includes(t))) return;
   types.forEach((t, i) => { CHEST_ROOMS[i].type = t; CHEST_ROOMS[i].mystery = t === 'mystery' && mystery && mystery[i] ? mystery[i] : null; });
   GK.layout = types.slice(); GK.mystery = CHEST_ROOMS.map(c => c.mystery); for (const f of layoutHooks) { try { f(GK.layout, GK.mystery); } catch (e) { console.error(e); } }
 }
@@ -438,6 +438,7 @@ function statusLights(g, d, y) {
     glowSprite(g, d.halo, 1.3, 0, y, s * (T / 2 + 0.3));
   }
 }
+let hatchWoodM = null;
 function wall(px, pz, rot, kind, len) {   // len: length of the room boundary this wall closes (the wall is T longer so it overlaps the corners)
   const g = new THREE.Group(); g.position.set(px, 0, pz); g.rotation.y = rot; scene.add(g);
   const L = len + T, dw = kind === 'vault' ? VW : DW, dh = kind === 'vault' ? VH : DHT;
@@ -447,6 +448,13 @@ function wall(px, pz, rot, kind, len) {   // len: length of the room boundary th
   solid(-L / 2, -dw / 2, 0, H); solid(dw / 2, L / 2, 0, H); solid(-dw / 2, dw / 2, dh, H);
   base(-L / 2, -dw / 2 - 0.3); base(dw / 2 + 0.3, L / 2);
   addRect(px, pz, rot, -L / 2, -dw / 2, -T / 2, T / 2); addRect(px, pz, rot, dw / 2, L / 2, -T / 2, T / 2);
+  if (kind === 'hatch') {   // 5x5: a home's doorway is an open archway with no leaf (always passable; task C adds the owner's name banner). A door record keeps the id order.
+    const wood = hatchWoodM || (hatchWoodM = M(0x6b4a2e, { roughness: 0.8 }));
+    for (const s of [-1, 1]) bx(g, 0.3, dh + 0.1, T + 0.2, s * (dw / 2 + 0.15), (dh + 0.1) / 2, 0, wood, 1);
+    bx(g, dw + 0.9, 0.34, T + 0.26, 0, dh + 0.12, 0, wood, 1);
+    const d = { id: doors.length, open: true, hatch: true, kind, slide: false, p: 1, gx: px, gz: pz, dw, dh, ax: [Math.cos(rot), -Math.sin(rot)], az: [Math.sin(rot), Math.cos(rot)], flash: 0, leaf: new THREE.Group(), wheels: [], rings: [], bolts: [], rots: [], dyn: [], scan: [], lasers: [], blocker: null };
+    g.add(d.leaf); doors.push(d); return;
+  }
   const light = new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0xff1a1a, emissiveIntensity: 2 }); statusMats.push(light);
   const slide = kind !== 'vault';
   const d = { id: doors.length, open: false, kind, slide, p: 0, gx: px, gz: pz, dw, dh, ax: [Math.cos(rot), -Math.sin(rot)], az: [Math.sin(rot), Math.cos(rot)], flash: 0, light, leaf: new THREE.Group(), wheels: [], rings: [], bolts: [], rots: [], dyn: [], blocker: null };
@@ -597,8 +605,8 @@ function wall(px, pz, rot, kind, len) {   // len: length of the room boundary th
   }
   doors.push(d);
 }
-// rooms (per-room width/depth from world.js: the middle room is THE VAULT, bigger than the others)
-for (let i = 0; i < 9; i++) {
+// rooms (per-room width/depth from world.js: the middle room is THE VAULT, bigger than the others): the 25 arena shells; the attached rooms' shells are built by the CHEST block
+for (let i = 0; i < WORLD.NARENA; i++) {
   const [cx, cz] = rc(i), rw = roomW(i), rd = roomD(i);
   bx(scene, rw, 0.4, rd, cx, -0.2, cz, floorM, 2);
   ceilings.push(bx(scene, rw, 0.3, rd, cx, H + 0.15, cz, ceilM));
@@ -618,20 +626,56 @@ for (let i = 0; i < 9; i++) {
     if (Math.hypot(e.x - (cx + sx * hw), e.z - (cz + sz * hd)) > 0.3) m.scale.x = -1;
     scene.add(m);
   }
-  // 9 point lights in total (one per room); the vault is bigger, so its lamp is stronger and a little higher to light the whole hall
-  // ROOMSCALE: rooms are WORLD.SCALE (1.25) times the original 12 / 18 m, so the walls are that much further from the lamp; the intensity grows by the same factor to keep the walls lit (decay 1.2)
-  const big = i === WORLD.VAULT, lamp = new THREE.PointLight(big ? 0xfff0dc : 0xfff6ea, (big ? 14 : 9) * WORLD.SCALE, 0, 1.2); lamp.position.set(cx, H - (big ? 1.2 : 0.7), cz); scene.add(lamp);
 }
+// LAMPS-BEGIN (docs/PLAN-5x5.md 4.2): exactly 9 PointLights (+ 1 Hemisphere), created once so the light count never changes (no shader recompile). They are a pool that follows the camera:
+// when the camera changes room or a door opens / closes, the rooms are ranked by door hops through open doors (then distance) and the 9 lamps go to the best ones (the vault first
+// whenever it is within 2 hops). A lamp that has to move fades out over 0.25 s, jumps to its room's ceiling and fades in. Unlit rooms keep their HDR ceiling panels, the env map and the hemisphere.
+// ROOMSCALE: rooms are WORLD.SCALE (1.25) times the original 12 / 18 m, so the walls are that much further from the lamp; the intensity grows by the same factor to keep the walls lit (decay 1.2)
+const LAMPS = (() => {
+  const N_LAMP = 9, FADE = 0.25, lit = WORLD.ROOMS.filter(r => r.kind !== 'loot');   // loot rooms are lit by their own emissive art, as before
+  const base = r => (r.kind === 'vault' ? 14 : r.kind === 'home' ? 6 : 9) * WORLD.SCALE;
+  const pool = []; for (let i = 0; i < N_LAMP; i++) { const l = new THREE.PointLight(0xfff6ea, 0, 0, 1.2); l.position.set(0, -20, 0); scene.add(l); pool.push({ l, key: null, want: null, k: 0 }); }
+  const adj = {}; for (const d of WORLD.DOORS) { (adj[d.a] = adj[d.a] || []).push([d.id, d.b]); (adj[d.b] = adj[d.b] || []).push([d.id, d.a]); }
+  const doorOpen = id => { const d = doors[id]; return !!d && (d.open || d.p > 0.001); };
+  let sig = '', lastAt = 0;
+  function rank(cx, cz, from) {   // the N_LAMP rooms that should be lit
+    const hop = {}; if (from) { hop[from] = 0; const q = [from]; for (let h = 0; h < q.length; h++) for (const [id, to] of adj[q[h]] || []) if (hop[to] === undefined && doorOpen(id)) { hop[to] = hop[q[h]] + 1; q.push(to); } }
+    const sc = r => (hop[r.key] === undefined ? 99 : hop[r.key]) * 1000 + Math.hypot(r.cx - cx, r.cz - cz);
+    const out = lit.slice().sort((a, b) => sc(a) - sc(b)).slice(0, N_LAMP);
+    const v = WORLD.ROOMS[WORLD.VAULT]; if (!out.includes(v) && (!from || (hop[v.key] !== undefined && hop[v.key] <= 2))) out[N_LAMP - 1] = v;
+    return out;
+  }
+  function assign(want) {   // keep lamps that are already on a wanted room; send the others to the rest
+    const keep = new Set(), todo = [];
+    for (const p of pool) { const r = want.find(w => w.key === (p.want || p.key)); if (r && !keep.has(r.key)) keep.add(r.key); else todo.push(p); }
+    for (const r of want) if (!keep.has(r.key)) { const p = todo.shift(); if (!p) break; p.want = r.key; }
+  }
+  const _v = new THREE.Vector3(); let lastT = -1;
+  function tick(t) {   // t: seconds (renderWorld's clock)
+    const dt = lastT < 0 ? 1 : Math.max(0, Math.min(0.1, t - lastT)); lastT = t;
+    const p = cam.position, out = p.y > H || Math.abs(p.x) > WORLD.LIM || Math.abs(p.z) > WORLD.LIM, here = out ? '' : WORLD.roomKeyOf(p.x, p.z), now = performance.now();
+    let s = here; for (let i = 0; i < doors.length; i++) s += doorOpen(i) ? '1' : '0';
+    if (s !== sig || (out && now - lastAt > 500)) {
+      sig = s; lastAt = now; let cx = p.x, cz = p.z;
+      if (out) { cam.getWorldDirection(_v); if (_v.y < -0.05) { const k = -p.y / _v.y; cx = p.x + _v.x * k; cz = p.z + _v.z * k; } }   // overview / death camera: the rooms around the point it looks at
+      assign(rank(cx, cz, out || here === 'c-1' ? null : here));
+    }
+    for (const q of pool) {
+      if (q.want !== q.key) { q.k -= dt / FADE; if (q.k <= 0) { q.k = 0; q.key = q.want; const r = WORLD.roomRect(q.key); if (r) { const v = r.kind === 'vault'; q.l.position.set(r.cx, H - (v ? 1.2 : 0.7), r.cz); q.l.color.setHex(v ? 0xfff0dc : 0xfff6ea); } } }
+      else if (q.k < 1) q.k = Math.min(1, q.k + dt / FADE);
+      const r = q.key && WORLD.roomRect(q.key); q.l.intensity = r ? base(r) * q.k : 0;
+    }
+  }
+  return { tick, pool };
+})();
+GK.lamps = LAMPS;   // test hook
+// LAMPS-END
 scene.add(new THREE.HemisphereLight(0xffffff, 0xeeebe4, 2.1));
-for (let i = 0; i < 9; i++) {
-  const [cx, cz] = rc(i), col = i % 3, row = Math.floor(i / 3), rw = roomW(i), rd = roomD(i);
-  // east neighbour and south neighbour, or an outer wall on the edge
-  const kd = (a, b) => (a === 4 || b === 4) ? 'vault' : 'skull';
-  const outerKind = (x, z) => { const c = CHEST_ROOMS.find(r => Math.abs(r.wallX - x) < 0.01 && Math.abs(r.wallZ - z) < 0.01); return 'chest'; };
-  wall(cx + rw / 2, cz, Math.PI / 2, col < 2 ? kd(i, i + 1) : outerKind(cx + rw / 2, cz), rd);   // a wall between columns is as long as the row is deep
-  wall(cx, cz + rd / 2, 0, row < 2 ? kd(i, i + 3) : outerKind(cx, cz + rd / 2), rw);            // a wall between rows is as long as the column is wide
-  if (col === 0) wall(cx - rw / 2, cz, Math.PI / 2, outerKind(cx - rw / 2, cz), rd);
-  if (row === 0) wall(cx, cz - rd / 2, 0, outerKind(cx, cz - rd / 2), rw);
+// walls and doors from WORLD.WALLS (doors in WORLD.DOORS id order, so doors[i].id === i matches the server): arena 'skull' doors, vault doors, loot doors (retyped from the layout), home hatches;
+// then the 4 bare outer corner walls. The attached rooms' own walls are part of their shell (CHEST block); here they only get collision boxes (the client used to rely on server corrections there).
+for (const w of WORLD.WALLS) {
+  if (w.att !== undefined) { addRect(w.x, w.z, w.rot, -w.len / 2, w.len / 2, -T / 2, T / 2); continue; }
+  wall(w.x, w.z, w.rot, w.door == null ? null : w.kind === 'arena' ? 'skull' : w.kind === 'loot' ? 'chest' : w.kind, w.len);
 }
 layoutHooks.push(types => { for (const d of doors) { if (!d.setType) continue; const c = CHEST_ROOMS.find(r => Math.abs(r.wallX - d.gx) < 0.01 && Math.abs(r.wallZ - d.gz) < 0.01); if (c) d.setType(c.type); } });
 if (GK.layout) layoutHooks[layoutHooks.length - 1](GK.layout);
@@ -1118,11 +1162,12 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
   for (const cr of CHEST_ROOMS) {
     const g = new THREE.Group(); g.position.set(cr.cx, 0, cr.cz); g.rotation.y = Math.atan2(-cr.dx, -cr.dz); scene.add(g);  // local +z faces the door
     const shell = { walls: [], bands: [], panels: [] };   // meshes whose material depends on the room type
-    shell.floor = bx(g, CS, 0.4, CS, 0, -0.2, 0, cFloorM, CS);
-    ceilings.push(shell.ceil = bx(g, CS + T, 0.3, CS + T, 0, H + 0.15, 0, cCeilM));
-    for (const z of [-1.8, 1.4]) { const pn = bx(g, 2.4, 0.05, 1.2, 0, H - 0.03, z, cPanelM); shell.panels.push(pn); ceilings.push(pn, bx(g, 2.64, 0.04, 1.44, 0, H - 0.015, z, skirtM)); }
-    const L = CS + T / 2;
-    shell.walls.push(bx(g, CS + T, H, T, 0, H / 2, -CW, cWallM), bx(g, T, H, L, -CW, H / 2, -T / 4, cWallM), bx(g, T, H, L, CW, H / 2, -T / 4, cWallM));
+    const RS2 = cr.size || CS, CW = RS2 / 2, IN = CW - T / 2, PZ = RS2 > CS ? [-2.2, 1.8] : [-1.8, 1.4];   // 5x5: homes are 10x10, loot rooms keep the authored 8x8
+    shell.floor = bx(g, RS2, 0.4, RS2, 0, -0.2, 0, cFloorM, RS2);
+    ceilings.push(shell.ceil = bx(g, RS2 + T, 0.3, RS2 + T, 0, H + 0.15, 0, cCeilM));
+    for (const z of PZ) { const pn = bx(g, 2.4, 0.05, 1.2, 0, H - 0.03, z, cPanelM); shell.panels.push(pn); ceilings.push(pn, bx(g, 2.64, 0.04, 1.44, 0, H - 0.015, z, skirtM)); }
+    const L = RS2 + T / 2;
+    shell.walls.push(bx(g, RS2 + T, H, T, 0, H / 2, -CW, cWallM), bx(g, T, H, L, -CW, H / 2, -T / 4, cWallM), bx(g, T, H, L, CW, H / 2, -T / 4, cWallM));
     // skirting, gold band, cornice
     bx(g, 2 * IN, 0.28, 0.1, 0, 0.14, -IN + 0.05, skirtM); for (const s of [-1, 1]) bx(g, 0.1, 0.28, 2 * IN, s * (IN - 0.05), 0.14, 0, skirtM);
     shell.bands.push(bx(g, 2 * IN, 0.08, 0.05, 0, 1.3, -IN + 0.025, goldM)); for (const s of [-1, 1]) shell.bands.push(bx(g, 0.05, 0.08, 2 * IN, s * (IN - 0.025), 1.3, 0, goldM));
@@ -1162,7 +1207,7 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
     slot.inner = new THREE.Group(); slot.g.add(slot.inner); slot.flames = [];
     const m = shellMats(type), sh = slot.shell;
     sh.floor.material = m.floor; sh.ceil.material = m.ceil; for (const w of sh.walls) w.material = m.wall; for (const p of sh.panels) p.material = m.panel; for (const b of sh.bands) b.material = m.band;
-    (type === 'mystery' ? buildMystery : type === 'merchant' ? buildMerchant : buildChest)(slot);
+    (type === 'mystery' ? buildMystery : type === 'merchant' ? buildMerchant : type === 'home' ? buildHome : type === 'forge' || type === 'grand' ? buildStationRoom : buildChest)(slot);
     freezeTree(slot.inner);
     if (type === 'mystery') {   // contents of the mystery room (separate agent): a group in the room's local frame, origin = room centre on the floor, +z toward the door
       const mg = new THREE.Group(); mg.name = 'mysteryContents'; slot.inner.add(mg); slot.mg = mg;
@@ -1563,6 +1608,17 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
     addTick(g, (t) => { sign.rotation.z = 0.06 * Math.sin(t * 1.4); });
   }
   const buildWorkbenchAt = (g, cr) => buildWorkbench(g, IN - 0.5, 0, -Math.PI / 2, cr.id);
+  // ===== 5x5 placeholders (docs/PLAN-5x5.md 1.5; task C builds the real home / Master Forge / Grand Recycler art in rooms5art.js): the existing station kits on the back wall
+  function buildHome(slot) {   // the home's normal workbench and its 50% recycler (server stationAt), positions shared with world.js HOME_LAYOUT (their footprints are solid)
+    const g = slot.inner, cr = slot.cr, L = WORLD.HOME_LAYOUT;
+    buildWorkbench(g, L.bench[0], L.bench[1], L.bench[2], cr.id); buildRecycler(g, L.recycler[0], L.recycler[1], L.recycler[2], cr.id);
+    nameplate(g, 'HOME', 0, 5.7, -(cr.size / 2 - T / 2) + 0.4, 1.8, '#ffe9a8');
+  }
+  function buildStationRoom(slot) {   // Master Forge: a workbench (master type on the server); Grand Recycler: a recycler at 100%
+    const g = slot.inner, cr = slot.cr, forge = cr.type === 'forge', S = WORLD.LOOT_LAYOUT[cr.type];
+    if (forge) buildWorkbench(g, S[0], S[1], S[2], cr.id); else buildRecycler(g, S[0], S[1], S[2], cr.id);
+    nameplate(g, forge ? 'MASTER FORGE' : 'GRAND RECYCLER', 0, 5.7, -IN + 0.4, 2.6, '#ffe9a8');
+  }
   // @@MERCHANT@@
   let lastT = -1, lastP = 0;
   function animate() {
@@ -2253,7 +2309,9 @@ if (GK.layout && GK.CHEST_ROOMS) { /* the rooms agent calls buildMysteryContents
   const mysteryIcon = (g, x, y, k) => { g.save(); g.translate(x, y); g.scale(k, k); g.shadowColor = '#b48cff'; g.shadowBlur = 10; g.fillStyle = '#c9a8ff'; g.font = 'bold 40px Georgia, serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('?', 0, 3); g.shadowBlur = 0; g.restore(); };
   const merchantIcon = (g, x, y, k) => { const s = 34 * k; g.drawImage(merchantLogoC || (merchantLogoC = merchantLogo(96)), x - s / 2, y - s / 2, s, s); };
   let merchantLogoC = null;
-  const ROOM_LOOK = { chest: ['#2b2410', '#c9a23a', chestIcon], mystery: ['#1c1236', '#9a6bff', mysteryIcon], merchant: ['#3a2a0c', '#ffd24a', merchantIcon] };
+  const wordIcon = (txt, col) => (g, x, y, k) => { g.save(); g.font = 'bold ' + Math.round(13 * k) + 'px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = col; g.fillText(txt, x, y); g.restore(); };
+  const homeIcon = (g, x, y, k) => { g.save(); g.translate(x, y); g.scale(k, k); g.fillStyle = '#9cc8ff'; g.beginPath(); g.moveTo(0, -13); g.lineTo(13, -2); g.lineTo(9, -2); g.lineTo(9, 11); g.lineTo(-9, 11); g.lineTo(-9, -2); g.lineTo(-13, -2); g.closePath(); g.fill(); g.fillStyle = '#14243a'; g.fillRect(-3, 3, 6, 8); g.restore(); };
+  const ROOM_LOOK = { chest: ['#2b2410', '#c9a23a', chestIcon], mystery: ['#1c1236', '#9a6bff', mysteryIcon], merchant: ['#3a2a0c', '#ffd24a', merchantIcon], home: ['#14243a', '#5fa8ff', homeIcon], forge: ['#3a1a0c', '#ff7a2a', wordIcon('FORGE', '#ffb27a')], grand: ['#0c2a26', '#4affd0', wordIcon('RECYCLE', '#9affe6')] };
   const base = document.createElement('canvas'); base.width = MW; base.height = MH;
   function drawBase() {   // drawn once, and again whenever the random room layout arrives
     const g = base.getContext('2d');
@@ -2267,34 +2325,32 @@ if (GK.layout && GK.CHEST_ROOMS) { /* the rooms agent calls buildMysteryContents
     g.fillStyle = '#4aa8ff'; g.fillRect(722, 144, 280, 5);
     // chest rooms
     for (const c of CHEST_ROOMS) {
-      const x = mx(c.cx - CS / 2), y = my(c.cz - CS / 2), w = CS * MS;
+      const S = c.size || CS, x = mx(c.cx - S / 2), y = my(c.cz - S / 2), w = S * MS;
       const look = ROOM_LOOK[c.type] || ROOM_LOOK.chest;
       g.fillStyle = look[0]; g.fillRect(x, y, w, w);
       g.strokeStyle = look[1]; g.lineWidth = 3; g.strokeRect(x + 1.5, y + 1.5, w - 3, w - 3);
-      look[2](g, x + w / 2 - c.dx * 3, y + w / 2 - c.dz * 3, 1.5);
+      look[2](g, x + w / 2 - c.dx * 3, y + w / 2 - c.dz * 3, 1.05);
       /* FEEL-BEGIN */ if (GK.claimedRooms && GK.claimedRooms.has(c.id)) { g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillRect(x, y, w, w); g.strokeStyle = '#5dff8a'; g.lineWidth = 9; g.lineCap = 'round'; g.lineJoin = 'round'; g.beginPath(); g.moveTo(x + w * 0.28, y + w * 0.52); g.lineTo(x + w * 0.45, y + w * 0.7); g.lineTo(x + w * 0.74, y + w * 0.3); g.stroke(); g.lineCap = 'butt'; } /* FEEL-END */
     }
     // main rooms
-    for (let i = 0; i < 9; i++) {
-      const [cx, cz] = rc(i), x = mx(cx - roomW(i) / 2), y = my(cz - roomD(i) / 2), w = roomW(i) * MS, h = roomD(i) * MS;   // real proportions: the vault is bigger
-      g.fillStyle = i === 4 ? '#2a3442' : '#dfe8f2'; g.fillRect(x, y, w, h);
-      g.strokeStyle = '#0a1018'; g.lineWidth = 5; g.strokeRect(x, y, w, h);
-      if (i === 4) { // vault symbol
+    for (let i = 0; i < WORLD.NARENA; i++) {
+      const [cx, cz] = rc(i), x = mx(cx - roomW(i) / 2), y = my(cz - roomD(i) / 2), w = roomW(i) * MS, h = roomD(i) * MS, vlt = i === WORLD.VAULT;   // real proportions: the vault is bigger
+      g.fillStyle = vlt ? '#2a3442' : '#dfe8f2'; g.fillRect(x, y, w, h);
+      g.strokeStyle = '#0a1018'; g.lineWidth = 4; g.strokeRect(x, y, w, h);
+      if (vlt) { // vault symbol
         const px = x + w / 2, py = y + h / 2 - 8;
         g.strokeStyle = '#e6b52e'; g.lineWidth = 3; g.strokeRect(x + 6, y + 6, w - 12, h - 12);
-        g.strokeStyle = '#9fb4cc'; g.lineWidth = 7; g.beginPath(); g.arc(px, py, 50, 0, 7); g.stroke();
-        g.lineWidth = 4; g.beginPath(); g.arc(px, py, 13, 0, 7); g.stroke();
-        for (let a = 0; a < 6; a++) { const t = a * Math.PI / 3; g.beginPath(); g.moveTo(px + Math.cos(t) * 15, py + Math.sin(t) * 15); g.lineTo(px + Math.cos(t) * 50, py + Math.sin(t) * 50); g.stroke(); }
-        g.fillStyle = '#f4c24d'; g.font = 'bold 26px system-ui, sans-serif'; g.textAlign = 'center'; g.fillText('THE VAULT', px, py + 84);
+        g.strokeStyle = '#9fb4cc'; g.lineWidth = 6; g.beginPath(); g.arc(px, py, 34, 0, 7); g.stroke();
+        g.lineWidth = 3; g.beginPath(); g.arc(px, py, 9, 0, 7); g.stroke();
+        for (let a = 0; a < 6; a++) { const t = a * Math.PI / 3; g.beginPath(); g.moveTo(px + Math.cos(t) * 10, py + Math.sin(t) * 10); g.lineTo(px + Math.cos(t) * 34, py + Math.sin(t) * 34); g.stroke(); }
+        g.fillStyle = '#f4c24d'; g.font = 'bold 20px system-ui, sans-serif'; g.textAlign = 'center'; g.fillText('THE VAULT', px, py + 56);
       }
     }
-    // doors between rooms and to chest rooms (all closed)
-    for (let i = 0; i < 9; i++) {
-      const [cx, cz] = rc(i);
-      if (i % 3 < 2) lockMark(g, mx(cx + roomW(i) / 2), my(cz), true, (i === 4 || i + 1 === 4) ? 'vault' : 'player');
-      if (i < 6) lockMark(g, mx(cx), my(cz + roomD(i) / 2), false, (i === 4 || i + 3 === 4) ? 'vault' : 'player');
+    // every door (all closed): arena doors, vault doors, loot doors; home hatches are open archways (a gap in the wall)
+    for (const d of WORLD.DOORS) {
+      const w = d.wall; if (d.kind === 'hatch') { g.fillStyle = '#5fa8ff'; if (d.axis === 'x') g.fillRect(mx(w.x) - DW * MS / 2, my(w.z) - 3, DW * MS, 6); else g.fillRect(mx(w.x) - 3, my(w.z) - DW * MS / 2, 6, DW * MS); continue; }
+      lockMark(g, mx(w.x), my(w.z), d.axis === 'z', d.kind === 'vault' ? 'vault' : d.kind === 'loot' ? 'treasure' : 'player');
     }
-    for (const c of CHEST_ROOMS) lockMark(g, mx(c.wallX), my(c.wallZ), c.dx !== 0, 'treasure');
     // legend
     g.textAlign = 'left'; g.textBaseline = 'middle'; g.font = 'bold 36px system-ui, sans-serif'; g.fillStyle = '#e9f3ff';
     g.fillText('LEGEND', 722, 186);
@@ -2315,76 +2371,67 @@ if (GK.layout && GK.CHEST_ROOMS) { /* the rooms agent calls buildMysteryContents
     g.fillStyle = '#7f95ad'; g.font = '22px system-ui, sans-serif'; g.fillText('All doors sealed', 722, 692); g.fillText('Random rooms each match', 722, 718);
   }
   drawBase();
-  const spawnRooms = [0, 1, 2, 3, 5, 6, 7, 8], panels = [];
-  function drawMap(p) {
-    const g = p.ctx, i = p.room, [cx, cz] = rc(i), x = mx(cx - roomW(i) / 2), y = my(cz - roomD(i) / 2), w = roomW(i) * MS, h = roomD(i) * MS;
-    const ph = 0.6;
-    g.drawImage(base, 0, 0);
+  // 5x5 (docs/PLAN-5x5.md 4.4): ONE shared facility drawing (base + intel + lore) on one CanvasTexture, shown on a wall map in every arena room except the vault;
+  // "you are here" is a small marker mesh per room on the map plane (a separate 1024x740 canvas per room would cost ~100 MB at 24 rooms).
+  const mapRooms = []; for (let i = 0; i < WORLD.NARENA; i++) if (i !== WORLD.VAULT) mapRooms.push(i);
+  const shared = document.createElement('canvas'); shared.width = MW; shared.height = MH;
+  const sharedCtx = shared.getContext('2d'), sharedTex = new THREE.CanvasTexture(shared); sharedTex.colorSpace = THREE.SRGBColorSpace; sharedTex.anisotropy = 8; sharedTex.generateMipmaps = true;
+  function drawShared() {
+    const g = sharedCtx; g.drawImage(base, 0, 0);
     if (GK.mapIntel) GK.mapIntel(g, mx, my, MS);   // UNIQUE: faint arrows for last round's door picks
-    if (GK.knowMap) GK.knowMap(g, mx, my, p.room);   // KNOWLEDGE: Lore perks draw on the map
-    g.save(); g.fillStyle = 'rgba(255,40,40,' + (0.16 + 0.16 * ph) + ')'; g.fillRect(x, y, w, h);
-    g.shadowColor = '#ff2a2a'; g.shadowBlur = 14 + 14 * ph; g.strokeStyle = '#ff3030'; g.lineWidth = 7; g.strokeRect(x + 3, y + 3, w - 6, h - 6); g.restore();
-    // label
-    const lx = x + w / 2, ly = y + h / 2 + 6;
-    g.save(); g.font = 'bold 25px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillStyle = '#d81818'; rr(g, lx - 58, ly - 30, 116, 60, 9); g.fill();
-    g.strokeStyle = '#ffd0d0'; g.lineWidth = 2; g.stroke();
-    g.fillStyle = '#fff'; g.fillText('YOU ARE', lx, ly - 12); g.fillText('HERE', lx, ly + 14); g.restore();
-    // the two wall panels on this room's north wall: map at x-dx, door controls at x+dx (dx = WORLD.panelDX: 5.3 m, 7.9 m in the wide rooms) (pin tips on the wall line)
-    wallTab(g, lx - WORLD.panelDX(i) * MS, y + 3, '#1b6fe0', 'MAP'); wallTab(g, lx + WORLD.panelDX(i) * MS, y + 3, '#f08a1c', 'CTRL');
+    if (GK.knowMap) GK.knowMap(g, mx, my, null);   // KNOWLEDGE: Lore perks draw on the map
+    sharedTex.needsUpdate = true;
   }
+  const markTex = (() => { const c = document.createElement('canvas'); c.width = 128; c.height = 128; const g = c.getContext('2d'); g.fillStyle = 'rgba(255,40,40,0.26)'; g.fillRect(0, 0, 128, 128); g.strokeStyle = '#ff3030'; g.lineWidth = 12; g.strokeRect(6, 6, 116, 116); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
+  const hereTex = (() => { const c = document.createElement('canvas'); c.width = 128; c.height = 64; const g = c.getContext('2d'); g.fillStyle = '#d81818'; rr(g, 4, 4, 120, 56, 9); g.fill(); g.strokeStyle = '#ffd0d0'; g.lineWidth = 2; g.stroke(); g.font = 'bold 22px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#fff'; g.fillText('YOU ARE', 64, 22); g.fillText('HERE', 64, 44); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
+  const markMat = new THREE.MeshBasicMaterial({ map: markTex, transparent: true, depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const hereMat = new THREE.MeshBasicMaterial({ map: hereTex, transparent: true, depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
   const glowTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'), r = g.createRadialGradient(64, 64, 8, 64, 64, 64);
     r.addColorStop(0, 'rgba(120,190,255,0.9)'); r.addColorStop(0.5, 'rgba(70,140,255,0.35)'); r.addColorStop(1, 'rgba(40,100,255,0)'); g.fillStyle = r; g.fillRect(0, 0, 128, 128);
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
   const frameMat = new THREE.MeshStandardMaterial({ color: 0x1c1f24, roughness: 0.5, metalness: 0.8 });
-  const glowGeo = new THREE.PlaneGeometry(4.6, 3.6), backGeo = new THREE.BoxGeometry(2.6, 1.9, 0.06), screenGeo = new THREE.PlaneGeometry(2.5, 2.5 * MH / MW);
-  const barH = new THREE.BoxGeometry(2.6, 0.05, 0.09), barV = new THREE.BoxGeometry(0.05, 1.8, 0.09);
-  for (const i of spawnRooms) {
+  const SW = 2.5, SH = 2.5 * MH / MW;   // screen size (m)
+  const glowGeo = new THREE.PlaneGeometry(4.6, 3.6), backGeo = new THREE.BoxGeometry(2.6, 1.9, 0.06), screenGeo = new THREE.PlaneGeometry(SW, SH), unitGeo = new THREE.PlaneGeometry(1, 1);
+  const barH = new THREE.BoxGeometry(2.6, 0.05, 0.09), barV = new THREE.BoxGeometry(0.05, 1.8, 0.09), bracketGeo = new THREE.BoxGeometry(0.12, 0.12, 0.03);
+  const glowMat = new THREE.MeshBasicMaterial({ map: glowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.55, toneMapped: false });
+  const screenMat = new THREE.MeshStandardMaterial({ map: sharedTex, emissiveMap: sharedTex, emissive: 0xffffff, emissiveIntensity: 0.85, roughness: 0.4, metalness: 0 });
+  const onScreen = (cx, cy) => [(cx / MW - 0.5) * SW, (0.5 - cy / MH) * SH];   // canvas px -> screen-local metres
+  for (const i of mapRooms) {
     const [cx, cz] = rc(i), px = cx - WORLD.panelDX(i), py = 2.6, pz = cz - roomD(i) / 2 + T / 2; // pz = wall face
     const grp = new THREE.Group();
     const add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); grp.add(m); return m; };
-    const glow = add(glowGeo, new THREE.MeshBasicMaterial({ map: glowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.55, toneMapped: false }), px, py, pz + 0.012);
-    glow.renderOrder = 1;
+    add(glowGeo, glowMat, px, py, pz + 0.012).renderOrder = 1;
     add(backGeo, frameMat, px, py, pz + 0.03);
     add(barH, frameMat, px, py + 0.925, pz + 0.045); add(barH, frameMat, px, py - 0.925, pz + 0.045);
     add(barV, frameMat, px - 1.275, py, pz + 0.045); add(barV, frameMat, px + 1.275, py, pz + 0.045);
-    for (const sx of [-0.9, 0.9]) add(new THREE.BoxGeometry(0.12, 0.12, 0.03), frameMat, px + sx, py - 0.95 - 0.06, pz + 0.015); // wall brackets
-    const cv = document.createElement('canvas'); cv.width = MW; cv.height = MH;
-    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8; tex.generateMipmaps = true;
-    const p = { room: i, ctx: cv.getContext('2d'), tex, last: 0 };
-    drawMap(p); tex.needsUpdate = true; panels.push(p);
-    const scr = add(screenGeo, new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.85, roughness: 0.4, metalness: 0 }), px, py, pz + 0.076);
+    for (const sx of [-0.9, 0.9]) add(bracketGeo, frameMat, px + sx, py - 0.95 - 0.06, pz + 0.015); // wall brackets
+    add(screenGeo, screenMat, px, py, pz + 0.076);
+    { const [ux, uy] = onScreen(mx(cx), my(cz)), mk = add(unitGeo, markMat, px + ux, py + uy, pz + 0.078); mk.scale.set(roomW(i) * MS / MW * SW, roomD(i) * MS / MH * SH, 1); mk.renderOrder = 2;
+      const hh = add(unitGeo, hereMat, px + ux, py + uy, pz + 0.08); hh.scale.set(0.2, 0.1, 1); hh.renderOrder = 3; }
     scene.add(grp); grp.traverse(o => { o.updateMatrix(); o.matrixAutoUpdate = false; }); grp.updateMatrixWorld(true);
   }
-  layoutHooks.push(() => { drawBase(); for (const p of panels) { drawMap(p); p.tex.needsUpdate = true; } });   // the room types are random per match: redraw the base and every wall map once
-  GK.redrawMaps = () => { drawBase(); for (const p of panels) { drawMap(p); p.tex.needsUpdate = true; } };
-  GK.redrawMap = room => { for (const p of panels) if (String(p.room) === String(room)) { drawMap(p); p.tex.needsUpdate = true; } };   // KNOWLEDGE: one room's map only (cheap live intel)
+  drawShared();
+  layoutHooks.push(() => { drawBase(); drawShared(); });   // the room types are random per match: redraw the base and the shared map once
+  GK.redrawMaps = () => { drawBase(); drawShared(); };
+  GK.redrawMap = () => drawShared();   // KNOWLEDGE: live intel (one shared canvas upload)
 }
 // MAP-END
 // PANEL-BEGIN (door control panels and round logic on the client: owned by the rounds agent)
-// Door graph (ids = creation order of the wall loop; MUST match server.js), room keys: '0'..'8' grid rooms, 'c0'..'c11' chest rooms
+// Door graph: WORLD.DOORS (one canonical id order shared with server.js), room keys: '0'..'24' arena rooms, 'c0'..'c15' attached rooms.
+// ROOM_DOORS (client) lists the votable doors of each room, sorted N, E, S, W: a home's hatch is always open and never on a panel.
 const PDIRS = ['NORTH', 'EAST', 'SOUTH', 'WEST'];
-const ROOM_DOORS = {}, DINFO = [];
-const chestKeyOf = (i, side) => 'c' + CHEST_ROOMS.findIndex(c => c.parent === i && c.side === side);
-{
-  const add = (a, b, da, db) => { const id = DINFO.length; DINFO.push({ id, a, b, da, db, kind: a === '4' || b === '4' ? 'vault' : (a[0] === 'c' || b[0] === 'c') ? 'chest' : 'skull' }); (ROOM_DOORS[a] = ROOM_DOORS[a] || []).push(id); (ROOM_DOORS[b] = ROOM_DOORS[b] || []).push(id); };
-  for (let i = 0; i < 9; i++) {
-    const col = i % 3, row = Math.floor(i / 3), s = String(i);
-    col < 2 ? add(s, String(i + 1), 'EAST', 'WEST') : add(s, chestKeyOf(i, 'E'), 'EAST', 'WEST');
-    row < 2 ? add(s, String(i + 3), 'SOUTH', 'NORTH') : add(s, chestKeyOf(i, 'S'), 'SOUTH', 'NORTH');
-    if (col === 0) add(s, chestKeyOf(i, 'W'), 'WEST', 'EAST');
-    if (row === 0) add(s, chestKeyOf(i, 'N'), 'NORTH', 'SOUTH');
-  }
-  for (const k in ROOM_DOORS) ROOM_DOORS[k].sort((p, q) => { const f = id => PDIRS.indexOf(DINFO[id].a === k ? DINFO[id].da : DINFO[id].db); return f(p) - f(q); });
-}
-const roomKeyAt = WORLD.roomKeyOf;   // grid rooms inside +-WORLD.HALF (26.25 m; the vault spans +-11.25 m), chest rooms beyond
+const ROOM_DOORS = {}, DINFO = WORLD.DOORS.map(d => ({ id: d.id, a: d.a, b: d.b, da: d.da, db: d.db, kind: d.kind === 'arena' ? 'skull' : d.kind === 'loot' ? 'chest' : d.kind }));
+for (const k in WORLD.ROOM_DOORS) { const ids = WORLD.ROOM_DOORS[k].filter(id => DINFO[id].kind !== 'hatch'); if (ids.length) ROOM_DOORS[k] = ids; }
+const VK = WORLD.VAULT_KEY;   // THE VAULT's room key
+const roomKeyAt = WORLD.roomKeyOf;   // arena rooms inside +-WORLD.HALF (41.25 m; the vault spans +-11.25 m), attached rooms beyond
+const homeOwner = id => { for (const a of actors.values()) if (a.home === 'c' + id) return a.name; return null; };   // 5x5: the name of the goblin whose home this is (null when unknown)
+const roomName = k => { if (k === VK) return 'THE VAULT'; if (k[0] === 'c') { const c = CHEST_ROOMS[+k.slice(1)]; if (!c) return 'Outside'; if (c.type === 'home') { const n = homeOwner(c.id); return n ? 'Home of ' + n : 'Home'; } return roomTypeName(c.type || 'chest'); } return 'Room ' + (+k + 1); };
 
-const roomTypeName = t => (GK.ROOM_TYPE_NAMES && GK.ROOM_TYPE_NAMES[t]) || { chest: 'Treasure room', mystery: 'Mystery room', merchant: 'Merchant' }[t] || 'Treasure room';
+const roomTypeName = t => (GK.ROOM_TYPE_NAMES && GK.ROOM_TYPE_NAMES[t]) || { chest: 'Treasure room', mystery: 'Mystery room', merchant: 'Merchant', home: 'Home', forge: 'Master Forge', grand: 'Grand Recycler' }[t] || 'Treasure room';
 const doorLabel = (key, id) => {
   const d = DINFO[id], mine = d.a === key, other = mine ? d.b : d.a, dir = mine ? d.da : d.db;
   const ck = a => a[0] === 'c' ? (CHEST_ROOMS[+a.slice(1)].type || 'chest') : null, ot = ck(other);
-  const dest = ot ? roomTypeName(ot) : other === '4' ? 'THE VAULT' : 'Room ' + (+other + 1);
-  return { dir, dest, kind: ot || d.kind };
+  return { dir, dest: roomName(other), kind: ot === 'forge' || ot === 'grand' || ot === 'home' ? 'chest' : ot || d.kind };   // the Forge and the Grand Recycler use the treasure icon until task D draws theirs
 };
 const fmtT = ms => { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
 
@@ -2459,7 +2506,7 @@ function cpDraw(p) {
   for (let y = 0; y < H; y += 32) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
   g.textBaseline = 'middle'; g.textAlign = 'left'; g.fillStyle = '#e9f3ff'; g.font = 'bold 40px system-ui, sans-serif'; g.fillText('DOOR CONTROL', 24, 38);
   g.textAlign = 'right'; g.fillStyle = '#7fb4e8'; g.font = '600 26px system-ui, sans-serif';
-  g.fillText(p.key[0] === 'c' ? roomTypeName(CHEST_ROOMS[+p.key.slice(1)].type || 'chest').toUpperCase() : p.key === '4' ? 'THE VAULT' : 'ROOM ' + (+p.key + 1), W - 24, 40);
+  g.fillText(roomName(p.key).toUpperCase(), W - 24, 40);
   g.fillStyle = '#4aa8ff'; g.fillRect(24, 70, W - 48, 4);
   p.buttons.forEach((b, i) => {
     const L = doorLabel(p.key, b.id), sel = selSet.has(b.id), opn = openSet.has(b.id), hov = p.hover === i;
@@ -2495,8 +2542,8 @@ function cpBuild(key, parent, w, h, x, y, z, rotY) {   // framed emissive screen
   add(bh, cpFrameMat, 0, h / 2 - 0.025, 0.045); add(bh, cpFrameMat, 0, -h / 2 + 0.025, 0.045);
   add(bv, cpFrameMat, -w / 2 + 0.025, 0, 0.045); add(bv, cpFrameMat, w / 2 - 0.025, 0, 0.045);
   for (const sx of [-0.9, 0.9]) if (Math.abs(sx) < w / 2 - 0.2) add(new THREE.BoxGeometry(0.12, 0.12, 0.03), cpFrameMat, sx, -h / 2 - 0.06, 0.015);
-  const W = Math.round((w - 0.1) * 320), H = Math.round((h - 0.1) * 320);
-  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const W = Math.round((w - 0.1) * 320), H = Math.round((h - 0.1) * 320), K = 0.7;   // layout units (320 per metre); 5x5: 33 panels, so the canvas itself is 0.7x that (224 px per metre)
+  const cv = document.createElement('canvas'); cv.width = Math.round(W * K); cv.height = Math.round(H * K); cv.getContext('2d').scale(K, K);
   const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
   const scr = add(new THREE.PlaneGeometry(w - 0.1, h - 0.1), new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.85, roughness: 0.4, metalness: 0 }), 0, 0, 0.076);
   const p = { key, ids: ROOM_DOORS[key], W, H, ctx: cv.getContext('2d'), tex, screen: scr, hover: -1, dirty: false, buttons: [] };
@@ -2549,10 +2596,11 @@ window.GKRULES = (() => {
   return { has: n => R.on.has(n), onMsg, openText, panel, bribeKey };
 })();
 // RULES-CLIENT-END
-for (let i = 0; i < 9; i++) {   // grid rooms: north wall, mirrored against the facility map (x = centre + WORLD.panelDX)
+for (let i = 0; i < WORLD.NARENA; i++) {   // arena rooms: north wall, mirrored against the facility map (x = centre + WORLD.panelDX)
   const [cx, cz] = rc(i); cpBuild(String(i), scene, 2.6, 1.9, cx + WORLD.panelDX(i), 2.6, cz - roomD(i) / 2 + T / 2, 0);
 }
-for (const cr of CHEST_ROOMS) {   // chest rooms: 2 m panel on the room's left wall (the far wall is taken by banners and torches)
+for (const cr of CHEST_ROOMS) {   // loot rooms: 2 m panel on the room's left wall (the far wall is taken by banners and torches); homes have no votable door, so no panel
+  if (!ROOM_DOORS['c' + cr.id]) continue;
   const g = new THREE.Group(); g.position.set(cr.cx, 0, cr.cz); g.rotation.y = Math.atan2(-cr.dx, -cr.dz); scene.add(g);
   cpBuild('c' + cr.id, g, 2.0, 1.9, -(CS / 2 - T / 2), 2.6, 0, Math.PI / 2);
   if (PERF2_ON) { g.updateMatrix(); g.matrixAutoUpdate = false; }   // PERF2: the wrapper never moves; frozen, the room culling can classify it (it was always drawn, from every room)
@@ -2581,7 +2629,7 @@ function panelTick() {
   cpAim = a;
   if (dotEl) { dotEl.style.transform = a ? 'scale(3)' : ''; dotEl.style.background = a ? '#ffd24a' : ''; dotEl.style.opacity = a ? '1' : ''; }
   const cur = CP[roomKeyAt(P.x, P.z)];   // redraw dirty panels: the one in front of us first, one other per frame
-  if (cur && cur.dirty) cpDraw(cur); else { let o = null; for (let i = 0; i < cpList.length; i++) if (cpList[i].dirty) { o = cpList[i]; break; } if (o) cpDraw(o); }   // PERF2: no closure per frame
+  if (cur && cur.dirty) cpDraw(cur); else { let o = null; for (let i = 0; i < cpList.length; i++) if (cpList[i].dirty && (!fxCull.active || fxCull.vis.has(cpList[i].key))) { o = cpList[i]; break; } if (o) cpDraw(o); }   // PERF2: no closure per frame; 5x5: only panels in the rooms being drawn (the others stay dirty until seen)
 }
 function cpInteract() {   // E while aiming at a control-panel button picks that door; true if it did
   const a = cpComputeAim(); if (!a) return false;
@@ -2605,9 +2653,15 @@ GK.tipAim = () => { const a = cpAim, b = a && a.p.buttons[a.i]; return b ? doorL
   document.head.appendChild(css);
   const hud = document.createElement('div'); hud.id = 'roundHud'; hud.innerHTML = '<div class="t"></div><div class="b">DOORS OPENING</div><div class="b f">THE VAULT NEEDS 2 PLAYERS - TURN WASTED</div>';
   document.body.appendChild(hud);
-  const tEl = hud.children[0], bEl = hud.children[1], fEl = hud.children[2]; let shownBanner = 0, shownFizz = 0, lastTxt = '', lastWarn = null;
+  const tEl = hud.children[0], bEl = hud.children[1], fEl = hud.children[2]; let shownBanner = 0, shownFizz = 0, lastTxt = '', lastWarn = null, ffEl = null;
   setInterval(() => {
     const show = GK.mode === 'play' && RS.n > 0; hud.style.display = show ? 'block' : 'none'; if (!show) return;
+    if (GK.dbg && !ffEl) {   // DEV (docs/PLAN-5x5.md 4.5): "Skip to 0:10" under the timer, only when the server runs with GK_DEBUG (welcome dbg:1) or offline with ?debug=1; no hotkey
+      ffEl = document.createElement('button'); ffEl.id = 'gkDbgFF'; ffEl.textContent = 'Skip to 0:10';
+      ffEl.style.cssText = 'display:block;margin:8px auto 0;padding:4px 12px;border-radius:8px;border:1px solid rgba(120,180,255,.55);background:rgba(8,14,24,.72);color:#9fc8f0;font:600 13px system-ui,sans-serif;cursor:pointer;pointer-events:auto';
+      ffEl.addEventListener('click', e => { e.stopPropagation(); net.send({ dbgFF: 1 }); ffEl.blur(); });
+      hud.insertBefore(ffEl, bEl);
+    }
     const left = roundLeft(), now = performance.now();
     const txt = 'ROUND ' + RS.n + '  ' + fmtT(left), warn = left <= 5000;
     if (txt !== lastTxt) { tEl.textContent = txt; lastTxt = txt; }
@@ -3706,7 +3760,7 @@ const UNIQUE = (() => {
     for (const k in RS.lastSel) {
       const d = DINFO[RS.lastSel[k]]; if (!d) continue; const dir = d.a === k ? d.da : d.db;
       let cx, cz, w, h;
-      if (k[0] === 'c') { const c = CHEST_ROOMS[+k.slice(1)]; if (!c) continue; cx = c.cx; cz = c.cz; w = h = CS; } else { const i = +k; [cx, cz] = rc(i); w = roomW(i); h = roomD(i); }
+      if (k[0] === 'c') { const c = CHEST_ROOMS[+k.slice(1)]; if (!c) continue; cx = c.cx; cz = c.cz; w = h = c.size || CS; } else { const i = +k; [cx, cz] = rc(i); w = roomW(i); h = roomD(i); }
       const ux = dir === 'EAST' ? 1 : dir === 'WEST' ? -1 : 0, uz = dir === 'SOUTH' ? 1 : dir === 'NORTH' ? -1 : 0, ex = mx(cx + ux * w / 2) - ux * 13, ey = my(cz + uz * h / 2) - uz * 13;
       g.save(); g.translate(ex, ey); g.rotate(Math.atan2(uz, ux)); g.globalAlpha = 0.62; g.fillStyle = '#1d6fd6'; g.strokeStyle = '#ffffff'; g.lineWidth = 2;
       g.beginPath(); g.moveTo(12, 0); g.lineTo(-8, -10); g.lineTo(-3, 0); g.lineTo(-8, 10); g.closePath(); g.fill(); g.stroke(); g.restore();
@@ -3838,11 +3892,12 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
   const roll = () => itemsData().rollGoblin ? itemsData().rollGoblin() : (Math.random() * 3) | 0;   // GOBTYPES: the server's weighted 12-type roll
   let nid = 1, list = [], meP = null, seq = 0;
   const myWins = Math.max(0, (opts && opts.wins) | 0);
+  const simSlots = [0, 1, 2, 3, 4, 5, 6, 7].sort(() => Math.random() - 0.5);   // 5x5: every goblin starts in a home of its own (offline: the free homes in random order)
   const mk = bot => {
-    const box = [0, 1, 2, 3, 5, 6, 7, 8][Math.floor(Math.random() * 8)], [cx, cz] = rc(box);
-    const [x, z] = WORLD.randomPoint(box);
+    const slot = simSlots.length ? simSlots.pop() : Math.floor(Math.random() * 8), home = WORLD.homeOf(slot), hc = WORLD.CHEST[2 * slot], box = hc.parent, [cx, cz] = rc(box);
+    const [x, z] = WORLD.randomPoint(home);
     const goblin = !bot && opts && opts.goblin != null ? opts.goblin | 0 : roll();
-    return { id: nid++, goblin, box, x, z, yaw: Math.atan2(-(cx - x), -(cz - z)), bot, tx: cx, tz: cz, wait: Math.random() * 2, seq, inv: startInv(goblin), know: (itemsData().KNOWLEDGE || [])[goblin] != null ? itemsData().KNOWLEDGE[goblin] : STATS[goblin].knowledge, parts: Object.fromEntries((itemsData().PARTS || []).map(p => [p.key, 0])), gold: itemsData().START_GOLD != null ? itemsData().START_GOLD : 100, wins: bot ? Math.max(0, myWins + Math.floor(Math.random() * 3) - 1) : myWins };
+    return { id: nid++, goblin, box, home, x, z, yaw: Math.atan2(-(hc.wallX - x), -(hc.wallZ - z)), bot, tx: cx, tz: cz, wait: Math.random() * 2, seq, inv: startInv(goblin), know: (itemsData().KNOWLEDGE || [])[goblin] != null ? itemsData().KNOWLEDGE[goblin] : STATS[goblin].knowledge, parts: Object.fromEntries((itemsData().PARTS || []).map(p => [p.key, 0])), gold: itemsData().START_GOLD != null ? itemsData().START_GOLD : 100, wins: bot ? Math.max(0, myWins + Math.floor(Math.random() * 3) - 1) : myWins };
   };
   const clone = v => JSON.parse(JSON.stringify(v));
   let layoutSim = null, shopsSim = null, chestKeysSim = null, claimedSim = new Set();   // FEEL: chestKeysSim / claimedSim back the offline claim
@@ -3851,16 +3906,18 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
   const sendParts = () => net.onmessage && meP && net.onmessage({ parts: clone(meP.parts) });
   let dropsSim = [], nextDrop = 1, mysterySim = null;
   const sendDrops = () => net.onmessage && net.onmessage({ drops: clone(dropsSim) });
-  const roomIdAt = () => CHEST_ROOMS.findIndex(C => Math.abs(meP.x - C.cx) <= 4 && Math.abs(meP.z - C.cz) <= 4);
+  const roomIdAt = () => CHEST_ROOMS.findIndex(C => Math.abs(meP.x - C.cx) <= C.size / 2 && Math.abs(meP.z - C.cz) <= C.size / 2);
+  const simStation = (L, my, st) => L === 'merchant' || (L === 'home' && st !== 'knowledge') || (L === 'forge' && st === 'workbench') || (L === 'grand' && st === 'recycler') || (L === 'mystery' && my && my.kind === 'stations' && my.stations.includes(st));   // same table as server.js stationAt
+  const SIM_DBG = /[?&]debug=1/.test(location.search);   // DEV: ?offline=1&debug=1 shows the skip-to-0:10 button
   const eatSim = key => { const G = itemsData(), gain = G.brainGain(key); meP.know = Math.round((meP.know + gain) * 100) / 100; meP.brains = (meP.brains || 0) + 1; const max = maxHpOf(meP), heal = G.hasPerk && G.hasPerk(meP.perks, 'gourmet') ? Math.min(G.KNOW.gourmet, max - hpOf(meP)) : 0; if (heal > 0) meP.hp += heal; net.onmessage && net.onmessage({ ate: { gain, knowledge: meP.know, ...(heal > 0 ? { heal } : null) } }); };
   const sendMatch = () => { const w = list.map(p => p.wins); net.onmessage && net.onmessage({ match: { size: 5, alive: list.length, minWins: Math.min(...w), maxWins: Math.max(...w) } }); };
-  const entry = ({ id, goblin, box, x, z, yaw, seq, inv, wins, know, hp, kills, brains }) => { const s = invStats(inv, goblin, know); if (hp != null) s.health = Math.min(hp, s.maxHealth); return { id, goblin, box, x, z, yaw, seq, kills: kills || 0, brains: brains || 0, stats: s, gear: { weapon: inv.weapon && infoOf(inv.weapon) ? infoOf(inv.weapon).name : null, armor: inv.armor && infoOf(inv.armor) ? infoOf(inv.armor).name : null }, wins }; };
+  const entry = ({ id, goblin, box, home, x, z, yaw, seq, inv, wins, know, hp, kills, brains }) => { const s = invStats(inv, goblin, know); if (hp != null) s.health = Math.min(hp, s.maxHealth); return { id, goblin, box, home, x, z, yaw, seq, kills: kills || 0, brains: brains || 0, stats: s, gear: { weapon: inv.weapon && infoOf(inv.weapon) ? infoOf(inv.weapon).name : null, armor: inv.armor && infoOf(inv.armor) ? infoOf(inv.armor).name : null }, wins }; };
   const emit = () => net.onmessage && net.onmessage({ players: list.map(entry) });
   // NET: the offline mock speaks the same protocol as server.js: slow {players} on changes, {s:[...]} snapshots of the bots that moved every 50 ms, {pong}
   const lastSent = new Map();
   const emitSnap = () => { if (!net.onmessage) return; const t = Math.round(performance.now()), out = [t]; for (const b of list) { if (b === meP) continue; const l = lastSent.get(b.id), d = l ? Math.hypot(b.x - l.x, b.z - l.z) : 1, v = d < 0.004 ? 0 : Math.min(12, d / 0.05); if (l && d < 0.004 && b.yaw === l.yaw && l.v === 0) continue; lastSent.set(b.id, { x: b.x, z: b.z, yaw: b.yaw, v }); out.push(b.id, Math.round(b.x * 100) / 100, Math.round(b.z * 100) / 100, Math.round(b.yaw * 1000) / 1000, Math.round(v * 10) / 10, 0); } if (out.length > 1) net.onmessage({ s: out }); };
   // same round machine as server.js, run locally: 30 s first round, 45 s after; bots pick a door in their room each round
-  const rs = { n: 1, dur: 30000, endsAt: performance.now() + 30000, sel: {}, open: [], fizzled: [] };
+  const rs = { n: 1, dur: 120000, endsAt: performance.now() + 120000, sel: {}, open: [], fizzled: [] };   // 5x5: every round is 2 minutes, as on the server (offline: tree rooms and vaultbreakers are visual only, no special rules)
   const isVault = id => DINFO[id].kind === 'vault', votes = () => Object.keys(rs.sel).filter(k => isVault(rs.sel[k])).length;
   const rmsg = () => ({ round: { n: rs.n, left: Math.max(0, rs.endsAt - performance.now()), dur: rs.dur }, sel: { ...rs.sel }, open: rs.open.slice(), vaultVotes: votes(), fizzled: rs.fizzled.slice() });
   const emitRound = () => net.onmessage && net.onmessage(rmsg());
@@ -3937,6 +3994,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
       if (typeof m.ping === 'number') net.onmessage && net.onmessage({ pong: m.ping, t: Math.round(performance.now()) });
       if (m.atk === 1) simAtk();
       if (typeof m.use === 'string' && meP) simUse(m.use);   // ITEMS2
+      if (m.dbgFF === 1 && SIM_DBG && rs.started) { rs.endsAt = Math.min(rs.endsAt, performance.now() + 10000); emitRound(); }   // DEV: same rule as server.js dbgFF
       if (m.enter === 1 && !rs.started) { rs.started = true; rs.goAt = performance.now(); rs.endsAt = performance.now() + rs.dur; botPlan(); emitRound(); }
       if (Number.isInteger(m.sel) && meP) { const k = roomKeyAt(meP.x, meP.z); if ((ROOM_DOORS[k] || []).includes(m.sel) && rs.sel[k] !== m.sel) { rs.sel[k] = m.sel; emitRound(); } }
       if (m.m && meP) { [meP.x, meP.z, meP.yaw] = m.m; meP.box = roomAt(meP.x, meP.z); } if (m.reroll) { claimedSim.clear(); net.onmessage && net.onmessage({ claimedReset: 1 }); const o = list.indexOf(meP); seq++; meP = mk(false); meP.id = list[o].id; list[o] = meP; sendInv(); sendGold(); sendParts(); emit(); }
@@ -3968,15 +4026,15 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
       }
       if (typeof m.recycle === 'string' && meP) {
         const id = roomIdAt(), L = id >= 0 && layoutSim ? layoutSim[id] : null, my = id >= 0 && mysterySim ? mysterySim[id] : null;
-        const has = L === 'merchant' || (L === 'mystery' && my && my.kind === 'stations' && my.stations.includes('recycler'));
-        const key = /^(b[0-8]|q[0-2])$/.test(m.recycle) ? invGet(meP.inv, m.recycle) : null, y = key && (itemsData().recycleFor ? itemsData().recycleFor(key, meP.perks) : itemsData().recycleYield(key));
+        const has = simStation(L, my, 'recycler');
+        const key = /^(b[0-8]|q[0-2])$/.test(m.recycle) ? invGet(meP.inv, m.recycle) : null, y0 = key && (itemsData().recycleFor ? itemsData().recycleFor(key, meP.perks) : itemsData().recycleYield(key)), y = y0 && L === 'home' && itemsData().recycleEff ? itemsData().recycleEff(y0, itemsData().STATIONS.recycler.home.eff) : y0;
         if (!has) net.onmessage && net.onmessage({ recycleFail: 'room' });
         else if (!y) net.onmessage && net.onmessage({ recycleFail: 'item' });
         else { invSet(meP.inv, m.recycle, null); for (const k in y) meP.parts[k] = (meP.parts[k] || 0) + y[k]; sendInv(); sendParts(); net.onmessage && net.onmessage({ recycled: { key, parts: y } }); emit(); }
       }
       if (typeof m.craft === 'string' && meP) {
         const id = roomIdAt(), L = id >= 0 && layoutSim ? layoutSim[id] : null, my = id >= 0 && mysterySim ? mysterySim[id] : null;
-        const has = L === 'merchant' || (L === 'mystery' && my && my.kind === 'stations' && (my.stations.includes('workbench') || my.stations.includes('knowledge')));   // KNOWLEDGE: the tree is a bench too
+        const has = simStation(L, my, 'workbench') || simStation(L, my, 'knowledge');   // KNOWLEDGE: the tree is a bench too
         const r = (itemsData().RECIPES || []).find(x => x.id === m.craft), cost = r && itemsData().recipeCost ? itemsData().recipeCost(r, meP.perks) : r && r.cost;
         const why = !has ? 'room' : !r ? 'recipe' : meP.know < (r.needs || 0) ? 'knowledge' : Object.keys(cost).some(k => (meP.parts[k] || 0) < cost[k]) ? 'parts' : meP.inv.backpack.indexOf(null) < 0 ? 'space' : null;
         if (why) net.onmessage && net.onmessage({ craftFail: why });
@@ -3984,7 +4042,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
       }
       if ((typeof m.learn === 'string' || typeof m.reforge === 'string') && meP) {   // KNOWLEDGE: same checks as server.js learn() / reforge()
         const G = itemsData(), id = roomIdAt(), L = id >= 0 && layoutSim ? layoutSim[id] : null, my = id >= 0 && mysterySim ? mysterySim[id] : null;
-        const has = L === 'merchant' || (L === 'mystery' && my && my.kind === 'stations' && (my.stations.includes('workbench') || my.stations.includes('knowledge')));
+        const has = simStation(L, my, 'workbench') || simStation(L, my, 'knowledge');
         meP.perks = meP.perks || [];
         if (typeof m.learn === 'string') { const why = !has ? 'room' : G.learnFail(m.learn, meP.know, meP.brains, meP.perks); if (why) net.onmessage && net.onmessage({ learnFail: why }); else { meP.perks.push(m.learn); net.onmessage && net.onmessage({ perks: meP.perks.slice(), learned: m.learn }); } }
         else { const slot = m.reforge, key = /^(b[0-8]|q[0-2]|weapon|armor)$/.test(slot) ? invGet(meP.inv, slot) : null, cost = key && G.reforgeCost(key);
@@ -4018,12 +4076,12 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     },
   };
   meP = mk(false); list = [meP, mk(true), mk(true), mk(true), mk(true)]; demoKit(meP);
-  setTimeout(() => { net.onmessage && net.onmessage({ you: meP.id, ...(() => { const layout = GKITEMS.randomLayout(); layoutSim = layout; mysterySim = layout.map(t => t === 'mystery' ? GKITEMS.randomMystery() : null); shopsSim = layout.map(t => t === 'merchant' ? GKITEMS.randomShop() : null); return { layout, mystery: mysterySim, shops: clone(shopsSim) }; })(), chests: Array.from({ length: CHEST_ROOMS.length }, () => Math.floor(Math.random() * WEAPONS.length)), chestKeys: (chestKeysSim = Array.from({ length: CHEST_ROOMS.length }, () => GKITEMS.randomWeaponKey())), ...rmsg() }); sendInv(); sendGold(); sendParts(); sendMatch(); emit(); }, 50);
+  setTimeout(() => { net.onmessage && net.onmessage({ you: meP.id, ...(SIM_DBG ? { dbg: 1 } : null), ...(() => { const layout = GKITEMS.randomLayout(); layoutSim = layout; mysterySim = layout.map(t => t === 'mystery' ? GKITEMS.randomMystery() : null); shopsSim = layout.map(t => t === 'merchant' ? GKITEMS.randomShop() : null); return { layout, mystery: mysterySim, shops: clone(shopsSim) }; })(), chests: Array.from({ length: CHEST_ROOMS.length }, () => Math.floor(Math.random() * WEAPONS.length)), chestKeys: (chestKeysSim = Array.from({ length: CHEST_ROOMS.length }, () => GKITEMS.randomWeaponKey())), ...rmsg() }); sendInv(); sendGold(); sendParts(); sendMatch(); emit(); }, 50);
   botPlan();
   setInterval(() => {
     const now = performance.now();
     if (!rs.started) { rs.endsAt = now + rs.dur; return; }   // round 1 waits for Enter, as on the server
-    if (now >= rs.endsAt) { const picked = [...new Set(Object.values(rs.sel))], ok = votes() >= 2; rs.open = picked.filter(d => ok || !isVault(d)); rs.fizzled = ok ? [] : picked.filter(isVault); rs.sel = {}; rs.n++; rs.dur = 45000; rs.endsAt = now + rs.dur; botPlan(); emitRound(); return; }
+    if (now >= rs.endsAt) { const picked = [...new Set(Object.values(rs.sel))], ok = votes() >= 2; rs.open = picked.filter(d => ok || !isVault(d)); rs.fizzled = ok ? [] : picked.filter(isVault); rs.sel = {}; rs.n++; rs.dur = 120000; rs.endsAt = now + rs.dur; botPlan(); emitRound(); return; }
     for (const b of list) if (b.bot && b.selAt && now >= b.selAt) { b.selAt = 0; const k = roomKeyAt(b.x, b.z), ids = ROOM_DOORS[k]; if (ids && rs.sel[k] === undefined) { const vs = ids.filter(isVault), pool = vs.length && Math.random() < 0.5 ? vs : ids; rs.sel[k] = pool[Math.floor(Math.random() * pool.length)]; emitRound(); } }
   }, 200);
   setInterval(emitRound, 1000);
@@ -4034,8 +4092,8 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
       if (d < 0.3) {
         b.wait -= 0.05;
         if (b.wait <= 0) {
-          const c = roomAt(b.x, b.z), col = c % 3, row = Math.floor(c / 3), n = [];
-          if (col > 0) n.push(c - 1); if (col < 2) n.push(c + 1); if (row > 0) n.push(c - 3); if (row < 2) n.push(c + 3);
+          const c = roomAt(b.x, b.z), N5 = WORLD.N, col = c % N5, row = Math.floor(c / N5), n = [];
+          if (col > 0) n.push(c - 1); if (col < N5 - 1) n.push(c + 1); if (row > 0) n.push(c - N5); if (row < N5 - 1) n.push(c + N5);
           [b.tx, b.tz] = rc(n[Math.floor(Math.random() * n.length)]); b.wait = 1 + Math.random() * 3;
         }
       } else { b.x += dx / d * 2.8 * 0.05; b.z += dz / d * 2.8 * 0.05; b.yaw = Math.atan2(-dx, -dz); b.box = roomAt(b.x, b.z); }
@@ -4149,6 +4207,7 @@ const handleMsg0 = d => {
   if (d.won) showVictory(d.won);
   if (d.swing != null || d.hit || d.kills != null || d.match) combatMsg(d);   // COMBAT
   if (d.you) me = d.you;
+  if (d.dbg === 1 || (d.matchStart && d.matchStart.dbg === 1)) GK.dbg = true;   // DEV: the server runs with GK_DEBUG (shows the skip-to-0:10 button)
   if (d.round || d.sel || d.open) applyRound(d);
   if (d.exitHint) toastMsg('No way out: a door unlocks in ' + Math.ceil((+d.exitHint.ms || 5000) / 1000) + ' s', false, 2600);   // DOORGUARD
   if (d.exitOpen != null) toastMsg('A door unlocks', true, 1800);   // DOORGUARD
@@ -4164,7 +4223,7 @@ const handleMsg0 = d => {
       actors.set(p.id, a);
       if (p.id === me) spawned = false;
     }
-    a.box = p.box; a.npc = p.npc; combatSync(a, p); vmGear(a, p); GA.gear(a, p); UNIQUE.sync(a, p); SOC.sync(a, p);   // positions of existing goblins come from the snapshots (NET), not from this slow list
+    a.box = p.box; a.npc = p.npc; if (p.home) { const ch = a.home !== p.home || a.name !== p.name; a.home = p.home; a.name = p.name; if (ch && p.id === me) GK.myHome = p.home; if (ch) panelsDirty(); } combatSync(a, p);   // 5x5: whose home is whose (panels and maps name homes) vmGear(a, p); GA.gear(a, p); UNIQUE.sync(a, p); SOC.sync(a, p);   // positions of existing goblins come from the snapshots (NET), not from this slow list
     if (p.id === me && !spawned) { P.x = p.x; P.z = p.z; P.yaw = p.yaw; P.pitch = 0; a.x = p.x; a.z = p.z; spawned = true; }
   }
   const mine = actors.get(me);
@@ -4264,7 +4323,7 @@ function showDeathScreen(info) {
   if (GK.mode !== 'play') return;
   const mine = actors.get(me), type = mine ? mine.goblin : 0, gear = GEAR[type], st = STATS[type];
   const ms = performance.now() - run.t0, secs = Math.floor(ms / 1000), n = GK.roundInfo ? GK.roundInfo().n : 0;
-  const where = !WORLD.inGrid(P.x, P.z) ? 'Treasure room' : roomAt(P.x, P.z) === WORLD.VAULT ? 'THE VAULT' : 'Room ' + (roomAt(P.x, P.z) + 1);
+  const where = roomName(roomKeyAt(P.x, P.z));
   closeInv(true); closeShop(true); GK.mode = 'dead'; inside = false; keys.clear(); hideHotbar(); GK.social.clear();   // SOCIAL: out of the match, nothing to resume
   try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
   for (const id of ['hint', 'dot', 'rr', 'roundHud', 'hud', 'gkLeft']) { const el = $(id); if (el) el.style.display = 'none'; }
@@ -4292,7 +4351,7 @@ function showDeathScreen(info) {
 GK.showDeathScreen = showDeathScreen;
 // MINIMAP-BEGIN (HUD minimap top right + M overlay; see docs/reports/minimap.md). Reads RS, DINFO, actors, P, CHEST_ROOMS. No lights, no per-frame allocation: redraws at most 10 Hz and only when the signature changes.
 (() => {
-  const WD = window.GKWORLD, LIM = WD.LIM, HALF = WD.HALF, CSZ = WD.CS, NR = 9 + CHEST_ROOMS.length;
+  const WD = window.GKWORLD, LIM = WD.LIM, NA = WD.NARENA, NR = NA + CHEST_ROOMS.length;   // 5x5: room index = arena 0..24, then attached rooms 25..40 (NR = outside)
   const st = document.createElement('style');
   st.textContent = '#gkMM{position:fixed;top:84px;right:12px;z-index:29;pointer-events:none;display:none;line-height:0;border:2px solid #c9a13a;border-radius:10px;box-shadow:inset 0 0 0 1px #5a4513,0 0 0 1px #2a1e08,0 4px 16px rgba(0,0,0,.65);overflow:hidden}'
     + '#gkMMBig{position:fixed;inset:0;z-index:60;pointer-events:none;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.5)}'
@@ -4303,20 +4362,16 @@ GK.showDeathScreen = showDeathScreen;
   document.body.appendChild(box); document.body.appendChild(bigBox);
   const gS = cv.getContext('2d'), gB = cvB.getContext('2d');
   // ---- static tables (built once)
-  const CI = new Int8Array(36);   // parent*4 + side (N,E,S,W) -> chest id
-  CHEST_ROOMS.forEach(c => { CI[c.parent * 4 + 'NESW'.indexOf(c.side)] = c.id; });
-  const KEYS = []; for (let i = 0; i < NR; i++) KEYS.push(i < 9 ? String(i) : 'c' + (i - 9));
-  const idxOf = k => k[0] === 'c' ? 9 + (+k.slice(1)) : +k;
-  const keyIdx = (x, z) => z < -HALF ? 9 + CI[WD.gi(x) * 4] : z > HALF ? 9 + CI[(WD.gi(x) + 6) * 4 + 2] : x < -HALF ? 9 + CI[WD.gi(z) * 12 + 3] : x > HALF ? 9 + CI[(WD.gi(z) * 3 + 2) * 4 + 1] : WD.gi(x) + 3 * WD.gi(z);
+  const KEYS = WD.ROOMS.map(r => r.key);
+  const idxOf = k => k[0] === 'c' ? (k === 'c-1' ? NR : NA + (+k.slice(1))) : +k;
+  const keyIdx = (x, z) => idxOf(WD.roomKeyOf(x, z));
+  const rcx = i => i < NA ? WD.rc(i)[0] : CHEST_ROOMS[i - NA].cx, rcz = i => i < NA ? WD.rc(i)[1] : CHEST_ROOMS[i - NA].cz;
   const ND = DINFO.length, dA = new Int8Array(ND), dB = new Int8Array(ND), dX = new Float32Array(ND), dZ = new Float32Array(ND), dH = new Uint8Array(ND), dKind = new Uint8Array(ND);
   const DIRV = { NORTH: [0, -1], EAST: [1, 0], SOUTH: [0, 1], WEST: [-1, 0] };
-  DINFO.forEach(d => {
-    dA[d.id] = idxOf(d.a); dB[d.id] = idxOf(d.b); const [cx, cz] = WD.rc(dA[d.id]), v = DIRV[d.da];
-    dX[d.id] = cx + v[0] * WD.roomW(dA[d.id]) / 2; dZ[d.id] = cz + v[1] * WD.roomD(dA[d.id]) / 2; dH[d.id] = v[1] !== 0 ? 1 : 0; dKind[d.id] = d.kind === 'vault' ? 1 : 0;
-  });
+  WD.DOORS.forEach(d => { dA[d.id] = idxOf(d.a); dB[d.id] = idxOf(d.b); dX[d.id] = d.wall.x; dZ[d.id] = d.wall.z; dH[d.id] = d.axis === 'x' ? 1 : 0; dKind[d.id] = d.kind === 'vault' ? 1 : d.kind === 'hatch' ? 2 : 0; });
   const dirOf = (d, k) => DIRV[d.a === k ? d.da : d.db];
   // ---- state
-  const disc = new Uint8Array(12), openF = new Uint8Array(ND), vis = new Uint8Array(NR);
+  const disc = new Uint8Array(CHEST_ROOMS.length), openF = new Uint8Array(ND), vis = new Uint8Array(NR + 1);
   let layRef = null, openRef = null, selRef = null, lastRef = null, lastSig = 1e9, prevOn = false, bigOpen = false, szS = 0, szB = 0, dprC = 0, bgS = null, bgB = null, fontS = '', fontB = '', fontCap = '', forceDraw = true, feedTop = -1;
   let cg = null, cip = 1, cbig = false, cmy = 0, sigH = 0;   // per-draw context for the shared actor callbacks
   const cfg = () => GK.settings || {};
@@ -4354,20 +4409,20 @@ GK.showDeathScreen = showDeathScreen;
     g.setTransform(dpr, 0, 0, dpr, 0, 0); g.drawImage(bg, 0, 0, S, S);
     const my = keyIdx(P.x, P.z), rr = big ? 9 : 5;
     g.save(); g.translate(S / 2, S / 2); g.rotate(rot); g.scale(sc, sc);
-    for (let i = 0; i < 9; i++) {   // the 3x3 grid; the vault is gold
+    for (let i = 0; i < NA; i++) {   // the 5x5 grid; the vault is gold
       const [cx, cz] = WD.rc(i), w = WD.roomW(i) - .5, h = WD.roomD(i) - .5, v = i === WD.VAULT;
       g.fillStyle = v ? 'rgba(201,150,30,.55)' : i === my ? 'rgba(214,190,140,.3)' : 'rgba(200,180,140,.2)'; g.fillRect(cx - w / 2, cz - h / 2, w, h);
       g.lineWidth = (v ? 2.2 : 1.2) * ip; g.strokeStyle = v ? '#ffc933' : i === my ? '#e8d6a0' : 'rgba(170,150,110,.7)'; g.strokeRect(cx - w / 2, cz - h / 2, w, h);
     }
-    for (let i = 0; i < CHEST_ROOMS.length; i++) {   // the 12 outer rooms, tinted once discovered
-      const c = CHEST_ROOMS[i], d = disc[i], t = c.type, hh = CSZ / 2 - .3, here = my === 9 + i;
-      g.fillStyle = !d ? 'rgba(60,50,35,.5)' : t === 'mystery' ? 'rgba(110,50,170,.4)' : t === 'merchant' ? 'rgba(30,150,140,.38)' : 'rgba(210,160,40,.32)'; g.fillRect(c.cx - hh, c.cz - hh, hh * 2, hh * 2);
-      g.lineWidth = 1.1 * ip; g.strokeStyle = here ? '#e8d6a0' : d ? 'rgba(200,170,110,.85)' : 'rgba(130,110,80,.55)'; g.strokeRect(c.cx - hh, c.cz - hh, hh * 2, hh * 2);
+    for (let i = 0; i < CHEST_ROOMS.length; i++) {   // the 16 attached rooms: homes always shown (mine in gold), loot rooms tinted once discovered
+      const c = CHEST_ROOMS[i], t = c.type, home = t === 'home', d = disc[i] || home, hh = c.size / 2 - .3, here = my === NA + i, mine = home && GK.myHome === 'c' + c.id;
+      g.fillStyle = !d ? 'rgba(60,50,35,.5)' : home ? (mine ? 'rgba(201,150,30,.45)' : 'rgba(70,110,170,.3)') : t === 'mystery' ? 'rgba(110,50,170,.4)' : t === 'merchant' ? 'rgba(30,150,140,.38)' : t === 'forge' ? 'rgba(200,90,30,.4)' : t === 'grand' ? 'rgba(40,170,140,.38)' : 'rgba(210,160,40,.32)'; g.fillRect(c.cx - hh, c.cz - hh, hh * 2, hh * 2);
+      g.lineWidth = (mine ? 2 : 1.1) * ip; g.strokeStyle = mine ? '#ffc933' : here ? '#e8d6a0' : d ? 'rgba(200,170,110,.85)' : 'rgba(130,110,80,.55)'; g.strokeRect(c.cx - hh, c.cz - hh, hh * 2, hh * 2);
     }
     g.strokeStyle = 'rgba(120,175,255,.42)'; g.fillStyle = 'rgba(120,175,255,.42)'; g.lineWidth = 1.6 * ip;   // last round's picks: faint arrows (door intel)
     for (let i = 0; i < NR; i++) {
       const id = RS.lastSel[KEYS[i]]; if (id === undefined || !DINFO[id]) continue;
-      const v = dirOf(DINFO[id], KEYS[i]), cx = i < 9 ? WD.rc(i)[0] : CHEST_ROOMS[i - 9].cx, cz = i < 9 ? WD.rc(i)[1] : CHEST_ROOMS[i - 9].cz, L = i < 9 ? 3.2 : 1.8, hx = v[0] * L, hz = v[1] * L;
+      const v = dirOf(DINFO[id], KEYS[i]), cx = rcx(i), cz = rcz(i), L = i < NA ? 3.2 : 1.8, hx = v[0] * L, hz = v[1] * L;
       g.beginPath(); g.moveTo(cx - hx * .4, cz - hz * .4); g.lineTo(cx + hx, cz + hz); g.stroke();
       g.beginPath(); g.moveTo(cx + hx * 1.25, cz + hz * 1.25); g.lineTo(cx + hx * .7 - v[1] * L * .45, cz + hz * .7 + v[0] * L * .45); g.lineTo(cx + hx * .7 + v[1] * L * .45, cz + hz * .7 - v[0] * L * .45); g.closePath(); g.fill();
     }
@@ -4375,7 +4430,7 @@ GK.showDeathScreen = showDeathScreen;
       g.strokeStyle = '#ffd24a'; g.fillStyle = '#ffd24a'; g.lineWidth = 2.2 * ip;
       for (let i = 0; i < NR; i++) {
         const id = RS.sel[KEYS[i]]; if (id === undefined || !DINFO[id]) continue;
-        const v = dirOf(DINFO[id], KEYS[i]), cx = i < 9 ? WD.rc(i)[0] : CHEST_ROOMS[i - 9].cx, cz = i < 9 ? WD.rc(i)[1] : CHEST_ROOMS[i - 9].cz, L = i < 9 ? 3.2 : 1.8, hx = v[0] * L, hz = v[1] * L;
+        const v = dirOf(DINFO[id], KEYS[i]), cx = rcx(i), cz = rcz(i), L = i < NA ? 3.2 : 1.8, hx = v[0] * L, hz = v[1] * L;
         g.beginPath(); g.moveTo(cx - hx * .4, cz - hz * .4); g.lineTo(cx + hx, cz + hz); g.stroke();
         g.beginPath(); g.moveTo(cx + hx * 1.25, cz + hz * 1.25); g.lineTo(cx + hx * .7 - v[1] * L * .45, cz + hz * .7 + v[0] * L * .45); g.lineTo(cx + hx * .7 + v[1] * L * .45, cz + hz * .7 - v[0] * L * .45); g.closePath(); g.fill();
       }
@@ -4384,7 +4439,7 @@ GK.showDeathScreen = showDeathScreen;
       g.strokeStyle = '#ffd24a'; g.fillStyle = '#ffd24a'; g.lineWidth = 2.2 * ip;
       for (let i = 0; i < NR; i++) {
         const id = RS.sel[KEYS[i]]; if (id === undefined || !DINFO[id]) continue;
-        const v = dirOf(DINFO[id], KEYS[i]), cx = i < 9 ? WD.rc(i)[0] : CHEST_ROOMS[i - 9].cx, cz = i < 9 ? WD.rc(i)[1] : CHEST_ROOMS[i - 9].cz, L = i < 9 ? 3.2 : 1.8, hx = v[0] * L, hz = v[1] * L;
+        const v = dirOf(DINFO[id], KEYS[i]), cx = rcx(i), cz = rcz(i), L = i < NA ? 3.2 : 1.8, hx = v[0] * L, hz = v[1] * L;
         g.beginPath(); g.moveTo(cx - hx * .4, cz - hz * .4); g.lineTo(cx + hx, cz + hz); g.stroke();
         g.beginPath(); g.moveTo(cx + hx * 1.25, cz + hz * 1.25); g.lineTo(cx + hx * .7 - v[1] * L * .45, cz + hz * .7 + v[0] * L * .45); g.lineTo(cx + hx * .7 + v[1] * L * .45, cz + hz * .7 - v[0] * L * .45); g.closePath(); g.fill();
       }
@@ -4392,18 +4447,18 @@ GK.showDeathScreen = showDeathScreen;
     const mySel = my < NR ? RS.sel[KEYS[my]] : undefined;   // doors: green open, red closed, gold-brown vault, blue ring = my room's pick
     for (let id = 0; id < ND; id++) {
       const hx = dH[id] ? 2.6 : 0, hz = dH[id] ? 0 : 2.6, picked = mySel === id;
-      g.lineWidth = (picked ? 4.2 : 3) * ip; g.strokeStyle = openF[id] ? '#6dff9a' : dKind[id] ? '#b9892a' : '#8a3b2c';
+      g.lineWidth = (picked ? 4.2 : 3) * ip; g.strokeStyle = openF[id] || dKind[id] === 2 ? '#6dff9a' : dKind[id] ? '#b9892a' : '#8a3b2c';
       g.beginPath(); g.moveTo(dX[id] - hx, dZ[id] - hz); g.lineTo(dX[id] + hx, dZ[id] + hz); g.stroke();
       if (picked) { g.lineWidth = 1.4 * ip; g.strokeStyle = '#bfe6ff'; g.beginPath(); g.arc(dX[id], dZ[id], 3.6, 0, 6.2832); g.stroke(); }
     }
     for (let i = 0; i < CHEST_ROOMS.length; i++) {   // type icons (discovered only, upright) and claimed ticks
       const c = CHEST_ROOMS[i], claimed = GK.claimedRooms && GK.claimedRooms.has(c.id); if (!disc[i] && !claimed) continue;
       g.save(); g.translate(c.cx, c.cz); g.rotate(-rot); g.scale(ip, ip);
-      if (disc[i]) { c.type === 'merchant' ? iconMerch(g, rr) : c.type === 'mystery' ? iconMyst(g, font) : iconChest(g, rr); }
+      if (disc[i] && c.type !== 'home' && c.type !== 'forge' && c.type !== 'grand') { c.type === 'merchant' ? iconMerch(g, rr) : c.type === 'mystery' ? iconMyst(g, font) : iconChest(g, rr); }
       if (claimed) { g.fillStyle = 'rgba(0,0,0,.5)'; g.fillRect(-rr * 1.3, -rr * 1.3, rr * 2.6, rr * 2.6); tickMark(g, rr * 1.4); }
       g.restore();
     }
-    vis.fill(0); if (my < NR) { vis[my] = 1; for (let id = 0; id < ND; id++) if (openF[id]) { if (dA[id] === my) vis[dB[id]] = 1; else if (dB[id] === my) vis[dA[id]] = 1; } }
+    vis.fill(0); if (my < NR) { vis[my] = 1; for (let id = 0; id < ND; id++) if (openF[id] || dKind[id] === 2) { if (dA[id] === my) vis[dB[id]] = 1; else if (dB[id] === my) vis[dA[id]] = 1; } }
     g.lineWidth = 1.5 * ip; g.strokeStyle = '#1a0606'; g.fillStyle = '#ff5a3a'; cg = g; cip = ip; cbig = big; actors.forEach(actorDot);
     g.save(); g.translate(P.x, P.z); g.rotate(-P.yaw); g.scale(ip, ip); arrowPx(g, big ? 9 : 6, '#fff2b8', '#2a1e08'); g.restore();   // me: arrow, facing = up in north-up mode
     g.restore();
@@ -4411,8 +4466,9 @@ GK.showDeathScreen = showDeathScreen;
     if (big) { g.font = fontCap; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillStyle = 'rgba(232,214,160,.85)'; g.fillText('M to close', S * .03, S * .975); g.textAlign = 'right'; g.fillText('green open  red closed  blue ring picked  faint arrows last round', S * .97, S * .975); }
   }
   function discover(my) {   // an outer room is known once I stand in it or look into it through an open door
-    if (my >= 9) disc[my - 9] = 1;
-    else for (let id = 0; id < ND; id++) if (openF[id]) { if (dA[id] === my && dB[id] >= 9) disc[dB[id] - 9] = 1; else if (dB[id] === my && dA[id] >= 9) disc[dA[id] - 9] = 1; }
+    if (my >= NR) return;
+    if (my >= NA) disc[my - NA] = 1;
+    else for (let id = 0; id < ND; id++) if (openF[id]) { if (dA[id] === my && dB[id] >= NA) disc[dB[id] - NA] = 1; else if (dB[id] === my && dA[id] >= NA) disc[dA[id] - NA] = 1; }
   }
   function setBig(on) { bigOpen = on; bigBox.style.display = on ? 'flex' : 'none'; if (on) resize(true); forceDraw = true; }
   addEventListener('keydown', e => {   // M (no other keydown handler uses KeyM)
@@ -4430,7 +4486,7 @@ GK.showDeathScreen = showDeathScreen;
     if (GK.layout !== layRef) { layRef = GK.layout; disc.fill(0); }
     if (RS.open !== openRef) { openRef = RS.open; openF.fill(0); for (let i = 0; i < RS.open.length; i++) if (RS.open[i] < ND) openF[RS.open[i]] = 1; forceDraw = true; }
     if (RS.sel !== selRef || RS.lastSel !== lastRef) { selRef = RS.sel; lastRef = RS.lastSel; forceDraw = true; }
-    const my = keyIdx(P.x, P.z); discover(my); let dc = 0; for (let i = 0; i < 12; i++) dc += disc[i];
+    const my = keyIdx(P.x, P.z); discover(my); let dc = 0; for (let i = 0; i < disc.length; i++) dc += disc[i];
     sigH = (Math.round(P.x * 4) * 131 + Math.round(P.z * 4)) | 0; sigH = (sigH * 131 + Math.round(P.yaw * 25)) | 0; sigH = (sigH * 131 + (cfg().mmNorth === false ? 1 : 2) + my * 7 + (GK.claimedRooms ? GK.claimedRooms.size : 0) * 13 + dc) | 0;
     actors.forEach(actorSig);
     if (sigH === lastSig && !forceDraw) return; lastSig = sigH; forceDraw = false;
@@ -4508,8 +4564,7 @@ GK.fun = (() => {
   }
   function roomClamp(p, tx, tz) {   // keep the orbit camera inside the walls of the room the followed goblin is in (it used to sit outside them)
     const k = WORLD.roomKeyOf(tx, tz), M = 0.7; let x0, x1, z0, z1;
-    if (k[0] === 'c') { const c = WORLD.CHEST[+k.slice(1)], h = WORLD.CS / 2; x0 = c.cx - h; x1 = c.cx + h; z0 = c.cz - h; z1 = c.cz + h; }
-    else { const i = +k, r = WORLD.rc(i), hw = WORLD.roomW(i) / 2, hd = WORLD.roomD(i) / 2; x0 = r[0] - hw; x1 = r[0] + hw; z0 = r[1] - hd; z1 = r[1] + hd; }
+    { const r = WORLD.roomRect(k); if (!r) return; x0 = r.cx - r.hw; x1 = r.cx + r.hw; z0 = r.cz - r.hd; z1 = r.cz + r.hd; }   // 5x5: any room (arena, home, loot)
     p.x = Math.min(Math.max(p.x, x0 + M), x1 - M); p.z = Math.min(Math.max(p.z, z0 + M), z1 - M);
   }
   function camera(c, dt) {   // third-person orbit around the followed goblin; returns true when it placed the camera
@@ -5025,7 +5080,8 @@ function paintRec() {
     paintSlot(el, id); el.style.opacity = k == null || ok ? 1 : 0.3; el.style.outline = recSel === id ? '2px solid ' + GOLD : 'none'; el.title = k != null && !ok ? 'cannot recycle' : '';
   }
   if (recSel && invGet(myInv, recSel) == null) recSel = null;
-  const k = recSel ? invGet(myInv, recSel) : null, y = k && KNOWUI.recYield(k), pv = recPn.prev; pv.textContent = '';
+  const k = recSel ? invGet(myInv, recSel) : null, pv = recPn.prev; pv.textContent = '';
+  let y = k && KNOWUI.recYield(k); { const c = CHEST_ROOMS[shopRoom], G = itemsData(); if (y && c && c.type === 'home' && G.recycleEff && G.STATIONS) y = G.recycleEff(y, G.STATIONS.recycler.home.eff); }   // 5x5: the home recycler gives 50% (server stationAt)
   if (!k) { pv.innerHTML = '<div style="color:#8d8880;font-size:14px;line-height:1.5">Select a weapon or armour from your backpack or quick slots<br>to see which materials it yields.<br><span style="font-size:12px">(brains and worn gear cannot be recycled)</span></div>'; return; }
   const it = infoOf(k), head = document.createElement('div'); head.style.cssText = 'display:flex;align-items:center;gap:10px'; head.appendChild(mkIcon(k, 46));
   const t = document.createElement('div'); t.style.textAlign = 'left'; t.innerHTML = '<b style="color:' + (TIER_COL[it.tier] || '#fff') + ';font-size:16px">' + it.name + '</b><div style="font-size:12px;color:#aaa59d">' + statTxt(k) + '</div>'; head.appendChild(t);
@@ -5159,7 +5215,7 @@ const KNOWUI = (() => {
   }
   U.paint = () => { const top = craftPn.list.scrollTop; paintTree(); paintRecipes(); craftPn.list.scrollTop = top; };
   // ---- Lore perks on the facility maps: drawn by drawMap (MAP block) through GK.knowMap; live intel redraws only the map of the room I stand in
-  const rectOf = k => { if (k[0] === 'c') { const c = CHEST_ROOMS[+k.slice(1)]; return c ? [c.cx, c.cz, CS, CS] : null; } const i = +k; if (!(i >= 0 && i < 9)) return null; const [cx, cz] = rc(i); return [cx, cz, roomW(i), roomD(i)]; };
+  const rectOf = k => { const r = WORLD.roomRect(k); return r ? [r.cx, r.cz, 2 * r.hw, 2 * r.hd] : null; };
   const pill = (g, x, y, l1, c1, l2) => {
     g.font = '800 17px system-ui, sans-serif'; const w = Math.max(g.measureText(l1).width, l2 ? (g.font = '600 13px system-ui, sans-serif', g.measureText(l2).width) : 0) + 14, h = l2 ? 38 : 22;
     g.fillStyle = 'rgba(4,8,14,.82)'; rr(g, x - w / 2, y - h / 2, w, h, 6); g.fill(); g.strokeStyle = c1; g.lineWidth = 1.5; g.stroke();
@@ -5181,7 +5237,7 @@ const KNOWUI = (() => {
     g.save(); g.textAlign = 'center'; g.textBaseline = 'middle';
     if (U.has('appraiser')) for (const c of CHEST_ROOMS) {   // Appraiser: what waits in every outer room
       if (c.type === 'merchant' || (GK.claimedRooms && GK.claimedRooms.has(c.id))) continue;
-      const L = roomLabel(c); if (!L) continue; const s = mx(c.cx + CS / 2) - mx(c.cx - CS / 2);
+      const L = roomLabel(c); if (!L) continue; const s = mx(c.cx + (c.size || CS) / 2) - mx(c.cx - (c.size || CS) / 2);
       pill(g, mx(c.cx), my(c.cz) + s * 0.3, L[0], L[1], L[2]);
     }
     if (U.has('eavesdrop')) {   // Eavesdropper: this round's picks, orange, beside the blue "last picks"
@@ -5205,7 +5261,7 @@ const KNOWUI = (() => {
     if (GK.mode !== 'play' || !(U.has('eavesdrop') || U.has('headcount')) || !GK.redrawMap) return;
     const k = roomKeyAt(P.x, P.z), j = U.has('eavesdrop') ? JSON.stringify(RS.sel || {}) : '', t = performance.now();
     if (k === lastRoom && j === lastJ && !(U.has('headcount') && t - hcAt > 2000)) return;
-    lastRoom = k; lastJ = j; hcAt = t; if (k != null && /^[0-8]$/.test(String(k))) GK.redrawMap(k);
+    lastRoom = k; lastJ = j; hcAt = t; if (k != null && WORLD.roomRect(k) && k[0] !== 'c' && k !== VK) GK.redrawMap(k);
   }, 500);
   GK.know = U;   // test hook
   return U;
@@ -5355,7 +5411,7 @@ function fxApplyQuality(force) {
     fxAniso = an; const seen = new Set();
     scene.traverse(o => { for (const m of [].concat(o.material || [])) for (const k of ['map', 'roughnessMap', 'bumpMap', 'normalMap', 'emissiveMap', 'metalnessMap', 'alphaMap', 'aoMap']) { const t = m[k]; if (t && t.isTexture && !seen.has(t) && !t.isRenderTargetTexture && t.anisotropy !== an) { seen.add(t); t.anisotropy = an; t.needsUpdate = true; } } });
   }
-  if (PERF2_ON) { for (const d of doors) d.halo.visible = GK.settings.gfx !== 'low'; perf2Quality(); }   // PERF2: the small additive halos round the door lamps and keypads (up to 8 draw calls per vault door) are dropped on Low
+  if (PERF2_ON) { for (const d of doors) if (d.halo) d.halo.visible = GK.settings.gfx !== 'low'; perf2Quality(); }   // PERF2: the small additive halos round the door lamps and keypads (up to 8 draw calls per vault door) are dropped on Low
   aoM.opacity = cornerM.opacity = q.ao && GK.settings.fx ? 0.55 : 1;   // the baked corner shading is lighter when GTAO adds real AO
   if (fx && fx.gtao) { fx.gtao.enabled = q.ao > 0; fx.gtao.updateGtaoMaterial({ samples: q.ao > 1 ? 16 : 12 }); fx.gtao.updatePdMaterial({ samples: q.ao > 1 ? 16 : 8 }); fx.aoHalf = q.ao === 1; fxResize(); }
 }
@@ -5417,6 +5473,8 @@ function renderWorld(t) {
   fxMat.uTime.value = t;
   for (const s of fxScreens) s.m.emissiveIntensity = s.base * (0.82 + 0.18 * Math.sin(t * 2.1 + s.ph));
   fxPrepActors();
+  LAMPS.tick(t);   // 5x5: the 9 pooled lamps follow the camera
+  if (cam.position.y < H) ROOMART.near(WORLD.roomKeyOf(cam.position.x, cam.position.z));   // 5x5: lazy room dressing, the camera's room and its neighbours first
   fxCullBegin();
   const tm = renderer.toneMapping, te = renderer.toneMappingExposure;
   renderer.toneMapping = FX_TONE; renderer.toneMappingExposure = FX_EXPOSURE;
@@ -5433,8 +5491,8 @@ scene.traverse(o => { const m = o.isMesh && o.material; if (m && m.isMeshStandar
   const pos = [], seed = [], col = [];
   const rnd = (a, b) => a + Math.random() * (b - a);
   const addMotes = (cx, cz, hx, hz, n, c) => { for (let i = 0; i < n; i++) { pos.push(cx + rnd(-hx, hx), 0, cz + rnd(-hz, hz)); seed.push(Math.random(), rnd(0.4, 1), rnd(0.015, 0.035), Math.random()); col.push(...c); } };
-  for (let i = 0; i < 9; i++) { const [cx, cz] = rc(i); addMotes(cx, cz, roomW(i) / 2 - 1, roomD(i) / 2 - 1, Math.round(38 * roomW(i) * roomD(i) / 144), i === WORLD.VAULT ? [0.9, 0.78, 0.5] : [0.62, 0.6, 0.58]); }   // dust scales with the room area (the vault gets golden dust)
-  for (const cr of CHEST_ROOMS) addMotes(cr.cx, cr.cz, 3, 3, 11, [1.0, 0.82, 0.5]);
+  for (let i = 0; i < WORLD.NARENA; i++) { const [cx, cz] = rc(i); addMotes(cx, cz, roomW(i) / 2 - 1, roomD(i) / 2 - 1, Math.round(38 * roomW(i) * roomD(i) / 144), i === WORLD.VAULT ? [0.9, 0.78, 0.5] : [0.62, 0.6, 0.58]); }   // dust scales with the room area (the vault gets golden dust)
+  for (const cr of CHEST_ROOMS) addMotes(cr.cx, cr.cz, (cr.size || CS) / 2 - 1, (cr.size || CS) / 2 - 1, 11, [1.0, 0.82, 0.5]);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('aSeed', new THREE.Float32BufferAttribute(seed, 4)); geo.setAttribute('aCol', new THREE.Float32BufferAttribute(col, 3));
   const mat = new THREE.ShaderMaterial({
@@ -5469,7 +5527,7 @@ scene.traverse(o => { const m = o.isMesh && o.material; if (m && m.isMeshStandar
     }
   };
   for (const [ox, oz] of WORLD.panelOffsets(WORLD.VAULT)) addShaft(0, 0, 0, ox, oz, 2.6, 1.2);   // shafts under the vault's ceiling panels
-  for (const cr of CHEST_ROOMS) for (const z of [-1.8, 1.4]) addShaft(cr.cx, cr.cz, Math.atan2(-cr.dx, -cr.dz), 0, z, 2.1, 1.0);
+  for (const cr of CHEST_ROOMS) for (const z of (cr.size > CS ? [-2.2, 1.8] : [-1.8, 1.4])) addShaft(cr.cx, cr.cz, Math.atan2(-cr.dx, -cr.dz), 0, z, 2.1, 1.0);
   const sg = new THREE.BufferGeometry();
   sg.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3)); sg.setAttribute('uv', new THREE.Float32BufferAttribute(su, 2)); sg.setIndex(si);
   const c = document.createElement('canvas'); c.width = 32; c.height = 64; const g = c.getContext('2d'), img = g.createImageData(32, 64);
@@ -5783,6 +5841,35 @@ function fxPrepActors() {
 const fxAny = (k, set) => { for (let i = 0; i < k.length; i++) if (set.has(k[i])) return true; return false; };   // PERF: replaces k.some(closure) in the per-frame culling loops
 const fxCull = { on: true, active: false, cls: new WeakMap(), adj: null, vis: new Set(), near: new Set(), hidden: [], dist: new Map() /* FEEL2: door hops from the current room */ };
 const _fxB = new THREE.Box3();
+// 5x5 portal culling helpers: the screen rectangle (NDC [x0, y0, x1, y1]) of a door's opening (both wall faces), null when off screen, the full screen when a corner is behind the camera
+const fxProjM = new THREE.Matrix4(), FX_FULL = [-1, -1, 1, 1], _fxV = new THREE.Vector4();
+function fxDoorRect(d) {
+  const hw = d.dw / 2 + 0.1; let x0 = 9, y0 = 9, x1 = -9, y1 = -9, behind = 0;
+  for (const s of [-1, 1]) for (const f of [-1, 1]) for (const y of [0, d.dh]) {
+    const x = d.gx + d.ax[0] * s * hw + d.az[0] * f * T / 2, z = d.gz + d.ax[1] * s * hw + d.az[1] * f * T / 2;
+    _fxV.set(x, y, z, 1).applyMatrix4(fxProjM); if (_fxV.w < 0.05) { behind++; continue; }
+    const px = _fxV.x / _fxV.w, py = _fxV.y / _fxV.w; if (px < x0) x0 = px; if (px > x1) x1 = px; if (py < y0) y0 = py; if (py > y1) y1 = py;
+  }
+  if (behind === 8) return null;   // the whole opening is behind the camera
+  if (behind) return FX_FULL;      // the camera is in or right next to the doorway
+  if (x1 < -1 || x0 > 1 || y1 < -1 || y0 > 1) return null;
+  return [Math.max(-1, x0 - 0.02), Math.max(-1, y0 - 0.02), Math.min(1, x1 + 0.02), Math.min(1, y1 + 0.02)];
+}
+const fxBoxes = new WeakMap(), _fxB2 = new THREE.Box3();
+function fxInPortal(o, keys, rects) {   // does the static object's screen rectangle meet the portal rectangle of one of its rooms?
+  let b = fxBoxes.get(o); if (!b) { _fxB2.setFromObject(o); b = _fxB2.isEmpty() ? null : [_fxB2.min.x, _fxB2.min.y, _fxB2.min.z, _fxB2.max.x, _fxB2.max.y, _fxB2.max.z]; fxBoxes.set(o, b || []); }
+  if (!b || !b.length) return true;
+  let x0 = 9, y0 = 9, x1 = -9, y1 = -9, behind = 0;
+  for (let i = 0; i < 8; i++) {
+    _fxV.set(b[i & 1 ? 3 : 0], b[i & 2 ? 4 : 1], b[i & 4 ? 5 : 2], 1).applyMatrix4(fxProjM); if (_fxV.w < 0.05) { behind++; continue; }
+    const px = _fxV.x / _fxV.w, py = _fxV.y / _fxV.w; if (px < x0) x0 = px; if (px > x1) x1 = px; if (py < y0) y0 = py; if (py > y1) y1 = py;
+  }
+  if (behind === 8) return false;
+  const r = behind ? FX_FULL : [x0, y0, x1, y1];
+  for (let i = 0; i < keys.length; i++) if (fxClipRect(rects.get(keys[i]), r)) return true;
+  return false;
+}
+const fxClipRect = (a, b) => { if (!a || !b) return null; const r = [Math.max(a[0], b[0]), Math.max(a[1], b[1]), Math.min(a[2], b[2]), Math.min(a[3], b[3])]; return r[0] < r[2] && r[1] < r[3] ? r : null; };
 function fxClassify(o) {   // room keys a static top-level object belongs to (1 or 2 for walls between rooms), null = always drawn
   if (o.isLight || o.matrixAutoUpdate !== false) return null;
   let hook = false; o.traverse(c => { if (c.onBeforeRender !== FX_OBR) hook = true; }); if (hook) return null;   // objects that animate from onBeforeRender must keep rendering
@@ -5805,15 +5892,24 @@ function fxCullBegin() {
   const near = fxCull.near; near.clear(); near.add(here);
   for (let i = 0; i < doors.length; i++) { const d = doors[i], ad = fxCull.adj[i], a = ad[0], b = ad[1]; if ((d.p > 0.001 || d.open) && (a === here || b === here)) { near.add(a); near.add(b); } }
   /* FEEL2-BEGIN: breadth-first growth through open doors, limited to 2 door hops (low/medium) or 3 (high/ultra) so sudden death does not render every room */
+  // 5x5 (docs/PLAN-5x5.md 4.3): portal culling. Each door's opening is projected to the screen; a room is drawn only if it can be seen through the chain of open doors
+  // that leads to it (the screen rectangles are intersected door by door), and only within 40 m. In a 5x5 grid with every door open this keeps the view to the rooms in line of sight.
   const dist = fxCull.dist, gq = GK.settings.gfx, maxHop = (gq === 'low' || gq === 'medium') ? 2 : 3; dist.clear(); dist.set(here, 0);
-  for (let hop = 0; hop < maxHop; hop++) {
-    let grew = false;
+  cam.updateMatrixWorld(); fxProjM.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+  const rects = fxCull.rects || (fxCull.rects = new Map()); rects.clear(); rects.set(here, FX_FULL);
+  let front = [here];
+  for (let hop = 0; hop < maxHop && front.length; hop++) {
+    const next = [];
     for (let i = 0; i < doors.length; i++) {
       const d = doors[i]; if (d.p <= 0.001 && !d.open) continue;
       const ad = fxCull.adj[i], a = ad[0], b = ad[1], da = dist.get(a), db = dist.get(b);
-      if (da === hop && db === undefined) { dist.set(b, hop + 1); vis.add(b); grew = true; } else if (db === hop && da === undefined) { dist.set(a, hop + 1); vis.add(a); grew = true; }
+      let from, to; if (da === hop && (db === undefined || db === hop + 1)) { from = a; to = b; } else if (db === hop && (da === undefined || da === hop + 1)) { from = b; to = a; } else continue;
+      const rr = fxClipRect(rects.get(from), fxDoorRect(d)); if (!rr) continue;
+      const box = WORLD.roomRect(to); if (box && Math.hypot(Math.max(0, Math.abs(p.x - box.cx) - box.hw), Math.max(0, Math.abs(p.z - box.cz) - box.hd)) > 40) continue;
+      const old = rects.get(to); rects.set(to, old ? [Math.min(old[0], rr[0]), Math.min(old[1], rr[1]), Math.max(old[2], rr[2]), Math.max(old[3], rr[3])] : rr);
+      if (dist.get(to) === undefined) { dist.set(to, hop + 1); vis.add(to); next.push(to); }
     }
-    if (!grew) break;
+    front = next;
   }
   /* FEEL2-END */
   const hid = fxCull.hidden;
@@ -5821,6 +5917,7 @@ function fxCullBegin() {
     if (!o.visible) continue;
     let k = fxCull.cls.get(o); if (k === undefined) { k = fxClassify(o); if (k !== undefined) fxCull.cls.set(o, k); }
     if (k && !fxAny(k, vis)) { o.visible = false; hid.push(o); }
+    else if (k && !k.includes(here) && !fxInPortal(o, k, rects)) { o.visible = false; hid.push(o); }   // 5x5: in a room seen through doors, only what lies inside that room's portal rectangle
   }
   for (const a of actors.values()) { const g = a.group; if (g && g.visible && !vis.has(WORLD.roomKeyOf(a.x, a.z))) { g.visible = false; hid.push(g); } }
 }
@@ -6233,11 +6330,12 @@ const ROOMART = (() => {
     }
     // 5. props, near walls and corners only, kept clear of door gaps
     const occ = [], free = (x, z, rad) => !occ.some(o => Math.hypot(o[0] - x, o[1] - z) < o[2] + rad + 0.12);
+    if (r.kind === 'chest' && r.type === 'home') { const K = WORLD.HOME_LAYOUT.crate, B = WORLD.HOME_LAYOUT.bench, Rc = WORLD.HOME_LAYOUT.recycler; crate(A, K[0], K[1], 0.35, 0.83, rnd); occ.push([K[0], K[1], 0.6], [B[0], B[1], 1.3], [Rc[0], Rc[1], 1.0]); }   // 5x5: the home's solid crate (world.js 'hcrate') and the station footprints
     // 5b. art pass 2: the story corner is placed first so the older props flow around it
     const r2 = mul(hashStr('roomart2:' + r.key)); let storyAt = null;
     const spot = (rad, edge) => { for (let k = 0; k < 24; k++) { const sx = r2() < 0.5 ? -1 : 1, sz = r2() < 0.5 ? -1 : 1, x = sx * (hx - edge - r2() * 0.3), z = sz * (hz - edge - r2() * 0.3); if (free(x, z, rad)) { occ.push([x, z, rad]); return [x, z, sx, sz]; } } return null; };
     const theme = (r2() * 3) | 0;   // 0 goblin camp, 1 hoard corner, 2 gaol corner
-    if (!big && r.kind === 'grid') {
+    if (!big && r.kind === 'grid' && r.story !== false) {   // 5x5: tree and vaultbreaker rooms have no story corner (world.js storyOf)
       const p = spot(1.5, 1.7);
       if (p) {
         const [x, z, sx, sz] = p, toCentre = Math.atan2(sz, -sx); { const w = WORLD.storyOf(+r.key); if (!w || w.theme !== theme || Math.abs(w.x - x) > 1e-6 || Math.abs(w.z - z) > 1e-6) console.warn('roomart: story corner differs from world.js', r.key); }   // SOLID: world.js repeats the story draws for the collision footprints
@@ -6530,31 +6628,48 @@ const ROOMART = (() => {
     return r;
   };
   const dispose = key => { for (const m of built.get(key) || []) { scene.remove(m); m.geometry.dispose(); const i = ceilings.indexOf(m); if (i >= 0) ceilings.splice(i, 1); } built.delete(key); };
-  let chestSig = '';
+  // 5x5 (docs/PLAN-5x5.md 4.1): 41 rooms are too many to dress at load, so the dressing is lazy. near(key) builds the camera's room and its 2-hop neighbours at once
+  // (called every frame, it returns early unless the room changed); everything else is built one room per idle slot, nearest first by door hops.
+  const sigOf = cr => cr.type + (cr.mystery ? ':' + cr.mystery.kind : '');
+  const attSig = new Map(), ALL = WORLD.ROOMS.map(r => r.key), ADJ = {};
+  for (const d of WORLD.DOORS) { (ADJ[d.a] = ADJ[d.a] || []).push(d.b); (ADJ[d.b] = ADJ[d.b] || []).push(d.a); }
+  const hopsFrom = from => { const h = { [from]: 0 }, q = [from]; for (let i = 0; i < q.length; i++) for (const k of ADJ[q[i]] || []) if (h[k] === undefined) { h[k] = h[q[i]] + 1; q.push(k); } return h; };
+  const stale = key => key[0] === 'c' ? attSig.get(key) !== sigOf(CHEST_ROOMS[+key.slice(1)]) : !built.has(key);
+  function runOne(key) {
+    try {
+      if (key[0] === 'c') {
+        const cr = CHEST_ROOMS[+key.slice(1)]; dispose(key); attSig.set(key, sigOf(cr));
+        const S = cr.size || WORLD.CS, IN = S / 2 - T / 2, big = S > WORLD.CS, r = mkRoom(key, cr.cx, cr.cz, Math.atan2(-cr.dx, -cr.dz), IN, IN, { kind: 'chest', type: cr.type, mkind: cr.mystery && cr.mystery.kind, cid: cr.id, panels: big ? [[0, -2.2], [0, 1.8]] : [[0, -1.8], [0, 1.4]], xBeams: big ? [-2.0, 2.0] : [-1.6, 1.6] });
+        built.set(key, buildRoom(r));
+      } else {
+        const i = +key, [cx, cz] = rc(i), vault = i === WORLD.VAULT, r = mkRoom(key, cx, cz, 0, roomW(i) / 2 - T / 2, roomD(i) / 2 - T / 2, { kind: 'grid', vault, story: WORLD.kindOf(i) === 'arena', panels: WORLD.panelOffsets(i), panelDX: WORLD.panelDX(i) });
+        built.set(key, buildRoom(r));
+        if (vault) { built.get(key).push(vaultFloor()); vaultGlints(r.piles); }
+      }
+    } catch (e) { console.warn('roomart room skipped', key, e); if (!built.has(key)) built.set(key, []); }
+  }
+  let queueOn = false, anchor = WORLD.VAULT_KEY, nearKey = null;
+  function pump() {
+    const h = hopsFrom(anchor), todo = ALL.filter(stale).sort((a, b) => (h[a] === undefined ? 99 : h[a]) - (h[b] === undefined ? 99 : h[b]));
+    if (!todo.length) { queueOn = false; try { if (typeof fxBuildBlobs === 'function') fxBuildBlobs(); } catch (e) {} return; }   // the contact shadows include the late rooms' props
+    runOne(todo[0]); schedule();
+  }
+  function schedule() { queueOn = true; if (window.requestIdleCallback) requestIdleCallback(pump, { timeout: 400 }); else setTimeout(pump, 30); }
+  function near(key) {   // the camera's room and its 2-hop neighbours, built now when missing or stale
+    if (key === nearKey || !key || !WORLD.roomRect(key)) return;
+    nearKey = key; anchor = key; const h = hopsFrom(key);
+    for (const k of ALL) if (h[k] !== undefined && h[k] <= 2 && stale(k)) runOne(k);
+    if (!queueOn && ALL.some(stale)) schedule();
+  }
   function build() {
     if (!doorsByRoom.size) for (const d of doors) {
       const ka = WORLD.roomKeyOf(d.gx + d.az[0] * 1.2, d.gz + d.az[1] * 1.2), kb = WORLD.roomKeyOf(d.gx - d.az[0] * 1.2, d.gz - d.az[1] * 1.2);
       for (const [k, sg] of [[ka, 1], [kb, -1]]) { if (!doorsByRoom.has(k)) doorsByRoom.set(k, []); doorsByRoom.get(k).push({ d, s: [d.az[0] * sg, d.az[1] * sg] }); }
     }
-    if (!built.size) {
-      for (let i = 0; i < 9; i++) {
-        const [cx, cz] = rc(i), vault = i === WORLD.VAULT, r = mkRoom(String(i), cx, cz, 0, roomW(i) / 2 - T / 2, roomD(i) / 2 - T / 2, { kind: 'grid', vault, panels: WORLD.panelOffsets(i), panelDX: WORLD.panelDX(i) });
-        built.set(r.key, buildRoom(r));
-        if (vault) { built.get(r.key).push(vaultFloor()); vaultGlints(r.piles); }
-      }
-    }
-    const sig = CHEST_ROOMS.map(c => c.type + (c.mystery ? ':' + c.mystery.kind : '')).join();
-    if (sig !== chestSig) {
-      chestSig = sig;
-      for (const cr of CHEST_ROOMS) {
-        const key = 'c' + cr.id; dispose(key);
-        const IN = WORLD.CS / 2 - T / 2, r = mkRoom(key, cr.cx, cr.cz, Math.atan2(-cr.dx, -cr.dz), IN, IN, { kind: 'chest', type: cr.type, mkind: cr.mystery && cr.mystery.kind, cid: cr.id, panels: [[0, -1.8], [0, 1.4]], xBeams: [-1.6, 1.6] });
-        built.set(key, buildRoom(r));
-      }
-      if (typeof fxCull !== 'undefined') fxCull.cls = new WeakMap();
-    }
+    const k0 = nearKey || WORLD.VAULT_KEY; nearKey = null; near(k0);   // a new layout: the rooms around the camera now, the rest in idle time
+    if (typeof fxCull !== 'undefined') fxCull.cls = new WeakMap();
   }
-  return { story, init() { try { build(); layoutHooks.push(() => { try { build(); } catch (e) { console.warn('roomart layout skipped', e); } }); } catch (e) { console.warn('roomart skipped', e); } }, built, glints };
+  return { story, init() { try { build(); layoutHooks.push(() => { try { build(); } catch (e) { console.warn('roomart layout skipped', e); } }); } catch (e) { console.warn('roomart skipped', e); } }, built, glints, near, pending: () => ALL.filter(stale).length };
 })();
 ROOMART.init(); GK.roomart = ROOMART;   // test hook: ROOMART.story = room key -> [x, z, theme] of its story corner
 // ROOMART-END
@@ -7140,6 +7255,7 @@ function frame(now) {
   JUMP.step(dt, !!(mine && spawned && GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked));   // JUMP
   // doors
   for (const d of doors) {
+    if (d.hatch) continue;   // 5x5: home hatches are open archways (no leaf, nothing to animate)
     const near = d.open, prev = d.p;   // doors open/close from the round state (GK.setDoorsOpen)
     const vault = !d.slide, dur = vault ? 2.4 : 0.8;
     d.p = clamp(d.p + (near ? 1 : -1) * dt / dur, 0, 1);
@@ -7339,7 +7455,7 @@ GK.enter = () => { if (GK.howTo) GK.howTo.close(); run.t0 = performance.now(); r
 GK.applySettings = () => { renderer.setPixelRatio(fxPixelRatio()); fxApplyQuality(); resize(); };
 GK.doors = doors;
 GK.fxDebug = { get fx() { return fx; }, cam };   // test hook: post-effects state and the world camera
-GK.setDoorsOpen = ids => { const set = new Set(ids); doors.forEach(d => d.open = set.has(d.id)); };   // ids of doors that are open right now
+GK.setDoorsOpen = ids => { const set = new Set(ids); doors.forEach(d => d.open = d.hatch || set.has(d.id)); };   // ids of doors that are open right now (a home's hatch is always open)
 GK.skipMenu = () => {   // for tests: straight into the rooms, with the title menu hidden as a real Enter would
   const mn = $('menu'); if (mn) mn.classList.add('gone'); document.body.classList.remove('menu');
   GK.mode = 'play'; GK.start();   // joins the queue; the match start and the countdown follow
@@ -7640,7 +7756,7 @@ window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw,
     if (!goAt) goAt = performance.now();
     const ri = GK.roundInfo(), env = GK.tipEnv(), mine = env.mine, now = performance.now();
     const sudden = !!document.getElementById('gkSudTag');
-    const vd = GK.ROOM_DOORS['4'] || [], vaultOpen = !sudden && vd.some(d => (ri.open || []).includes(d));
+    const vd = GK.ROOM_DOORS[window.GKWORLD.VAULT_KEY] || [], vaultOpen = !sudden && vd.some(d => (ri.open || []).includes(d));
     if (sudden) { show('sudden'); return; }
     if (mine && mine.hp != null && mine.maxHp && mine.hp > 0 && mine.hp / mine.maxHp <= 0.35 && show('lowhp')) return;
     if (vaultOpen && !prevOpenVault) { prevOpenVault = true; if (show('vaultOpen')) return; }

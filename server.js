@@ -848,7 +848,15 @@ const humanIn = (m, room) => { for (const q of m.players.values()) if (isHum(q) 
 function mv(m, p, x, z, yaw, now) {   // the one place a brain moves: applyMove plus the cosmetic jump arc (height in cm)
   const b = p.brain; let jy = 0;
   if (b.jump) { const f = (now - b.jump.t0) / b.jump.dur; if (f >= 1) b.jump = null; else jy = Math.round(b.jump.h * 4 * f * (1 - f)); }
-  if (x !== p.x || z !== p.z) [x, z] = WORLD.slide(p.x, p.z, x, z, 0.45, m.layout, true);   // SOLID: bots and mystery enemies walk around crates, barrels, urns, the pedestal and the vault pillars
+  if (x !== p.x || z !== p.z) {
+    // 5x5 test migration fix: bots sprint between rooms at ~8.4 m/s, so one sweep after a >140 ms server gap asked for 1.4-1.9 m, more than the movement budget (BUDGET 1.0 + MOVE_SLACK 0.3)
+    // allows, and applyMove refused the move (tests/bots.test.js saw 7-59 refused bot moves, all in round 2+). A bot step is now capped at 1.2 m, like any other walker.
+    { const st = Math.hypot(x - p.x, z - p.z); if (st > 1.2) { x = p.x + (x - p.x) * 1.2 / st; z = p.z + (z - p.z) * 1.2 / st; } }
+    [x, z] = WORLD.slide(p.x, p.z, x, z, 0.45, m.layout, true);   // SOLID: bots and mystery enemies walk around crates, barrels, urns, the pedestal and the vault pillars
+    // 5x5 test migration fix: a ~1 m bot step can clip a prop's footprint with its CHORD although both end points are clear (the home crate beside the doorway made bots
+    // bounce off it 4 times in a row: the server refused the move, tests/bots.test.js counted 7-59 refused moves). Shorten such a step (halve up to 3 times) until the chord is clear.
+    for (let k = 0; k < 3 && Math.hypot(x - p.x, z - p.z) > 0.15 && [0.25, 0.5, 0.75].some(f => WORLD.inProp(p.x + (x - p.x) * f, p.z + (z - p.z) * f, PROP_R, m.layout, true)) && !pathOk(m, p.x, p.z, x, z); k++) { x = p.x + (x - p.x) / 2; z = p.z + (z - p.z) / 2; }
+  }
   return applyMove(m, null, p, x, z, yaw, now, jy);
 }
 function startJump(p, now) { const b = p.brain; if (b.jump || now < b.jumpAt) return; b.jump = { t0: now, dur: rnd(480, 620), h: rnd(55, 90) }; b.jumpAt = now + rnd(30000, 60000); }   // at most 1-2 a minute

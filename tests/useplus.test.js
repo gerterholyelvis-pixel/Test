@@ -67,11 +67,12 @@ const pair = async srv => { const [a, b] = await Promise.all([connect(srv.port, 
         await c.until(x => !x.state.open.includes(u.used.door), 12000, 'closed again'); await c.close();
       }],
       ['crowbar refuses a vault door', async () => {
-        const c = await connect(srv.port, 'goblin=1'), [cx, cz] = W.rc(1), hd = W.roomD(1) / 2; c.send({ tp: [cx, cz + hd - 1.5] }); await sleep(120);   // room 1 (top middle): its south door is the vault door
+        const n1 = L.vaultNeighbours()[0], vd = W.DOORS[L.doorBetween(n1, W.VAULT_KEY)], [cx, cz] = L.centre(n1), ux = Math.sign(vd.wall.x - cx), uz = Math.sign(vd.wall.z - cz);
+        const c = await connect(srv.port, 'goblin=1'); c.send({ tp: [vd.wall.x - ux * 1.5, vd.wall.z - uz * 1.5] }); await sleep(120);   // a room next to the vault, 1.5 m in front of its vault door
         await give(c, 'x:pry'); const r = await use(c); assert(r.some(m => m.useFail === 'door'), 'a vault door is not pried: ' + JSON.stringify(r)); eq(c.state.inv.quick[0], 'x:pry'); await c.close();
       }],
       ['homing feather: back in the starting room after 2.5 s', async () => {
-        const c = await connect(srv.port, 'goblin=1'), home = String(c.state.matchStart.spawn.box), other = home === '0' ? 2 : 0; c.send({ tp: W.rc(other) }); await sleep(120);
+        const c = await connect(srv.port, 'goblin=1'), home = c.state.matchStart.spawn.home, other = L.cellOf(home) === '0' ? 2 : 0; c.send({ tp: W.rc(other) }); await sleep(120);
         await give(c, 'x:feather'); const r = await use(c); assert(r.some(m => m.used && m.used.ms === 2500), 'used');
         await c.until(x => x.msgs.some(m => m.recallEnd && m.recallEnd.ok === 1), 4000, 'recalled'); const f = c.msgs.filter(m => m.fix).pop().fix; eq(W.roomKeyOf(f[0], f[1]), home); await c.close();
       }],

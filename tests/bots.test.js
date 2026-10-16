@@ -8,7 +8,7 @@ const botstat = async c => { const n = c.msgs.length; c.send({ botstat: 1 }); aw
 // is (x, z) inside a wall (within 0.25 m of a wall plane of its room) without being in a doorway of that room?
 function inWall(x, z) {
   const k = W.roomKeyOf(x, z); let cx, cz, hw, hd;
-  if (k[0] === 'c') { const c = W.CHEST[+k.slice(1)]; cx = c.cx; cz = c.cz; hw = hd = W.CS / 2; } else { const i = +k; [cx, cz] = W.rc(i); hw = W.roomW(i) / 2; hd = W.roomD(i) / 2; }
+  if (k[0] === 'c') { const c = W.CHEST[+k.slice(1)]; cx = c.cx; cz = c.cz; hw = hd = c.size / 2; } else { const i = +k; [cx, cz] = W.rc(i); hw = W.roomW(i) / 2; hd = W.roomD(i) / 2; }
   const dx = hw - Math.abs(x - cx), dz = hd - Math.abs(z - cz);
   if (Math.min(dx, dz) >= 0.25) return false;
   return !(Math.abs(x - cx) < 2.6 && dz < 0.25) && !(Math.abs(z - cz) < 2.6 && dx < 0.25);   // a doorway is at most 4.9 m wide, centred on the wall
@@ -18,11 +18,11 @@ function inWall(x, z) {
   const srv = await L.startServer(ENV); let fail = 1;
   try {
     fail = await L.run('bots', [
-      ['a solo human gets a match of 8: 7 bots with names, goblin types, START gear and their own outer rooms', async () => {
+      ['a solo human gets a match of 8: 7 bots with names, goblin types, START gear and their own homes', async () => {
         const c = await connect(srv.port, 'wins=0'); const ps = c.state.matchStart.players;
         eq(ps.length, 8); const bots = ps.filter(p => p.bot); eq(bots.length, 7);
         assert(!ps.find(p => p.id === c.state.you).bot, 'the human is not a bot');
-        assert(new Set(ps.map(p => p.id)).size === 8 && new Set(ps.map(p => p.box)).size === 8, 'ids and rooms must be distinct'); assert(ps.every(p => p.box !== 4), 'nobody starts in the vault');
+        assert(new Set(ps.map(p => p.id)).size === 8 && new Set(ps.map(p => p.home)).size === 8, 'ids and homes must be distinct'); assert(ps.every(p => p.box !== W.VAULT && W.CHEST[+p.home.slice(1)].home), 'everybody starts in a home, nobody in the vault'); eq(ps.map(p => p.home).sort(), W.HOME_IDS.map(i => 'c' + i).sort(), 'all 8 homes used');
         for (const b of bots) { assert(typeof b.name === 'string' && b.name.length > 1, 'bot name'); assert(b.goblin >= 0 && b.goblin <= 11 && b.stats.health > 0 && b.gear.weapon !== 'None', 'type/gear'); }
         eq(c.state.matchStart.size, 8); await c.until(x => x.state.match && x.state.match.alive === 8 && x.state.match.size === 8, 2000, 'goblins left = 8');
         await c.close();

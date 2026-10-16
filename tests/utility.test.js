@@ -6,10 +6,8 @@ const give = async (c, key, slot = 'q0') => {   // debug give, then move it into
   c.send({ mv: ['b' + c.state.inv.backpack.indexOf(key), slot] }); await c.until(x => x.state.inv.quick[+slot[1]] === key, 2000, key + ' in ' + slot);
 };
 const use = async (c, slot = 'q0') => { const n = c.msgs.length; c.send({ use: slot }); await sleep(120); return c.msgs.slice(n); };
-// door ids, same numbering as server.js (addDoor order)
-const DOORS = []; { let id = 0; const chest = (i, s) => 'c' + i + s; for (let i = 0; i < 9; i++) { const col = i % 3, row = Math.floor(i / 3);
-  DOORS.push([id++, String(i), col < 2 ? String(i + 1) : chest(i, 'E')]); DOORS.push([id++, String(i), row < 2 ? String(i + 3) : chest(i, 'S')]); if (col === 0) DOORS.push([id++, String(i), chest(i, 'W')]); if (row === 0) DOORS.push([id++, String(i), chest(i, 'N')]); } }
-const doorsOf = r => DOORS.filter(d => d[1] === r || d[2] === r).map(d => d[0]), VAULT_DOORS = doorsOf('4');
+const DOORS = W.DOORS.map(d => [d.id, d.a, d.b]);   // door ids from the shared world table
+const doorsOf = r => DOORS.filter(d => d[1] === r || d[2] === r).map(d => d[0]), VAULT_DOORS = doorsOf(W.VAULT_KEY);
 const roomOnly = id => DOORS.find(d => d[0] === id);
 
 (async () => {
@@ -84,14 +82,14 @@ const roomOnly = id => DOORS.find(d => d[0] === id);
         await give(c, 'x:wedge'); let r = await use(c); assert(r.some(m => m.useFail === 'door'), 'too far from the door'); eq(c.state.inv.quick[0], 'x:wedge');
         const hw = W.roomW(0) / 2; c.send({ tp: [cx + hw - 1.5, cz] }); await sleep(100); r = await use(c);
         assert(r.some(m => m.used && m.used.key === 'x:wedge' && m.used.door === east), 'wedged ' + JSON.stringify(r)); eq(c.state.inv.quick[0], null);
-        const other = DOORS.find(d => d[1] === '0' && d[2] === '3')[0]; c.send({ sel: other });
+        const other = DOORS.find(d => d[1] === '0' && d[2] === '5')[0]; c.send({ sel: other });
         const n = c.state.round.n; await waitRound(c, n + 1); await sleep(80);
         assert(c.state.open.includes(east) && c.state.open.includes(other), 'wedged door stayed open next to the new pick: ' + c.state.open);
         c.send({ sel: other }); await waitRound(c, n + 2); await sleep(80); assert(!c.state.open.includes(east), 'only one extra round');
         await c.close();
       }],
       ['sealing wax locks the room pick until the round ends', async () => {
-        const c = await connect(srv.port, 'goblin=1'), [cx, cz] = W.rc(0), a = DOORS.find(d => d[1] === '0' && d[2] === '1')[0], b = DOORS.find(d => d[1] === '0' && d[2] === '3')[0];
+        const c = await connect(srv.port, 'goblin=1'), [cx, cz] = W.rc(0), a = DOORS.find(d => d[1] === '0' && d[2] === '1')[0], b = DOORS.find(d => d[1] === '0' && d[2] === '5')[0];
         c.send({ tp: [cx, cz] }); await sleep(80); await give(c, 'x:wax');
         let r = await use(c); assert(r.some(m => m.useFail === 'pick'), 'needs a pick first'); eq(c.state.inv.quick[0], 'x:wax');
         const n0 = c.state.round.n; c.send({ sel: a }); await c.until(x => x.state.sel['0'] === a, 2000, 'picked');
@@ -101,11 +99,11 @@ const roomOnly = id => DOORS.find(d => d[0] === id);
         c.send({ sel: b }); await c.until(x => x.state.sel['0'] === b, 2000, 'free again next round'); await c.close();
       }],
       ['vault lockpick adds a second vote so one room can open the vault; refused without a vault pick', async () => {
-        const c = await connect(srv.port, 'goblin=1'), [cx, cz] = W.rc(1), vd = DOORS.find(d => d[1] === '1' && d[2] === '4')[0], plain = DOORS.find(d => d[1] === '1' && d[2] === '2')[0];
+        const VN = L.vaultNeighbours()[0], c = await connect(srv.port, 'goblin=1'), [cx, cz] = L.centre(VN), vd = L.doorBetween(VN, W.VAULT_KEY), plain = L.plainDoors(VN)[0];
         c.send({ tp: [cx, cz] }); await sleep(80); await give(c, 'x:lockpick');
-        c.send({ sel: plain }); await c.until(x => x.state.sel['1'] === plain, 2000, 'picked a plain door');
+        c.send({ sel: plain }); await c.until(x => x.state.sel[VN] === plain, 2000, 'picked a plain door');
         let r = await use(c); assert(r.some(m => m.useFail === 'pick'), 'not a vault pick'); eq(c.state.inv.quick[0], 'x:lockpick');
-        c.send({ sel: vd }); await c.until(x => x.state.sel['1'] === vd, 2000, 'picked the vault door'); eq(c.state.vaultVotes, 1);
+        c.send({ sel: vd }); await c.until(x => x.state.sel[VN] === vd, 2000, 'picked the vault door'); eq(c.state.vaultVotes, 1);
         r = await use(c); assert(r.some(m => m.used && m.used.key === 'x:lockpick'), 'used'); await c.until(x => x.state.vaultVotes === 2, 2000, 'two votes');
         const n = c.state.round.n; await waitRound(c, n + 1); await sleep(80);
         assert(c.state.open.includes(vd), 'the vault door opened with one room and a lockpick: ' + c.state.open); assert(!(c.state.fizzled || []).includes(vd), 'not fizzled');

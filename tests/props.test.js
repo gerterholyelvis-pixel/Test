@@ -1,12 +1,12 @@
 // Solid props: world.js footprints (layout, clearances, reachability, sliding) and the server's movement validation / bolts / melee against them
 const L = require('./lib.js'), { connect, sleep, assert, eq } = L, W = require('../world.js');
-const RAD = 0.45, ALL_MYSTERY = Array(12).fill('mystery'), NONE = Array(12).fill('chest');
+const RAD = 0.45, ALL_MYSTERY = Array(W.NATT).fill('mystery'), NONE = Array(W.NATT).fill('chest');
 const gridHalf = i => [W.roomW(i) / 2 - W.T / 2, W.roomD(i) / 2 - W.T / 2];
 
 // flood fill a room's floor (0.2 m cells, walker radius RAD, walls inset by RAD): returns { free(x,z), seen(x,z) } for world coordinates
 function flood(key, types, startXZ) {
   let cx, cz, hx, hz;
-  if (key[0] === 'c') { const c = W.CHEST[+key.slice(1)]; cx = c.cx; cz = c.cz; hx = hz = W.CS / 2 - W.T / 2; }
+  if (key[0] === 'c') { const c = W.CHEST[+key.slice(1)]; cx = c.cx; cz = c.cz; hx = hz = c.size / 2 - W.T / 2; }
   else { const i = +key; [cx, cz] = W.rc(i); [hx, hz] = gridHalf(i); }
   const S = 0.2, nx = Math.floor((hx - RAD) / S), nz = Math.floor((hz - RAD) / S), seen = new Set(), k = (a, b) => a + ',' + b;
   const ok = (a, b) => Math.abs(a) <= nx && Math.abs(b) <= nz && !W.inProp(cx + a * S, cz + b * S, RAD, types, true);
@@ -23,34 +23,38 @@ function flood(key, types, startXZ) {
     fail = await L.run('props', [
       ['footprints: circles inside their own room, clear of the walls, and every prop belongs to the room it is listed for', () => {
         const all = W.allProps(ALL_MYSTERY); assert(all.length >= 40, 'props exist: ' + all.length);
-        for (let i = 0; i < 9; i++) for (const p of W.solidsOf(String(i), '')) {
+        for (let i = 0; i < W.NARENA; i++) for (const p of W.solidsOf(String(i), '')) {
           eq(W.roomKeyOf(p.x, p.z), String(i), 'prop ' + p.k + ' of room ' + i); const [cx, cz] = W.rc(i), [hx, hz] = gridHalf(i);
           assert(Math.abs(p.x - cx) + p.r <= hx + 0.2 && Math.abs(p.z - cz) + p.r <= hz + 0.2, 'room ' + i + ' ' + p.k + ' pokes out of the walls');
         }
         for (const c of W.CHEST) for (const p of W.solidsOf('c' + c.id, 'mystery')) {
-          eq(W.roomKeyOf(p.x, p.z), 'c' + c.id, 'mystery prop of c' + c.id);
-          assert(Math.abs(p.x - c.cx) + p.r <= W.CS / 2 - W.T / 2 + 0.2 && Math.abs(p.z - c.cz) + p.r <= W.CS / 2 - W.T / 2 + 0.2, 'c' + c.id + ' ' + p.k + ' pokes out of the walls');
+          eq(W.roomKeyOf(p.x, p.z), 'c' + c.id, 'prop of c' + c.id);
+          assert(Math.abs(p.x - c.cx) + p.r <= c.size / 2 - W.T / 2 + 0.2 && Math.abs(p.z - c.cz) + p.r <= c.size / 2 - W.T / 2 + 0.2, 'c' + c.id + ' ' + p.k + ' pokes out of the walls');
         }
-        eq(W.solidsOf('c0', 'chest').length, 0, 'only mystery rooms have props'); eq(W.solidsOf('c0', 'merchant').length, 0);
+        // loot rooms: only mystery rooms (clutter) and the two stations have props; chest and merchant rooms are bare. Homes always have their furniture (2 bench halves, the recycler, a crate), whatever type is passed.
+        const loot = W.LOOT_IDS[0], home = W.HOME_IDS[0];
+        eq(W.solidsOf('c' + loot, 'chest').length, 0, 'only mystery rooms and stations have props'); eq(W.solidsOf('c' + loot, 'merchant').length, 0); assert(W.solidsOf('c' + loot, 'mystery').length >= 4, 'mystery clutter');
+        eq(W.solidsOf('c' + loot, 'forge').map(p => p.k), ['bench', 'bench'], 'the Master Forge footprint'); eq(W.solidsOf('c' + loot, 'grand').map(p => p.k), ['recycler'], 'the Grand Recycler footprint');
+        eq(W.solidsOf('c' + home, 'home').map(p => p.k).sort(), ['bench', 'bench', 'hcrate', 'recycler'], 'home furniture'); eq(W.solidsOf('c' + home, 'chest').length, 4);
       }],
       ['layout is deterministic and the types argument may be strings or CHEST_ROOMS-like objects', () => {
         const a = JSON.stringify(W.allProps(ALL_MYSTERY)), b = JSON.stringify(W.allProps(ALL_MYSTERY.map(t => ({ type: t }))));
         eq(a, b); assert(W.allProps(NONE).length < W.allProps(ALL_MYSTERY).length);
         eq(W.propsAt(W.RELIC.x, W.RELIC.z, NONE).filter(p => p.k === 'ped').length, 1, 'the relic pedestal is a footprint at RELIC');
       }],
-      ['nothing blocks doors, panels, spawns or stations: door fronts, panel spots and the whole spawn range are free and reachable in every grid room', () => {
-        for (let i = 0; i < 9; i++) {
-          const [cx, cz] = W.rc(i), [hx, hz] = gridHalf(i), f = flood(String(i), NONE, [cx, cz - 0.01 + (i === 4 ? 4 : 0)]);
+      ['nothing blocks doors, panels, spawns or stations: door fronts, panel spots and the whole spawn range are free and reachable in every arena room', () => {
+        for (let i = 0; i < W.NARENA; i++) {
+          const [cx, cz] = W.rc(i), [hx, hz] = gridHalf(i), f = flood(String(i), NONE, [cx, cz - 0.01 + (i === W.VAULT ? 4 : 0)]);
           assert(f.size > 400, 'room ' + i + ' has a floor');
           const spots = [[0, hz - 1.4], [0, -hz + 1.4], [hx - 1.4, 0], [-hx + 1.4, 0], [0, hz - 3], [0, -hz + 3], [-W.panelDX(i), -hz + 1.3], [W.panelDX(i), -hz + 1.3]];
           for (const [a, b] of spots) assert(f.free(cx + a, cz + b) && f.seen(cx + a, cz + b), 'room ' + i + ' spot ' + a + ',' + b + ' blocked or cut off');
-          for (let k = 0; i !== 4 && k < 600; k++) { const [x, z] = W.randomPoint(i); assert(f.free(x, z) && f.seen(x, z), 'room ' + i + ' spawn range hit a prop at ' + x.toFixed(1) + ',' + z.toFixed(1)); }
+          for (let k = 0; i !== W.VAULT && k < 600; k++) { const [x, z] = W.randomPoint(i); assert(f.free(x, z) && f.seen(x, z), 'room ' + i + ' spawn range hit a prop at ' + x.toFixed(1) + ',' + z.toFixed(1)); }
           // the straight lines from every door front to the room centre stay open
-          for (const [a, b] of spots.slice(0, 4)) for (let t = 0; i !== 4 && t <= 1; t += 0.05) assert(f.free(cx + a * (1 - t), cz + b * (1 - t)), 'room ' + i + ' door line blocked');
+          for (const [a, b] of spots.slice(0, 4)) for (let t = 0; i !== W.VAULT && t <= 1; t += 0.05) assert(f.free(cx + a * (1 - t), cz + b * (1 - t)), 'room ' + i + ' door line blocked');
         }
-        const rv = W.RELIC; const f4 = flood('4', NONE, W.rc(4)); assert(f4.seen(rv.x - 1.6, rv.z) && f4.seen(rv.x + 1.6, rv.z) && f4.seen(rv.x, rv.z + 1.6) && f4.seen(rv.x, rv.z - 1.6), 'the pedestal can be reached from all four sides');
+        const rv = W.RELIC; const f4 = flood(W.VAULT_KEY, NONE, [0, 4]); assert(f4.seen(rv.x - 1.6, rv.z) && f4.seen(rv.x + 1.6, rv.z) && f4.seen(rv.x, rv.z + 1.6) && f4.seen(rv.x, rv.z - 1.6), 'the pedestal can be reached from all four sides');
       }],
-      ['mystery rooms: centre, door and the middle of the room stay free and connected; the back corners are the only blocked parts', () => {
+      ['mystery rooms and homes: centre, door and the middle of the room stay free and connected; the back wall / corners are the only blocked parts', () => {
         for (const c of W.CHEST) {
           const f = flood('c' + c.id, ALL_MYSTERY, [c.cx, c.cz]); const ry = Math.atan2(-c.dx, -c.dz), cs = Math.cos(ry), sn = Math.sin(ry);
           const wd = (lx, lz) => [c.cx + lx * cs + lz * sn, c.cz - lx * sn + lz * cs];

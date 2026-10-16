@@ -145,6 +145,7 @@
       } else if (kd === 'vb') {   // crates in the 2 corners away from the vault door (the station wall opposite the vault door stays clear for task B/C)
         const [vx, vz] = rc(VAULT), ux = Math.sign(vx - cx), uz = Math.sign(vz - cz);
         for (const q of [-1, 1]) cornerStack(key, i, q, loc, 'b' + q, uz ? -uz : -ux, !uz);
+        for (const p of loc) p.art = false;   // these corners can meet the north wall's map / control panel: keep-clear zones apply (game.js still draws every listed crate)
       } else if (kd === 'tree') {   // no story corner; task B/C adds the trunk circle (r 1.1 at the centre) together with its art
         cornerStack(key, i, hashStr('solid:' + key) & 1 ? 1 : -1, loc, '');
       } else {

@@ -52,7 +52,7 @@
   let lastMode = 'menu', lastInv = false, lastShop = false, lastN = 0, lastOpenLen = 0, lastSec = 99, lastGold = null, lastPanel = false;
   let stepAcc = 0, kick = 0, lost = false, unloading = false, doorP = new Map();
   let flinch = 0, beatT = 0, lastW, lastA, sudT = 0, sudden = false;
-  const surfOf = key => key === '4' ? 'vault' : key && key[0] === 'c' ? 'rug' : 'stone';   // vault: echoing hall, chest rooms: rugs, the rest: stone
+  const surfOf = key => key === (window.GKWORLD ? GKWORLD.VAULT_KEY : '12') ? 'vault' : key && key[0] === 'c' ? 'rug' : 'stone';   // vault: echoing hall, chest rooms: rugs, the rest: stone
   const famOf = k => { const I = window.GKITEMS && window.GKITEMS.ITEMS; return (k && I && I[k] && I[k].family) || null; };
   addEventListener('beforeunload', () => { unloading = true; });
 
@@ -148,7 +148,7 @@
       const P = A.P, mine = A.actors.get(A.me), myKey = A.roomKeyAt(P.x, P.z);
       a && a.setListener(P.x, P.z, P.yaw);
       sudT -= dt; if (sudT <= 0) { sudT = 1; sudden = !!document.getElementById('gkSudTag'); }
-      a && A.spawned && a.ambient(sudden ? 'sudden' : myKey === '4' ? 'vault' : myKey && myKey[0] === 'c' ? 'chest' : 'room');
+      a && A.spawned && a.ambient(sudden ? 'sudden' : myKey === (window.GKWORLD ? GKWORLD.VAULT_KEY : '12') ? 'vault' : myKey && myKey[0] === 'c' ? 'chest' : 'room');
       // low health: a soft heartbeat that quickens as it gets worse (the sound is dropped first when busy)
       if (mine && mine.hp > 0 && mine.maxHp > 0 && A.spawned) {
         const fr = mine.hp / mine.maxHp;

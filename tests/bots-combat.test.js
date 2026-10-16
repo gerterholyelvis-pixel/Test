@@ -4,6 +4,8 @@ const L = require('./lib.js'), { connect, connectWith, sleep, assert, eq } = L, 
 // latest known positions of everyone else, from the snapshots
 function track(c) { const pos = {}; c.ws.on('message', raw => { const d = JSON.parse(raw.toString()); if (d.s) for (let i = 1; i + 5 < d.s.length; i += 6) pos[d.s[i]] = [d.s[i + 1], d.s[i + 2]]; }); return pos; }
 const give = async (c, key, slot) => { c.send({ give: key }); await c.until(x => x.state.inv.backpack.includes(key), 2000, key); c.send({ mv: ['b' + c.state.inv.backpack.indexOf(key), slot] }); await c.until(x => x.state.inv[slot] === key, 2000, key + ' equipped'); };
+// a spot d metres from point p that is inside the same room (a home is only 10 m wide, so try every direction and shrink the distance)
+const nearSpot = (p, d0) => { const r = W.roomKeyOf(p[0], p[1]), q = W.roomRect(r); for (const d of [d0, d0 * 0.75, d0 * 0.5]) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const x = p[0] + dx * d, z = p[1] + dz * d; if (q && W.roomKeyOf(x, z) === r && Math.abs(x - q.cx) <= q.hw - 1.2 && Math.abs(z - q.cz) <= q.hd - 1.2) return [x, z]; } return [p[0], p[1]]; };
 const botOf = c => c.state.matchStart.players.find(p => p.bot);
 
 (async () => {
@@ -16,7 +18,7 @@ const botOf = c => c.state.matchStart.players.find(p => p.bot);
         await c.until(x => x.state.round && x.state.round.n >= 2, 4000, 'round 2');
         c.send({ drop: 'armor' }); await c.until(x => x.state.inv.armor === null, 2000, 'armour dropped');   // 10 HP
         let me = []; for (let i = 0; i < 40 && !c.state.died; i++) {   // stand in the bot's room, 4 m from it, and do nothing
-          const p = pos[bot.id] || [bot.x, bot.z], r = W.roomKeyOf(p[0], p[1]); let [x, z] = [p[0] + 4, p[1]]; if (W.roomKeyOf(x, z) !== r) [x, z] = [p[0] - 4, p[1]];
+          const p = pos[bot.id] || [bot.x, bot.z], r = W.roomKeyOf(p[0], p[1]), [x, z] = nearSpot(p, 4);
           if (me[0] === undefined || W.roomKeyOf(me[0], me[1]) !== r) { me = [x, z]; c.send({ tp: [x, z] }); c.send({ m: [x, z, 0] }); }
           await sleep(250);
         }
@@ -27,7 +29,7 @@ const botOf = c => c.state.matchStart.players.find(p => p.bot);
         await give(c, 'w:slayer', 'weapon'); await give(c, 'a:aegis', 'armor');
         await c.until(x => x.state.round && x.state.round.n >= 2, 4000, 'round 2');
         for (let i = 0; i < 80 && !c.state.won && !c.state.died; i++) {
-          const p = pos[bot.id] || [bot.x, bot.z], r = W.roomKeyOf(p[0], p[1]); let [x, z] = [p[0] + 1.3, p[1]]; if (W.roomKeyOf(x, z) !== r) [x, z] = [p[0] - 1.3, p[1]];
+          const p = pos[bot.id] || [bot.x, bot.z], [x, z] = nearSpot(p, 1.3);
           c.send({ tp: [x, z] }); c.send({ m: [x, z, Math.atan2(-(p[0] - x), -(p[1] - z))] }); await sleep(40); c.send({ atk: 1 }); await sleep(110);
         }
         assert(c.state.won, 'no victory' + (c.state.died ? ' (died)' : '')); assert(c.state.kills >= 1, 'kill counted');
