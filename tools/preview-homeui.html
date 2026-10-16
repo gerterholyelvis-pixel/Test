@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>homeui preview</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&family=Barlow+Condensed:wght@500;600;700&display=swap">
+<style>
+:root{--gold:#f5c451;--gold2:#ffe39a;--gold3:#a8741a;--ink:#08070b;--ember:#ff6a2a;--txt:#efe9d8;--mut:#a9a493;
+ --disp:'Cinzel Decorative',Georgia,serif;--ui:'Barlow Condensed','Arial Narrow',system-ui,sans-serif}
+html,body{margin:0;height:100%;background:radial-gradient(ellipse at 40% 30%,#2a2418,#0b0b0e);font-family:var(--ui);color:var(--txt)}
+#bar{position:fixed;left:12px;bottom:12px;display:flex;gap:6px;z-index:5}
+#bar button{font:600 14px var(--ui);padding:5px 10px;background:#222;color:#ddd;border:1px solid #555;cursor:pointer}
+#log{position:fixed;left:12px;top:12px;font:12px monospace;color:#8a8;max-width:40vw;white-space:pre-wrap}
+</style></head><body>
+<!-- Standalone preview with mock state. Serve the repo root (e.g. npx http-server) and open /tools/preview-homeui.html
+     Query: ?open=1 &tab=0|1|2 &rich=1 &round1=1 &pick=1 &toasts=1 -->
+<div id="log"></div>
+<div id="bar"><button data-a="open">open (E)</button><button data-a="raid">toast raid</button><button data-a="alarm">toast alarm</button><button data-a="send">toast send</button><button data-a="tick">+1 elixir</button><button data-a="rich">rich</button><button data-a="poor">poor</button></div>
+<script src="../homebase.js"></script><script src="../homeui.js"></script>
+<script>
+const cells = [];
+for (let y = 0; y < 5; y++) for (let x = 0; x < 5; x++) { const k = 'a' + (y * 5 + x); cells.push({ key: k, gx: x + 1, gy: y + 1, kind: x === 2 && y === 2 ? 'vault' : 'arena', label: String.fromCharCode(65 + y) + (x + 1) }); }
+const names = ['Grub', 'Snik', 'Mog', 'You', 'Zed', 'Pox', 'Wort', 'Nib'];
+let n = 0; const home = (gx, gy, owner) => cells.push({ key: 'h' + (n++), gx, gy, kind: 'home', label: owner.slice(0, 2), owner, dead: owner === 'Pox' });
+[2, 3, 4, 5].forEach((x, i) => { home(x, 0, names[i]); home(x, 6, names[(i + 4) % 8]); }); [2, 3, 4, 5].forEach(y => { home(0, y, 'Bot' + y); home(6, y, 'Bot' + (y + 4)); });
+Object.assign(cells.find(c => c.key === 'h3'), { owner: 'You', label: 'Yo', dead: false });
+const state = { elixir: 64, cap: 120, tank: 31, tankCap: 64, round: 2, sentRound: false, distills: 1, distillMax: 3,
+  home: { lv: { pump: 1, lock: 1, alarm: 1, snare: 1, lockbox: 1, recycler: 1 }, ammo: 0, snareArmed: false, box: [{ name: 'Iron Sword' }, null, { name: 'Bone Dust', n: 4 }] },
+  bag: [{ slot: 's2', name: 'Rusty Dagger' }, { slot: 's5', name: 'Bandage', n: 3 }], active: { a3: 2 },
+  map: { myRoom: 'h3', vaultKey: 'a12', cells } };
+const ui = GKHOMEUI.createHomeUI({ root: document.body, send: m => { document.getElementById('log').textContent = JSON.stringify(m) + '\n' + document.getElementById('log').textContent; } });
+const q = new URLSearchParams(location.search);
+if (q.get('rich')) { state.elixir = 400; state.home.lv = { pump: 2, bench: 1, recycler: 2, lockbox: 2, pad: 1, lock: 2, alarm: 1, snare: 1, sentry: 1, guard: 1 }; state.home.ammo = 14; }
+if (q.get('round1')) state.round = 1;
+ui.update(state);
+ui._setTab(+(q.get('tab') || 0));
+if (q.get('open')) ui.open(state);
+if (q.get('toasts')) { ui.toast('raid', 'Snik is draining your pump!'); ui.toast('alarm', 'Intruder: Grub'); ui.toast('send', 'Rats incoming! Sent by Mog'); }
+if (q.get('pick')) { const b = document.querySelector('[data-send=rats]'); b && b.click(); const c = document.querySelector('[data-cell=a7]'); c && c.click(); }
+document.getElementById('bar').onclick = e => { const a = e.target.dataset.a; if (!a) return;
+  if (a === 'open') ui.open(state); if (a === 'raid') ui.toast('raid', 'Snik is draining your pump!'); if (a === 'alarm') ui.toast('alarm', 'Intruder: Grub'); if (a === 'send') ui.toast('send', 'Rats incoming! Sent by Mog');
+  if (a === 'tick') { state.elixir++; ui.update(state); } if (a === 'rich') { state.elixir = 400; ui.update(state); } if (a === 'poor') { state.elixir = 3; ui.update(state); } };
+addEventListener('keydown', e => { if (e.key === 'e' && !ui.isOpen()) ui.open(state); });
+</script></body></html>
