@@ -3889,6 +3889,8 @@ const handleMsg0 = d => {
   if (d.swing != null || d.hit || d.kills != null || d.match) combatMsg(d);   // COMBAT
   if (d.you) me = d.you;
   if (d.round || d.sel || d.open) applyRound(d);
+  if (d.exitHint) toastMsg('No way out: a door unlocks in ' + Math.ceil((+d.exitHint.ms || 5000) / 1000) + ' s', false, 2600);   // DOORGUARD
+  if (d.exitOpen != null) toastMsg('A door unlocks', true, 1800);   // DOORGUARD
   if (!d.players) return;
   const ids = new Set(d.players.map(p => p.id));
   for (const [id, a] of actors) if (!ids.has(id)) { if (!GA.die(a)) dropGoblin(a.group); actors.delete(id); }
