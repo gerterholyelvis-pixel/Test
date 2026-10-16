@@ -4112,6 +4112,7 @@ GK.fun = (() => {
   }
   // ---- match summary
   function matchEnd(e) {
+    if (GK.mode === 'win') return;   // the victory card is the result; the standings card used to open on top of it
     css(); if (S.end) S.end.remove();
     const mine = e.places.find(p => p.id === me), mmss = s => Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
     const line = (k, v) => '<span style="color:#aaa59d">' + k + '</span><b style="text-align:right;font-weight:600">' + v + '</b>';
@@ -4389,6 +4390,7 @@ let winEl = null, winDone = false;
 function showVictory(info) {
   if (GK.mode !== 'play' || winDone) return;
   winDone = true;
+  { const old = document.getElementById('gkEnd'); if (old) old.remove(); }   // a match-over card that arrived first would sit on top of the victory card
   const mine = actors.get(me), type = mine ? mine.goblin : 0;
   const ms = performance.now() - run.t0, secs = Math.floor(ms / 1000), n = GK.roundInfo ? GK.roundInfo().n : 0;
   const items = ((info && info.items) || []).filter(k => k != null);
