@@ -4042,11 +4042,11 @@ GK.fun = (() => {
     if (document.getElementById('gkFunCss')) return;
     const st = document.createElement('style'); st.id = 'gkFunCss';
     st.textContent = '@keyframes gkFeedIn{from{transform:translateX(30px);opacity:0}to{transform:none;opacity:1}}'
-      + '#gkFeed{position:fixed;top:var(--gkFeedTop,12px);right:12px;z-index:31;display:flex;flex-direction:column;align-items:flex-end;gap:5px;pointer-events:none;font:600 14px/1.25 system-ui,sans-serif}'
-      + '#gkFeed div{padding:6px 12px;border-radius:9px;background:rgba(10,10,16,.66);border:1px solid rgba(255,215,94,.3);color:#e9e5da;text-shadow:0 1px 3px #000;animation:gkFeedIn .25s ease-out;transition:opacity .6s;max-width:min(520px,70vw);box-shadow:0 2px 10px rgba(0,0,0,.4)}'
+      + '#gkFeed{position:fixed;top:var(--gkFeedTop,12px);right:12px;z-index:31;display:flex;flex-direction:column;align-items:flex-end;gap:5px;pointer-events:none;font:600 var(--t2,15px)/1.2 var(--ui,system-ui)}'
+      + '#gkFeed div{padding:5px 12px;border-radius:0;border-left:3px solid #a8741a;background:rgba(10,10,16,.66);border:1px solid rgba(255,215,94,.3);color:#e9e5da;text-shadow:0 1px 3px #000;animation:gkFeedIn .25s ease-out;transition:opacity .6s;max-width:min(520px,70vw);box-shadow:0 2px 10px rgba(0,0,0,.4)}'
       + '#gkFeed div.me{border-color:' + GOLDC + ';box-shadow:0 0 14px rgba(255,215,94,.35)}#gkFeed div.fade{opacity:0}#gkFeed b{color:' + GOLDC + '}#gkFeed b.v{color:#ff8a7a}#gkFeed i{color:#fff;font-style:normal}'
-      + '.gkFunBtn{padding:11px 18px;border-radius:10px;font:800 14px system-ui,sans-serif;letter-spacing:.08em;cursor:pointer;pointer-events:auto}'
-      + '.gkFunBtn.g{border:0;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405}.gkFunBtn.o{border:1px solid rgba(255,215,94,.5);background:rgba(10,10,16,.5);color:' + GOLDC + '}.gkFunBtn.w{border:1px solid rgba(255,255,255,.3);background:transparent;color:#f2efe6}';
+      + '.gkFunBtn{padding:11px 18px;border-radius:0;font:700 var(--t2,16px)/1 var(--ui,system-ui);letter-spacing:.2em;text-transform:uppercase;cursor:pointer;pointer-events:auto;transition:transform .15s,box-shadow .15s,filter .15s}.gkFunBtn:hover{transform:translateY(-2px);box-shadow:0 0 14px rgba(245,170,50,.5)}.gkFunBtn:active{transform:translateY(1px);box-shadow:none}'
+      + '.gkFunBtn.g{border:1px solid var(--gold2,#ffe39a);background:linear-gradient(180deg,#ffe39a,#f5c451 55%,#d9962b);color:#1a1104}.gkFunBtn.o{border:1px solid rgba(255,215,94,.5);background:rgba(10,10,16,.5);color:' + GOLDC + '}.gkFunBtn.w{border:1px solid rgba(255,255,255,.3);background:transparent;color:#f2efe6}';
     document.head.appendChild(st);
   };
   const el = (id, css0) => { let e = document.getElementById(id); if (!e) { e = document.createElement('div'); e.id = id; e.style.cssText = css0; document.body.appendChild(e); } return e; };
@@ -4086,7 +4086,7 @@ GK.fun = (() => {
     css(); if (S.spec) return; S.spec = true; if (deathEl) deathEl.style.display = 'none';
     S.tgt = info && info.by != null && actors.has(info.by) ? info.by : (alive()[0] != null ? alive()[0] : null);
     if (!S.bar) {
-      S.bar = el('gkSpecBar', 'position:fixed;left:50%;bottom:3vh;transform:translateX(-50%);z-index:58;display:flex;align-items:center;gap:14px;padding:10px 16px;border-radius:14px;background:rgba(10,10,16,.78);border:1px solid rgba(255,215,94,.45);box-shadow:0 6px 30px rgba(0,0,0,.6);color:#f2efe6;font:600 15px system-ui,sans-serif;max-width:96vw;flex-wrap:wrap;justify-content:center');
+      S.bar = el('gkSpecBar', 'position:fixed;left:50%;bottom:3vh;transform:translateX(-50%);z-index:58;display:flex;align-items:center;gap:14px;padding:10px 16px;border-radius:0;background:linear-gradient(180deg,rgba(20,16,12,.9),rgba(9,7,7,.92));border:1px solid rgba(245,196,81,.35);box-shadow:0 6px 30px rgba(0,0,0,.6);color:#f2efe6;font:600 var(--t2,15px) var(--ui,system-ui);max-width:96vw;flex-wrap:wrap;justify-content:center');
       S.bar.innerHTML = '<button class="gkFunBtn o" id="gkSpL" style="padding:6px 12px">◀</button><div style="min-width:190px;text-align:center"><div class="who"></div><div class="hint" style="font-size:11px;color:#8d887f;letter-spacing:.06em"></div></div><button class="gkFunBtn o" id="gkSpR" style="padding:6px 12px">▶</button>'
         + '<button class="gkFunBtn g" id="gkSpQ">REQUEUE</button><button class="gkFunBtn w" id="gkSpM">MAIN MENU</button>';
       $('gkSpL').onclick = () => cycle(-1); $('gkSpR').onclick = () => cycle(1); $('gkSpQ').onclick = requeue; $('gkSpM').onclick = () => location.reload();
@@ -4116,9 +4116,9 @@ GK.fun = (() => {
     const mine = e.places.find(p => p.id === me), mmss = s => Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
     const line = (k, v) => '<span style="color:#aaa59d">' + k + '</span><b style="text-align:right;font-weight:600">' + v + '</b>';
     const w = e.winner, t = e.top, l = e.longest;
-    const box = S.end = el('gkEnd', 'position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);font-family:system-ui,sans-serif;color:#f2efe6');
-    box.innerHTML = '<div style="width:min(500px,92vw);padding:24px 28px 22px;border-radius:16px;background:rgba(14,12,8,.92);border:1px solid rgba(255,215,94,.55);box-shadow:0 10px 60px rgba(0,0,0,.75);animation:gkFeedIn .3s ease-out">'
-      + '<div style="text-align:center;color:' + GOLDC + ';font-weight:900;font-size:clamp(26px,5vw,40px);letter-spacing:.12em;text-shadow:0 0 22px rgba(255,190,50,.45)">MATCH OVER</div>'
+    const box = S.end = el('gkEnd', 'position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);font-family:var(--ui,system-ui);color:#f2efe6');
+    box.innerHTML = '<div style="width:min(500px,92vw);padding:24px 28px 22px;border-radius:0;background:linear-gradient(180deg,rgba(20,16,12,.94),rgba(9,7,7,.95));border:1px solid rgba(245,196,81,.3);box-shadow:0 10px 60px rgba(0,0,0,.75);animation:gkFeedIn .3s ease-out">'
+      + '<div style="text-align:center;color:' + GOLDC + ';font-family:var(--disp,Georgia,serif);font-weight:900;font-size:clamp(30px,6vw,52px);letter-spacing:.04em;text-transform:uppercase;text-shadow:0 0 22px rgba(255,190,50,.45)">Match over</div>'
       + (e.timeLimit ? '<div style="text-align:center;color:#ff8a7a;font-size:12px;letter-spacing:.14em;margin-top:2px">TIME LIMIT REACHED: MOST KILLS, THEN MOST HP</div>' : '')
       + (mine ? '<div style="text-align:center;margin:6px 0 14px;font-size:clamp(30px,6vw,46px);font-weight:900;color:' + (mine.place === 1 ? '#8be28b' : '#f2efe6') + '">#' + mine.place + ' <small style="font-size:.4em;color:#aaa59d;letter-spacing:.1em">OF ' + e.size + '</small></div>' : '<div style="height:12px"></div>')
       + '<div style="display:grid;grid-template-columns:auto 1fr;gap:7px 20px;font-size:15px">'
@@ -4148,7 +4148,7 @@ GK.fun = (() => {
   function deathButton(info) {
     if (window.GK_OFFLINE) return;
     css(); const q = $('deathQueue'); if (!q) return;
-    const b = document.createElement('button'); b.id = 'deathSpec'; b.className = 'gkFunBtn o'; b.textContent = 'SPECTATE'; b.style.cssText = 'display:block;width:100%;margin-top:18px;padding:12px 10px;font-size:16px';
+    const b = document.createElement('button'); b.id = 'deathSpec'; b.className = 'rbtn'; b.textContent = 'Spectate'; b.style.cssText = 'display:block;width:100%;flex:none;margin-top:var(--s2)';
     q.parentNode.parentNode.insertBefore(b, q.parentNode); q.parentNode.style.marginTop = '12px'; b.onclick = () => startSpec(info);
   }
   function hideDecoy(x, z) {   // the room's static decoy enemy model is replaced by the real NPC
