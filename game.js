@@ -3767,7 +3767,7 @@ const handleMsg0 = d => {
     if (p.id === me && !spawned) { P.x = p.x; P.z = p.z; P.yaw = p.yaw; P.pitch = 0; a.x = p.x; a.z = p.z; spawned = true; }
   }
   const mine = actors.get(me);
-  $('me').textContent = mine ? 'You are: ' + NAMES[mine.goblin] : 'Connecting...';
+  $('me').textContent = mine ? 'You are: ' + NAMES[mine.goblin] : GK.mode === 'dead' ? 'You are out' : GK.mode === 'win' ? 'You won' : 'Connecting...';   // after death or a win my actor is gone: do not claim we are still connecting
   if (mine) showStats(d.players.find(p => p.id === me), mine.goblin);
   $('cnt').textContent = 'Goblin King  ·  ' + actors.size + ' online';
   if (mine && !assigned) { assigned = true; GK.onAssigned && GK.onAssigned(mine.goblin); }
