@@ -4,6 +4,7 @@ const GK = window.GK, THREE = window.THREE;
 const $ = id => document.getElementById(id);
 const TAU = Math.PI * 2;
 const DEFAULTS = { sens: 1, fov: 75, scale: 1, invertY: false, tags: true, fx: true };
+Object.assign(DEFAULTS, GK.feelDefaults || {});   // FEEL: vol, sfx, amb, bob (feel.js)
 const SKIN = ['#9bd45a', '#6dbb44', '#3f8a36', '#4cb8a6', '#a9cc34'];
 const ODDS = [30, 30, 30, 9, 1];
 const FLAVOR = [
@@ -22,9 +23,15 @@ try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s && typeof
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(GK.settings)); } catch (e) {} };
 const ctl = { sens: $('s-sens'), fov: $('s-fov'), scale: $('s-scale') };
 const fmt = { sens: v => (+v).toFixed(2) + 'x', fov: v => Math.round(v) + '°', scale: v => Math.round(v * 100) + '%' };
+// FEEL-BEGIN audio sliders and the head-bob switch
+Object.assign(ctl, { vol: $('s-vol'), sfx: $('s-sfx'), amb: $('s-amb') });
+const pct = v => Math.round(v * 100) + '%'; Object.assign(fmt, { vol: pct, sfx: pct, amb: pct });
+GK.feelSync = () => { $('s-bob').checked = GK.settings.bob !== false; };
+$('s-bob').onchange = e => { GK.settings.bob = e.target.checked; save(); };
+// FEEL-END
 function syncUI() {
   for (const k in ctl) { ctl[k].value = GK.settings[k]; $('o-' + k).textContent = fmt[k](GK.settings[k]); const p = (ctl[k].value - ctl[k].min) / (ctl[k].max - ctl[k].min); ctl[k].style.setProperty('--p', (p * 100) + '%'); }
-  $('s-inv').checked = GK.settings.invertY; $('s-tags').checked = GK.settings.tags; $('s-fx').checked = GK.settings.fx;
+  $('s-inv').checked = GK.settings.invertY; $('s-tags').checked = GK.settings.tags; $('s-fx').checked = GK.settings.fx; GK.feelSync && GK.feelSync();
 }
 for (const k in ctl) ctl[k].addEventListener('input', () => { GK.settings[k] = +ctl[k].value; syncUI(); GK.applySettings(); save(); });
 $('s-inv').onchange = e => { GK.settings.invertY = e.target.checked; GK.applySettings(); save(); };

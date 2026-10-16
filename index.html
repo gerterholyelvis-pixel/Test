@@ -196,6 +196,12 @@ table.keys{border-collapse:collapse;width:100%}
     <div class="row chk"><label for="s-inv">Invert Y axis</label><input id="s-inv" type="checkbox"></div>
     <div class="row chk"><label for="s-tags">Name tags</label><input id="s-tags" type="checkbox"></div>
     <div class="row chk"><label for="s-fx">Post effects (bloom)</label><input id="s-fx" type="checkbox"></div>
+    <!-- FEEL-BEGIN -->
+    <div class="row"><label for="s-vol">Master volume</label><input id="s-vol" type="range" min="0" max="1" step="0.01"><output id="o-vol"></output></div>
+    <div class="row"><label for="s-sfx">Effects volume</label><input id="s-sfx" type="range" min="0" max="1" step="0.01"><output id="o-sfx"></output></div>
+    <div class="row"><label for="s-amb">Ambient volume</label><input id="s-amb" type="range" min="0" max="1" step="0.01"><output id="o-amb"></output></div>
+    <div class="row chk"><label for="s-bob">Head bob</label><input id="s-bob" type="checkbox"></div>
+    <!-- FEEL-END -->
    </div>
    <div class="brow"><button class="mbtn small" id="s-back">Back</button><button class="mbtn small" id="s-reset">Reset defaults</button></div>
   </div>
@@ -241,7 +247,7 @@ table.keys{border-collapse:collapse;width:100%}
  </div>
 </div>
 
-<script src="/world.js"></script><script src="/items.js"></script><script src="/save.js"></script><script src="/icons.js"></script>
+<script src="/audio.js"></script><script src="/feel.js"></script><script src="/world.js"></script><script src="/items.js"></script><script src="/save.js"></script><script src="/icons.js"></script>
 <script type="module">
 import * as THREE from 'three';
 window.THREE = THREE;

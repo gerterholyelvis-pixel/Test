@@ -2255,6 +2255,7 @@ if (GK.layout && GK.CHEST_ROOMS) { /* the rooms agent calls buildMysteryContents
       g.fillStyle = look[0]; g.fillRect(x, y, w, w);
       g.strokeStyle = look[1]; g.lineWidth = 3; g.strokeRect(x + 1.5, y + 1.5, w - 3, w - 3);
       look[2](g, x + w / 2 - c.dx * 3, y + w / 2 - c.dz * 3, 1.5);
+      /* FEEL-BEGIN */ if (GK.claimedRooms && GK.claimedRooms.has(c.id)) { g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillRect(x, y, w, w); g.strokeStyle = '#5dff8a'; g.lineWidth = 9; g.lineCap = 'round'; g.lineJoin = 'round'; g.beginPath(); g.moveTo(x + w * 0.28, y + w * 0.52); g.lineTo(x + w * 0.45, y + w * 0.7); g.lineTo(x + w * 0.74, y + w * 0.3); g.stroke(); g.lineCap = 'butt'; } /* FEEL-END */
     }
     // main rooms
     for (let i = 0; i < 9; i++) {
@@ -3041,7 +3042,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + (opts && opts.goblin != null ? '/?goblin=' + (opts.goblin | 0) + '&wins=' + (Math.max(0, (opts.wins | 0))) : (opts && opts.wins ? '/?wins=' + (opts.wins | 0) : '')));
     const net = { send: m => ws.readyState === 1 && ws.send(JSON.stringify(m)), onmessage: null };
     ws.onmessage = e => { let d; try { d = JSON.parse(e.data); } catch (err) { return; } net.onmessage && net.onmessage(d); };
-    ws.onclose = () => { const m = document.getElementById('me'); if (m) m.textContent = 'Disconnected - reload to rejoin'; };
+    ws.onclose = () => { const m = document.getElementById('me'); if (m) m.textContent = 'Disconnected - reload to rejoin'; /* FEEL-BEGIN */ if (GK.feel) GK.feel.onClose(); /* FEEL-END */ };
     return net;
   }
   const roll = () => { const r = Math.random() * 100; return r < 30 ? 0 : r < 60 ? 1 : r < 90 ? 2 : r < 99 ? 3 : 4; };
@@ -3054,7 +3055,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     return { id: nid++, goblin, box, x, z, yaw: Math.atan2(-(cx - x), -(cz - z)), bot, tx: cx, tz: cz, wait: Math.random() * 2, seq, inv: startInv(goblin), know: (itemsData().KNOWLEDGE || [])[goblin] != null ? itemsData().KNOWLEDGE[goblin] : STATS[goblin].knowledge, parts: Object.fromEntries((itemsData().PARTS || []).map(p => [p.key, 0])), gold: itemsData().START_GOLD != null ? itemsData().START_GOLD : 100, wins: bot ? Math.max(0, myWins + Math.floor(Math.random() * 3) - 1) : myWins };
   };
   const clone = v => JSON.parse(JSON.stringify(v));
-  let layoutSim = null, shopsSim = null;
+  let layoutSim = null, shopsSim = null, chestKeysSim = null, claimedSim = new Set();   // FEEL: chestKeysSim / claimedSim back the offline claim
   const sendInv = () => net.onmessage && meP && net.onmessage({ inv: clone(meP.inv) });
   const sendGold = () => net.onmessage && meP && net.onmessage({ gold: meP.gold });
   const sendParts = () => net.onmessage && meP && net.onmessage({ parts: clone(meP.parts) });
@@ -3121,7 +3122,26 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
       if (m.atk === 1) simAtk();
       if (m.enter === 1 && !rs.started) { rs.started = true; rs.endsAt = performance.now() + rs.dur; botPlan(); emitRound(); }
       if (Number.isInteger(m.sel) && meP) { const k = roomKeyAt(meP.x, meP.z); if ((ROOM_DOORS[k] || []).includes(m.sel) && rs.sel[k] !== m.sel) { rs.sel[k] = m.sel; emitRound(); } }
-      if (m.m && meP) { [meP.x, meP.z, meP.yaw] = m.m; meP.box = roomAt(meP.x, meP.z); } if (m.reroll) { const o = list.indexOf(meP); seq++; meP = mk(false); meP.id = list[o].id; list[o] = meP; sendInv(); sendGold(); sendParts(); emit(); }
+      if (m.m && meP) { [meP.x, meP.z, meP.yaw] = m.m; meP.box = roomAt(meP.x, meP.z); } if (m.reroll) { claimedSim.clear(); net.onmessage && net.onmessage({ claimedReset: 1 }); const o = list.indexOf(meP); seq++; meP = mk(false); meP.id = list[o].id; list[o] = meP; sendInv(); sendGold(); sendParts(); emit(); }
+      // FEEL-BEGIN offline claim: mirrors server.js claim() (E in a chest room or a weapon / armour / gold mystery room, once per player)
+      if (m.claim === 1 && meP) {
+        const id = roomIdAt(), L = id >= 0 && layoutSim ? layoutSim[id] : null, my = id >= 0 && mysterySim ? mysterySim[id] : null;
+        let key = null, gold = 0, why = null;
+        if (L === 'chest') key = chestKeysSim && chestKeysSim[id];
+        else if (L === 'mystery' && my && (my.kind === 'weapon' || my.kind === 'armor')) key = my.key;
+        else if (L === 'mystery' && my && my.kind === 'gold') gold = my.amount;
+        else why = 'room';
+        if (!why && claimedSim.has(id)) why = 'taken';
+        if (!why && key && meP.inv.backpack.indexOf(null) < 0) why = 'space';
+        if (why) net.onmessage && net.onmessage({ claimFail: why });
+        else {
+          if (key) { meP.inv.backpack[meP.inv.backpack.indexOf(null)] = key; sendInv(); }
+          claimedSim.add(id);
+          if (gold) { meP.gold += gold; sendGold(); }
+          net.onmessage && net.onmessage({ claimed: { room: id, key: key || null, gold } }); emit();
+        }
+      }
+      // FEEL-END
       if (Array.isArray(m.mv) && meP) { invMove(meP.inv, m.mv[0], m.mv[1]); sendInv(); emit(); }   // same rules as the server; always answer with the real inventory
       if (typeof m.drop === 'string' && meP) { invDrop(meP.inv, m.drop); sendInv(); emit(); }
       if (typeof m.eat === 'string' && meP) {
@@ -3172,7 +3192,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     },
   };
   meP = mk(false); list = [meP, mk(true), mk(true), mk(true), mk(true)];
-  setTimeout(() => { net.onmessage && net.onmessage({ you: meP.id, ...(() => { const layout = GKITEMS.randomLayout(); layoutSim = layout; mysterySim = layout.map(t => t === 'mystery' ? GKITEMS.randomMystery() : null); shopsSim = layout.map(t => t === 'merchant' ? GKITEMS.randomShop() : null); return { layout, mystery: mysterySim, shops: clone(shopsSim) }; })(), chests: Array.from({ length: CHEST_ROOMS.length }, () => Math.floor(Math.random() * WEAPONS.length)), chestKeys: Array.from({ length: CHEST_ROOMS.length }, () => GKITEMS.randomWeaponKey()), ...rmsg() }); sendInv(); sendGold(); sendParts(); sendMatch(); emit(); }, 50);
+  setTimeout(() => { net.onmessage && net.onmessage({ you: meP.id, ...(() => { const layout = GKITEMS.randomLayout(); layoutSim = layout; mysterySim = layout.map(t => t === 'mystery' ? GKITEMS.randomMystery() : null); shopsSim = layout.map(t => t === 'merchant' ? GKITEMS.randomShop() : null); return { layout, mystery: mysterySim, shops: clone(shopsSim) }; })(), chests: Array.from({ length: CHEST_ROOMS.length }, () => Math.floor(Math.random() * WEAPONS.length)), chestKeys: (chestKeysSim = Array.from({ length: CHEST_ROOMS.length }, () => GKITEMS.randomWeaponKey())), ...rmsg() }); sendInv(); sendGold(); sendParts(); sendMatch(); emit(); }, 50);
   botPlan();
   setInterval(() => {
     const now = performance.now();
@@ -3212,6 +3232,7 @@ const actors = new Map();
 let me = 0, spawned = false;
 const P = { x: 0, z: 0, yaw: 0, pitch: 0, speed: 0 };
 const handleMsg = d => {
+  /* FEEL-BEGIN */ if (GK.feel) GK.feel.onMsg(d); /* FEEL-END */
   if (d.layout) applyLayout(d.layout, d.mystery);
   if (d.chestKeys || d.chests) applyChests(d.chestKeys || d.chests);   // item keys like 'w:axe' (new), or legacy indices
   if (d.drops) applyDrops(d.drops);
@@ -3652,7 +3673,7 @@ function setHover(id, kind) {
   if (id === hoverRoom && (kind || '') === hoverKind) return; hoverRoom = id; hoverKind = kind || '';
   const dot = $('dot'); if (dot) { dot.style.transition = 'transform .12s'; dot.style.transform = id >= 0 ? 'scale(3)' : ''; dot.style.opacity = id >= 0 ? 1 : ''; }
   if (!hoverTip) { hoverTip = document.createElement('div'); hoverTip.style.cssText = 'position:fixed;left:50%;top:calc(50% + 24px);transform:translateX(-50%);z-index:25;pointer-events:none;padding:4px 12px;border-radius:8px;background:rgba(10,8,6,.8);border:1px solid rgba(255,215,94,.55);color:' + GOLD + ';font:700 13px system-ui,sans-serif;letter-spacing:.08em;display:none;white-space:nowrap'; document.body.appendChild(hoverTip); }
-  hoverTip.innerHTML = 'Press <b style="padding:1px 6px;border-radius:4px;background:#ffd75e;color:#1a1405">E</b> to ' + (hoverKind === 'r' ? 'recycle' : hoverKind === 'w' ? 'craft' : 'trade'); hoverTip.style.display = id >= 0 ? 'block' : 'none';
+  hoverTip.innerHTML = 'Press <b style="padding:1px 6px;border-radius:4px;background:#ffd75e;color:#1a1405">E</b> to ' + (hoverKind === 'r' ? 'recycle' : hoverKind === 'w' ? 'craft' : 'trade'); hoverTip.style.display = /* FEEL: shown by feel.js */ false ? 'block' : 'none';
 }
 function merchantHoverTick() {
   const T = [...(GK.merchantTargets || []), ...(GK.stationTargets || []).filter(o => o && o.userData && (o.userData.station === 'recycler' || o.userData.station === 'workbench'))];
@@ -3830,7 +3851,7 @@ function nearestPile() {
 function lootPromptTick() {
   const near = GK.mode === 'play' && !invOpen && !shopOpen && spawned ? nearestPile() : null;
   if (!lootPromptEl) { lootPromptEl = document.createElement('div'); lootPromptEl.style.cssText = 'position:fixed;left:50%;top:62%;transform:translateX(-50%);z-index:25;pointer-events:none;padding:5px 14px;border-radius:8px;background:rgba(10,8,6,.8);border:1px solid rgba(255,215,94,.6);color:' + GOLD + ';font:700 14px system-ui,sans-serif;letter-spacing:.08em;display:none'; lootPromptEl.innerHTML = 'Press <b style="padding:1px 6px;border-radius:4px;background:#ffd75e;color:#1a1405">E</b> to loot'; document.body.appendChild(lootPromptEl); }
-  lootPromptEl.style.display = near ? 'block' : 'none';
+  lootPromptEl.style.display = /* FEEL: shown by feel.js */ 'none';
 }
 GK.nearestPile = nearestPile; GK.drops = () => dropsList;
 function buildLoot() { lootPn = mkPanel('gkLoot', 'LOOT', 560); lootPn.sub.textContent = 'A DEAD GOBLIN\'S BAG'; lootPn.list = document.createElement('div'); lootPn.list.style.cssText = 'display:flex;flex-direction:column;gap:7px'; lootPn.body.appendChild(lootPn.list); }
@@ -4147,6 +4168,7 @@ function frame(now) {
   const dt = clamp((now - last) / 1000, 0.001, 0.05); last = now; const t = now / 1000;
   if (GK.mode !== 'play' && GK.mode !== 'dead' && GK.mode !== 'win') { GK.menu && GK.menu.render(now, dt); requestAnimationFrame(frame); return; }
   panelTick();
+  /* FEEL-BEGIN */ if (GK.feel) GK.feel.tick(dt, now); /* FEEL-END */
   const mine = actors.get(me);
   // my movement
   if (mine && spawned && GK.mode === 'play' && !invOpen && !shopOpen) {
@@ -4224,8 +4246,9 @@ function frame(now) {
   ceilings.forEach(c => c.visible = inside);
   if (inside && mine && spawned) {
     const eye = 1.5 * SCALE[mine.goblin];
-    cam.fov = GK.settings.fov; cam.position.set(P.x, eye + Math.sin(mine.phase) * 0.035 * clamp(P.speed / 3.5, 0, 1), P.z);
+    cam.fov = GK.settings.fov; cam.position.set(P.x, eye + (GK.settings.bob === false ? 0 : Math.sin(mine.phase) * 0.035 * clamp(P.speed / 3.5, 0, 1)), P.z);   // FEEL: head bob can be switched off in Settings
     cam.rotation.set(P.pitch, P.yaw, 0);
+    /* FEEL-BEGIN */ if (GK.feel) GK.feel.camera(cam, dt, mine); /* FEEL-END */
   } else {
     if (!inside) orbit += dt * 0.05;
     const dist = innerHeight > innerWidth ? 80 : 60;   // overview orbit radius (the world is +-29 m with the chest rooms)
@@ -4249,5 +4272,10 @@ GK.skipMenu = () => {   // for tests: straight into the rooms, with the title me
   const mn = $('menu'); if (mn) mn.classList.add('gone'); document.body.classList.remove('menu');
   GK.mode = 'play'; GK.start().then(() => { net.send({ enter: 1 }); GK.showStats(); });
 };
+// FEEL-BEGIN (read-only window into game state for feel.js: sounds, interaction prompts, disconnect overlay)
+GK.feelApi = { P, actors, doors, keys, CHEST_ROOMS, roomKeyAt, nearestPile, hover: () => ({ room: hoverRoom, kind: hoverKind }),
+  get me() { return me; }, get invOpen() { return invOpen; }, get shopOpen() { return shopOpen; }, get panelKind() { return panelKind; },
+  get spawned() { return spawned; }, get inside() { return inside; }, get cpAim() { return cpAim; } };
+// FEEL-END
 window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw, pitch) { P.x = x; P.z = z; P.yaw = yaw; P.pitch = pitch || 0; spawned = true; }, toggleOverview() { inside = !inside; }, build: buildGoblin };
 })();
