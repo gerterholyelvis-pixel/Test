@@ -650,8 +650,8 @@ function routeTo(m, p, key, pt) {   // set p.brain.route: waypoints through the 
 const BN = require('./botnav.js');   // NAV: obstacle steering, stuck detection, stat-based item picks (see docs/reports/bot-nav.md)
 const NO_OBS = [];
 function obstaclesFor(m, room) {   // solid props of a room as [{x, z, hw, hd} | {x, z, r}]: world.js (obstaclesIn(room) or OBSTACLES), else the match (m.obstacles: an array, or a map room -> array). [] when there are none.
-  let o = typeof WORLD.obstaclesIn === 'function' ? WORLD.obstaclesIn(room, m) : null;
-  if (!o && m && m.obstacles) o = Array.isArray(m.obstacles) ? m.obstacles : m.obstacles[room];
+  let o = m && m.obstacles ? (Array.isArray(m.obstacles) ? m.obstacles : m.obstacles[room]) : null;
+  if (!o && typeof WORLD.obstaclesIn === 'function') o = WORLD.obstaclesIn(room, m);
   if (!o && Array.isArray(WORLD.OBSTACLES)) o = WORLD.OBSTACLES;
   if (!o || !o.length) return NO_OBS;
   return o.some(q => q.room !== undefined) ? o.filter(q => q.room === undefined || String(q.room) === room) : o;   // a flat list may tag each obstacle with its room
