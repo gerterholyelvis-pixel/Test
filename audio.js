@@ -163,6 +163,7 @@
     invOpen(out, t) { noise(out, t, 0.2, 0.28, 'bandpass', 500, 1700, 0.9, { a: 0.05 }); tone(out, 'triangle', 330, t, 0.1, 0.1, { f1: 440 }); },
     invClose(out, t) { noise(out, t, 0.18, 0.26, 'bandpass', 1700, 450, 0.9, { a: 0.03 }); tone(out, 'triangle', 440, t, 0.1, 0.1, { f1: 300 }); },
     uiHover(out, t) { tone(out, 'sine', 1560, t, 0.05, 0.1, { a: 0.003 }); },
+    tip(out, t) { tone(out, 'sine', 880, t, 0.5, 0.16, { a: 0.01 }); tone(out, 'sine', 1318, t + 0.09, 0.6, 0.12, { a: 0.01 }); },   // TIPS: soft two-note chime
     uiClick(out, t) { tone(out, 'triangle', 620, t, 0.09, 0.3, { f1: 420, a: 0.002 }); tone(out, 'sine', 1240, t, 0.07, 0.12, { a: 0.002 }); noise(out, t, 0.02, 0.1, 'highpass', 4000, 5000, 0.5, { a: 0.001 }); },
     tick(out, t) { tone(out, 'sine', 1040, t, 0.07, 0.4, { a: 0.002 }); noise(out, t, 0.015, 0.25, 'bandpass', 2600, 2200, 3, { a: 0.001 }); },
     tickLast(out, t) { tone(out, 'sine', 1560, t, 0.14, 0.5, { a: 0.002 }); tone(out, 'triangle', 780, t, 0.14, 0.2, { a: 0.002 }); noise(out, t, 0.02, 0.3, 'bandpass', 3000, 2400, 3, { a: 0.001 }); },
