@@ -12,3 +12,7 @@ Tested:
 - Screenshot: `docs/screens/vault.jpg`.
 
 Not tested: walking through every door to check clipping (the browser pane throttles frames when hidden, so automated walking stalled), vault 2-rooms-to-pick rule after the resize, merchant/mystery interiors and stations by hand, minimap by eye, full screenshot pass.
+
+## Follow-up (playtest prep)
+- Chest rooms and mystery weapon/armour/gold rooms now give their contents: press E inside (server `{claim:1}`, once per player per room; toast shows what you took). Tested over ws: claim, repeat ("taken"), outside a room ("room"). Offline demo mode does not support claiming yet.
+- Door votes from a room are dropped when the last player in it leaves or dies (stale vault votes).

@@ -63,8 +63,10 @@ function findMatch(wins) {
   return best ? best.m : newMatch();
 }
 function leave(m, ws) { // remove a player from their match; empty matches disappear
+  const gone = m.players.get(ws);
   if (!m.players.delete(ws)) return;
   m.dirty = true;
+  if (gone && m.sel[gone.room] != null && ![...m.players.values()].some(q => q.room === gone.room)) { delete m.sel[gone.room]; broadcastRound(m); } // an empty room's door vote no longer counts
   if (!m.players.size) matches.delete(m.id); else broadcastMatch(m);
 }
 setInterval(() => { // one global timer steps every match
@@ -137,6 +139,23 @@ function buy(m, p, roomId, idx) { // returns null on success or a failure reason
   if (p.inv.backpack.indexOf(null) < 0) return 'space';
   giveItem(p, it.key); p.gold -= it.price; it.sold = true;
   sendGold(p); bcast(m, { shops: m.shops });
+  return null;
+}
+function claim(m, p) { // E in a chest room or a weapon/armour/gold mystery room: each player takes its contents once
+  const id = /^c[0-9]+$/.test(p.room || '') ? +p.room.slice(1) : -1;
+  if (id < 0 || id >= m.layout.length) return 'room';
+  const L = m.layout[id], my = m.mystery[id];
+  let key = null, gold = 0;
+  if (L === 'chest') key = m.chestKeys[id];
+  else if (L === 'mystery' && my && (my.kind === 'weapon' || my.kind === 'armor')) key = my.key;
+  else if (L === 'mystery' && my && my.kind === 'gold') gold = my.amount;
+  else return 'room';
+  p.claimed = p.claimed || new Set();
+  if (p.claimed.has(id)) return 'taken';
+  if (key && !giveItem(p, key)) return 'space';
+  p.claimed.add(id);
+  if (gold) { p.gold += gold; sendGold(p); }
+  sendTo(p.ws, { claimed: { room: id, key, gold } }); m.dirty = true;
   return null;
 }
 const sendInv = p => { if (p.ws) sendTo(p.ws, { inv: p.inv }); };
@@ -244,6 +263,7 @@ wss.on('connection', (ws, req) => {
       const why = craft(m, p, d.craft); if (why) sendTo(ws, { craftFail: why });
     } else if (typeof d.recycle === 'string') {
       const why = recycle(m, p, d.recycle); if (why) sendTo(ws, { recycleFail: why });
+    } else if (d.claim === 1) { const why = claim(m, p); if (why) sendTo(ws, { claimFail: why });
     } else if (Array.isArray(d.buy) && d.buy.length === 2) {
       const why = buy(m, p, d.buy[0], d.buy[1]); if (why) sendTo(ws, { buyFail: why });
     } else if (Array.isArray(d.mv) && d.mv.length === 2) {

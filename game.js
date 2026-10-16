@@ -3175,6 +3175,8 @@ const handleMsg = d => {
   if (d.shops) applyShops(d.shops);
   if (d.gold != null) setGold(d.gold);
   if (d.buyFail) shopFail(d.buyFail);
+  if (d.claimed) toastMsg(d.claimed.key ? 'Took ' + ((infoOf(d.claimed.key) || {}).name || d.claimed.key) : '+' + d.claimed.gold + ' gold', true);
+  if (d.claimFail && d.claimFail !== 'room') toastMsg({ taken: 'Already taken', space: 'Your backpack is full' }[d.claimFail] || 'Nothing to take', false);
   if (d.parts) setParts(d.parts);
   if (d.recycled) recycledFx(d.recycled);
   if (d.recycleFail) stationFail('recycle', d.recycleFail);
@@ -3487,7 +3489,7 @@ addEventListener('keydown', e => {
   }
   if (e.code === 'KeyE' && !invOpen) {   // one interact key: control panel, then merchant / station, then a loot pile underfoot
     if (cpInteract() || stationInteract()) return;
-    if (nearestPile()) openStation('loot', nearestPile().id);
+    if (nearestPile()) openStation('loot', nearestPile().id); else net.send({ claim: 1 });   // chest / mystery room contents
     return;
   }
   if (window.GK_OFFLINE && e.code === 'KeyG' && netReal && netReal.demoGive) netReal.demoGive();
@@ -3802,6 +3804,12 @@ function paintLoot() {
   const all = document.createElement('button'); all.id = 'lootAll'; all.textContent = 'TAKE ALL'; all.style.cssText = 'margin-top:4px;padding:11px;border:0;border-radius:10px;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font:800 14px system-ui,sans-serif;letter-spacing:.12em;cursor:pointer';
   all.onclick = () => { const free = myInv.backpack.filter(k => k == null).length; d.items.slice(0, free).forEach(k => net.send({ loot: [d.id, 0, 'take', k] })); if (d.items.length > free) say(lootPn, 'Not everything fits in your backpack'); };   // each take shifts the next item to index 0
   list.appendChild(all);
+}
+let toastEl = null;
+function toastMsg(text, good) {   // short message in the middle of the screen
+  if (!toastEl) { toastEl = document.createElement('div'); toastEl.style.cssText = 'position:fixed;left:50%;top:38%;transform:translateX(-50%);padding:8px 16px;border-radius:8px;background:rgba(10,10,14,.75);font:600 16px system-ui,sans-serif;pointer-events:none;transition:opacity .4s;z-index:50'; document.body.appendChild(toastEl); }
+  toastEl.textContent = text; toastEl.style.color = good ? '#ffd76a' : '#ff8a7a'; toastEl.style.opacity = '1';
+  clearTimeout(toastEl.t); toastEl.t = setTimeout(() => { toastEl.style.opacity = '0'; }, 1800);
 }
 function lootFailFx(why) { if (panelKind === 'loot') say(lootPn, { range: 'Too far from the bag', space: 'Your backpack is full', item: 'Someone took that first' }[why] || 'Cannot loot that'); }
 GK.openLoot = () => { const d = nearestPile(); if (d) openStation('loot', d.id); return !!d; };
