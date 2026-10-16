@@ -3125,7 +3125,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
       b.chase = true; b.yaw = Math.atan2(-dx, -dz);
       const stop = c.ranged ? 4 : 1.7;
       if (d > stop) { b.x += dx / d * 2.4 * 0.1; b.z += dz / d * 2.4 * 0.1; b.box = roomAt(b.x, b.z); }
-      if (!window.GK_BOTS_PASSIVE && d <= c.range && now - (b.atkAt || 0) >= c.cd * 1.8) { b.atkAt = now; net.onmessage && net.onmessage({ swing: b.id }); if (inCone(b, meP, c.range + 0.3)) simHit(meP, c.dmg, b); }
+      if (!window.GK_BOTS_PASSIVE && rs.n > 1 && now - rs.goAt >= 20000 && d <= c.range && now - (b.atkAt || 0) >= c.cd * 1.8) { b.atkAt = now; net.onmessage && net.onmessage({ swing: b.id }); if (inCone(b, meP, c.range + 0.3)) simHit(meP, c.dmg, b); }
     }
   }, 100);
   // COMBAT-END
@@ -3134,7 +3134,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     send(m) {
       if (typeof m.ping === 'number') net.onmessage && net.onmessage({ pong: m.ping, t: Math.round(performance.now()) });
       if (m.atk === 1) simAtk();
-      if (m.enter === 1 && !rs.started) { rs.started = true; rs.endsAt = performance.now() + rs.dur; botPlan(); emitRound(); }
+      if (m.enter === 1 && !rs.started) { rs.started = true; rs.goAt = performance.now(); rs.endsAt = performance.now() + rs.dur; botPlan(); emitRound(); }
       if (Number.isInteger(m.sel) && meP) { const k = roomKeyAt(meP.x, meP.z); if ((ROOM_DOORS[k] || []).includes(m.sel) && rs.sel[k] !== m.sel) { rs.sel[k] = m.sel; emitRound(); } }
       if (m.m && meP) { [meP.x, meP.z, meP.yaw] = m.m; meP.box = roomAt(meP.x, meP.z); } if (m.reroll) { claimedSim.clear(); net.onmessage && net.onmessage({ claimedReset: 1 }); const o = list.indexOf(meP); seq++; meP = mk(false); meP.id = list[o].id; list[o] = meP; sendInv(); sendGold(); sendParts(); emit(); }
       // FEEL-BEGIN offline claim: mirrors server.js claim() (E in a chest room or a weapon / armour / gold mystery room, once per player)
