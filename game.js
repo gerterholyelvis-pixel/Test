@@ -5481,6 +5481,11 @@ function fxApplyQuality(force) {
   }
   if (PERF2_ON) { for (const d of doors) if (d.halo) d.halo.visible = GK.settings.gfx !== 'low'; perf2Quality(); }   // PERF2: the small additive halos round the door lamps and keypads (up to 8 draw calls per vault door) are dropped on Low
   aoM.opacity = cornerM.opacity = q.ao && GK.settings.fx ? 0.55 : 1;   // the baked corner shading is lighter when GTAO adds real AO
+  if (fx && fx.makeBloom) {   // bloom mips and edge fringing follow the preset
+    const n = GK.settings.gfx === 'ultra' ? 5 : GK.settings.gfx === 'high' ? 4 : 3, b = fx.bloomCache[n] || (fx.bloomCache[n] = fx.makeBloom(n));
+    if (fx.composer.passes[fx.bloomPassIdx] !== b) { fx.composer.passes[fx.bloomPassIdx] = b; fx.bloom = b; fxResize(); }
+    fx.final.material.uniforms.uCA.value = q.ao > 0 ? 1 : 0;
+  }
   if (fx && fx.gtao) { fx.gtao.enabled = q.ao > 0; fx.gtao.updateGtaoMaterial({ samples: q.ao > 1 ? 16 : 12 }); fx.gtao.updatePdMaterial({ samples: q.ao > 1 ? 16 : 8 }); fx.aoHalf = q.ao === 1; fxResize(); }
 }
 (async () => {   // image-based lighting: PMREM of three's RoomEnvironment replaces the small studio box built at startup
@@ -5493,48 +5498,77 @@ function fxApplyQuality(force) {
 })();
 (async () => {
   try {
-    const [{ EffectComposer }, { RenderPass }, { UnrealBloomPass }, { ShaderPass }, { OutputPass }, { GTAOPass }] = await Promise.all([
+    const [{ EffectComposer }, { RenderPass }, { UnrealBloomPass }, { ShaderPass }, { GTAOPass }] = await Promise.all([
       import('three/addons/postprocessing/EffectComposer.js'), import('three/addons/postprocessing/RenderPass.js'),
-      import('three/addons/postprocessing/UnrealBloomPass.js'), import('three/addons/postprocessing/ShaderPass.js'), import('three/addons/postprocessing/OutputPass.js'),
+      import('three/addons/postprocessing/UnrealBloomPass.js'), import('three/addons/postprocessing/ShaderPass.js'),
       import('three/addons/postprocessing/GTAOPass.js')]);
     const pr = renderer.getPixelRatio();
-    const rt = new THREE.WebGLRenderTarget(innerWidth * pr, innerHeight * pr, { type: THREE.HalfFloatType, samples: 4 });   // MSAA kept inside the composer
+    // MSAA HDR target with a depth texture: GTAO reads the scene pass's own depth, so there is no second (normal) scene pass
+    const rt = new THREE.WebGLRenderTarget(innerWidth * pr, innerHeight * pr, { type: THREE.HalfFloatType, samples: 4, depthTexture: new THREE.DepthTexture(innerWidth * pr, innerHeight * pr) });
     const composer = new EffectComposer(renderer, rt);
     composer.addPass(new RenderPass(scene, cam));
-    // GTAO ambient occlusion (High: half resolution, Ultra: full). Sprites, points, lines and see-through decals stay out of its normal/depth pass.
+    // GTAO ambient occlusion (High: half resolution, Ultra: full), normals rebuilt from depth; the result multiplies into the scene buffer in place
     const gtao = new GTAOPass(scene, cam, innerWidth, innerHeight, undefined, { radius: 1.1, distanceExponent: 2, thickness: 2, scale: 1.9, samples: 12, distanceFallOff: 1 }, { lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 8 });
-    gtao.blendIntensity = 1;
-    gtao._overrideVisibility = function () {
-      const c = this._visibilityCache;
-      if (fxCull.active) {   // AO only for the camera's room and its open neighbours (far rooms seen through doors get none: half the normal-pass draw calls)
-        for (const o of this.scene.children) { const k = o.visible && fxCull.cls.get(o); if (k && !fxAny(k, fxCull.near)) c.push(o); }
-        for (const a of actors.values()) { const g = a.group; if (g && g.visible && !fxCull.near.has(WORLD.roomKeyOf(a.x, a.z))) c.push(g); }
-      }
-      this.scene.traverseVisible(o => { const m = o.material; if (o.isPoints || o.isLine || o.isSprite || (m && !Array.isArray(m) && ((m.transparent && !m.depthWrite) || m.blending === THREE.AdditiveBlending))) c.push(o); });
-      for (const o of c) o.visible = false;
+    gtao.blendIntensity = 1; gtao._renderGBuffer = false; gtao.normalTexture = null; gtao.needsSwap = false;
+    for (const m of [gtao.gtaoMaterial, gtao.pdMaterial]) { m.defines.NORMAL_VECTOR_TYPE = 0; m.defines.DEPTH_SWIZZLING = 'x'; m.needsUpdate = true; }
+    gtao.render = function (renderer, writeBuffer, readBuffer) {
+      const dt = readBuffer.depthTexture, gu = this.gtaoMaterial.uniforms, pu = this.pdMaterial.uniforms;
+      gu.tDepth.value = pu.tDepth.value = this.depthTexture = dt;
+      gu.cameraNear.value = this.camera.near; gu.cameraFar.value = this.camera.far;
+      gu.cameraProjectionMatrix.value.copy(this.camera.projectionMatrix); gu.cameraProjectionMatrixInverse.value.copy(this.camera.projectionMatrixInverse); gu.cameraWorldMatrix.value.copy(this.camera.matrixWorld);
+      this._renderPass(renderer, this.gtaoMaterial, this.gtaoRenderTarget, 0xffffff, 1.0);
+      pu.cameraProjectionMatrixInverse.value.copy(this.camera.projectionMatrixInverse);
+      this._renderPass(renderer, this.pdMaterial, this.pdRenderTarget, 0xffffff, 1.0);
+      this.blendMaterial.uniforms.intensity.value = this.blendIntensity; this.blendMaterial.uniforms.tDiffuse.value = this.pdRenderTarget.texture;
+      this._renderPass(renderer, this.blendMaterial, readBuffer);   // multiply blend straight into the scene buffer (no copy pass)
     };
     const gs = gtao.setSize.bind(gtao); gtao.setSize = (w, h) => (fx && fx.aoHalf) ? gs(Math.max(1, w >> 1), Math.max(1, h >> 1)) : gs(w, h);
     composer.addPass(gtao);
-    const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.22, 0.2, 2.8);   // strength, radius, threshold (HDR, linear)
-    const bs = bloom.setSize.bind(bloom); bloom.setSize = (w, h) => bs(Math.max(1, w >> 1), Math.max(1, h >> 1));   // bloom at half resolution
-    composer.addPass(bloom);
-    composer.addPass(new OutputPass());   // tone mapping + sRGB
-    const grain = new ShaderPass({
-      uniforms: { tDiffuse: { value: null }, uTime: { value: 0 } },
-      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-      fragmentShader: `uniform sampler2D tDiffuse; uniform float uTime; varying vec2 vUv;
+    // bloom at half resolution; the mip count is a preset setting (3 on Medium, 4 on High, 5 on Ultra), one pass per count, built on demand
+    const bloomCache = {};
+    const makeBloom = n => {
+      const b = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.22, 0.2, 2.8);   // strength, radius, threshold (HDR, linear)
+      while (b.nMips > n) { b.nMips--; b.renderTargetsHorizontal.pop().dispose(); b.renderTargetsVertical.pop().dispose(); b.separableBlurMaterials.pop().dispose(); }
+      const old = b.compositeMaterial; b.bloomTintColors.length = n;
+      let tex = '', sum = ''; for (let i = 1; i <= n; i++) { tex += 'uniform sampler2D blurTexture' + i + ';\n'; sum += (i > 1 ? ' +\n' : '') + 'lerpBloomFactor(bloomFactors[' + (i - 1) + ']) * bloomTintColors[' + (i - 1) + '] * texture2D(blurTexture' + i + ', vUv).rgb'; }
+      const un = { bloomStrength: { value: 1 }, bloomFactors: { value: [1.0, 0.8, 0.6, 0.4, 0.2].slice(0, n) }, bloomTintColors: { value: b.bloomTintColors }, bloomRadius: { value: 0 } };
+      for (let i = 1; i <= n; i++) un['blurTexture' + i] = { value: b.renderTargetsVertical[i - 1].texture };
+      b.compositeMaterial = new THREE.ShaderMaterial({ defines: { NUM_MIPS: n }, uniforms: un, vertexShader: old.vertexShader, fragmentShader: `varying vec2 vUv; ${tex}
+        uniform float bloomStrength; uniform float bloomRadius; uniform float bloomFactors[NUM_MIPS]; uniform vec3 bloomTintColors[NUM_MIPS];
+        float lerpBloomFactor(const in float factor) { return mix(factor, 1.2 - factor, bloomRadius); }
+        void main() { vec3 bloom = 3.0 * bloomStrength * (${sum}); gl_FragColor = vec4(bloom, max(bloom.r, max(bloom.g, bloom.b))); }` });
+      old.dispose(); b.strength = n <= 3 ? 0.27 : n === 4 ? 0.24 : 0.22;   // fewer mips lose the wide halo: a little more strength keeps the same glow
+      const bs = b.setSize.bind(b); b.setSize = (w, h) => bs(Math.max(1, w >> 1), Math.max(1, h >> 1));
+      return b;
+    };
+    const bloomPassIdx = composer.passes.length;
+    composer.addPass(bloomCache[5] = makeBloom(5));
+    // ONE final pass: tone mapping + sRGB, edge chromatic aberration (High+), light colour grade, vignette and film grain (replaces OutputPass + the old grain pass)
+    const finalPass = new ShaderPass(new THREE.RawShaderMaterial({
+      uniforms: { tDiffuse: { value: null }, toneMappingExposure: { value: 1 }, uTime: { value: 0 }, uCA: { value: 1 } },
+      defines: { NEUTRAL_TONE_MAPPING: '', SRGB_TRANSFER: '' },
+      vertexShader: 'precision highp float; uniform mat4 modelViewMatrix; uniform mat4 projectionMatrix; attribute vec3 position; attribute vec2 uv; varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `precision highp float; uniform sampler2D tDiffuse; uniform float uTime; uniform float uCA; varying vec2 vUv;
+        #include <tonemapping_pars_fragment>
+        #include <colorspace_pars_fragment>
         float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+        vec3 disp(vec2 uv){ return sRGBTransferOETF(vec4(NeutralToneMapping(texture2D(tDiffuse, uv).rgb), 1.0)).rgb; }
         void main(){
           vec2 d = vUv - 0.5; float r2 = dot(d, d);
-          vec2 o = d * r2 * 0.006;   // tiny chromatic aberration, zero at the centre
-          vec3 c = vec3(texture2D(tDiffuse, vUv + o).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - o).b);
+          vec3 c;
+          if (uCA > 0.5) { vec2 o = d * r2 * 0.006; c = vec3(disp(vUv + o).r, disp(vUv).g, disp(vUv - o).b); }   // tiny chromatic aberration, zero at the centre
+          else c = disp(vUv);
+          float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+          c = mix(vec3(l), c, 1.05);   // grade: a touch more colour, warm highlights, cool shadows
+          c += vec3(0.010, 0.004, -0.008) * smoothstep(0.45, 1.0, l) + vec3(-0.006, 0.0, 0.010) * (1.0 - smoothstep(0.0, 0.35, l));
           c *= 1.0 - 0.34 * smoothstep(0.12, 0.62, r2);   // vignette
           c += (hash(vUv * 1024.0 + fract(uTime) * 61.0) - 0.5) * 0.022;   // film grain
           gl_FragColor = vec4(c, 1.0);
-        }`
-    });
-    composer.addPass(grain);
-    fx = { composer, bloom, grain, gtao, aoHalf: true }; fxApplyQuality(); fxResize();
+        }` }));
+    const fp = finalPass.render.bind(finalPass);
+    finalPass.render = function (r, w, rd, dt, m) { this.material.uniforms.toneMappingExposure.value = r.toneMappingExposure; return fp(r, w, rd, dt, m); };
+    composer.addPass(finalPass);
+    fx = { composer, bloom: bloomCache[5], bloomCache, makeBloom, bloomPassIdx, grain: finalPass, final: finalPass, gtao, aoHalf: true }; fxApplyQuality(); fxResize();
   } catch (e) { console.warn('post effects unavailable, using plain rendering', e); fx = null; }
 })();
 function renderWorld(t) {
@@ -5546,7 +5580,7 @@ function renderWorld(t) {
   fxCullBegin();
   const tm = renderer.toneMapping, te = renderer.toneMappingExposure;
   renderer.toneMapping = FX_TONE; renderer.toneMappingExposure = FX_EXPOSURE;
-  if (fx && GK.settings.fx && fxQ().post) { fx.grain.uniforms.uTime.value = t; fx.composer.render(); }
+  if (fx && GK.settings.fx && fxQ().post) { fx.final.material.uniforms.uTime.value = t; fx.composer.render(); }
   else renderer.render(scene, cam);
   renderer.toneMapping = tm; renderer.toneMappingExposure = te;
   fxCullEnd();

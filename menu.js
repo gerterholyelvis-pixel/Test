@@ -277,7 +277,7 @@ const mcam = new THREE.PerspectiveCamera(36, 1, 0.1, 80);
 function cTex(w, h, draw) { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; }
 
 // glossy floor + reflection
-const floorMat = new THREE.MeshStandardMaterial({ color: 0x0c0a0c, metalness: 0.65, roughness: 0.28, transparent: true, opacity: 0.8, envMapIntensity: 0.6 });
+const floorMat = new THREE.MeshStandardMaterial({ color: 0x0c0a0c, metalness: 0.2, roughness: 0.7, transparent: true, opacity: 0.8, envMapIntensity: 0.6 });
 const floor = new THREE.Mesh(new THREE.CircleGeometry(15, 96), floorMat); floor.rotation.x = -Math.PI / 2; mscene.add(floor);
 // runic rings texture
 const ringTex = cTex(1024, 1024, (g, w, h) => {
