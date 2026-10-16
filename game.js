@@ -2530,6 +2530,7 @@ GK.roundInfo = () => ({ n: RS.n, left: roundLeft(), dur: RS.dur, sel: RS.sel, op
 GK._applyRound = applyRound;   // test hook
 layoutHooks.push(() => panelsDirty());
 GK.ROOM_DOORS = ROOM_DOORS; GK.roomKeyAt = roomKeyAt;
+GK.tipAim = () => { const a = cpAim, b = a && a.p.buttons[a.i]; return b ? doorLabel(a.p.key, b.id).kind : null; };   // TIPS hook: kind of the panel entry under the crosshair
 
 {
   const css = document.createElement('style');
@@ -3848,6 +3849,7 @@ function showDied(info) {
   diedEl.style.opacity = 1; setTimeout(() => { diedEl.style.opacity = 0; }, 2400);
 }
 GK.applyDrops = applyDrops; GK.showDied = showDied;
+GK.tipEnv = () => ({ mine: actors.get(me), brainNear: dropsList.some(d => Math.hypot(d.x - P.x, d.z - P.z) < 7 && d.items.some(k => infoOf(k) && infoOf(k).family === 'brain')) });   // TIPS hook
 // ---- death screen: run stats, then back to the main menu or straight into the queue again ----
 const run = { t0: 0, n0: 0, dist: 0 };
 let deathEl = null;
@@ -6346,3 +6348,126 @@ const LOOT = window.GKLOOT = (() => {
 if (window.GKART) requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => GKART.bake(renderer), 600)));   // ITEMART: bake the inventory icons in small batches once the first frame is up
 window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw, pitch) { P.x = x; P.z = z; P.yaw = yaw; P.pitch = pitch || 0; spawned = true; }, toggleOverview() { inside = !inside; }, build: buildGoblin };
 })();
+
+// TIPS-BEGIN (onboarding: contextual tip card above the bottom-left HUD, How to Play overlay, Show/Reset tips settings; docs/reports/onboarding.md)
+(() => {
+  const KEY = 'gk.tips.v1', MAX = { go: 3, vaultAim: 3, outer: 2, brain: 2, lowhp: 2, vaultOpen: 2, sudden: 2 };
+  const TEXT = {
+    go: 'Each round, every room picks ONE door on its panel. It opens when the timer hits 0.',
+    vaultAim: 'Vault doors need TWO rooms to pick them, or the vote fizzles.',
+    outer: 'Behind outer doors: chests, mystery rooms (risky!) and merchants.',
+    brain: 'Eat a goblin brain for 5% of its knowledge. Knowledge unlocks crafting.',
+    lowhp: 'Death loses EVERYTHING you carry. Run through a door if you must.',
+    vaultOpen: 'THE VAULT holds a relic. Everyone else wants it too.',
+    sudden: 'Sudden death: every door is open and nobody heals. Last goblin standing wins.',
+  };
+  let st = { on: true, seen: {} };
+  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && typeof s === 'object') st = { on: s.on !== false, seen: s.seen && typeof s.seen === 'object' ? s.seen : {} }; } catch (e) {}
+  const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} };
+  const card = document.createElement('div');
+  card.id = 'gkTip';
+  card.style.cssText = 'position:fixed;left:14px;bottom:300px;z-index:44;pointer-events:none;width:min(290px,60vw);padding:9px 12px 10px;border-radius:8px;background:rgba(18,15,10,.86);border:1px solid #c8962e;box-shadow:0 0 0 1px rgba(0,0,0,.6),0 4px 16px rgba(0,0,0,.5),inset 0 0 0 1px rgba(255,215,94,.18);color:#f2efe6;font:600 13.5px/1.35 system-ui,sans-serif;opacity:0;transform:translateY(8px);transition:opacity .3s,transform .3s;display:none';
+  card.innerHTML = '<div style="font-size:10.5px;letter-spacing:.18em;color:#ffd75e;margin-bottom:3px">TIP</div><div id="gkTipTx"></div>';
+  document.body.appendChild(card);
+  let cur = null, hideT = 0, lastEnd = 0; const shownNow = {};   // each tip at most once per page load
+  function place() {   // sit just above the topmost bottom-left HUD panel
+    let top = innerHeight - 20;
+    for (const e of document.body.children) {
+      if (e === card) continue;
+      const cs = getComputedStyle(e); if (cs.position !== 'fixed' || cs.display === 'none' || +cs.opacity === 0) continue;
+      const r = e.getBoundingClientRect();
+      if (r.width < 40 || r.height < 20 || r.left > 60 || r.bottom < innerHeight * 0.55 || r.top < innerHeight * 0.3) continue;
+      top = Math.min(top, r.top);
+    }
+    card.style.bottom = (innerHeight - top + 10) + 'px';
+  }
+  function hide() { card.style.opacity = 0; card.style.transform = 'translateY(8px)'; setTimeout(() => { if (!cur) card.style.display = 'none'; }, 320); }
+  function show(id) {
+    if (!st.on || cur || performance.now() - lastEnd < 1500 || shownNow[id] || (st.seen[id] | 0) >= MAX[id]) return false;
+    shownNow[id] = 1;
+    st.seen[id] = (st.seen[id] | 0) + 1; persist(); cur = id;
+    card.querySelector('#gkTipTx').textContent = TEXT[id]; place(); card.style.display = 'block';
+    requestAnimationFrame(() => { card.style.opacity = 1; card.style.transform = 'none'; });
+    try { window.GKAUDIO && GKAUDIO.play('tip'); } catch (e) {}
+    clearTimeout(hideT); hideT = setTimeout(() => { cur = null; lastEnd = performance.now(); hide(); }, 7500);
+    return true;
+  }
+  GK.tips = { show, reset() { st.seen = {}; for (const k in shownNow) delete shownNow[k]; persist(); }, setOn(v) { st.on = !!v; persist(); if (!v) { cur = null; clearTimeout(hideT); card.style.display = 'none'; } }, state: () => st };
+
+  let goAt = 0, prevOpenVault = false;
+  setInterval(() => {
+    if (!st.on || GK.mode !== 'play' || GK.locked) { if (cur && GK.mode !== 'play') { cur = null; clearTimeout(hideT); card.style.display = 'none'; } return; }
+    if (!goAt) goAt = performance.now();
+    const ri = GK.roundInfo(), env = GK.tipEnv(), mine = env.mine, now = performance.now();
+    const sudden = !!document.getElementById('gkSudTag');
+    const vd = GK.ROOM_DOORS['4'] || [], vaultOpen = !sudden && vd.some(d => (ri.open || []).includes(d));
+    if (sudden) { show('sudden'); return; }
+    if (mine && mine.hp != null && mine.maxHp && mine.hp > 0 && mine.hp / mine.maxHp <= 0.35 && show('lowhp')) return;
+    if (vaultOpen && !prevOpenVault) { prevOpenVault = true; if (show('vaultOpen')) return; }
+    if (!vaultOpen) prevOpenVault = false;
+    if (env.brainNear && show('brain')) return;
+    const kind = GK.tipAim();
+    if (kind === 'vault' && show('vaultAim')) return;
+    if (kind && kind !== 'vault' && kind !== 'skull' && show('outer')) return;
+    if (now - goAt < 20000 && show('go')) return;
+  }, 300);
+
+  // ---- settings rows and menu button (index.html <!-- TIPS --> blocks) ----
+  const chk = document.getElementById('s-tips'), rst = document.getElementById('s-tipsreset'), hb = document.getElementById('b-howto');
+  if (chk) { chk.checked = st.on; chk.onchange = () => GK.tips.setOn(chk.checked); }
+  if (rst) rst.onclick = () => { GK.tips.reset(); rst.textContent = 'Done'; setTimeout(() => { rst.textContent = 'Reset'; }, 1200); };
+
+  // ---- How to Play overlay: five canvas drawings in the gold style ----
+  const GOLDC = '#f5c451', DARK = '#120f0a', PINK = '#f08aa8';
+  const PANELS = [
+    { t: 'Pick a door', x: 'Each room votes on ONE door at its panel. When the timer hits 0, picked doors open.', d(g) {
+      g.fillStyle = '#0d1b2a'; g.fillRect(14, 16, 96, 118); g.strokeStyle = '#4aa8ff'; g.strokeRect(14, 16, 96, 118);
+      [0, 1, 2].forEach(i => { g.fillStyle = i === 1 ? GOLDC : '#2f5e8f'; g.fillRect(24, 28 + i * 34, 76, 24); });
+      g.fillStyle = GOLDC; g.fillRect(150, 30, 70, 100); g.fillStyle = DARK; g.fillRect(158, 38, 54, 92);
+      g.strokeStyle = GOLDC; g.lineWidth = 3; g.beginPath(); g.moveTo(112, 74); g.lineTo(144, 74); g.lineTo(136, 66); g.moveTo(144, 74); g.lineTo(136, 82); g.stroke();
+      g.fillStyle = GOLDC; g.font = 'bold 15px system-ui'; g.fillText('0:00', 166, 24); } },
+    { t: 'The vault needs two', x: 'A vault door only opens if TWO different rooms pick it. One lonely vote fizzles.', d(g) {
+      g.strokeStyle = GOLDC; g.lineWidth = 4; g.beginPath(); g.arc(130, 78, 54, 0, 7); g.stroke(); g.lineWidth = 2; g.beginPath(); g.arc(130, 78, 38, 0, 7); g.stroke();
+      g.fillStyle = GOLDC; g.font = 'bold 44px system-ui'; g.textAlign = 'center'; g.fillText('$', 130, 94);
+      g.font = 'bold 13px system-ui'; g.fillText('ROOM A', 38, 150); g.fillText('ROOM B', 222, 150); g.textAlign = 'left';
+      g.fillRect(14, 60, 46, 5); g.fillRect(200, 60, 46, 5); } },
+    { t: 'Chests, mysteries, merchants', x: 'Outer doors lead to chest rooms, risky mystery rooms and merchants who sell for gold.', d(g) {
+      [['▣', 30], ['?', 105], ['●', 180]].forEach(([c, x], i) => {
+        g.strokeStyle = GOLDC; g.lineWidth = 3; g.strokeRect(x, 40, 60, 70); g.fillStyle = i === 1 ? '#ff7a4a' : GOLDC; g.font = 'bold 38px system-ui'; g.textAlign = 'center'; g.fillText(c, x + 30, 87);
+        g.font = 'bold 11px system-ui'; g.fillStyle = '#efe9d8'; g.fillText(['CHEST', 'MYSTERY', 'MERCHANT'][i], x + 30, 128); }); g.textAlign = 'left'; } },
+    { t: 'Brains and knowledge', x: 'Eat a fallen goblin\'s brain to gain 5% of its knowledge. Knowledge unlocks crafting.', d(g) {
+      g.fillStyle = PINK; g.beginPath(); g.ellipse(80, 78, 42, 32, 0, 0, 7); g.fill(); g.strokeStyle = '#a83a60'; g.lineWidth = 3;
+      g.beginPath(); g.moveTo(80, 48); g.quadraticCurveTo(70, 78, 80, 108); g.moveTo(55, 70); g.quadraticCurveTo(70, 66, 80, 76); g.moveTo(105, 84); g.quadraticCurveTo(92, 82, 80, 90); g.stroke();
+      g.strokeStyle = GOLDC; g.lineWidth = 3; g.beginPath(); g.moveTo(130, 78); g.lineTo(158, 78); g.lineTo(150, 70); g.moveTo(158, 78); g.lineTo(150, 86); g.stroke();
+      g.fillStyle = '#5fae4a'; g.beginPath(); g.arc(205, 82, 28, 0, 7); g.fill(); g.beginPath(); g.moveTo(180, 80); g.lineTo(166, 62); g.lineTo(184, 70); g.fill(); g.beginPath(); g.moveTo(230, 80); g.lineTo(244, 62); g.lineTo(226, 70); g.fill();
+      g.fillStyle = DARK; g.fillRect(195, 76, 5, 5); g.fillRect(211, 76, 5, 5); g.fillStyle = GOLDC; g.font = 'bold 14px system-ui'; g.fillText('+5%', 187, 130); } },
+    { t: 'Death loses everything', x: 'If you die, you drop ALL you carry. Run through a door if the fight is lost.', d(g) {
+      g.fillStyle = '#e9e4d6'; g.beginPath(); g.arc(130, 62, 32, 0, 7); g.fill(); g.fillRect(114, 80, 32, 22);
+      g.fillStyle = DARK; g.beginPath(); g.arc(118, 62, 8, 0, 7); g.arc(142, 62, 8, 0, 7); g.fill(); g.fillRect(126, 74, 8, 8);
+      g.fillStyle = GOLDC; [[30, 40], [50, 100], [210, 50], [225, 110], [70, 130]].forEach(([x, y]) => { g.beginPath(); g.arc(x, y, 8, 0, 7); g.fill(); });
+      g.strokeStyle = '#ff4a3a'; g.lineWidth = 3; g.beginPath(); g.moveTo(100, 120); g.lineTo(160, 140); g.moveTo(160, 120); g.lineTo(100, 140); g.stroke(); } },
+  ];
+  let ov = null;
+  function closeHow() { if (ov) { ov.remove(); ov = null; document.removeEventListener('keydown', onKey, true); } }
+  function onKey(e) { if (e.key === 'Escape') { e.stopPropagation(); closeHow(); } }
+  function openHow() {
+    if (ov) return;
+    ov = document.createElement('div'); ov.id = 'gkHowTo';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:200;background:rgba(8,7,11,.94);overflow:auto;padding:22px 16px;font-family:system-ui,sans-serif;color:#efe9d8';
+    ov.innerHTML = '<div style="max-width:1180px;margin:0 auto"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><h2 style="margin:0;color:#f5c451;letter-spacing:.2em;text-transform:uppercase;font-size:clamp(20px,3vw,30px)">How to play</h2><button id="gkHowX" style="cursor:pointer;background:#f5c451;color:#1a1104;border:0;padding:10px 22px;font:800 15px system-ui;letter-spacing:.14em">SKIP / CLOSE</button></div><div id="gkHowG" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin-top:18px"></div></div>';
+    const grid = ov.querySelector('#gkHowG');
+    PANELS.forEach((p, i) => {
+      const c = document.createElement('canvas'); c.width = 260; c.height = 160; c.style.cssText = 'width:100%;height:auto;display:block;background:#1a150d;border-bottom:2px solid #c8962e';
+      const g = c.getContext('2d'); g.textBaseline = 'alphabetic'; p.d(g);
+      const w = document.createElement('div'); w.style.cssText = 'background:#14110b;border:1px solid #c8962e;border-radius:6px;overflow:hidden;box-shadow:0 0 0 1px #000,inset 0 0 0 1px rgba(255,215,94,.15)';
+      w.appendChild(c); const t = document.createElement('div'); t.style.cssText = 'padding:10px 12px 14px';
+      t.innerHTML = '<div style="color:#f5c451;font-weight:800;letter-spacing:.08em;margin-bottom:5px">' + (i + 1) + '. ' + p.t + '</div><div style="font-size:14px;line-height:1.4;color:#d8d2c0">' + p.x + '</div>';
+      w.appendChild(t); grid.appendChild(w);
+    });
+    document.body.appendChild(ov); ov.querySelector('#gkHowX').onclick = closeHow; ov.onclick = e => { if (e.target === ov) closeHow(); };
+    document.addEventListener('keydown', onKey, true); ov.querySelector('#gkHowX').focus();
+  }
+  if (hb) hb.onclick = openHow;
+  GK.howTo = { open: openHow, close: closeHow };
+})();
+// TIPS-END
