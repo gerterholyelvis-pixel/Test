@@ -2823,10 +2823,18 @@ const GA = (() => {
     return A.mats[type] = m;
   }
   A.uber = uber;
+  // per-goblin variation: a clone of the type's material with a slight colour multiplier (same shader program, same geometry), so no two goblins of a type are the same shade
+  function uberVar(type) {
+    const base = uber(type), m = base.clone(), k = type >= 3 ? 0.5 : 1, r = () => Math.random() - 0.5;
+    m.onBeforeCompile = base.onBeforeCompile; m.customProgramCacheKey = base.customProgramCacheKey;
+    const v = 0.95 + r() * 0.14 * k, warm = r() * 0.3 * k;   // brightness and a warm (yellow-olive) to cool (blue-green) swing
+    m.color.setRGB(v * (1 + warm * 0.55), v * (1 + warm * 0.1), v * (1 - warm * 0.8)); return m;
+  }
+  A.uberVar = uberVar;
   function bake(parent, type, key, build) {   // build once per type and part, then every goblin of the type shares the geometry
     const ck = type + ':' + key; let geo = A.cache[ck];
     if (!geo) { const B = new GB(); build(B); geo = A.cache[ck] = B.finish(); }
-    const mesh = new THREE.Mesh(geo, uber(type)); parent.add(mesh); if (PERF2_ON) perf2Lod.meshes.set(mesh, ck); return mesh;   // PERF2: remember the cache key (goblin level of detail)
+    const mesh = new THREE.Mesh(geo, A.curMat || uber(type)); parent.add(mesh); if (PERF2_ON) perf2Lod.meshes.set(mesh, ck); return mesh;   // PERF2: remember the cache key (goblin level of detail)
   }
   A.bake = bake;
   // ---- sculpted head: an ellipsoid pushed into a heavy brow, sunken eye sockets, cheek bones and a jutting underbite
@@ -3291,6 +3299,7 @@ const A_EARS = {};
   function buildGoblin(type, demo) {
     const C = CFG[type], b = C.b, P = GAT[type], root = new THREE.Group(), rig = new THREE.Group(); root.add(rig); rig.scale.setScalar(SCALE[type]);
     const u = { rig, type, legs: [], arms: [], glows: [], spin: [], toJSON: () => ({}), hunch: P.hunch, hold: P.hold, tw: { next: 1 + Math.random() * 3, t0: -9, ear: 0 }, armKey: undefined, dead: 0 };
+    if (!demo) { u.mat = uberVar(type); u.sz = 1 + (Math.random() - 0.5) * 0.08; A.curMat = u.mat; rig.scale.setScalar(SCALE[type] * u.sz); }   // variation: shade and size differ a little per goblin (the title showcase keeps the canonical look)
     const SC = skinFn(C.skin, { tint: 0x203a10 }), SB = skinFn(C.skin, { tint: 0x203a10, belly: true }), L = P.limb, claw = 0xd8cdb0;
     for (const s of [-1, 1]) {   // legs (pivot at the hip)
       const leg = new THREE.Group(); leg.position.set(s * 0.17 * b, 0.58, 0); leg.name = s < 0 ? 'legL' : 'legR'; rig.add(leg); u.legs.push(leg);
@@ -3307,6 +3316,7 @@ const A_EARS = {};
     }
     u.armL = u.arms[0]; u.armR = u.arms[1]; u.legL = u.legs[0]; u.legR = u.legs[1];
     const head = new THREE.Group(); head.name = 'head'; head.position.set(0, 1.12, 0.04); head.scale.setScalar(P.hs); rig.add(head); u.head = head;
+    if (u.sz) head.scale.multiplyScalar(0.96 + Math.random() * 0.1);   // a slightly bigger or smaller head
     bake(head, type, 'head', B => { gaHead(B, type, b); gaHeadGear(B, type, b); });
     for (const s of [-1, 1]) {
       const ear = new THREE.Group(); ear.name = s < 0 ? 'earL' : 'earR'; ear.position.set(s * (type === 2 ? 0.31 : 0.27), 0.27, -0.02); ear.rotation.set(0, s * 0.35, s * 0.16); ear.userData.base = ear.rotation.clone(); head.add(ear);
@@ -3342,7 +3352,8 @@ const A_EARS = {};
       if (!fam || fam === P.fam) { if (u.armMesh) u.armMesh.visible = false; return; }
       const tier = it.tierN || 0, ck = type + ':ar:' + fam + ':' + tier; let geo = A.cache[ck];
       if (!geo) { const B = new GB(); try { (ARMOUR2_FAMS[fam] ? gaArmor2 : gaArmor)(B, type, fam, GA_TIER[tier], b); } catch (e) { console.error(e); } geo = A.cache[ck] = B.finish(); }
-      if (!u.armMesh) { u.armMesh = new THREE.Mesh(geo, uber(type)); u.armMesh.userData.keep = 1; u.armMesh.scale.setScalar(1.015); torso.add(u.armMesh); }
+      if (!u.armMesh) { u.armMesh = new THREE.Mesh(geo, u.mat || uber(type)); u.armMesh.userData.keep = 1; u.armMesh.scale.setScalar(1.015); torso.add(u.armMesh); }
+      if (!u.armMesh) { u.armMesh = new THREE.Mesh(geo, u.mat || uber(type)); u.armMesh.userData.keep = 1; u.armMesh.scale.setScalar(1.015); torso.add(u.armMesh); }
       u.armMesh.geometry = geo; u.armMesh.visible = true;
     };
     if (demo) try {   // title-screen showcase: the type's starting weapon (the game itself mounts the real one from the inventory)
@@ -3356,7 +3367,7 @@ const A_EARS = {};
     sh.rotation.x = -Math.PI / 2; sh.position.y = 0.03; sh.scale.setScalar(1.1 * SCALE[type] * b * 1.4); root.add(sh);
     const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: textTex(NAMES[type], type === 4 ? '#ffd75e' : type === 3 ? '#c9a6ff' : '#f1f1f1', null, 512, 96, 'bold 52px system-ui'), transparent: true, depthWrite: false }));
     label.scale.set(1.6, 0.3, 1); label.position.y = [1.95, 1.95, 1.95, 2.85, 2.55][type] * SCALE[type]; root.add(label); u.label = label;   // UNIQUE: tag above the wizard hat / king crown
-    root.userData = u; if (PERF2_ON) perf2LodInit(root, u);   // PERF2: level-of-detail copies of the baked parts
+    A.curMat = null; root.userData = u; if (PERF2_ON) perf2LodInit(root, u);   // PERF2: level-of-detail copies of the baked parts
     return root;
   }
   A.build = buildGoblin;
@@ -3370,16 +3381,24 @@ const A_EARS = {};
     if (key !== undefined && u.armKey !== key) u.setArmor(key);
     if (u.demoW) u.demoW.visible = a.vmMount === undefined;
     const br = Math.sin(t * 2.1 + id * 1.3) * 0.016 * (0.6 + 0.4 * idle);
-    u.legs[0].rotation.x = S * 0.8 * walk; u.legs[1].rotation.x = -S * 0.8 * walk;
+    // FOOTWORK: planted feet. The hip drops as the legs spread (the stance leg stretches a little to stay on the floor), the swing leg shortens to lift its foot, sprinting leans and lengthens the stride
+    const run = a.speed > 0 ? clamp((a.speed - 5.4) / 2.4, 0, 1) : 0, amp = 0.8 + 0.2 * run, cph = Math.cos(ph), sz = u.sz || 1;
+    const lift0 = Math.max(0, -cph) * walk, lift1 = Math.max(0, cph) * walk;   // leg 0 swings forward while cos(ph) < 0
+    u.legs[0].rotation.x = S * amp * walk; u.legs[1].rotation.x = -S * amp * walk;
     u.legs[0].rotation.z = -(0.03 + 0.07 * walk * S2); u.legs[1].rotation.z = 0.03 + 0.07 * walk * S2;
-    rig.position.y = S2 * 0.075 * walk - 0.035 * f; rig.rotation.z = S * 0.075 * walk; rig.rotation.x = 0.05 * walk;
-    rig.scale.set(sc * (1 + 0.05 * f - 0.012 * S2 * walk), sc * (1 - 0.08 * f + 0.025 * S2 * walk), sc * (1 + 0.05 * f - 0.012 * S2 * walk));   // squash on the flinch and stretch at the top of each bounce
-    u.torso.scale.set(1 + br * 0.4, 1 + br, 1 + br * 0.4); u.torso.rotation.y = S * 0.14 * walk; u.torso.rotation.z = -S * 0.06 * walk; u.torso.rotation.x = u.hunch + 0.04 * S2 * walk;
+    u.legs[0].scale.y = 1 + 0.15 * S2 * walk - 0.15 * lift0; u.legs[1].scale.y = 1 + 0.15 * S2 * walk - 0.15 * lift1;
+    u.legs[0].position.y = u.legs[1].position.y = 0.58;
+    const sw = a.swing > 0 && a.swing < 1 ? a.swing : -1, ant = sw < 0 ? 0 : sstep(0, 0.28, sw) * (1 - sstep(0.28, 0.46, sw)), lun = sw < 0 ? 0 : sstep(0.28, 0.46, sw) * (1 - sstep(0.52, 1, sw));   // swing: wind up (crouch, lean back), then lunge
+    if (sw >= 0) { u.legs[0].rotation.x += 0.3 * lun - 0.1 * ant; u.legs[1].rotation.x += -0.3 * lun + 0.1 * ant; u.legs[0].scale.y -= 0.06 * ant; u.legs[1].scale.y -= 0.06 * ant; }
+    rig.position.y = -0.115 * sc * S2 * S2 * walk - 0.035 * f - 0.05 * sc * ant; rig.rotation.z = S * 0.075 * walk + Math.sin(t * 0.7 + id * 2.1) * 0.018 * idle; rig.rotation.x = 0.05 * walk + 0.12 * run - 0.1 * ant + 0.16 * lun;
+    const sq = (1 - 2 * S2) * walk;   // stretched while the legs pass under the body, squashed when they spread
+    rig.scale.set(sz * sc * (1 + 0.05 * f - 0.01 * sq), sz * sc * (1 - 0.08 * f + 0.02 * sq), sz * sc * (1 + 0.05 * f - 0.01 * sq));   // squash on the flinch and stretch at the top of each bounce
+    u.torso.scale.set(1 + br * 0.4, 1 + br, 1 + br * 0.4); u.torso.rotation.y = S * 0.14 * walk + Math.sin(t * 0.45 + id) * 0.04 * idle; u.torso.rotation.z = -S * 0.06 * walk; u.torso.rotation.x = u.hunch + 0.04 * S2 * walk;
     const hd = u.head; hd.position.y = 1.12 + br * 6 - S2 * 0.025 * walk;
     hd.rotation.y = Math.sin(t * 0.8 + id) * 0.3 * idle - S * 0.08 * walk; hd.rotation.x = Math.sin(t * 1.3 + id) * 0.04 + 0.06 * Math.abs(Math.sin(ph + 0.6)) * walk; hd.rotation.z = Math.sin(t * 0.6 + id * 2) * 0.05 * idle + (type === 4 ? 0.09 : type === 3 ? 0.04 * Math.sin(t * 1.7 + id) : 0) - S * 0.05 * walk;
     const A0 = u.arms[0], A1 = u.arms[1], fl = 0.7 * f;
     A0.position.y = A1.position.y = 1.0 + br * 4;
-    A0.rotation.x = -S * 0.6 * walk + Math.sin(t * 1.7 + id) * 0.04; A0.rotation.z = -(0.06 + 0.1 * S2 * walk + fl);
+    A0.rotation.x = -S * (0.6 + 0.4 * run) * walk + Math.sin(t * 1.7 + id) * 0.04; A0.rotation.z = -(0.06 + 0.1 * S2 * walk + fl);
     A1.rotation.x = type >= 3 ? -0.15 + Math.sin(t * 1.5 + id) * 0.03 : S * 0.3 * walk - 0.15; A1.rotation.z = 0.06 + 0.1 * S2 * walk + fl;
     A0.userData.el.rotation.x = -0.3 - 0.35 * walk * Math.max(0, S) - 0.2 * f; A1.userData.el.rotation.x = u.hold + Math.sin(t * 2 + id) * 0.02;
     // ears: slow droop, bounce with the steps, random twitch, pin back when hit
@@ -3409,8 +3428,8 @@ const A_EARS = {};
   A.tick = dt => {
     for (let i = A.corpses.length - 1; i >= 0; i--) {
       const c = A.corpses[i], u = c.u, g = c.g, t = c.t += dt, k1 = sstep(0, 0.45, t), k2 = sstep(0.35, 1.05, t), fade = sstep(1.8, 2.3, t), sc = SCALE[u.type];
-      u.legs[0].rotation.x = -1.15 * k1; u.legs[1].rotation.x = -0.9 * k1; u.legs[0].rotation.z = -0.15 * k1; u.legs[1].rotation.z = 0.2 * k1;
-      u.rig.position.y = -0.28 * k1; u.rig.rotation.x = 0.1 * k1; u.rig.rotation.z = 0; u.rig.scale.setScalar(sc * (1 - 0.1 * fade));
+      u.legs[0].rotation.x = -1.15 * k1; u.legs[1].rotation.x = -0.9 * k1; u.legs[0].rotation.z = -0.15 * k1; u.legs[1].rotation.z = 0.2 * k1; u.legs[0].scale.y = u.legs[1].scale.y = 1;
+      u.rig.position.y = -0.28 * k1; u.rig.rotation.x = 0.1 * k1; u.rig.rotation.z = 0; u.rig.scale.setScalar(sc * (u.sz || 1) * (1 - 0.1 * fade));
       u.torso.rotation.x = u.hunch + 0.95 * k1; u.torso.rotation.z = c.side * 0.2 * k2; u.torso.scale.set(1, 1, 1); u.head.rotation.x = 0.55 * k1 + 0.2 * k2; u.head.rotation.z = c.side * 0.35 * k2; u.head.rotation.y = 0;
       u.arms[0].rotation.x = 0.35 * k1; u.arms[1].rotation.x = 0.35 * k1; u.arms[0].rotation.z = -(0.2 + 0.6 * k2); u.arms[1].rotation.z = 0.2 + 0.6 * k2; u.arms[0].userData.el.rotation.x = -0.1; u.arms[1].userData.el.rotation.x = -0.1;
       for (const s of [-1, 1]) { const ear = s < 0 ? u.earL : u.earR; ear.rotation.z = ear.userData.base.z - s * 0.55 * k1; ear.rotation.x = 0; }
@@ -6697,7 +6716,7 @@ function frame(now) {
     g.position.set(a.x, a.jy || 0, a.z); g.rotation.y = a.yaw + Math.PI;
     g.visible = !(inside && id === me);
     u.label.visible = id !== me && GK.settings.tags;
-    const walk = clamp(a.speed / 3.5, 0, 1); a.phase += dt * a.speed * 2.3;
+    const walk = clamp(a.speed / 3.5, 0, 1); a.phase += dt * a.speed * 2.7 / Math.pow(SCALE[u.type] || 1, 0.6);   // stride rate follows the leg length (small goblins scurry, big ones lumber) so the feet stay planted
     /* PERF2-BEGIN: far goblins refresh their pose every 2nd / 3rd frame (the skipped dt is carried over); distant ones also drop to simpler geometry */
     let adt = dt;
     if (PERF2_ON) {
