@@ -62,7 +62,7 @@ const roomOnly = id => DOORS.find(d => d[0] === id);
         const cc = W.CHEST[mid]; c.send({ tp: [cc.cx, cc.cz] }); await sleep(100);
         await give(c, 'x:bandage'); await give(c, 'x:bandage', 'q1');
         c.send({ recycle: 'q0' }); c.send({ recycle: 'q1' }); await c.until(x => x.state.parts && x.state.parts.cloth === 2, 2000, 'two cloth');
-        c.send({ craft: 'r:x:bandage' }); await c.until(x => x.state.crafted, 2000, 'crafted'); eq(c.state.crafted.key, 'x:bandage'); eq(c.state.parts.cloth, 0);
+        c.send({ craft: 'r:x:bandage' }); await c.until(x => x.state.crafted, 5000, 'crafted'); eq(c.state.crafted.key, 'x:bandage'); eq(c.state.parts.cloth, 0);
         c.send({ craft: 'r:x:lockpick' }); await c.until(x => x.state.craftFail, 2000, 'craftFail'); assert(['knowledge', 'parts'].includes(c.state.craftFail), 'lockpick is gated: ' + c.state.craftFail);
         await c.close();
       }],

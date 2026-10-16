@@ -53,7 +53,7 @@ const why = async (c, key, msg) => { delete c.state[key]; c.send(msg); await c.u
         c.send({ give: 'w:club' }); await c.until(x => x.state.inv.backpack.includes('w:club'), 2000, 'club');
         c.send({ recycle: 'b' + c.state.inv.backpack.indexOf('w:club') }); await c.until(x => x.state.recycled, 2000, 'recycled');
         eq(c.state.recycled.parts, G.recycleFor('w:club', ['scrapper'])); const wood = c.state.parts.wood;   // club: wood 3 + 1, bone 1 + 1
-        c.send({ craft: 'r:w:sharpstick' }); await c.until(x => x.state.crafted, 2000, 'crafted'); await c.until(x => x.state.parts.wood === wood - 1, 2000, 'Thrifty: the stick cost 1 wood, not 2');
+        c.send({ craft: 'r:w:sharpstick' }); await c.until(x => x.state.crafted, 5000, 'crafted'); await c.until(x => x.state.parts.wood === wood - 1, 2000, 'Thrifty: the stick cost 1 wood, not 2');
         await c.close();
       }],
       ['server: Reforge turns the equipped weapon into its + twin and raises attack', async () => {
