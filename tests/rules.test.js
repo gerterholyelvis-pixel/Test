@@ -1,6 +1,6 @@
 // experimental rules (GK_RULES): off = nothing changes, on = the rule works. See docs/reports/rules-experimental.md
 const L = require('./lib.js'), { connect, sleep, assert, eq } = L, W = require('../world.js');
-const D = L.doors(), door = (a, b) => D.find(d => (d.a === a && d.b === b) || (d.a === b && d.b === a)).id;
+const VN = L.vaultNeighbours()[0], D = L.doors(), door = (a, b) => D.find(d => (d.a === a && d.b === b) || (d.a === b && d.b === a)).id;
 const count = (c, k) => c.msgs.filter(m => m[k] !== undefined && m[k] !== null).length;
 const equip = async (c, key) => { c.send({ give: key }); await c.until(x => x.state.inv.backpack[0] === key, 2000, key); c.send({ mv: ['b0', 'weapon'] }); await c.until(x => x.state.inv.weapon === key, 2000, 'equipped'); };
 (async () => {
@@ -52,23 +52,23 @@ const equip = async (c, key) => { c.send({ give: key }); await c.until(x => x.st
       ['staffbolt on: a bolt flies 3 m, deals 9, 1.0 s cooldown', async () => {
         const [a, b] = await pair(staff); eq(a.state.rules, ['staffbolt']); const [x, z] = W.rc(0); a.send({ tp: [x, z] }); b.send({ tp: [x + 3, z] }); await sleep(150);
         await equip(a, 'w:staff'); a.send({ m: [x, z, -Math.PI / 2] }); a.send({ atk: 1 });
-        await a.until(c => c.msgs.some(m => m.bolt && m.bolt.by === c.state.you), 1000, 'bolt message'); const t0 = Date.now();
+        await a.until(c => c.msgs.some(m => m.bolt && m.bolt.by === c.state.you), 1000, 'bolt message'); const t0 = Date.now(); setTimeout(() => a.send({ atk: 1 }), 120);   // a second shot 120 ms after the first, well inside the 1 s cooldown (not timed from the end of the flight: that raced the machine load)
         await a.until(c => c.msgs.some(m => m.hit && m.hit.from === c.state.you && m.hit.dmg === 9), 3000, 'bolt hit for 9'); assert(Date.now() - t0 > 150, 'a bolt is slow, not instant');
         await a.until(c => c.msgs.some(m => m.boltEnd && m.boltEnd.hit), 1000, 'boltEnd');
-        await sleep(300); a.send({ atk: 1 }); await sleep(400); eq(count(a, 'bolt'), 1, 'second shot inside the cooldown is ignored');
+        await sleep(200); eq(count(a, 'bolt'), 1, 'second shot inside the cooldown is ignored');
         await sleep(900); a.send({ atk: 1 }); await a.until(c => count(c, 'bolt') === 2, 1500, 'second bolt after the cooldown'); await a.close(); await b.close();
       }],
       ['bribe off: a lone vault vote fizzles and the bribe does nothing', async () => {
-        const c = await connect(offBribe.port); c.send({ tp: W.rc(1) }); const v = door('1', '4'); c.send({ sel: v }); c.send({ bribe: 1 }); await sleep(200); eq(c.state.gold, 100);
+        const c = await connect(offBribe.port, 'goblin=2'); c.send({ tp: L.centre(VN) }); const v = door(VN, W.VAULT_KEY); c.send({ sel: v }); c.send({ bribe: 1 }); await sleep(200); eq(c.state.gold, 100);
         await c.until(x => x.state.round.n === 2, 4000, 'round 2'); assert(!c.state.open.includes(v), 'one room alone cannot open the vault'); assert(c.state.fizzled.includes(v)); await c.close();
       }],
       ['bribe on: 50 gold adds +1 weight, so one room can open the vault; failures are reported', async () => {
-        const c = await connect(bribe.port); await sleep(150); eq(c.state.rules, ['bribe']);   /* phase flips to play on the next 50 ms tick after GO */ c.send({ tp: W.rc(1) });
+        const c = await connect(bribe.port, 'goblin=2'); await sleep(150); eq(c.state.rules, ['bribe']);   /* phase flips to play on the next 50 ms tick after GO */ c.send({ tp: L.centre(VN) });
         c.send({ bribe: 1 }); await c.until(x => x.state.bribeFail, 1500, 'no pick yet'); eq(c.state.bribeFail, 'pick'); delete c.state.bribeFail;
-        const v = door('1', '4'); c.send({ sel: v }); await c.until(x => x.state.sel && x.state.sel['1'] === v, 1500, 'pick'); c.send({ bribe: 1 });
-        await c.until(x => x.state.gold === 50 && x.state.bribes && x.state.bribes['1'] === 1, 1500, 'paid 50, weight 2'); await c.until(x => x.state.vaultVotes === 2, 1500, 'vault votes 2/2');
+        const v = door(VN, W.VAULT_KEY); c.send({ sel: v }); await c.until(x => x.state.sel && x.state.sel[VN] === v, 1500, 'pick'); c.send({ bribe: 1 });
+        await c.until(x => x.state.gold === 50 && x.state.bribes && x.state.bribes[VN] === 1, 1500, 'paid 50, weight 2'); await c.until(x => x.state.vaultVotes === 2, 1500, 'vault votes 2/2');
         c.send({ gold: 10 }); await c.until(x => x.state.gold === 10, 1000, 'gold 10'); c.send({ bribe: 1 }); await c.until(x => x.state.bribeFail, 1500, 'too poor'); eq(c.state.bribeFail, 'gold');
-        await c.until(x => x.state.round.n === 2, 4000, 'round 2'); assert(c.state.open.includes(v), 'the bribed vault door opened'); eq(c.state.bribes['1'], undefined, 'bribes reset every round'); await c.close();
+        await c.until(x => x.state.round.n === 2, 4000, 'round 2'); assert(c.state.open.includes(v), 'the bribed vault door opened'); eq(c.state.bribes[VN], undefined, 'bribes reset every round'); await c.close();
       }],
     ]);
   } catch (e) { console.log('  FAIL  setup: ' + (e.stack || e)); }

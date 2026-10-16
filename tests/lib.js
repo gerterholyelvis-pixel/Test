@@ -50,13 +50,15 @@ const assert = (c, msg) => { if (!c) throw new Error(msg || 'assertion failed');
 const eq = (a, b, msg) => { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error((msg || 'not equal') + ': got ' + JSON.stringify(a) + ' want ' + JSON.stringify(b)); };
 const connectRaw = (port, query = '') => connect(port, query, { raw: true });
 module.exports = { sleep, startServer, connect, connectRaw, connectWith, run, assert, eq, ROOT };
-// Door ids in creation order: for each grid room i: E-or-chest, S-or-chest, W chest (left column), N chest (top row). Returns [{id, a, b}] with room keys of both sides.
-module.exports.doors = () => {
-  const W = require('../world.js'), out = [], add = (a, b) => out.push({ id: out.length, a, b });
-  for (let i = 0; i < 9; i++) {
-    const col = W.colOf(i), row = W.rowOf(i);
-    add(String(i), col < 2 ? String(i + 1) : W.chestKey(i, 'E')); add(String(i), row < 2 ? String(i + 3) : W.chestKey(i, 'S'));
-    if (col === 0) add(String(i), W.chestKey(i, 'W')); if (row === 0) add(String(i), W.chestKey(i, 'N'));
-  }
-  return out;
-};
+// All doors in canonical id order (WORLD.DOORS): [{id, a, b}] with the room keys of both sides.
+module.exports.doors = () => require('../world.js').DOORS.map(d => ({ id: d.id, a: d.a, b: d.b }));
+// The id of the door between two rooms (order does not matter); throws when they are not neighbours.
+module.exports.doorBetween = (a, b) => { const d = require('../world.js').DOORS.find(x => (x.a === a && x.b === b) || (x.a === b && x.b === a)); if (!d) throw new Error('no door between ' + a + ' and ' + b); return d.id; };
+// The arena cell behind a room key: a home 'c0' -> its parent cell; an arena key stays itself.
+module.exports.cellOf = k => { const W = require('../world.js'); return k[0] === 'c' ? String(W.CHEST[+k.slice(1)].parent) : k; };
+// Centre [x, z] of any room key.
+module.exports.centre = k => { const r = require('../world.js').roomRect(k); return [r.cx, r.cz]; };
+// The 4 arena rooms that have a door into the vault, as room keys (N E S W order of the vault's doors).
+module.exports.vaultNeighbours = () => { const W = require('../world.js'); return W.ROOM_DOORS[W.VAULT_KEY].map(id => { const d = W.DOORS[id]; return d.a === W.VAULT_KEY ? d.b : d.a; }); };
+// The non-vault, non-hatch door ids of an arena room.
+module.exports.plainDoors = k => { const W = require('../world.js'); return W.ROOM_DOORS[k].filter(id => W.DOORS[id].kind === 'arena'); };

@@ -4,7 +4,7 @@ const L = require('./lib.js'), { connect, sleep, assert, eq } = L, W = require('
   const srv = await L.startServer({ GK_MATCH_SIZE: '2', GK_ROUND_MS: '2500' }); let fail = 1;
   try {
     fail = await L.run('panel-selby', [['selBy follows the last goblin to change the pick, resets and becomes lastSel next round', async () => {
-      const D = L.doors(), d1 = D.find(d => d.a === '0' && d.b === '1').id, d2 = D.find(d => d.a === '0' && d.b === '3').id;
+      const D = L.doors(), d1 = D.find(d => d.a === '0' && d.b === '1').id, d2 = D.find(d => d.a === '0' && d.b === '5').id;
       const [a, b] = await Promise.all([connect(srv.port, 'goblin=0'), connect(srv.port, 'goblin=1')]);
       a.send({ tp: W.rc(0) }); b.send({ tp: W.rc(0) });
       await a.until(c => c.state.round.left < 2300, 4000, 'timer');

@@ -1,6 +1,7 @@
 // combat: misses (behind, out of range, other room), damage = attack, cooldown, kill -> died/kills/won, bow range, regeneration (GK_REGEN_SCALE speeds regen up)
 const L = require('./lib.js'), { connect, sleep, assert, eq } = L, W = require('../world.js'), G = require('../items.js');
 const MACE = G.START[2].weapon, MACE_ATK = G.ITEMS[MACE].attack, SMALL_HP = G.ITEMS[G.START[0].armor].health;
+const PX = d => W.rc(1)[0] + d, PZ = W.rc(1)[1];   // the fight spot: the middle of arena room 1 (a plain hall)
 const FACE_E = -Math.PI / 2, FACE_W = Math.PI / 2;   // forward = (-sin yaw, -cos yaw)
 
 // two players (a: big goblin with a mace, b: small goblin) in the same private match; each test uses its own `wins` value so matches never mix
@@ -22,14 +23,14 @@ const equipBow = async c => { c.send({ give: 'w:bow' }); await c.until(x => x.st
     fail = await L.run('combat', [
       ['misses: from behind, out of range, in another room (and a swing still happens)', async () => {
         const cases = [
-          async () => { const [a, b] = await pair(srv, 0); await put(a, -15, -15, FACE_W); await put(b, -13.5, -15, 0); const ms = await swing(a); assert(ms.some(m => m.swing === a.state.you), 'swing not broadcast'); eq(hits(ms), [], 'hit from behind'); await a.close(); await b.close(); },
-          async () => { const [a, b] = await pair(srv, 10); await put(a, -15, -15, FACE_E); await put(b, -11.5, -15, 0); eq(hits(await swing(a)), [], 'hit at 3.5 m'); await a.close(); await b.close(); },
-          async () => { const [a, b] = await pair(srv, 20); const wx = W.rc(0)[0] + W.roomW(0) / 2; await put(a, wx - 0.8, -15, FACE_E); await put(b, wx + 0.4, -15, 0); eq(W.roomKeyOf(wx - 0.8, -15), '0'); eq(W.roomKeyOf(wx + 0.4, -15), '1'); /* across the room 0 / room 1 wall */ eq(hits(await swing(a)), [], 'hit through the wall'); await a.close(); await b.close(); },
+          async () => { const [a, b] = await pair(srv, 0); await put(a, PX(-2), PZ, FACE_W); await put(b, PX(-0.5), PZ, 0); const ms = await swing(a); assert(ms.some(m => m.swing === a.state.you), 'swing not broadcast'); eq(hits(ms), [], 'hit from behind'); await a.close(); await b.close(); },
+          async () => { const [a, b] = await pair(srv, 10); await put(a, PX(-2), PZ, FACE_E); await put(b, PX(1.5), PZ, 0); eq(hits(await swing(a)), [], 'hit at 3.5 m'); await a.close(); await b.close(); },
+          async () => { const [a, b] = await pair(srv, 20); const wx = W.rc(0)[0] + W.roomW(0) / 2; const wz = W.rc(0)[1]; await put(a, wx - 0.8, wz, FACE_E); await put(b, wx + 0.4, wz, 0); eq(W.roomKeyOf(wx - 0.8, wz), '0'); eq(W.roomKeyOf(wx + 0.4, wz), '1'); /* across the room 0 / room 1 wall */ eq(hits(await swing(a)), [], 'hit through the wall'); await a.close(); await b.close(); },
         ];
         await Promise.all(cases.map(f => f()));
       }],
       ['hit = attack stat, cooldown blocks a second swing, kill gives died + kill count + the survivor wins', async () => {
-        const [a, b] = await pair(srv, 30); await put(a, -15, -15, FACE_E); await put(b, -13.5, -15, 0);
+        const [a, b] = await pair(srv, 30); await put(a, PX(-2), PZ, FACE_E); await put(b, PX(-0.5), PZ, 0);
         const ms = await swing(a), h = hits(ms); eq(h.length, 1); eq(h[0].dmg, MACE_ATK, 'damage is the weapon attack'); eq(h[0].to, b.state.you); eq(h[0].hp, SMALL_HP - MACE_ATK); eq(h[0].dead, false);
         await b.until(x => x.state.hit && x.state.hit.hp === SMALL_HP - MACE_ATK, 1500, 'victim sees the hit');
         eq(a.state.kills, undefined);
@@ -42,13 +43,14 @@ const equipBow = async c => { c.send({ give: 'w:bow' }); await c.until(x => x.st
       }],
       ['bow: hits at 9 m, misses at 13.5 m (and bow damage is its attack stat)', async () => {
         const [a, b] = await pair(srv, 40, 0, 2); await equipBow(a);   // 80 HP target survives both shots
-        await put(a, -8.5, 0, FACE_E); await put(b, 0.5, 0, 0); eq(W.roomKeyOf(-8.5, 0), '4');
+        const bz = -3;   // off the line through the relic pedestal, so only the range decides
+        await put(a, -8.5, bz, FACE_E); await put(b, 0.5, bz, 0); eq(W.roomKeyOf(-8.5, bz), W.VAULT_KEY);
         const h = hits(await swing(a)); eq(h.length, 1, 'bow miss at 9 m'); eq(h[0].dmg, G.combat('w:bow').dmg);
-        await sleep(650); await put(b, 5.0, 0, 0);
+        await sleep(650); await put(b, 5.0, bz, 0);
         eq(hits(await swing(a)), [], 'bow hit at 13.5 m'); await a.close(); await b.close();
       }],
       ['regeneration: a wounded goblin heals again after a pause (regen sped up 10x for the test)', async () => {
-        const [a, b] = await pair(srvR, 50); await put(a, -15, -15, FACE_E); await put(b, -13.5, -15, 0);
+        const [a, b] = await pair(srvR, 50); await put(a, PX(-2), PZ, FACE_E); await put(b, PX(-0.5), PZ, 0);
         eq(hits(await swing(a)).length, 1);
         const hp = () => (a.state.players.find(p => p.id === b.state.you) || { stats: {} }).stats.health;
         await a.until(x => hp() === SMALL_HP - MACE_ATK, 1500, 'wounded'); const t0 = Date.now();

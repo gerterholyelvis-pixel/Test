@@ -31,7 +31,8 @@ const angDiff = (a, b) => { let d = (a - b) % (2 * Math.PI); if (d > Math.PI) d 
       ['sprinting: while travelling between rooms bots run faster than 5.5 m/s, and they walk when they do not travel; jumps stay rare', async () => {
         const c = await connect(quick.port, 'wins=2'), snaps = track(c), bot = botOf(c); await sleep(200);   // 3 s rounds: the bot votes, doors open, it travels
         let fast = 0; for (let i = 0; i < 250 && !fast; i++) { await sleep(100); fast = snaps.filter(s => s.id === bot.id && s.spd > 5.5).length; }
-        assert(fast > 0, 'no bot snapshot above 5.5 m/s in 25 s'); const mine = snaps.filter(s => s.id === bot.id);
+        assert(fast > 0, 'no bot snapshot above 5.5 m/s in 25 s'); await sleep(2000);   // 5x5: the bot's first move at GO is already a sprint out of its home; let it slow down and collect more snapshots
+        const mine = snaps.filter(s => s.id === bot.id);
         assert(Math.max(...mine.map(s => s.spd)) <= 12, 'speed field out of range'); assert(mine.some(s => s.spd > 0.5 && s.spd < 5.2) || mine.length > 10, 'bot moved at all');
         const top = Math.max(...mine.map(s => s.jump)); assert(top <= 90, 'jump higher than 90 cm: ' + top);
         let jumps = 0; for (let i = 1; i < mine.length; i++) if (mine[i].jump > 0 && mine[i - 1].jump === 0) jumps++;

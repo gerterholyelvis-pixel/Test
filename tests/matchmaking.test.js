@@ -8,7 +8,7 @@ const ready = c => c.send({ ready: 1 });
     try { fail += await L.run('matchmaking', [[name, () => fn(srv)]]); } catch (e) { fail++; console.log('  FAIL  ' + name + ': ' + e.message); }
     srv.stop();
   };
-  await run('8 clients form one match, same countdown, 8 distinct outer rooms', { GK_MATCH_SIZE: '8', GK_COUNTDOWN_MS: '1200', GK_QUEUE_MS: '60000' }, async srv => {
+  await run('8 clients form one match, same countdown, 8 distinct homes (one per goblin)', { GK_MATCH_SIZE: '8', GK_COUNTDOWN_MS: '1200', GK_QUEUE_MS: '60000' }, async srv => {
     const cs = [];
     for (let i = 0; i < 7; i++) { cs.push(await connectRaw(srv.port)); await sleep(30); }
     await sleep(300); assert(cs.every(c => !c.state.matchStart), 'match started with only 7 players');
@@ -16,9 +16,9 @@ const ready = c => c.send({ ready: 1 });
     cs.push(await connectRaw(srv.port));
     await Promise.all(cs.map(c => c.until(x => x.state.matchStart, 3000, 'matchStart')));
     const ms = cs[0].state.matchStart; eq(ms.players.length, 8);
-    const rooms = ms.players.map(p => p.box); eq(new Set(rooms).size, 8, 'one goblin per room'); assert(!rooms.includes(W.VAULT), 'someone spawned in the vault');
-    for (const p of ms.players) eq(W.roomKeyOf(p.x, p.z), String(p.box));
-    for (const c of cs) { const mine = c.state.matchStart.players.find(p => p.id === c.state.you); eq(c.state.matchStart.spawn, { box: mine.box, x: mine.x, z: mine.z, yaw: mine.yaw }); eq(c.state.matchStart.layout, ms.layout); }
+    const homes = ms.players.map(p => p.home); eq(new Set(homes).size, 8, 'one goblin per home'); eq(homes.slice().sort(), W.HOME_IDS.map(i => 'c' + i).sort(), 'the 8 homes are all used'); assert(!ms.players.some(p => p.box === W.VAULT), 'someone spawned in the vault');
+    for (const p of ms.players) { eq(W.roomKeyOf(p.x, p.z), p.home); eq(p.box, W.CHEST[+p.home.slice(1)].parent); }
+    for (const c of cs) { const mine = c.state.matchStart.players.find(p => p.id === c.state.you); eq(c.state.matchStart.spawn, { box: mine.box, home: mine.home, x: mine.x, z: mine.z, yaw: mine.yaw }); eq(c.state.matchStart.layout, ms.layout); }
     await sleep(300); assert(cs.every(c => !c.state.countdown), 'countdown before everyone was ready');
     for (const c of cs.slice(0, 7)) ready(c);
     await sleep(300); assert(cs.every(c => !c.state.countdown), 'countdown before the last player was ready');
@@ -28,7 +28,7 @@ const ready = c => c.send({ ready: 1 });
     const at = cs[0].state.countdown.at; assert(cs.every(c => c.state.countdown.at === at), 'different GO times');
     assert(at - t0 > 1000 && at - t0 < 1600, 'GO is ~countdown after the last ready: ' + (at - t0));
     await sleep(Math.max(0, at - Date.now()) + 200);
-    await cs[0].until(x => x.state.round && x.state.round.left > 29000, 1000, 'round 1 running'); assert(cs[0].state.round.left <= 30000);
+    await cs[0].until(x => x.state.round && x.state.round.left > 119000, 1000, 'round 1 running'); assert(cs[0].state.round.left <= 120000);
     const late = await connectRaw(srv.port); await sleep(200); assert(!late.state.matchStart && late.state.queue.n === 1, 'late joiner must not enter the closed match');
     for (const c of [...cs, late]) await c.close();
   });
@@ -41,7 +41,7 @@ const ready = c => c.send({ ready: 1 });
     await sleep(300);
     assert(Date.now() < a.state.countdown.at, 'test timing: GO already happened');
     assert(a.msgs.slice(n0).every(m => !m.players && !m.claimFail && !m.swing && !(m.sel && Object.keys(m.sel).length)), 'a locked message got an answer: ' + JSON.stringify(a.msgs.slice(n0)).slice(0, 200));
-    await a.until(x => x.state.round && x.state.round.left < 29500 && x.msgs.slice(n0).some(m => m.players), 5500, 'GO');
+    await a.until(x => x.state.round && x.state.round.left < 119500 && x.msgs.slice(n0).some(m => m.players), 5500, 'GO');
     const after = a.state.players.find(p => p.id === a.state.you); eq([after.x, after.z], [me.x, me.z], 'moved before GO');
     // movement now arrives as {s:[t,id,x,z,yaw,v,age]} snapshots to the OTHER player; the mover gets a {fix} only if refused. A 0.4 m step from the spawn is legal.
     const nb = b.msgs.length, nf = a.msgs.length, tx = +(me.x + 0.4).toFixed(2); a.send({ m: [tx, me.z, 1] });

@@ -243,14 +243,36 @@
     if (Math.random() < 0.3) { const idx = [0, 1, 2, 3, 4].filter(i => !/^[xc]:/.test(out[i].key)), k = pickCharm(), at = idx[Math.floor(Math.random() * idx.length)]; if (at !== undefined) out[at] = { key: k, price: Math.max(5, Math.round(ITEMS[k].price * (0.8 + Math.random() * 0.4) / 5) * 5) }; }   // UTIL2: some shops also stock a charm in place of another gear slot
     return out;
   }
-  // Random room layout for one match: the types of the 12 rooms behind the outer doors, in CHEST_ROOMS order (game.js).
-  // Edge rooms 1,3,5,7 have a single outer room (ids 2,5,6,9): chest or mystery, never a merchant.
-  // Corner rooms 0,2,6,8 have two outer rooms (ids 0/1, 3/4, 7/8, 10/11): each chest, mystery or merchant.
-  function randomLayout() {
-    const pick = table => { let r = Math.random() * table.reduce((a, b) => a + b[1], 0); for (const [t, w] of table) { if ((r -= w) < 0) return t; } return table[0][0]; };
-    const EDGE = [['chest', 60], ['mystery', 40]], CORNER = [['chest', 50], ['mystery', 25], ['merchant', 25]], edgeIds = [2, 5, 6, 9];
-    return Array.from({ length: 12 }, (_, id) => pick(edgeIds.includes(id) ? EDGE : CORNER));
+  // Random room layout for one match (docs/PLAN-5x5.md 1.5): the types of the 16 attached rooms 'c0'..'c15' (world.js CHEST order, clockwise from the NW corner, 4 per side).
+  // Even ids are homes. Of the 8 loot rooms (odd ids) one is the Master Forge and one the Grand Recycler, on opposite sides (side k and k+2) at a random slot;
+  // the other 6 roll chest 45 / mystery 35 / merchant 20, with at least one merchant (a random chest is converted when the roll has none).
+  const LOOT_ROLL = [['chest', 45], ['mystery', 35], ['merchant', 20]];
+  function randomLayout(rnd = Math.random) {
+    const pick = table => { let r = rnd() * table.reduce((a, b) => a + b[1], 0); for (const [t, w] of table) { if ((r -= w) < 0) return t; } return table[0][0]; };
+    const out = Array.from({ length: 16 }, (_, id) => id % 2 ? null : 'home');
+    const k = Math.floor(rnd() * 4), slot = s => 4 * s + (rnd() < 0.5 ? 1 : 3);   // the two loot ids of side s are 4s+1 and 4s+3
+    out[slot(k)] = 'forge'; out[slot((k + 2) % 4)] = 'grand';
+    const rest = []; for (let id = 1; id < 16; id += 2) if (!out[id]) { out[id] = pick(LOOT_ROLL); rest.push(id); }
+    if (!rest.some(id => out[id] === 'merchant')) { const ch = rest.filter(id => out[id] === 'chest'), pool = ch.length ? ch : rest; out[pool[Math.floor(rnd() * pool.length)]] = 'merchant'; }
+    return out;
   }
+  // STATIONS-BEGIN (docs/PLAN-5x5.md 1.6; task E wires bench tiers, craft time and bonusTier): workbench and recycler types are parameters, not code paths.
+  // server.js stationAt(m, p, kind) returns { kind, type } and craft() / recycle() read the type from STATIONS. F0 applies the recycler efficiency only.
+  const STATIONS = {
+    bench: { normal: { maxTier: 2, costMul: 1.0, craftMs: 2500 }, master: { maxTier: 5, costMul: 0.75, craftMs: 800, bonusTier: 1 } },
+    recycler: { home: { eff: 0.5 }, full: { eff: 1.0 } },
+  };
+  function recycleEff(y, eff) {   // a recycler yield at efficiency eff: floor(n * eff) per part, at least 1 of the item's main (largest) part
+    if (!y || eff == null || eff >= 1) return y;
+    let main = null; for (const k in y) if (main == null || y[k] > y[main]) main = k;
+    const out = {}; for (const k in y) { const n = Math.floor(y[k] * eff); if (n > 0) out[k] = n; }
+    if (main != null && !out[main]) out[main] = 1;
+    return out;
+  }
+  // knowledge adapters (task E rewires them when the knowledge plan grows; today's behaviour is the default)
+  const canCraft = (p, r) => ((p && p.stats && p.stats.knowledge) || 0) >= ((r && r.needs) || 0);
+  const addKnowledge = (p, n) => { if (!p || !p.stats || !Number.isFinite(n)) return 0; p.stats.knowledge = Math.round((p.stats.knowledge + n) * 100) / 100; return n; };
+  // STATIONS-END
   // What is inside one MYSTERY room (rolled by the server per match, or locally in the offline demo), all six equally likely:
   //   { kind: 'weapon', key: 'w:axe' } | { kind: 'armor', key: 'a:vest' } | { kind: 'enemy', enemy: 'troll'|'archer'|'speedy'|'dumb'|'regular' }
   //   | { kind: 'stations', stations: [two different of 'recycler','knowledge','workbench'] } | { kind: 'gold', amount: 50..500 } | { kind: 'plushie' }
@@ -341,6 +363,6 @@
     ['w:slayer', 5, { metal: 18, gold: 8, gem: 4, crystal: 3 }], ['a:aegis', 5, { metal: 20, gold: 8, gem: 4, crystal: 3 }]])
     if (ITEMS[key] && !RECIPES.some(r => r.out === key)) RECIPES.push({ id: 'r:' + key, out: key, tier, cost, needs: KNOWLEDGE_TIERS[tier - 1] });
   // KNOWLEDGE-END
-  root.GKITEMS = { KNOW, BRANCHES, PERKS, PERK, hasPerk, perkSpent, knowPoints, knowTier, learnFail, recipeCost, recycleFor, healMult, reforgeCost, UTIL_KEYS, pickUtil, armorSpeed, MAX_ARMOR_SPEED, randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, WEAPON_TUNE, START, KNOWLEDGE, SPEED, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info, armorThorns, armorScore, GOBLINS, GOB_PERKS, HIT_R, rollGoblin, goblinHp, hitRadius, goblinReach, goblinHit, goblinRegen, goblinStart, CHARM_KEYS, pickCharm, charmEff };
+  root.GKITEMS = { KNOW, BRANCHES, PERKS, PERK, hasPerk, perkSpent, knowPoints, knowTier, learnFail, recipeCost, recycleFor, healMult, reforgeCost, UTIL_KEYS, pickUtil, armorSpeed, MAX_ARMOR_SPEED, randomShop, START_GOLD, randomMystery, randomLayout, STATIONS, recycleEff, canCraft, addKnowledge, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, WEAPON_TUNE, START, KNOWLEDGE, SPEED, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info, armorThorns, armorScore, GOBLINS, GOB_PERKS, HIT_R, rollGoblin, goblinHp, hitRadius, goblinReach, goblinHit, goblinRegen, goblinStart, CHARM_KEYS, pickCharm, charmEff };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.GKITEMS;
 })(typeof window !== 'undefined' ? window : globalThis);
