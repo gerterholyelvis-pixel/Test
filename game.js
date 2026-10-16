@@ -5543,6 +5543,9 @@ const VM_CLASS = { sword: 'slash', dagger: 'slash', spear: 'thrust', axe: 'smash
 const VM_SC = { sword: 0.34, dagger: 0.34, spear: 0.24, axe: 0.3, mace: 0.28, club: 0.33, flail: 0.28, hammer: 0.29, halberd: 0.23, bow: 0.34, crossbow: 0.3, staff: 0.28, scepter: 0.32 };   // model units -> first-person metres
 const VM_GRIP = { sword: -0.3, dagger: -0.4, spear: -0.3, axe: -0.5, mace: -0.55, club: -0.35, flail: -0.5, hammer: -0.4, halberd: -0.4, bow: 0, crossbow: -0.2, staff: -0.3, scepter: -0.4 };   // grip point along the model's +y
 const VM_TILT = { sword: -0.35, dagger: -0.35, spear: -1.05, axe: -0.3, mace: -0.3, club: -0.3, flail: -0.3, hammer: -0.3, halberd: -0.8, bow: 0, crossbow: -1.45, staff: -0.25, scepter: -0.3 };   // base pitch of the weapon in the hand
+// first-person only (third person keeps VM_SC): bigger bow, spear and a slightly smaller axe so the limb and string, the spear head and the whole axe head read on screen
+const VM_FPX = { bow: 1.82, spear: 2.5, axe: 0.87 };
+const VM_ADJ = { bow: { rot: [0, 0.5, 0.12] }, crossbow: { rot: [-1.2, -0.7, 0.2], pos: [-0.05, 0, 0] }, spear: { rot: [-0.7, 0, 0] }, axe: { rot: [-0.1, 0, 0] } };   // per-family overrides of the weapon's pose in the hand: { rot: [x, y, z], pos: [x, y, z] } (applied after the tables above)
 const VM_SECS = { slash: 0.46, thrust: 0.5, smash: 0.7, bow: 0.66, cast: 0.6, fist: 0.32 };   // clip length at most; also capped to 0.85 x the weapon cooldown
 const VM_HITAT = { slash: 0.44, thrust: 0.4, smash: 0.56, bow: 0.64, cast: 0.46, fist: 0.4 };   // when the blow lands inside the clip (fraction)
 const vmSkin = new THREE.MeshStandardMaterial({ color: 0x6fa83a, roughness: 0.62, metalness: 0, emissive: 0x24520f, emissiveIntensity: 0.22, envMapIntensity: 0.9 });
@@ -5603,7 +5606,7 @@ function vmSetWeapon(key) {   // swap the model in the hand (called at the botto
   const fist = VM.fam === 'fist'; VM.hand[1].visible = true;
   if (!fist && GK.chestKit && GK.chestKit.weaponModel) {
     try {
-      const m = GK.chestKit.weaponModel(key), sc = VM_SC[VM.fam] || 0.35, wrap = new THREE.Group();
+      const m = GK.chestKit.weaponModel(key), sc = (VM_SC[VM.fam] || 0.35) * (VM_FPX[VM.fam] || 1), wrap = new THREE.Group();
       m.scale.multiplyScalar(sc); m.position.set(0, -VM_GRIP[VM.fam] * sc, 0); wrap.add(m);
       m.traverse(o => { o.frustumCulled = false; if (o.isSprite) { o.scale.multiplyScalar(0.45); o.renderOrder = 28; } });
       const box = new THREE.Box3().setFromObject(m); VM.tip.set(0, Math.max(0.3, box.max.y), 0);
@@ -5614,6 +5617,7 @@ function vmSetWeapon(key) {   // swap the model in the hand (called at the botto
   const cls = VM_CLASS[VM.fam];
   VM.wm.position.set(0, 0, 0);
   if (cls === 'bow') { VM.wm.rotation.set(0, Math.PI / 2, 0); if (VM.fam === 'crossbow') VM.wm.rotation.set(VM_TILT.crossbow, 0, 0); }
+  const adj = VM_ADJ[VM.fam]; if (adj) { if (adj.rot) VM.wm.rotation.set(adj.rot[0], adj.rot[1], adj.rot[2]); if (adj.pos) VM.wm.position.set(adj.pos[0], adj.pos[1], adj.pos[2]); }
   VM.burst.visible = false; VM.burst.parent && VM.burst.parent.remove(VM.burst);
   if (cls === 'cast' && VM.model) { VM.burst.material.color.setHex(VM.fam === 'staff' ? 0x7affd8 : 0xffc933); VM.burst.position.copy(VM.tip); VM.model.add(VM.burst); }
 }
@@ -5731,7 +5735,7 @@ function vmPose3(a, u) {   // arm/torso pose for one swing frame; combatTick res
   else { const A = a.punch ? u.arms[1] : u.arms[0], s = a.punch ? 1 : -1, pb = vmSm(vmRamp(p, 0.05, 0.4)) * (1 - vmSm(vmRamp(p, 0.4, 0.9))); A.rotation.x = -0.15 - 1.5 * pb; A.userData.el.rotation.x = -0.3 * pb; u.torso.rotation.y += s * -0.4 * pb; if (A !== arm) arm.rotation.x = -0.15; }
 }
 function vmEnd3(a, u) { const arm = u.arms[1]; arm.rotation.z = 0; arm.userData.el.rotation.x = 0; u.arms[0].userData.el.rotation.x = 0; }
-GK.vm = { state: VM, setWeapon(key) { if (typeof myInv === 'object') { myInv.weapon = key; invReady = true; } return key; }, swing: () => combatSwing(), tracers: VM.tracers };   // GK.vm.setWeapon is a test hook: local equip without the server
+GK.vm = { tables: { VM_SC, VM_GRIP, VM_TILT, VM_ADJ, VM_FPX }, rebuild: key => vmSetWeapon(key), state: VM, setWeapon(key) { if (typeof myInv === 'object') { myInv.weapon = key; invReady = true; } return key; }, swing: () => combatSwing(), tracers: VM.tracers };   // GK.vm.setWeapon is a test hook: local equip without the server
 // VIEWMODEL-END
 function frame(now) {
   const dt = clamp((now - last) / 1000, 0.001, 0.05); last = now; const t = now / 1000;
