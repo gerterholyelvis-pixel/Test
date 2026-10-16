@@ -17,5 +17,13 @@ run('hud5', [
     for (const x of ['crown', 'ram', 'keystone', 'locksmith', 'counting', 'tree:well', 'forge']) assert(k.includes(x), 'missing icon ' + x);
     eq(k.filter(x => x === 'home').length, 8);
   }],
-  ['mapOps tolerates an empty state', () => { assert(H.mapOps().length >= 41); }]
+  ['mapOps tolerates an empty state', () => { assert(H.mapOps().length >= 41); }],
+  ['wiring: hud5.js is served, loaded before game.js, and game.js feeds it', () => {
+    const fsx = require('fs'), srv = fsx.readFileSync(__dirname + '/../server.js', 'utf8'), idx = fsx.readFileSync(__dirname + '/../index.html', 'utf8'), gm = fsx.readFileSync(__dirname + '/../game.js', 'utf8');
+    assert(/CLIENT_JS = new Set\(\[[^\]]*'hud5'/.test(srv), 'hud5 in CLIENT_JS');
+    assert(srv.includes('([a-z0-9]+)'), 'client script route allows digits');
+    assert(idx.indexOf('/hud5.js') > 0 && idx.indexOf('/hud5.js') < idx.indexOf("import('/game.js')"), 'script tag before game.js');
+    assert(gm.includes('GKHUD5.onMsg(d)') && gm.includes('HUD5.mapOps(ST'), 'game.js hooks present');
+    assert(!gm.includes('gkDbgFF'), 'the Foundation skip button is gone');
+  }]
 ]);
