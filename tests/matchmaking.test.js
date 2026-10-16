@@ -42,7 +42,10 @@ const ready = c => c.send({ ready: 1 });
     assert(a.msgs.slice(n0).every(m => !m.players && !m.claimFail && !m.swing && !(m.sel && Object.keys(m.sel).length)), 'a locked message got an answer: ' + JSON.stringify(a.msgs.slice(n0)).slice(0, 200));
     await a.until(x => x.state.round && x.state.round.left < 29500 && x.msgs.slice(n0).some(m => m.players), 3500, 'GO');
     const after = a.state.players.find(p => p.id === a.state.you); eq([after.x, after.z], [me.x, me.z], 'moved before GO');
-    a.send({ m: [0, 0, 1] }); await a.until(x => { const q = x.state.players.find(p => p.id === x.state.you); return q.x === 0 && q.z === 0; }, 2000, 'movement works after GO');
+    // movement now arrives as {s:[t,id,x,z,yaw,v,age]} snapshots to the OTHER player; the mover gets a {fix} only if refused. A 0.4 m step from the spawn is legal.
+    const nb = b.msgs.length, nf = a.msgs.length, tx = +(me.x + 0.4).toFixed(2); a.send({ m: [tx, me.z, 1] });
+    await b.until(x => x.msgs.slice(nb).some(m => m.s && m.s.some((v, i) => i % 6 === 1 && v === a.state.you && m.s[i + 1] === tx && m.s[i + 2] === +me.z.toFixed(2))), 2000, 'movement works after GO (snapshot at the new position)');
+    await sleep(250); assert(!a.msgs.slice(nf).some(m => m.fix), 'a legal move right after spawn was refused: ' + JSON.stringify(a.msgs.slice(nf).filter(m => m.fix)));
     await a.close(); await b.close();
   });
   await run('GK_MATCH_SIZE=2: the first player waits, the second starts the match', { GK_MATCH_SIZE: '2', GK_QUEUE_MS: '60000' }, async srv => {

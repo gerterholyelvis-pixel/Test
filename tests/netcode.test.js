@@ -3,12 +3,11 @@ const L = require('./lib.js'), { connect, sleep, assert, eq } = L, W = require('
 const FACE_E = -Math.PI / 2;
 const D = L.doors(), DOOR01 = D.find(d => d.a === '0' && d.b === '1').id;
 async function pair(srv, wins, ga = 0, gb = 0) {   // two players in one private match (distinct `wins` keep tests apart)
-  for (let i = 0; i < 20; i++) {
-    const a = await connect(srv.port, 'goblin=' + ga + '&wins=' + wins), b = await connect(srv.port, 'goblin=' + gb + '&wins=' + wins);
-    try { await a.until(x => x.state.players && x.state.players.some(p => p.id === b.state.you), 1500, 'same match'); } catch (e) { await a.close(); await b.close(); await sleep(100); continue; }
-    return [a, b];
-  }
-  throw new Error('could not get two players into one match');
+  // servers run with GK_MATCH_SIZE=2: both clients queue together (same `wins` bracket); connect() returns after GO
+  const [a, b] = await Promise.all([connect(srv.port, 'goblin=' + ga + '&wins=' + wins), connect(srv.port, 'goblin=' + gb + '&wins=' + wins)]);
+  await a.until(x => x.state.players && x.state.players.some(p => p.id === b.state.you), 1500, 'same match');
+  await a.until(x => x.state.match && x.state.match.alive === 2, 2000, 'both entered');
+  return [a, b];
 }
 const put = async (c, x, z, yaw = 0) => { c.send({ tp: [x, z] }); c.send({ m: [x, z, yaw] }); await sleep(60); };
 const snapsOf = (c, id, from = 0) => c.msgs.slice(from).filter(m => m.s).flatMap(m => { const out = []; for (let i = 1; i < m.s.length; i += 6) if (m.s[i] === id) out.push({ t: m.s[0], id, x: m.s[i + 1], z: m.s[i + 2], yaw: m.s[i + 3], v: m.s[i + 4], age: m.s[i + 5] }); return out; });
@@ -19,11 +18,11 @@ const walk = async (c, x0, z0, x1, z1, secs, speed) => {   // send {m} every 66 
 };
 
 (async () => {
-  const srv = await L.startServer({ GK_ROUND_MS: '1200' }); let fail = 1;
+  const srv = await L.startServer({ GK_MATCH_SIZE: '2', GK_ROUND_MS: '1200' }); let fail = 1;
   try {
     fail = await L.run('netcode', [
       ['ping/pong: pong echoes the client time and carries a growing server time', async () => {
-        const c = await connect(srv.port); c.send({ ping: 12345.5 }); await c.until(x => x.state.pong === 12345.5, 2000, 'pong'); const t1 = c.state.t;
+        const c = await L.connectRaw(srv.port); c.send({ ping: 12345.5 }); await c.until(x => x.state.pong === 12345.5, 2000, 'pong'); const t1 = c.state.t;
         assert(Number.isInteger(t1) && t1 >= 0, 'server time is an integer ms: ' + t1); await sleep(120); c.send({ ping: 7 }); await c.until(x => x.state.pong === 7, 2000, 'pong 2');
         assert(c.state.t - t1 >= 90 && c.state.t - t1 < 400, 'server clock advances in ms: ' + (c.state.t - t1));
         c.send({ ping: 'x' }); c.send({ ping: null }); await sleep(100); assert(srv.alive()); await c.close();

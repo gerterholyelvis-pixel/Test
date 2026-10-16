@@ -5,13 +5,11 @@ const FACE_E = -Math.PI / 2, FACE_W = Math.PI / 2;   // forward = (-sin yaw, -co
 
 // two players (a: big goblin with a mace, b: small goblin) in the same private match; each test uses its own `wins` value so matches never mix
 async function pair(srv, wins, ga = 2, gb = 0) {
-  for (let i = 0; i < 20; i++) {
-    const a = await connect(srv.port, 'goblin=' + ga + '&wins=' + wins), b = await connect(srv.port, 'goblin=' + gb + '&wins=' + wins);
-    try { await a.until(x => x.state.players && x.state.players.some(p => p.id === b.state.you), 1500, 'same match'); } catch (e) { await a.close(); await b.close(); await sleep(100); continue; }
-    a.send({ enter: 1 }); b.send({ enter: 1 }); await a.until(x => x.state.match && x.state.match.alive === 2, 2000, 'both entered');
-    return [a, b];
-  }
-  throw new Error('could not get two players into one match');
+  // servers run with GK_MATCH_SIZE=2: both clients queue together (same `wins` bracket); connect() returns after GO
+  const [a, b] = await Promise.all([connect(srv.port, 'goblin=' + ga + '&wins=' + wins), connect(srv.port, 'goblin=' + gb + '&wins=' + wins)]);
+  await a.until(x => x.state.players && x.state.players.some(p => p.id === b.state.you), 1500, 'same match');
+  await a.until(x => x.state.match && x.state.match.alive === 2, 2000, 'both entered');
+  return [a, b];
 }
 const put = async (c, x, z, yaw) => { c.send({ tp: [x, z] }); c.send({ m: [x, z, yaw] }); await sleep(60); };
 const swing = async (c, extra) => { const n = c.msgs.length; c.send({ atk: 1, ...extra }); await sleep(130); return c.msgs.slice(n); };
@@ -19,7 +17,7 @@ const hits = ms => ms.filter(m => m.hit).map(m => m.hit);
 const equipBow = async c => { c.send({ give: 'w:bow' }); await c.until(x => x.state.inv.backpack[0] === 'w:bow', 2000, 'bow in pack'); c.send({ mv: ['b0', 'weapon'] }); await c.until(x => x.state.inv.weapon === 'w:bow', 2000, 'bow equipped'); };
 
 (async () => {
-  const srv = await L.startServer(), srvR = await L.startServer({ GK_REGEN_SCALE: '0.1' }); let fail = 1;   // srvR: regeneration 10x faster
+  const srv = await L.startServer({ GK_MATCH_SIZE: '2' }), srvR = await L.startServer({ GK_MATCH_SIZE: '2', GK_REGEN_SCALE: '0.1' }); let fail = 1;   // srvR: regeneration 10x faster
   try {
     fail = await L.run('combat', [
       ['misses: from behind, out of range, in another room (and a swing still happens)', async () => {
