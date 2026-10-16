@@ -185,6 +185,7 @@ setInterval(() => { // one global timer steps every match
     }
     socGrace(m, now);   // SOCIAL: disconnected players whose grace period ran out die now
     botTick(m, now);   // BOTS: brains of bots and mystery enemies (~10 Hz)
+    craftTick(m, now);   // STATIONS: finished crafts, cancelled crafts
     useTick(m, now);   // UTILITY: bombs, smoke, mushroom regeneration
     weapons3Tick(m, now);   // WEAPONS3: bleeds, and bolts of tuned wands when the staffbolt rule is off
     ruleTick(m, now);   // RULES: experimental rules (no-op unless GK_RULES is set)
@@ -245,18 +246,41 @@ function stationAt(m, p, st) {
   return t ? { kind: st, type: t } : null;
 }
 const hasStation = (m, p, st) => !!stationAt(m, p, st);
+// STATIONS-CRAFT-BEGIN (task E): crafting takes time. {craft: id} pays the (bench-discounted) parts and starts p.crafting; the item arrives after the bench's craftMs.
+// Leaving the room, taking a hit, dying or {craftCancel:1} cancels it and refunds the parts. One craft at a time.
 function craft(m, p, rid) { // {craft: recipeId}; returns null or a failure reason
-  if (!knowBench(m, p)) return 'room';   // KNOWLEDGE: the knowledge tree is a workbench too
+  const stn = stationAt(m, p, 'workbench') || stationAt(m, p, 'knowledge'); if (!stn) return 'room';   // KNOWLEDGE: the knowledge tree is a workbench too
   const r = typeof rid === 'string' && G.RECIPES.find(x => x.id === rid);
   if (!r) return 'recipe';
-  if (!G.canCraft(p, r)) return 'knowledge';   // STATIONS: knowledge adapter (task E: bench maxTier / bonusTier from stationAt(m, p, 'workbench').type)
-  const cost = G.recipeCost(r, p.perks);   // KNOWLEDGE: Thrifty Hands
+  if (p.crafting) return 'busy';
+  const bc = G.benchCraft(p, r, stn.type, p.perks);   // knowledge adapter + bench maxTier / costMul / bonusTier / craftMs, Thrifty Hands
+  if (bc.why) return bc.why;
+  const cost = bc.cost;
   for (const k in cost) if ((p.parts[k] || 0) < cost[k]) return 'parts';
   if (p.inv.backpack.indexOf(null) < 0) return 'space';
+  const now = Date.now(), ms = Math.max(0, bc.ms * CRAFT_SCALE);
   for (const k in cost) p.parts[k] -= cost[k];
-  giveItem(p, r.out); sendParts(p); sendTo(p.ws, { crafted: { key: r.out, recipe: r.id } });
+  p.crafting = { rid: r.id, out: r.out, cost, room: p.room, startedAt: now, doneAt: now + ms, hp: p.stats.health };
+  sendParts(p); sendTo(p.ws, { crafting: { rid: r.id, ms, type: stn.type, bonus: bc.bonus ? 1 : 0 } });
+  if (ms <= 0) craftTick(m, now);
   return null;
 }
+const CRAFT_SCALE = DBG && +process.env.GK_CRAFT_SCALE >= 0 && process.env.GK_CRAFT_SCALE !== '' ? +process.env.GK_CRAFT_SCALE : 1;   // test hook only
+function craftCancel(p, why) {   // refund the parts of a running craft
+  const c = p.crafting; if (!c) return false; p.crafting = null;
+  for (const k in c.cost) p.parts[k] = (p.parts[k] || 0) + c.cost[k];
+  sendParts(p); sendTo(p.ws, { craftCancel: why || 'cancel', rid: c.rid }); return true;
+}
+function craftTick(m, now) {
+  for (const p of m.players.values()) {
+    const c = p.crafting; if (!c) continue;
+    if (p.dead || p.room !== c.room || (p.stats && p.stats.health < c.hp) || (p.hurtAt || 0) >= c.startedAt) { craftCancel(p, p.dead ? 'dead' : p.room !== c.room ? 'left' : 'hit'); continue; }
+    if (now < c.doneAt) continue;
+    if (!giveItem(p, c.out)) { craftCancel(p, 'space'); continue; }
+    p.crafting = null; sendTo(p.ws, { crafted: { key: c.out, recipe: c.rid } });
+  }
+}
+// STATIONS-CRAFT-END
 // KNOWLEDGE-BEGIN (docs/KNOWLEDGE.md): learning perks and reforging gear at a workbench or knowledge tree
 const knowBench = (m, p) => hasStation(m, p, 'workbench') || hasStation(m, p, 'knowledge');
 function learn(m, p, id) {   // {learn: perkId}; returns null or a failure reason
@@ -347,6 +371,7 @@ function spawn(slot = Math.floor(Math.random() * 8)) {   // a point in home slot
 function die(ws, p) { // a dead player drops everything where they fell and leaves the match
   const m = p.match; if (p.dead || !m) return;
   if (p.npc) return dieNpc(m, p);
+  craftCancel(p, 'dead');   // STATIONS: a running craft is refunded before the death pile is made
   const items = allItems(p.inv), brain = G.brainKey(p.stats.knowledge); // the brain carries the victim's CURRENT knowledge
   m.deaths = (m.deaths || 0) + 1; p.dead = true; p.diedAt = Date.now(); m.dead.push(p);
   if (ws && ws.readyState === 1) m.specs.set(ws, p);   // FUN: a dead human stays subscribed as a spectator (snapshots, hits, feed) until the socket closes
@@ -1400,9 +1425,9 @@ const botNeedsStation = p => BOT_SLOTS.some(s => { const k = getSlot(p.inv, s); 
 function botStations(m, p) {   // in a merchant room or a stations mystery room: recycle junk weapons, then craft the best tier 0 recipe the parts pay for
   if (hasStation(m, p, 'recycler')) for (const s of BOT_SLOTS) { const k = getSlot(p.inv, s); if (k && isJunkW(p, k) && !recycle(m, p, s)) BS.rec = (BS.rec || 0) + 1; }
   if (knowBench(m, p)) botLearn(m, p);   // KNOWLEDGE: spend knowledge points on the bot perks
-  if (knowBench(m, p)) {
-    let best = null, bv = -1;
-    for (const r of G.RECIPES) { const cost = G.recipeCost(r, p.perks); if (r.tier !== 0 || !Object.keys(cost).every(k => (p.parts[k] || 0) >= cost[k])) continue; const o = G.ITEMS[r.out], v = o.attack || o.health || 0; if (!v) continue; if (v > bv) { bv = v; best = r; } }
+  if (knowBench(m, p) && !p.crafting) {   // STATIONS: price and gate every recipe at THIS bench's type (the Master Forge is cheaper and reaches higher tiers)
+    const stn = stationAt(m, p, 'workbench') || stationAt(m, p, 'knowledge'); let best = null, bv = -1;
+    for (const r of G.RECIPES) { const bc = G.benchCraft(p, r, stn.type, p.perks); if (bc.why || (r.tier !== 0 && stn.type !== 'master') || !Object.keys(bc.cost).every(k => (p.parts[k] || 0) >= bc.cost[k])) continue; const o = G.ITEMS[r.out], v = o.attack || o.health || 0; if (!v) continue; if (v > bv) { bv = v; best = r; } }
     if (best && !craft(m, p, best.id)) BS.cra = (BS.cra || 0) + 1;
   }
 }
@@ -1558,6 +1583,7 @@ wss.on('connection', (ws, req) => {
       { const pr = p.room; place(p, clamp(d.tp[0]), clamp(d.tp[1])); noteRoom(m, p, pr); } m.dirty = true;
     } else if (dbg && Number.isFinite(d.hp)) { p.stats.health = Math.max(1, Math.min(p.stats.maxHealth, Math.floor(d.hp))); p.hurtAt = now; m.dirty = true;   // test hook (utility items)
     } else if (dbg && Number.isFinite(d.know)) { p.stats.knowledge = Math.max(0, d.know); m.dirty = true;   // test hook (knowledge.test.js)
+    } else if (dbg && d.setParts && typeof d.setParts === 'object') { for (const pt of G.PARTS) if (Number.isFinite(d.setParts[pt.key])) p.parts[pt.key] = Math.max(0, Math.floor(d.setParts[pt.key])); sendParts(p);   // test hook (stations.test.js)
     } else if (dbg && Number.isFinite(d.gold)) { p.gold = Math.max(0, Math.floor(d.gold)); sendGold(p);
     } else if (typeof d.throw === 'string') { throwPlushie(m, p, d.throw, now);   // LOOT
     } else if (typeof d.use === 'string') { const why = useItem(m, p, d.use, now); if (why) sendTo(ws, { useFail: why });   // UTILITY
@@ -1567,6 +1593,7 @@ wss.on('connection', (ws, req) => {
     } else if (d.enter === 1) { /* legacy: the match start (GO) replaced it */
     } else if (typeof d.eat === 'string') { eat(p, d.eat);
     } else if (Array.isArray(d.loot)) { const why = loot(m, p, d.loot); if (why) sendTo(ws, { lootFail: why });
+    } else if (d.craftCancel === 1) { craftCancel(p, 'cancel');
     } else if (typeof d.craft === 'string') {
       const why = craft(m, p, d.craft); if (why) sendTo(ws, { craftFail: why });
     } else if (typeof d.learn === 'string') { const why = learn(m, p, d.learn); if (why) sendTo(ws, { learnFail: why });   // KNOWLEDGE

@@ -272,6 +272,16 @@
   // knowledge adapters (task E rewires them when the knowledge plan grows; today's behaviour is the default)
   const canCraft = (p, r) => ((p && p.stats && p.stats.knowledge) || 0) >= ((r && r.needs) || 0);
   const addKnowledge = (p, n) => { if (!p || !p.stats || !Number.isFinite(n)) return 0; p.stats.knowledge = Math.round((p.stats.knowledge + n) * 100) / 100; return n; };
+  // Bench rules (task E). A recipe is craftable when the knowledge adapter allows it and recipe.tier <= bench.maxTier. Part cost is ceil(cost * costMul) per part (min 1).
+  // A bench with bonusTier lets you craft that many tiers above what your knowledge unlocks, at full cost (no discount). craftMs is how long the craft takes.
+  const benchSpec = type => STATIONS.bench[type] || STATIONS.bench.normal;
+  const partCost = (c, mul) => { const o = {}; for (const k in c) o[k] = c[k] > 0 ? Math.max(1, Math.ceil(c[k] * mul - 1e-9)) : 0; return o; };
+  function benchCraft(p, r, type, perks) {   // -> { why: 'knowledge' | 'bench' } or { cost, ms, bonus }
+    const sp = benchSpec(type), know = (p && p.stats && p.stats.knowledge) || 0, base = recipeCost(r, perks); let bonus = false;
+    if (!canCraft(p, r)) { if (sp.bonusTier && (r.tier | 0) <= knowTier(know) + sp.bonusTier) bonus = true; else return { why: 'knowledge' }; }
+    if ((r.tier | 0) > sp.maxTier) return { why: 'bench' };
+    return { cost: bonus ? base : partCost(base, sp.costMul), ms: sp.craftMs, bonus };
+  }
   // STATIONS-END
   // What is inside one MYSTERY room (rolled by the server per match, or locally in the offline demo), all six equally likely:
   //   { kind: 'weapon', key: 'w:axe' } | { kind: 'armor', key: 'a:vest' } | { kind: 'enemy', enemy: 'troll'|'archer'|'speedy'|'dumb'|'regular' }
@@ -342,7 +352,7 @@
     const y = recycleYield(key), it = ITEMS[key]; if (!y || !it) return y;
     if (hasPerk(perks, 'scrapper') && it.chance > 0) for (const k in y) y[k]++;
     const r = RECIPES.find(q => q.out === key || (it.base && q.out === it.base));
-    if (r) { const c = recipeCost(r, perks); for (const k in y) { y[k] = Math.min(y[k], c[k] || 0); if (!y[k]) delete y[k]; } }
+    if (r) { const c = partCost(recipeCost(r, perks), STATIONS.bench.master.costMul); for (const k in y) { y[k] = Math.min(y[k], c[k] || 0); if (!y[k]) delete y[k]; } }
     return Object.keys(y).length ? y : null;
   }
   const healMult = perks => hasPerk(perks, 'medic') ? KNOW.medic : 1;   // Field Medic: items with use 'heal' or 'regen'
@@ -363,6 +373,6 @@
     ['w:slayer', 5, { metal: 18, gold: 8, gem: 4, crystal: 3 }], ['a:aegis', 5, { metal: 20, gold: 8, gem: 4, crystal: 3 }]])
     if (ITEMS[key] && !RECIPES.some(r => r.out === key)) RECIPES.push({ id: 'r:' + key, out: key, tier, cost, needs: KNOWLEDGE_TIERS[tier - 1] });
   // KNOWLEDGE-END
-  root.GKITEMS = { KNOW, BRANCHES, PERKS, PERK, hasPerk, perkSpent, knowPoints, knowTier, learnFail, recipeCost, recycleFor, healMult, reforgeCost, UTIL_KEYS, pickUtil, armorSpeed, MAX_ARMOR_SPEED, randomShop, START_GOLD, randomMystery, randomLayout, STATIONS, recycleEff, canCraft, addKnowledge, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, WEAPON_TUNE, START, KNOWLEDGE, SPEED, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info, armorThorns, armorScore, GOBLINS, GOB_PERKS, HIT_R, rollGoblin, goblinHp, hitRadius, goblinReach, goblinHit, goblinRegen, goblinStart, CHARM_KEYS, pickCharm, charmEff };
+  root.GKITEMS = { KNOW, BRANCHES, PERKS, PERK, hasPerk, perkSpent, knowPoints, knowTier, learnFail, recipeCost, recycleFor, healMult, reforgeCost, UTIL_KEYS, pickUtil, armorSpeed, MAX_ARMOR_SPEED, randomShop, START_GOLD, randomMystery, randomLayout, STATIONS, recycleEff, canCraft, benchSpec, benchCraft, partCost, addKnowledge, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, WEAPON_TUNE, START, KNOWLEDGE, SPEED, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info, armorThorns, armorScore, GOBLINS, GOB_PERKS, HIT_R, rollGoblin, goblinHp, hitRadius, goblinReach, goblinHit, goblinRegen, goblinStart, CHARM_KEYS, pickCharm, charmEff };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.GKITEMS;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -53,6 +53,24 @@ const probe = (() => {
         for (const k in h) assert(h[k] <= y[k] && h[k] === Math.max(Math.floor(y[k] * 0.5), k === main ? 1 : 0), key + ' part ' + k + ': ' + h[k] + ' of ' + y[k]);
       }
     }],
+    ['benchCraft: the normal bench stops at tier 2, the Master Forge reaches tier 5 at 25% off, and bonusTier crafts one tier above your knowledge at full price', () => {
+      const R = id => G.RECIPES.find(r => r.id === id), P = k => ({ stats: { knowledge: k } }), t0 = R('r:w:roughclub'), t2 = R('r:w:trident'), t3 = R('r:w:halberd'), t5 = R('r:a:aegis');
+      eq(G.benchCraft(P(0), t0, 'normal').cost, t0.cost, 'normal = full price'); eq(G.benchCraft(P(0), t0, 'normal').ms, 2500);
+      eq(G.benchCraft(P(40), t2, 'normal').cost, t2.cost); eq(G.benchCraft(P(100), t3, 'normal').why, 'bench', 'a tier 3 recipe is too much for a normal bench, even with the knowledge');
+      eq(G.benchCraft(P(10), t2, 'normal').why, 'knowledge'); eq(G.benchCraft(P(10), t2, 'master').why, 'knowledge', 'two tiers up is out of reach even at the Forge');
+      const m = G.benchCraft(P(100), t3, 'master'); eq(m.ms, 800); eq(m.bonus, false); for (const k in t3.cost) eq(m.cost[k], Math.ceil(t3.cost[k] * 0.75), 'master discount on ' + k);
+      const b = G.benchCraft(P(40), t3, 'master'); eq(b.bonus, true, 'bonus tier'); eq(b.cost, t3.cost, 'bonus tier costs full price'); eq(G.benchCraft(P(20), t3, 'master').why, 'knowledge');
+      assert(!G.benchCraft(P(100), t5, 'master').why, 'tier 5 at the Forge'); eq(G.benchCraft(P(100), t5, 'normal').why, 'bench');
+      eq(G.benchCraft(P(0), t0, 'nonsense').cost, t0.cost, 'an unknown bench type counts as normal');
+      for (const r of G.RECIPES) { const n = G.benchCraft(P(100), r, 'master'); for (const k in r.cost) assert(n.cost[k] >= 1 && n.cost[k] <= r.cost[k], r.id + ' master cost ' + k); }
+    }],
+    ['no infinite materials: crafting at any bench and recycling at 50% or 100% never returns more than was paid, with every perk mix', () => {
+      for (const perks of [[], ['thrifty'], ['scrapper'], ['thrifty', 'scrapper']]) for (const r of G.RECIPES) for (const key of [r.out, r.out + '+']) {
+        if (!G.ITEMS[key]) continue; const y = G.recycleFor(key, perks); if (!y) continue;
+        const paid = G.benchCraft({ stats: { knowledge: 100 } }, r, 'master', perks).cost;   // the cheapest way to make it
+        for (const eff of [0.5, 1]) { const out = G.recycleEff(y, eff); let got = 0, cost = 0; for (const k in out) { assert(out[k] <= (paid[k] || 0), key + ' perks ' + perks + ' eff ' + eff + ': ' + k + ' ' + out[k] + ' > ' + (paid[k] || 0)); got += out[k]; } for (const k in paid) cost += paid[k]; assert(got <= cost, key + ' total'); }
+      }
+    }],
     ['canCraft / addKnowledge adapters', () => {
       assert(G.canCraft({ stats: { knowledge: 3 } }, { needs: 3 }) && !G.canCraft({ stats: { knowledge: 2 } }, { needs: 3 }) && G.canCraft({ stats: {} }, {}), 'canCraft');
       const p = { stats: { knowledge: 1 } }; eq(G.addKnowledge(p, 2.5), 2.5); eq(p.stats.knowledge, 3.5); eq(G.addKnowledge(p, NaN), 0); eq(p.stats.knowledge, 3.5); eq(G.addKnowledge(null, 1), 0);
@@ -78,6 +96,41 @@ const probe = (() => {
         c.send({ tp: W.rc(0) }); await sleep(120); c.send({ recycle: slot }); await c.until(x => x.state.recycleFail, 2000, 'refused in a hall'); eq(c.state.recycleFail, 'room'); eq(c.state.inv.backpack[+slot.slice(1)], probe.key, 'item kept');
         const before = { ...c.state.parts }; c.send({ tp: [mk.cx, mk.cz] }); await sleep(120); c.send({ recycle: slot }); await c.until(x => x.state.recycled, 2000, 'recycled');
         eq(c.state.recycled.parts, probe.full, 'a merchant recycler gives everything'); for (const k in probe.full) eq(c.state.parts[k] - (before[k] || 0), probe.full[k], 'part ' + k + ' added');
+        await c.close();
+      }],
+      ['crafting takes time: parts are paid at the start, the item arrives after the bench time and not before', async () => {
+        const c = await connect(srv.port, 'goblin=2'), home = c.state.matchStart.spawn.home, ck = W.CHEST[+home.slice(1)];
+        c.send({ tp: [ck.cx, ck.cz] }); c.send({ setParts: { wood: 5 } }); await c.until(x => x.state.parts.wood === 5, 2000, 'parts'); await sleep(100);
+        const bag = c.state.inv.backpack.filter(Boolean).length; c.send({ craft: 'r:w:sharpstick' }); await c.until(x => x.state.crafting, 2000, 'craft started');
+        eq(c.state.crafting.ms, G.STATIONS.bench.normal.craftMs); eq(c.state.crafting.type, 'normal'); await c.until(x => x.state.parts.wood === 3, 1000, 'parts paid up front');
+        const t0 = Date.now(); c.send({ craft: 'r:w:stoneknife' }); await c.until(x => x.state.craftFail, 1000, 'busy'); eq(c.state.craftFail, 'busy', 'one craft at a time');
+        await sleep(1500); eq(c.state.inv.backpack.filter(Boolean).length, bag, 'nothing yet after 1.5 s'); eq(c.state.crafted, undefined);
+        await c.until(x => x.state.crafted, 3000, 'crafted'); assert(Date.now() - t0 >= 2000, 'took the bench time'); eq(c.state.crafted.key, 'w:sharpstick'); eq(c.state.inv.backpack.filter(Boolean).length, bag + 1);
+        await c.close();
+      }],
+      ['cancel refunds the parts; leaving the room cancels and refunds too', async () => {
+        const c = await connect(srv.port, 'goblin=2'), home = c.state.matchStart.spawn.home, ck = W.CHEST[+home.slice(1)];
+        c.send({ tp: [ck.cx, ck.cz] }); c.send({ setParts: { wood: 5 } }); await c.until(x => x.state.parts.wood === 5, 2000, 'parts'); await sleep(100);
+        c.send({ craft: 'r:w:sharpstick' }); await c.until(x => x.state.crafting, 2000, 'started'); await c.until(x => x.state.parts.wood === 3, 1000, 'paid');
+        c.send({ craftCancel: 1 }); await c.until(x => x.state.craftCancel, 2000, 'cancelled'); eq(c.state.craftCancel, 'cancel'); eq(c.state.parts.wood, 5, 'refunded'); await sleep(2800); eq(c.state.crafted, undefined, 'a cancelled craft never completes');
+        delete c.state.craftCancel; c.send({ craft: 'r:w:sharpstick' }); await c.until(x => x.state.parts.wood === 3, 1000, 'paid again'); c.send({ tp: W.rc(0) });
+        await c.until(x => x.state.craftCancel, 2000, 'cancelled by leaving'); eq(c.state.craftCancel, 'left'); eq(c.state.parts.wood, 5, 'refunded after leaving'); await sleep(2800); eq(c.state.crafted, undefined);
+        delete c.state.craftCancel; c.send({ tp: [ck.cx, ck.cz] }); await sleep(120); c.send({ craft: 'r:w:sharpstick' }); await c.until(x => x.state.parts.wood === 3, 1000, 'paid a third time'); c.send({ hp: 5 });   // taking a hit cancels as well
+        await c.until(x => x.state.craftCancel, 2000, 'cancelled by a hit'); eq(c.state.craftCancel, 'hit'); eq(c.state.parts.wood, 5, 'refunded after a hit');
+        c.send({ craftCancel: 1 }); await sleep(150);   // nothing running: harmless
+        await c.close();
+      }],
+      ['a normal bench refuses a tier 3 recipe; the Master Forge crafts it fast, cheaper, and one tier above your knowledge at full price', async () => {
+        const c = await connectWith(srv.port, s => s.layout && s.layout.includes('forge'), 'goblin=2'), home = c.state.matchStart.spawn.home, hk = W.CHEST[+home.slice(1)], fk = W.CHEST[c.state.layout.indexOf('forge')];
+        const hal = G.RECIPES.find(r => r.id === 'r:w:halberd'), full = {}; for (const k in hal.cost) full[k] = 40; c.send({ setParts: full }); c.send({ know: 100 }); await sleep(150);
+        c.send({ tp: [hk.cx, hk.cz] }); await sleep(120); c.send({ craft: hal.id }); await c.until(x => x.state.craftFail, 2000, 'refused'); eq(c.state.craftFail, 'bench', 'home bench: tier too high');
+        delete c.state.crafting; c.send({ tp: [fk.cx, fk.cz] }); await sleep(120); c.send({ craft: hal.id }); await c.until(x => x.state.crafting, 2000, 'forge craft'); eq(c.state.crafting.type, 'master'); eq(c.state.crafting.ms, G.STATIONS.bench.master.craftMs); eq(c.state.crafting.bonus, 0);
+        for (const k in hal.cost) await c.until(x => x.state.parts[k] === 40 - Math.ceil(hal.cost[k] * 0.75), 1000, 'discounted ' + k);
+        await c.until(x => x.state.crafted, 3000, 'crafted'); eq(c.state.crafted.key, 'w:halberd');
+        // bonus tier: 40 knowledge unlocks tier 2, the Forge lets you reach tier 3, at full price
+        c.send({ know: 40 }); c.send({ setParts: full }); await sleep(150); delete c.state.crafting; delete c.state.crafted; c.send({ craft: hal.id }); await c.until(x => x.state.crafting, 2000, 'bonus craft'); eq(c.state.crafting.bonus, 1);
+        for (const k in hal.cost) await c.until(x => x.state.parts[k] === 40 - hal.cost[k], 1000, 'full price ' + k);
+        await c.until(x => x.state.crafted, 3000, 'crafted'); c.send({ know: 20 }); await sleep(100); c.send({ craft: hal.id }); await c.until(x => x.state.craftFail === 'knowledge', 2000, 'two tiers up is refused');
         await c.close();
       }],
       ['the Grand Recycler gives 100% and the Master Forge has no recycler', async () => {
