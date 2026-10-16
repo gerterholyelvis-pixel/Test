@@ -664,6 +664,7 @@ const PARTB = {
 const PART_KEYS = ['wood', 'metal', 'leather', 'cloth', 'bone', 'gem', 'string', 'crystal'];
 function canon(key) {
   if (typeof key !== 'string') return null;
+  if (key === 'x:plushie') return null;   // LOOT: no baked 3D model, icons.js draws it (the thrown plushie is built in game.js)
   if (key.startsWith('m:brain')) return 'm:brain';
   if (key === 'gold' || key === 'm:gold' || key === 'part:gold') return 'gold';
   const k = key.replace(/^(m:|part:)/, ''); if (PART_KEYS.includes(k)) return 'part:' + k;

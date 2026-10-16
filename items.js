@@ -53,6 +53,8 @@
   ITEMS['a:robe'] = { key: 'a:robe', type: 'armor', name: 'Starry Robe', health: 60, family: 'robe', chance: 0, tier: 'rare', tierN: 2, price: 90 };
   ITEMS['a:royal'] = { key: 'a:royal', type: 'armor', name: 'Royal Mantle', health: 100, family: 'royal', chance: 0, tier: 'mythic', tierN: 3, price: 180 };
 
+  // LOOT: the mystery-room goblin plushie is a one-use throwable (quick slot key = throw). Never dropped by chance, only found in plushie mystery rooms. The server decides where it lands; bots and mystery enemies within 8 m run to it for 3 s.
+  ITEMS['x:plushie'] = { key: 'x:plushie', type: 'consumable', name: 'Goblin Plushie', family: 'plushie', chance: 0, tier: 'common', tierN: 0, price: 15, desc: 'Press its quick key to throw it. It squeaks, and bots within 8 m run to it for 3 s. One use.' };
   const START = [   // starting gear per goblin type: 0 small, 1 medium, 2 big, 3 wizard, 4 king
     { weapon: 'w:dagger', armor: 'a:rags' }, { weapon: 'w:club', armor: 'a:vest' }, { weapon: 'w:mace', armor: 'a:harness' },
     { weapon: 'w:staff', armor: 'a:robe' }, { weapon: 'w:scepter', armor: 'a:royal' },
