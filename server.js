@@ -470,6 +470,7 @@ function dieNpc(m, p) {   // loot by type, counts as a kill for the attacker (do
 }
 
 // ---- the brain
+const NPC_AGGRO = DBG && process.env.GK_NPC_AGGRO_MS !== undefined && +process.env.GK_NPC_AGGRO_MS >= 0 ? +process.env.GK_NPC_AGGRO_MS : 1500;   // a mystery enemy only turns on a goblin that has been inside its room this long
 function graceOver(m, now) { return m.round > 1 && now - m.goAt >= BOT_GRACE; }
 function nearestEnemy(m, p, maxd) {
   let best = null, bd = maxd;
@@ -558,7 +559,7 @@ function pickDest(m, p, now) {   // idle: where to go next (claimable rooms, the
   b.route = [pointIn(p.room, 1.5)]; b.cross = false; b.idleUntil = now + rnd(1200, 4200);
 }
 function botThink(m, p, now, dt) {
-  const b = p.brain, fighter = p.npc ? true : graceOver(m, now);
+  const b = p.brain, fighter = graceOver(m, now);   // bots AND mystery enemies: no attacks in round 1 or for BOT_GRACE after GO
   b.seen[p.room] = 1;
   if (p.bot) {   // door vote (once per round, at a random moment of the round, never over a human in the same room)
     if (b.seenRound !== m.round) { b.seenRound = m.round; b.voteAt = now + rnd(0.1, 0.8) * Math.max(1000, m.endsAt - now); }
@@ -572,7 +573,9 @@ function botThink(m, p, now, dt) {
   // reaction: re-decide the target every 200-400 ms (human-like delay)
   if (now >= b.reactAt) {
     b.reactAt = now + (b.react ? rnd(b.react[0], b.react[1]) : rnd(200, 400));
-    b.tgt = fighter || p.npc ? nearestEnemy(m, p, 6) : null;
+    const tg = fighter ? nearestEnemy(m, p, 6) : null;
+    if (p.npc) { if (tg && tg.room === p.room) { if (!b.seenAt) b.seenAt = now; } else b.seenAt = 0; b.tgt = tg && b.seenAt && now - b.seenAt >= NPC_AGGRO ? tg : null; }   // enemies wait until someone has stood in their room for NPC_AGGRO
+    else b.tgt = tg;
     if (!p.npc && Math.random() < 0.04) { b.pauseUntil = now + rnd(300, 800); return; }   // occasional hesitation
   }
   const t = b.tgt && !b.tgt.dead && b.tgt.room === p.room ? b.tgt : null;
