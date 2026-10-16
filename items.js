@@ -133,6 +133,22 @@
   const pickCharm = () => { let r = Math.random() * CHARM_KEYS.reduce((a, k) => a + ITEMS[k].shop, 0); for (const k of CHARM_KEYS) { if ((r -= ITEMS[k].shop) < 0) return k; } return CHARM_KEYS[0]; };
   const charmEff = (key, field) => { const it = key && ITEMS[key]; return it && it.eff && it.eff[field] != null ? it.eff[field] : undefined; };
   // UTIL2-END
+  // ACT5-ITEMS-BEGIN (docs/PLAN-5x5-rooms.md 3 and 4.6, docs/reports/special-rooms-server.md): what the tree rooms and the vaultbreaker heists make. Never sold, never dropped by chance
+  // (chance 0, no `shop`), not in UTIL_KEYS. `family` picks an existing icon until they get their own art. Heist tokens: one of each at a time (act5.js enforces it).
+  // The Iron Wedge is 'x:ironwedge' because 'x:wedge' is the older Door Wedge; act5.js maps vb5.js's 'x:wedge' onto it.
+  for (const [k, name, family, tier, desc, extra] of [
+    ['ironwedge', 'Iron Wedge', 'wedge', 'rare', 'Falls from the Ram when a vault door cracks. At the Locksmith grindstone it makes a free Key Blank and sets the first pin.'],
+    ['skeleton', 'Skeleton Key', 'lockpick', 'rare', 'Cut at the Locksmith. Robs the Counting House strongbox in 1.5 s, silently.'],
+    ['goldleaf', 'Gold Leaf', 'haggle', 'rare', 'From a Counting House robbery. Offered at the Keystone altar it lights the next 2 stones of the circuit.'],
+    ['runecharge', 'Rune Charge', 'ward', 'rare', 'From a full Keystone circuit. Spent at the Ram lever, the next strike does double breach.'],
+    ['blank', 'Key Blank', 'lockpick', 'uncommon', 'Ground at the Locksmith. Cut it at the lock face once all 5 pins are set.'],
+    ['crownseal', 'Crown Seal', 'wax', 'mythic', 'Sudden death only. Use it standing on the vault dais: +5 s of crown claim.', { use: 'crownseal' }],
+    ['huskbrain', 'Husk Brain', 'brain', 'common', 'Press it at the Brain Press for +4 knowledge, or eat it anywhere for +2.', { use: 'know', n: 2 }],
+    ['springwater', 'Spring Water', 'tonic', 'common', 'Bottled at the Healing Spring. Heals 20 HP. Useless in sudden death.', { use: 'heal', n: 20, heal: 20 }],
+    ['blessedwater', 'Blessed Water', 'tonic', 'uncommon', 'Bottled at the Healing Spring with elixir. Heals 40 HP. Useless in sudden death.', { use: 'heal', n: 40, heal: 40 }],
+    ['scion', 'Scion', 'mushroom', 'uncommon', 'Cut from the Grafting Bench tree. Graft it onto a weapon or armour in the vise for its reforged twin.'],
+  ]) ITEMS['x:' + k] = { key: 'x:' + k, type: 'consumable', name, family, chance: 0, tier, tierN: TIER_N[tier], price: 0, desc, act5: 1, ...(extra || {}) };
+  // ACT5-ITEMS-END
   const pickUtil = () => { let r = Math.random() * UTIL_KEYS.reduce((a, k) => a + ITEMS[k].shop, 0); for (const k of UTIL_KEYS) { if ((r -= ITEMS[k].shop) < 0) return k; } return UTIL_KEYS[0]; };   // weighted by `shop`
   const START = [   // starting gear per goblin type: 0 small, 1 medium, 2 big, 3 wizard, 4 king
     { weapon: 'w:dagger', armor: 'a:rags' }, { weapon: 'w:club', armor: 'a:vest' }, { weapon: 'w:mace', armor: 'a:harness' },
