@@ -186,6 +186,7 @@ setInterval(() => { // one global timer steps every match
     botTick(m, now);   // BOTS: brains of bots and mystery enemies (~10 Hz)
     useTick(m, now);   // UTILITY: bombs, smoke, mushroom regeneration
     ruleTick(m, now);   // RULES: experimental rules (no-op unless GK_RULES is set)
+    guardTick(m, now);   // DOORGUARD: nobody stays locked in a room, nobody stays stuck inside a prop
     if (!m.started) m.endsAt = now + m.dur;   // round 1 waits until someone has left the wheel and entered the rooms
     if (now >= m.endsAt) {
       const picked = [...new Set(Object.values(m.sel))], ok = vaultVotes(m) >= 2; // vault doors need 2 different rooms
@@ -383,6 +384,37 @@ function paceRound(m) {   // right after m.round++: round income for everyone st
   if (m.showdown && !m.sudden) { m.open = Array.from({ length: nDoors }, (_, i) => i); m.openLeft = {}; m.fizzled = []; }
 }
 // PACE-END
+// GUARD-BEGIN (docs/reports/door-guard.md): every occupied room except the vault keeps an open exit to a non-vault neighbour. After TRAP_MS without one, the room's own pick (else a random door of it) unlocks and stays open until the round ends. A goblin stuck inside a prop is moved to the nearest free spot.
+const GUARD = require('./doorguard.js'), TRAP_MS = DBG && +process.env.GK_TRAP_MS > 0 ? +process.env.GK_TRAP_MS : GUARD.TRAP_MS;
+const roomFree = (m, key, x, z) => { const r = RB[key]; return !!r && Math.abs(x - r.cx) <= r.hw - 0.9 && Math.abs(z - r.cz) <= r.hd - 0.9 && !WORLD.inProp(x, z, 0.5, m.layout, true) && roomKeyOf(x, z) === key; };
+function guardTick(m, now) {
+  if (m.phase !== 'play' || m.ended || !m.goAt || now < m.goAt || now - (m.guardAt || 0) < 200) return;
+  m.guardAt = now;
+  if (m.guardRound !== m.round) { m.guardRound = m.round; m.trapSince = {}; }
+  const occ = new Map();   // room -> [ws, player] in it (bots count as occupants, only humans get the hint)
+  for (const [ws, p] of m.players) {
+    if (p.npc || !p.entered || p.dead) continue;
+    (occ.get(p.room) || occ.set(p.room, []).get(p.room)).push([ws, p]);
+    if (WORLD.inProp(p.x, p.z, 0.2, m.layout, true)) {   // stuck-recovery push-out
+      if (!p.stuckAt) p.stuckAt = now;
+      else if (now - p.stuckAt >= GUARD.STUCK_MS) { const s = GUARD.freeSpot(p.x, p.z, (x, z) => roomFree(m, p.room, x, z)); p.stuckAt = 0; if (s) { place(p, s[0], s[1]); sendTo(ws, { fix: [r2(s[0]), r2(s[1])] }); m.dirty = true; } }
+    } else p.stuckAt = 0;
+  }
+  const since = m.trapSince;
+  for (const k of Object.keys(since)) if (!occ.has(k) || !GUARD.trapped(k, m.open, ROOM_DOORS, VAULT)) delete since[k];
+  for (const [room, ps] of occ) {
+    if (!GUARD.trapped(room, m.open, ROOM_DOORS, VAULT)) continue;
+    if (since[room] == null) { since[room] = now; for (const [ws, p] of ps) if (isHum(p)) sendTo(ws, { exitHint: { ms: TRAP_MS } }); }
+    else if (now - since[room] >= TRAP_MS) {
+      const d = GUARD.pickExit(room, m.sel, ROOM_DOORS, VAULT);
+      delete since[room]; if (d < 0) continue;
+      m.open = m.open.concat(d); if (m.fizzled) m.fizzled = m.fizzled.filter(x => x !== d);
+      for (const [ws, p] of ps) if (isHum(p)) sendTo(ws, { exitOpen: d });
+      broadcastRound(m);
+    }
+  }
+}
+// GUARD-END
 
 // COMBAT-BEGIN (server-authoritative melee/ranged attacks, kills and the DEFAULT win rule: last goblin standing; see docs/FEATURES.md)
 function checkWin(m) {   // DEFAULT RULE (owner has not decided): >= 2 players entered the rooms, at least one died, exactly one living entered player is left -> that player wins
