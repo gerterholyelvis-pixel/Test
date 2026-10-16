@@ -85,6 +85,44 @@
     ITEMS[key] = { key, type: 'consumable', name, family, chance: 0, tier, tierN: TIER_N[tier], price, use, ...num, desc, shop, scrap };
     RECIPES.push({ id: 'r:' + key, out: key, tier: craft[0], cost: craft[1], needs: craft[0] * 20 });
   }
+  // UTIL2-BEGIN (docs/reports/more-items.md): twelve more one-use items that lean on doors, panels, the vault and knowledge, plus six charms for the new passive slot (inv.charm). Same table layout as UTIL above; the numbers live here and server.js USE2 reads them.
+  const UTIL2 = [
+    ['trap', 'Bear Trap', 'trap', 'uncommon', 40, 'trap', { n: 14, ms: 2500, arm: 1500, life: 90000 }, 'Set it down. After 1.5 s the first other goblin to step on it takes 14 damage and is slowed for 2.5 s. Two at a time.', 3, { metal: 2 }, [1, { metal: 2, wood: 1, string: 1 }]],
+    ['flare', 'Signal Flare', 'flare', 'uncommon', 30, 'flare', { ms: 8000 }, 'Burns for 8 s. Every goblin in the match shows on your minimap while it does.', 3, { cloth: 1, crystal: 1 }, [1, { cloth: 1, crystal: 1, bone: 1 }]],
+    ['lens', 'Panel Lens', 'lens', 'rare', 50, 'lens', { ms: 12000 }, 'For 12 s your minimap shows the door every room has picked right now.', 2, { crystal: 1, metal: 1 }, [2, { crystal: 2, metal: 1, string: 1 }]],
+    ['pry', 'Crowbar', 'pry', 'rare', 55, 'pry', { r: 4, ms: 10000 }, 'Use beside a closed door (not the Vault): it is pried open for 10 s.', 2, { metal: 2 }, [2, { metal: 3, wood: 1 }]],
+    ['ward', 'Ward Rune', 'ward', 'rare', 60, 'ward', { ms: 30000 }, 'Soaks up the next hit you take, whatever it is. Fades after 30 s.', 2, { gem: 1, bone: 1 }, [2, { gem: 1, bone: 2, string: 1 }]],
+    ['jar', 'Brain Jar', 'jar', 'rare', 80, 'know', { n: 4 }, 'A pickled brain. Eat it for +4 knowledge.', 1, { bone: 1, gem: 1 }, [3, { bone: 2, gem: 1, crystal: 1 }]],
+    ['bait', 'Mimic Bait', 'bait', 'uncommon', 35, 'bait', { n: 16 }, 'Leaves a fake loot pile at your feet. The first other goblin to take from it is bitten for 16 damage.', 2, { leather: 1, bone: 1 }, [1, { leather: 2, bone: 1 }]],
+    ['dazzle', 'Dazzle Powder', 'dazzle', 'uncommon', 30, 'dazzle', { r: 4.5, ms: 2200 }, 'A flash of light: goblins within 4.5 m cannot attack for 2 s, and bots there cannot see.', 3, { cloth: 1, crystal: 1 }, [1, { cloth: 1, crystal: 1, metal: 1 }]],
+    ['haggle', "Haggler's Tag", 'haggle', 'uncommon', 25, 'haggle', {}, 'Your next purchase from a merchant costs half.', 2, { string: 1 }, [1, { string: 1, leather: 1, bone: 1 }]],
+    ['rage', 'Rage Brew', 'rage', 'rare', 45, 'rage', { n: 1.3, ms: 10000 }, 'You hit 30% harder for 10 s (damage bonuses never stack past +50%).', 2, { bone: 1, cloth: 1 }, [2, { bone: 2, cloth: 1, string: 1 }]],
+    ['feather', 'Homing Feather', 'feather', 'uncommon', 40, 'recall', { ms: 2500 }, 'After 2.5 s you are back in the room you started in. Any hit breaks the spell.', 2, { string: 1, cloth: 1 }, [1, { string: 2, cloth: 1, bone: 1 }]],
+    ['bell', 'Alarm Bell', 'bell', 'uncommon', 30, 'bell', { r: 3, ms: 90000, reveal: 5000 }, 'Set it down. When another goblin comes within 3 m you hear it, wherever you are, and see them on your minimap for 5 s. Two at a time.', 2, { metal: 1, string: 1 }, [1, { metal: 2, string: 1 }]],
+  ];
+  for (const [k, name, family, tier, price, use, num, desc, shop, scrap, craft] of UTIL2) {
+    const key = 'x:' + k; UTIL_KEYS.push(key);
+    ITEMS[key] = { key, type: 'consumable', name, family, chance: 0, tier, tierN: TIER_N[tier], price, use, ...num, desc, shop, scrap };
+    RECIPES.push({ id: 'r:' + key, out: key, tier: craft[0], cost: craft[1], needs: craft[0] * 20 });
+  }
+  // charms: one passive slot (inv.charm). `eff` holds the numbers; server.js charmEff(p, 'x') reads them, game.js shows the text.
+  const CHARMS = [
+    ['heart', 'Heart Charm', 'uncommon', 45, { hp: 10 }, 'Wear it: +10 maximum health.', 3, { gem: 1, cloth: 1 }, [2, { gem: 1, cloth: 2, leather: 1 }]],
+    ['swift', 'Swift Idol', 'uncommon', 50, { spd: 1.06 }, 'Wear it: you move 6% faster.', 3, { bone: 1, string: 1 }, [2, { bone: 2, string: 2, gem: 1 }]],
+    ['magnet', 'Gold Magnet', 'rare', 55, { gold: 1.25 }, 'Wear it: bounties, round income and gold prizes pay 25% more.', 2, { metal: 1, gold: 1 }, [2, { metal: 2, gold: 1, string: 1 }]],
+    ['scholar', "Scholar's Charm", 'rare', 60, { know: 1.5 }, 'Wear it: brains and Brain Jars give 50% more knowledge.', 2, { bone: 1, crystal: 1 }, [3, { bone: 2, crystal: 2, string: 1 }]],
+    ['tongue', 'Silver Tongue', 'rare', 50, { bribe: 0.7 }, 'Wear it: bribes at a door panel cost 30% less.', 2, { gold: 1, string: 1 }, [2, { gold: 1, string: 2, leather: 1 }]],
+    ['fang', 'Wolf Fang', 'uncommon', 45, { dmg: 1.08 }, 'Wear it: you hit 8% harder.', 3, { bone: 2 }, [2, { bone: 3, leather: 1, string: 1 }]],
+  ];
+  const CHARM_KEYS = [];
+  for (const [k, name, tier, price, eff, desc, shop, scrap, craft] of CHARMS) {
+    const key = 'c:' + k; CHARM_KEYS.push(key);
+    ITEMS[key] = { key, type: 'charm', name, family: k, chance: 0, tier, tierN: TIER_N[tier], price, eff, desc, shop, scrap };
+    RECIPES.push({ id: 'r:' + key, out: key, tier: craft[0], cost: craft[1], needs: craft[0] * 20 });
+  }
+  const pickCharm = () => { let r = Math.random() * CHARM_KEYS.reduce((a, k) => a + ITEMS[k].shop, 0); for (const k of CHARM_KEYS) { if ((r -= ITEMS[k].shop) < 0) return k; } return CHARM_KEYS[0]; };
+  const charmEff = (key, field) => { const it = key && ITEMS[key]; return it && it.eff && it.eff[field] != null ? it.eff[field] : undefined; };
+  // UTIL2-END
   const pickUtil = () => { let r = Math.random() * UTIL_KEYS.reduce((a, k) => a + ITEMS[k].shop, 0); for (const k of UTIL_KEYS) { if ((r -= ITEMS[k].shop) < 0) return k; } return UTIL_KEYS[0]; };   // weighted by `shop`
   const START = [   // starting gear per goblin type: 0 small, 1 medium, 2 big, 3 wizard, 4 king
     { weapon: 'w:dagger', armor: 'a:rags' }, { weapon: 'w:club', armor: 'a:vest' }, { weapon: 'w:mace', armor: 'a:harness' },
@@ -133,6 +171,7 @@
     const pool = weaponKeys.concat(armorKeys), out = [];
     while (out.length < 5) { const k = pickWeighted(pool); if (!out.some(o => o.key === k)) out.push({ key: k, price: Math.max(5, Math.round(ITEMS[k].price * (0.8 + Math.random() * 0.4) / 5) * 5) }); }
     if (Math.random() < 0.75) { const k = pickUtil(); out[Math.floor(Math.random() * 5)] = { key: k, price: Math.max(5, Math.round(ITEMS[k].price * (0.8 + Math.random() * 0.4) / 5) * 5) }; }   // UTILITY: most shops stock one utility item in place of a gear slot
+    if (Math.random() < 0.3) { const idx = [0, 1, 2, 3, 4].filter(i => !/^[xc]:/.test(out[i].key)), k = pickCharm(), at = idx[Math.floor(Math.random() * idx.length)]; if (at !== undefined) out[at] = { key: k, price: Math.max(5, Math.round(ITEMS[k].price * (0.8 + Math.random() * 0.4) / 5) * 5) }; }   // UTIL2: some shops also stock a charm in place of another gear slot
     return out;
   }
   // Random room layout for one match: the types of the 12 rooms behind the outer doors, in CHEST_ROOMS order (game.js).
@@ -173,6 +212,6 @@
   }
   const armorSpeed = key => { const it = key && ITEMS[key]; return (it && it.speed) || 1; };   // ARMOUR-2: movement multiplier of the worn armour
   const MAX_ARMOR_SPEED = Math.max(1, ...Object.values(ITEMS).map(i => i.speed || 1));
-  root.GKITEMS = { UTIL_KEYS, pickUtil, armorSpeed, MAX_ARMOR_SPEED, randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, WEAPON_TUNE, START, KNOWLEDGE, SPEED, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info };
+  root.GKITEMS = { UTIL_KEYS, pickUtil, CHARM_KEYS, pickCharm, charmEff, armorSpeed, MAX_ARMOR_SPEED, randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, WEAPON_TUNE, START, KNOWLEDGE, SPEED, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.GKITEMS;
 })(typeof window !== 'undefined' ? window : globalThis);

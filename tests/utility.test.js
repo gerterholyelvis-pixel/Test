@@ -15,8 +15,8 @@ const roomOnly = id => DOORS.find(d => d[0] === id);
 (async () => {
   let fail = 0;
   fail += await L.run('utility-data', [
-    ['eight utility items are well formed, never dropped as gear, recyclable and craftable', async () => {
-      eq(G.UTIL_KEYS.length, 8);
+    ['twenty utility items are well formed, never dropped as gear, recyclable and craftable', async () => {
+      eq(G.UTIL_KEYS.length, 20);
       for (const k of G.UTIL_KEYS) {
         const it = G.ITEMS[k]; assert(it.type === 'consumable' && it.use && it.name && it.desc && it.family && it.price > 0, k + ' fields'); eq(it.chance, 0);
         assert(G.recycleYield(k) && Object.keys(G.recycleYield(k)).length, k + ' recycles');
