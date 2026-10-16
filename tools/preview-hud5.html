@@ -1,0 +1,51 @@
+<!doctype html><meta charset="utf-8"><title>hud5 preview</title>
+<style>
+:root{--gold:#f5c451;--gold2:#ffe39a;--gold3:#a8741a;--txt:#efe9d8;--mut:#a9a493;--disp:'Cinzel Decorative','Trajan Pro',Georgia,serif;--ui:'Barlow Condensed','Arial Narrow',system-ui,sans-serif}
+html,body{margin:0;height:100%;background:#0b0b0e;overflow:hidden}
+#scene{position:fixed;inset:0;background:radial-gradient(ellipse at 50% 60%,#4a3d2e,#1a1510 70%),#111}
+.gk5 *{transition:none!important}   /* background tabs do not advance transitions; screenshots need the end state */
+#dot{position:fixed;left:50%;top:50%;width:5px;height:5px;margin:-2.5px;border-radius:50%;background:#fff;opacity:.7}
+#mm{position:fixed;top:84px;right:12px;border:2px solid #c9a13a;border-radius:10px;line-height:0;overflow:hidden}
+#big{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);border:3px solid #c9a13a;border-radius:14px;display:none;z-index:60}
+</style>
+<div id="scene"></div><div id="dot"></div><canvas id="mm"></canvas><canvas id="big"></canvas>
+<script src="../hud5.js"></script>
+<script>
+// Standalone preview with mock state. ?s=timing|channel|thorn|rekey|next|room|tree|crown|sudden|map|debug|all  &debug=1
+const q = new URLSearchParams(location.search), sc = q.get('s') || 'timing';
+const hud = HUD5.createHud5({ root: document.body, debug: q.get('debug') === '1', hold: true, onSkip: () => console.log('skip'), getMe: () => 7 });
+window.hud = hud;
+const state = {
+  me: { x: -6, z: -18, yaw: 0.6 },
+  vb: { 7: 'keystone', 13: 'ram', 17: 'locksmith', 11: 'counting' },
+  vbNext: { 7: 'counting', 13: 'locksmith', 17: 'ram', 11: 'keystone' },
+  trees: { 6: 'well', 8: 'seer', 16: 'thorn', 18: 'elder' },
+  layout: { c1: 'forge', c3: 'chest', c5: 'merchant', c7: 'mystery', c9: 'recycler', c11: 'chest', c13: 'merchant', c15: 'chest' },
+  homes: { c0: 'Grub', c2: 'Snik', c4: 'Mog', c6: 'You', c8: 'Zat', c10: 'Ruk', c12: 'Nib', c14: 'Pox' }, myHome: 'c6',
+  armed: ['7'], breach: { N: 62, E: 20, W: 100 }, crown: { active: true }, discovered: ['c1','c3','c5','c7','c9','c11','c13','c15'],
+  actors: [{ x: -12, z: -20 }, { x: 20, z: 30 }],
+  open: [{ x: 0, z: -7.5, h: 1, open: true }, { x: 7.5, z: -18.75, h: 0, open: false }, { x: 11.25, z: 0, h: 0, open: false, vault: true }, { x: -11.25, z: 0, h: 0, open: true, vault: true }]
+};
+function maps() {
+  const ops = HUD5.mapOps(state, { big: false }), opsB = HUD5.mapOps(state, { big: true });
+  for (const [cv, S, o] of [[document.getElementById('mm'), 200, ops], [document.getElementById('big'), Math.min(640, innerWidth - 20, innerHeight - 20), opsB]]) {
+    const d = devicePixelRatio || 1; cv.width = cv.height = S * d; cv.style.width = cv.style.height = S + 'px';
+    const g = cv.getContext('2d'); g.setTransform(d, 0, 0, d, 0, 0); g.fillStyle = '#17120b'; g.fillRect(0, 0, S, S);
+    HUD5.drawMap(g, S, o, { time: 0 });
+  }
+}
+maps();
+const now = () => Date.now();
+if (sc === 'timing') hud.timing({ t0: now() - 380, per: 1000, wa: .58, wb: .72, label: 'Crank the windlass' });
+if (sc === 'channel') hud.channel({ t0: now() - 1200, ms: 3000, label: 'Pressing the brain' });
+if (sc === 'thorn') hud.channel({ t0: now() - 5000, ms: 9000, ticks: [1/3, 2/3, 1], label: 'Gripping the thorns' });
+if (sc === 'rekey') hud.roundState({ vb: state.vb, vbNext: state.vbNext, round: { n: 3, left: 119000, dur: 120000 } });
+if (sc === 'next') hud.roundState({ vb: state.vb, vbNext: state.vbNext, round: { n: 3, left: 14000, dur: 120000 } });
+if (sc === 'room') hud.enterRoom('7', 'keystone');
+if (sc === 'tree') hud.enterRoom('6', 'well');
+if (sc === 'crown') hud.crown({ gaining: 7, claims: [{ id: 7, name: 'You', s: 18 }, { id: 3, name: 'Snik', s: 31 }, { id: 4, name: 'Mog', s: 6 }] });
+if (sc === 'sudden') { hud.sudden(true); hud.crown({ gaining: 3, claims: [{ id: 3, name: 'Snik', s: 31 }, { id: 7, name: 'You', s: 18 }] }); }
+if (sc === 'map') document.getElementById('big').style.display = 'block';
+if (sc === 'debug') hud.debug(true);
+if (sc === 'all') { hud.sudden(true); hud.debug(true); hud.timing({ t0: now() - 380, per: 1000, wa: .58, wb: .72, label: 'Ratchet' }); hud.enterRoom('7', 'ram'); hud.crown({ gaining: 3, claims: [{ id: 3, name: 'Snik', s: 31 }, { id: 7, name: 'You', s: 18 }] }); }
+</script>
