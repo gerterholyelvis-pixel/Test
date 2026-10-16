@@ -78,6 +78,9 @@ input[type=checkbox]{appearance:none;-webkit-appearance:none;width:44px;height:2
 input[type=checkbox]::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;background:#6d6a60;transition:.2s}
 input[type=checkbox]:checked{background:rgba(245,196,81,.25);border-color:var(--gold)}
 input[type=checkbox]:checked::after{left:23px;background:var(--gold2);box-shadow:0 0 10px rgba(245,170,50,.8)}
+.row select{appearance:none;-webkit-appearance:none;min-width:120px;padding:4px 30px 4px 10px;border:1px solid var(--gold3);border-radius:0;background:#17130e linear-gradient(135deg,transparent 50%,var(--gold) 50%) no-repeat right 12px center/8px 8px;color:var(--gold);font:700 clamp(14px,2.3vh,18px) var(--ui);letter-spacing:.08em;text-transform:uppercase;cursor:pointer}
+.row select:focus-visible{outline:0;border-color:var(--gold);box-shadow:0 0 0 3px rgba(255,106,42,.6)}
+.row select option{background:#17130e;color:var(--txt)}
 input[type=checkbox]:focus-visible{outline:2px solid var(--ember);outline-offset:2px}
 .brow{display:flex;gap:14px;flex-wrap:wrap}
 table.keys{border-collapse:collapse;width:100%}
@@ -195,6 +198,7 @@ table.keys{border-collapse:collapse;width:100%}
     <div class="row chk"><label for="s-inv">Invert Y axis</label><input id="s-inv" type="checkbox"></div>
     <div class="row chk"><label for="s-tags">Name tags</label><input id="s-tags" type="checkbox"></div>
     <div class="row chk"><label for="s-fx">Post effects (bloom)</label><input id="s-fx" type="checkbox"></div>
+    <div class="row chk"><label for="s-gfx">Graphics quality</label><select id="s-gfx"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="ultra">Ultra</option></select></div>
    </div>
    <div class="brow"><button class="mbtn small" id="s-back">Back</button><button class="mbtn small" id="s-reset">Reset defaults</button></div>
   </div>

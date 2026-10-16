@@ -15,7 +15,7 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const $ = id => document.getElementById(id);
 const GK = window.GK = window.GK || {};
 GK.mode = 'menu';                         // 'menu' (title, settings, wheel) or 'play'
-GK.settings = Object.assign({ sens: 1, fov: 75, scale: 1, invertY: false, tags: true, fx: true }, GK.settings || {});
+GK.settings = Object.assign({ sens: 1, fov: 75, scale: 1, invertY: false, tags: true, fx: true, gfx: 'high' }, GK.settings || {});
 const CS = WORLD.CS;                      // chest room size
 const WEAPONS = ['Rusty Sword', 'Battle Axe', 'War Spear', 'Spiked Mace', 'Short Bow', 'Dagger'];
 // One chest room behind every outer wall: edge rooms get 1, corner rooms get 2 (12 in total)
@@ -713,6 +713,7 @@ if (GK.layout) layoutHooks[layoutHooks.length - 1](GK.layout);
 // VAULT-END
 // static world never moves: freeze matrices so the per-frame scene graph update skips them
 scene.updateMatrixWorld(true);
+const worldStatic = new Set(scene.children);   // rooms, walls/doors and THE VAULT decor (the graphics code merges these meshes)
 {
   const dyn = new Set(); doors.forEach(d => { d.leaf.traverse(o => dyn.add(o)); d.dyn.forEach(q => q.traverse(o => dyn.add(o))); });
   scene.traverse(o => { if (o !== scene && !dyn.has(o) && !o.isLight) { o.matrixAutoUpdate = false; } });
@@ -2633,18 +2634,18 @@ function goblinKit() {
 function buildGoblin(type) {
   const C = CFG[type], b = C.b;
   const root = new THREE.Group(), rig = new THREE.Group(); root.add(rig); rig.scale.setScalar(SCALE[type]);
-  const skin = M(C.skin, { roughness: 0.5, bumpMap: bumpTex, bumpScale: 1.4 });
+  const skin = fxSkin(C.skin, { roughness: 0.5, bumpMap: bumpTex, bumpScale: 1.4 });
   const dark = M(new THREE.Color(C.skin).multiplyScalar(0.7), { roughness: 0.6 });
-  const cloth = M(C.cloth, { roughness: 0.85, side: THREE.DoubleSide }), leather = M(0x3a281c, { roughness: 0.75 });
+  const cloth = fxCloth(C.cloth, { roughness: 0.85, side: THREE.DoubleSide }), leather = M(0x3a281c, { roughness: 0.75 });
   const metal = M(0xaab0b8, { metalness: 0.95, roughness: 0.32, envMapIntensity: 1 }), gold = M(0xffc933, { metalness: 1, roughness: 0.22, envMapIntensity: 1.1 });
   const bone = M(0xf0e8d0, { roughness: 0.5 }), eyeM = new THREE.MeshStandardMaterial({ color: 0xffe14a, emissive: 0xffb300, emissiveIntensity: 1.8 });
   const wood = M(0x6a4526, { roughness: 0.9, bumpMap: bumpTex, bumpScale: 2 });
   const u = { rig, type, legs: [], arms: [], glows: [], spin: [] };
-  const belly = M(new THREE.Color(C.skin).lerp(new THREE.Color(0xeedc9a), 0.38), { roughness: 0.55, bumpMap: bumpTex, bumpScale: 1.2 });
-  const skinDeep = M(new THREE.Color(C.skin).multiplyScalar(0.52), { roughness: 0.6, bumpMap: bumpTex, bumpScale: 1.4 });
+  const belly = fxSkin(new THREE.Color(C.skin).lerp(new THREE.Color(0xeedc9a), 0.38), { roughness: 0.55, bumpMap: bumpTex, bumpScale: 1.2 });
+  const skinDeep = fxSkin(new THREE.Color(C.skin).multiplyScalar(0.52), { roughness: 0.6, bumpMap: bumpTex, bumpScale: 1.4 });
   const lidM = M(new THREE.Color(C.skin).multiplyScalar(0.62), { roughness: 0.5 });
   const irisM = new THREE.MeshStandardMaterial({ color: 0xffd21e, emissive: 0xff8a00, emissiveIntensity: 1.1, roughness: 0.25 });
-  const clawM = M(0xd8cdb0, { roughness: 0.4 }), rag = M(0x5b4632, { roughness: 0.95, side: THREE.DoubleSide }), BOXG = new THREE.BoxGeometry(1, 1, 1);
+  const clawM = M(0xd8cdb0, { roughness: 0.4 }), rag = fxCloth(0x5b4632, { roughness: 0.95, side: THREE.DoubleSide }), BOXG = new THREE.BoxGeometry(1, 1, 1);
 
   // legs and boots
   for (const s of [-1, 1]) {
@@ -3869,15 +3870,59 @@ function fxResize() {
   const pr = renderer.getPixelRatio(); fxMat.uHeight.value = innerHeight * pr;
   if (fx) { fx.composer.setPixelRatio(pr); fx.composer.setSize(innerWidth, innerHeight); }
 }
+// GFX2 quality presets (Settings > Graphics quality, GK.settings.gfx): post chain, ambient occlusion, pixel ratio cap, texture anisotropy
+const FXQ = {
+  low: { post: false, ao: 0, pr: 1, aniso: 2 },        // plain render (context MSAA), no composer
+  medium: { post: true, ao: 0, pr: 1.5, aniso: 4 },    // composer: MSAA 4x HDR target, bloom, vignette/grain
+  high: { post: true, ao: 1, pr: 2, aniso: 8 },        // + GTAO ambient occlusion at half resolution
+  ultra: { post: true, ao: 2, pr: 2, aniso: 16 },      // + GTAO at full resolution with more samples, max anisotropy
+};
+const fxQ = () => FXQ[GK.settings.gfx] || FXQ.high;
+function fxPixelRatio() { return Math.min(devicePixelRatio, fxQ().pr) * GK.settings.scale; }
+const FX_TONE = THREE.NeutralToneMapping, FX_EXPOSURE = 0.88, FX_ENV = 0.6;   // game view only (the title menu keeps the renderer's ACES look)
+scene.traverse(o => { if (o.isHemisphereLight) o.intensity = 0.9; });   // was 2.1: the environment map now supplies most of the fill light (same light, lower intensity: light count unchanged)
+let fxAniso = 0;
+function fxApplyQuality(force) {
+  const q = fxQ(), an = Math.min(q.aniso, renderer.capabilities.getMaxAnisotropy());
+  if (an !== fxAniso || force) {   // re-upload the world's textures whose anisotropy differs from the preset's
+    fxAniso = an; const seen = new Set();
+    scene.traverse(o => { for (const m of [].concat(o.material || [])) for (const k of ['map', 'roughnessMap', 'bumpMap', 'normalMap', 'emissiveMap', 'metalnessMap', 'alphaMap', 'aoMap']) { const t = m[k]; if (t && t.isTexture && !seen.has(t) && !t.isRenderTargetTexture && t.anisotropy !== an) { seen.add(t); t.anisotropy = an; t.needsUpdate = true; } } });
+  }
+  aoM.opacity = cornerM.opacity = q.ao && GK.settings.fx ? 0.55 : 1;   // the baked corner shading is lighter when GTAO adds real AO
+  if (fx && fx.gtao) { fx.gtao.enabled = q.ao > 0; fx.gtao.updateGtaoMaterial({ samples: q.ao > 1 ? 16 : 12 }); fx.gtao.updatePdMaterial({ samples: q.ao > 1 ? 16 : 8 }); fx.aoHalf = q.ao === 1; fxResize(); }
+}
+(async () => {   // image-based lighting: PMREM of three's RoomEnvironment replaces the small studio box built at startup
+  try {
+    const { RoomEnvironment } = await import('three/addons/environments/RoomEnvironment.js');
+    const pm = new THREE.PMREMGenerator(renderer), env = new RoomEnvironment();
+    scene.environment = pm.fromScene(env, 0.035).texture; scene.environmentIntensity = FX_ENV;
+    env.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); }); pm.dispose();
+  } catch (e) { console.warn('RoomEnvironment unavailable, keeping the studio environment', e); }
+})();
 (async () => {
   try {
-    const [{ EffectComposer }, { RenderPass }, { UnrealBloomPass }, { ShaderPass }, { OutputPass }] = await Promise.all([
+    const [{ EffectComposer }, { RenderPass }, { UnrealBloomPass }, { ShaderPass }, { OutputPass }, { GTAOPass }] = await Promise.all([
       import('three/addons/postprocessing/EffectComposer.js'), import('three/addons/postprocessing/RenderPass.js'),
-      import('three/addons/postprocessing/UnrealBloomPass.js'), import('three/addons/postprocessing/ShaderPass.js'), import('three/addons/postprocessing/OutputPass.js')]);
+      import('three/addons/postprocessing/UnrealBloomPass.js'), import('three/addons/postprocessing/ShaderPass.js'), import('three/addons/postprocessing/OutputPass.js'),
+      import('three/addons/postprocessing/GTAOPass.js')]);
     const pr = renderer.getPixelRatio();
     const rt = new THREE.WebGLRenderTarget(innerWidth * pr, innerHeight * pr, { type: THREE.HalfFloatType, samples: 4 });   // MSAA kept inside the composer
     const composer = new EffectComposer(renderer, rt);
     composer.addPass(new RenderPass(scene, cam));
+    // GTAO ambient occlusion (High: half resolution, Ultra: full). Sprites, points, lines and see-through decals stay out of its normal/depth pass.
+    const gtao = new GTAOPass(scene, cam, innerWidth, innerHeight, undefined, { radius: 1.1, distanceExponent: 2, thickness: 2, scale: 1.9, samples: 12, distanceFallOff: 1 }, { lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 8 });
+    gtao.blendIntensity = 1;
+    gtao._overrideVisibility = function () {
+      const c = this._visibilityCache;
+      if (fxCull.active) {   // AO only for the camera's room and its open neighbours (far rooms seen through doors get none: half the normal-pass draw calls)
+        for (const o of this.scene.children) { const k = o.visible && fxCull.cls.get(o); if (k && !k.some(x => fxCull.near.has(x))) c.push(o); }
+        for (const a of actors.values()) { const g = a.group; if (g && g.visible && !fxCull.near.has(WORLD.roomKeyOf(a.x, a.z))) c.push(g); }
+      }
+      this.scene.traverseVisible(o => { const m = o.material; if (o.isPoints || o.isLine || o.isSprite || (m && !Array.isArray(m) && ((m.transparent && !m.depthWrite) || m.blending === THREE.AdditiveBlending))) c.push(o); });
+      for (const o of c) o.visible = false;
+    };
+    const gs = gtao.setSize.bind(gtao); gtao.setSize = (w, h) => (fx && fx.aoHalf) ? gs(Math.max(1, w >> 1), Math.max(1, h >> 1)) : gs(w, h);
+    composer.addPass(gtao);
     const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.22, 0.2, 2.8);   // strength, radius, threshold (HDR, linear)
     const bs = bloom.setSize.bind(bloom); bloom.setSize = (w, h) => bs(Math.max(1, w >> 1), Math.max(1, h >> 1));   // bloom at half resolution
     composer.addPass(bloom);
@@ -3897,14 +3942,20 @@ function fxResize() {
         }`
     });
     composer.addPass(grain);
-    fx = { composer, bloom, grain }; fxResize();
+    fx = { composer, bloom, grain, gtao, aoHalf: true }; fxApplyQuality(); fxResize();
   } catch (e) { console.warn('post effects unavailable, using plain rendering', e); fx = null; }
 })();
 function renderWorld(t) {
   fxMat.uTime.value = t;
   for (const s of fxScreens) s.m.emissiveIntensity = s.base * (0.82 + 0.18 * Math.sin(t * 2.1 + s.ph));
-  if (fx && GK.settings.fx) { fx.grain.uniforms.uTime.value = t; fx.composer.render(); }
+  fxPrepActors();
+  fxCullBegin();
+  const tm = renderer.toneMapping, te = renderer.toneMappingExposure;
+  renderer.toneMapping = FX_TONE; renderer.toneMappingExposure = FX_EXPOSURE;
+  if (fx && GK.settings.fx && fxQ().post) { fx.grain.uniforms.uTime.value = t; fx.composer.render(); }
   else renderer.render(scene, cam);
+  renderer.toneMapping = tm; renderer.toneMappingExposure = te;
+  fxCullEnd();
 }
 // keypad screens and other status displays pulse gently (found by their material signature, the builders stay untouched)
 const fxScreens = [];
@@ -3960,6 +4011,174 @@ scene.traverse(o => { const m = o.isMesh && o.material; if (m && m.isMeshStandar
   const shafts = new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ map: st, transparent: true, opacity: 0.11, depthWrite: false, side: THREE.DoubleSide, fog: false }));
   shafts.frustumCulled = false; shafts.renderOrder = 2; shafts.matrixAutoUpdate = false; scene.add(shafts);
 }
+// ---- GFX2 material polish: roughness detail for plaster and brushed steel, physical skin and cloth for the goblins (fxSkin / fxCloth, used by buildGoblin)
+{
+  const plasterRough = canvasTex(256, 256, (g, w, h) => {   // soft trowel patches: plaster is not uniformly matte
+    g.fillStyle = '#e8e8e8'; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 60; i++) { const x = Math.random() * w, y = Math.random() * h, r = 12 + Math.random() * 46, v = Math.random() < 0.5 ? 255 : 150;
+      for (const [ox, oy] of [[0, 0], [-w, 0], [w, 0], [0, -h], [0, h]]) { const gr = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r); gr.addColorStop(0, `rgba(${v},${v},${v},.35)`); gr.addColorStop(1, `rgba(${v},${v},${v},0)`); g.fillStyle = gr; g.fillRect(x + ox - r, y + oy - r, 2 * r, 2 * r); } }
+  }, false);
+  plaster.roughnessMap = plasterRough; plaster.roughness = 1; plaster.envMapIntensity = 0.35; plaster.bumpScale = 0.35;   // softer bump: with less flat fill light the old 0.9 read as stucco
+  const brushRough = canvasTex(256, 256, (g, w, h) => {   // brushed metal: fine horizontal streaks of varying roughness
+    g.fillStyle = '#9a9a9a'; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 1400; i++) { const v = 90 + Math.random() * 110 | 0; g.fillStyle = `rgba(${v},${v},${v},${0.15 + Math.random() * 0.35})`; g.fillRect(Math.random() * w - 40, Math.random() * h, 30 + Math.random() * 160, 1); }
+    speckle(g, w, h, 600, 2, 0.15);
+  }, false);
+  for (const [m, r] of [[steelM, 0.5], [vaultM, 0.46], [gunM, 0.5], [lightSteelM, 0.34], [darkSteel, 0.5]]) { m.roughnessMap = brushRough; m.roughness = r; }
+  floorM.envMapIntensity = 0.8; goldM.roughness = 0.24; goldM.envMapIntensity = 1.5; rivetM.envMapIntensity = 1.3;
+}
+function fxSkin(color, o = {}) {   // goblin skin: physical material with a soft sheen (peach fuzz) and a faint clearcoat so it reads as skin, not plastic
+  const c = new THREE.Color(color);
+  return new THREE.MeshPhysicalMaterial({ color: c, roughness: 0.55, envMapIntensity: 0.5, sheen: 0.35, sheenRoughness: 0.5, sheenColor: c.clone().lerp(new THREE.Color(0xfff2c0), 0.25), clearcoat: 0.12, clearcoatRoughness: 0.5, ...o });
+}
+function fxCloth(color, o = {}) {   // woven cloth: strong sheen at grazing angles, no specular glint
+  const c = new THREE.Color(color);
+  return new THREE.MeshPhysicalMaterial({ color: c, roughness: 0.9, envMapIntensity: 0.35, sheen: 1, sheenRoughness: 0.65, sheenColor: c.clone().lerp(new THREE.Color(0xffffff), 0.35), ...o });
+}
+// ---- GFX2 static merging: sibling meshes that share a material are merged into one mesh (fewer draw calls); animated parts, door art and toggled parts are skipped
+const FX_OBR = THREE.Object3D.prototype.onBeforeRender;
+function fxMergeList(list) {
+  const g0 = list[0].geometry, names = Object.keys(g0.attributes), parts = [];
+  let nv = 0, ni = 0;
+  for (const c of list) {
+    if (c.matrixAutoUpdate) c.updateMatrix();
+    const g = c.geometry.clone(); g.applyMatrix4(c.matrix);
+    if (c.matrix.determinant() < 0) { const ix = g.index.array; for (let i = 0; i < ix.length; i += 3) { const k = ix[i + 1]; ix[i + 1] = ix[i + 2]; ix[i + 2] = k; } }
+    parts.push(g); nv += g.attributes.position.count; ni += g.index.count;
+  }
+  const out = new THREE.BufferGeometry();
+  for (const n of names) {
+    const a0 = g0.attributes[n], arr = new a0.array.constructor(nv * a0.itemSize); let off = 0;
+    for (const g of parts) { arr.set(g.attributes[n].array, off); off += g.attributes[n].array.length; }
+    out.setAttribute(n, new THREE.BufferAttribute(arr, a0.itemSize, a0.normalized));
+  }
+  const idx = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni); let io = 0, vo = 0;
+  for (const g of parts) { const ix = g.index.array; for (let i = 0; i < ix.length; i++) idx[io + i] = ix[i] + vo; io += ix.length; vo += g.attributes.position.count; g.dispose(); }
+  out.setIndex(new THREE.BufferAttribute(idx, 1));
+  const m = new THREE.Mesh(out, list[0].material); m.name = 'fxMerged'; m.frustumCulled = list[0].frustumCulled; m.matrixAutoUpdate = false; m.updateMatrix();
+  return m;
+}
+function fxMergeKids(parent, skip) {   // merge the leaf mesh children of one node, bucketed by material and vertex layout
+  const buckets = new Map();
+  for (const c of parent.children) {
+    if (!c.isMesh || c.isInstancedMesh || c.isSkinnedMesh || c.children.length || !c.visible || skip.has(c) || Array.isArray(c.material) || c.onBeforeRender !== FX_OBR || c.renderOrder !== 0 || Object.keys(c.userData).length) continue;
+    const g = c.geometry; if (!g || !g.index || !g.attributes.position || Object.keys(g.morphAttributes).length) continue;   // (geometry groups are ignored with a single material)
+    if (Object.values(g.attributes).some(a => a.isInterleavedBufferAttribute)) continue;
+    const key = c.material.uuid + '|' + Object.keys(g.attributes).sort().map(n => n + g.attributes[n].itemSize + g.attributes[n].array.constructor.name).join() + '|' + c.frustumCulled + c.layers.mask;
+    let l = buckets.get(key); if (!l) buckets.set(key, l = []); l.push(c);
+  }
+  let saved = 0;
+  for (const list of buckets.values()) { if (list.length < 2) continue; const m = fxMergeList(list); for (const c of list) parent.remove(c); parent.add(m); saved += list.length - 1; }
+  return saved;
+}
+// door frames and leaves (walls), the room shells and THE VAULT decor: merged once at startup (all built by the world code above)
+const fxMergeStats = { walls: 0, rooms: 0, goblins: 0 };
+{
+  const skip = new Set();
+  for (const d of doors) {
+    if (d.art) for (const k in d.art) d.art[k].forEach(o => o.traverse(c => skip.add(c)));
+    for (const o of [...d.bolts, ...(d.lasers || []), ...(d.scan || []), ...(d.merchPlates || [])]) skip.add(o);
+  }
+  let btnM = null;   // keypad buttons: identical materials, one per button; share one so they merge
+  scene.traverse(o => { const m = o.material; if (o.isMesh && m && m.isMeshStandardMaterial && m.color.getHex() === 0x222222 && m.emissive.getHex() === 0x7aa7ff && m.emissiveIntensity === 0.6) o.material = btnM || (btnM = m); });
+  for (const o of worldStatic) if (!o.isMesh && !o.isLight) o.traverse(n => { if (n.children.length) fxMergeStats.walls += fxMergeKids(n, skip); });
+  // leaf meshes directly under the scene (floors, panels, AO decals, vault pillars and trims): merged per room so room culling still works
+  const ceil = new Set(ceilings), byRoom = new Map(), bb = new THREE.Box3();
+  for (const o of worldStatic) {
+    if (!o.isMesh || ceil.has(o)) continue;
+    bb.setFromObject(o); if (bb.isEmpty()) continue;
+    const cx = (bb.min.x + bb.max.x) / 2, cz = (bb.min.z + bb.max.z) / 2, k = WORLD.roomKeyOf(cx, cz);
+    if (WORLD.roomKeyOf(bb.min.x + 0.05, bb.min.z + 0.05) !== k || WORLD.roomKeyOf(bb.max.x - 0.05, bb.max.z - 0.05) !== k) continue;   // only meshes inside one room
+    let l = byRoom.get(k); if (!l) byRoom.set(k, l = new THREE.Group()); l.add(o);   // temporary holder (the meshes keep their world transforms: the scene is the identity)
+  }
+  for (const [, grp] of byRoom) { fxMergeStats.rooms += fxMergeKids(grp, skip); for (const c of grp.children.slice()) scene.add(c); }
+}
+// goblins (players): merged lazily the first time they are drawn; animated parts (legs, arms, head, cape, spinning and floating bits) keep their own groups
+const fxSeen = new WeakSet();
+function fxPrepActors() {
+  for (const a of actors.values()) {
+    const g = a.group; if (!g || fxSeen.has(g)) continue; fxSeen.add(g);
+    const u = g.userData; if (!u || !u.rig) continue;
+    const skip = new Set(); if (u.runes) u.runes.traverse(o => skip.add(o)); if (u.label) skip.add(u.label); for (const o of u.glows || []) skip.add(o);
+    try { u.rig.traverse(o => { if (o.children.length && !skip.has(o)) fxMergeStats.goblins += fxMergeKids(o, skip); }); } catch (e) { console.warn('goblin merge skipped', e); }
+  }
+}
+// ---- GFX2 room culling: from inside a room only that room, rooms reachable through open (or moving) doors, and the goblins in them are drawn
+const fxCull = { on: true, active: false, cls: new WeakMap(), adj: null, vis: new Set(), near: new Set(), hidden: [] };
+const _fxB = new THREE.Box3();
+function fxClassify(o) {   // room keys a static top-level object belongs to (1 or 2 for walls between rooms), null = always drawn
+  if (o.isLight || o.matrixAutoUpdate !== false) return null;
+  let hook = false; o.traverse(c => { if (c.onBeforeRender !== FX_OBR) hook = true; }); if (hook) return null;   // objects that animate from onBeforeRender must keep rendering
+  _fxB.setFromObject(o); if (_fxB.isEmpty()) return undefined;   // empty holder: classify again later
+  const cx = (_fxB.min.x + _fxB.max.x) / 2, cz = (_fxB.min.z + _fxB.max.z) / 2;
+  const hx = Math.max(0.05, (_fxB.max.x - _fxB.min.x) / 2 - 0.6), hz = Math.max(0.05, (_fxB.max.z - _fxB.min.z) / 2 - 0.6), keys = new Set();
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) {
+    const x = cx + hx * (i / 1.5 - 1), z = cz + hz * (j / 1.5 - 1);
+    if (Math.abs(x) > WORLD.LIM || Math.abs(z) > WORLD.LIM) return null;
+    keys.add(WORLD.roomKeyOf(x, z)); if (keys.size > 2) return null;
+  }
+  return [...keys];
+}
+function fxCullBegin() {
+  const p = cam.position;
+  fxCull.active = false;
+  if (!fxCull.on || p.y > H || Math.abs(p.x) > WORLD.LIM || Math.abs(p.z) > WORLD.LIM) return;   // overview / death / win cameras see everything
+  if (!fxCull.adj) fxCull.adj = doors.map(d => [WORLD.roomKeyOf(d.gx + d.az[0] * 1.2, d.gz + d.az[1] * 1.2), WORLD.roomKeyOf(d.gx - d.az[0] * 1.2, d.gz - d.az[1] * 1.2)]);
+  const vis = fxCull.vis, here = WORLD.roomKeyOf(p.x, p.z); vis.clear(); vis.add(here); fxCull.active = true;
+  const near = fxCull.near; near.clear(); near.add(here);
+  for (let i = 0; i < doors.length; i++) { const d = doors[i], [a, b] = fxCull.adj[i]; if ((d.p > 0.001 || d.open) && (a === here || b === here)) { near.add(a); near.add(b); } }
+  for (let grow = true; grow;) { grow = false; for (let i = 0; i < doors.length; i++) { const d = doors[i]; if (d.p <= 0.001 && !d.open) continue; const [a, b] = fxCull.adj[i]; if (vis.has(a) !== vis.has(b)) { vis.add(a); vis.add(b); grow = true; } } }
+  const hid = fxCull.hidden;
+  for (const o of scene.children) {
+    if (!o.visible) continue;
+    let k = fxCull.cls.get(o); if (k === undefined) { k = fxClassify(o); if (k !== undefined) fxCull.cls.set(o, k); }
+    if (k && !k.some(x => vis.has(x))) { o.visible = false; hid.push(o); }
+  }
+  for (const a of actors.values()) { const g = a.group; if (g && g.visible && !vis.has(WORLD.roomKeyOf(a.x, a.z))) { g.visible = false; hid.push(g); } }
+}
+function fxCullEnd() { const hid = fxCull.hidden; for (let i = 0; i < hid.length; i++) hid[i].visible = true; hid.length = 0; }
+// ---- GFX2 contact shadows: soft dark blobs under floor-standing props (one InstancedMesh, rebuilt when the match layout fills the side rooms)
+const fxBlob = { mesh: null };
+function fxBuildBlobs() {
+  const boxes = [], bb = new THREE.Box3(), ws = new Set(worldStatic), actorGroups = new Set([...actors.values()].map(a => a.group));
+  for (const o of scene.children) {
+    if (ws.has(o) || actorGroups.has(o) || o === fxBlob.mesh || o.name === 'fxMerged' || o.matrixAutoUpdate !== false) continue;
+    o.updateMatrixWorld(true);
+    o.traverseVisible(c => {
+      const m = c.material; if (!c.isMesh || c.isInstancedMesh || !m || Array.isArray(m) || m.transparent || !m.isMeshStandardMaterial) return;
+      if (!c.geometry.boundingBox) c.geometry.computeBoundingBox();
+      bb.copy(c.geometry.boundingBox).applyMatrix4(c.matrixWorld);
+      const w = bb.max.x - bb.min.x, d = bb.max.z - bb.min.z;
+      if (bb.min.y > 0.08 || bb.max.y - bb.min.y < 0.3 || w < 0.2 || d < 0.2 || w > 3.2 || d > 3.2) return;
+      boxes.push([bb.min.x, bb.min.z, bb.max.x, bb.max.z]);
+    });
+  }
+  const [vx, vz] = rc(WORLD.VAULT); for (const sx of [-1, 1]) for (const sz of [-1, 1]) boxes.push([vx + sx * 5.4 - 0.75, vz + sz * 5.4 - 0.75, vx + sx * 5.4 + 0.75, vz + sz * 5.4 + 0.75]);   // vault pillars
+  for (let merged = true; merged;) {   // union overlapping footprints so one prop gets one blob (capped at 4 m)
+    merged = false;
+    for (let i = 0; i < boxes.length && !merged; i++) for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i], b = boxes[j];
+      if (a[0] > b[2] + 0.05 || b[0] > a[2] + 0.05 || a[1] > b[3] + 0.05 || b[1] > a[3] + 0.05) continue;
+      const u = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])];
+      if (u[2] - u[0] > 4 || u[3] - u[1] > 4) continue;
+      boxes[i] = u; boxes.splice(j, 1); merged = true; break;
+    }
+  }
+  if (fxBlob.mesh) { scene.remove(fxBlob.mesh); fxBlob.mesh.dispose(); }
+  if (!fxBlob.mat) {
+    const t = canvasTex(64, 64, (g, w, h) => { const r = g.createRadialGradient(32, 32, 0, 32, 32, 32); r.addColorStop(0, 'rgba(0,0,0,1)'); r.addColorStop(0.45, 'rgba(0,0,0,.7)'); r.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = r; g.fillRect(0, 0, w, h); });
+    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+    fxBlob.mat = new THREE.MeshBasicMaterial({ color: 0x000000, map: t, transparent: true, opacity: 0.38, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4, fog: false });
+    fxBlob.geo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+  }
+  const m = fxBlob.mesh = new THREE.InstancedMesh(fxBlob.geo, fxBlob.mat, Math.max(1, boxes.length));
+  boxes.forEach((b, i) => { _o.position.set((b[0] + b[2]) / 2, 0.008, (b[1] + b[3]) / 2); _o.rotation.set(0, 0, 0); _o.scale.set((b[2] - b[0]) * 1.45 + 0.25, 1, (b[3] - b[1]) * 1.45 + 0.25); _o.updateMatrix(); m.setMatrixAt(i, _o.matrix); });
+  m.count = boxes.length; m.instanceMatrix.needsUpdate = true; m.frustumCulled = false; m.renderOrder = 1; m.matrixAutoUpdate = false; scene.add(m);
+  fxBlob.count = boxes.length;
+}
+fxBuildBlobs();
+layoutHooks.push(() => { fxCull.cls = new WeakMap(); try { fxBuildBlobs(); } catch (e) { console.warn('contact shadows skipped', e); } fxApplyQuality(true); });
+GK.gfx = { get fx() { return fx; }, cull: fxCull, merge: fxMergeStats, blob: fxBlob, quality: fxQ };   // test hook
 // FX-END
 let orbit = 0.4;
 function resize() { renderer.setSize(innerWidth, innerHeight); fxResize(); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); }
@@ -4073,7 +4292,7 @@ const lockNow = () => { try { const r = canvas.requestPointerLock(); r && r.catc
 GK.renderer = renderer; GK.scene = scene; GK.build = buildGoblin; GK.NAMES = NAMES; GK.SCALE = SCALE; GK.glowTex = glowTex; GK.textTex = textTex;
 GK.start = (opts) => { connect(opts); return new Promise(res => { if (assigned) res(actors.get(me).goblin); else { const prev = GK.onAssigned; GK.onAssigned = g => { GK.onAssigned = prev; res(g); }; } }); }; // connects and resolves with my goblin type
 GK.enter = () => { run.t0 = performance.now(); run.n0 = GK.roundInfo ? GK.roundInfo().n : 0; run.dist = 0; GK.mode = 'play'; net.send({ enter: 1 }); GK.showStats(); GK.applySettings(); if (window.GK_OFFLINE) $('rr').style.display = 'block'; lockNow(); };   // call from a click; 'enter' starts the match's round timer
-GK.applySettings = () => { renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * GK.settings.scale); resize(); };
+GK.applySettings = () => { renderer.setPixelRatio(fxPixelRatio()); fxApplyQuality(); resize(); };
 GK.doors = doors;
 GK.fxDebug = { get fx() { return fx; }, cam };   // test hook: post-effects state and the world camera
 GK.setDoorsOpen = ids => { const set = new Set(ids); doors.forEach(d => d.open = set.has(d.id)); };   // ids of doors that are open right now
