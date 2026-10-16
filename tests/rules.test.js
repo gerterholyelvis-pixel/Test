@@ -15,7 +15,7 @@ const equip = async (c, key) => { c.send({ give: key }); await c.until(x => x.st
     fail = await L.run('rules', [
       ['all rules off: no rules field, crown / bribe / staff bolt do nothing', async () => {
         const c = await connect(off.port, 'goblin=3'); eq(c.state.rules, undefined, 'welcome must not advertise rules when none are on');
-        c.send({ tp: [0, 0] }); await sleep(1400); assert(!c.state.won && count(c, 'crown') === 0, 'standing on the dais must not crown anyone');
+        c.send({ tp: [0, 0] }); await sleep(1400); assert(!c.state.won && !c.msgs.some(m => m.crown && m.crown.p !== undefined), 'standing on the dais must not crown anyone');   // the 5x5 crown claim (act5.js {crown:{claims}}) is no win
         c.send({ tp: W.rc(0) }); c.send({ sel: door('0', '1') }); c.send({ bribe: 1 }); await sleep(300); eq(c.state.gold, 100, 'bribe is ignored'); eq(count(c, 'bribeFail'), 0);
         c.send({ atk: 1 }); await sleep(500); eq(count(c, 'bolt'), 0, 'no bolt without the rule'); await c.close();
       }],

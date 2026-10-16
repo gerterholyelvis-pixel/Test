@@ -354,7 +354,7 @@ module.exports = function create(S) {
       if (s !== (q._actMe || '')) { q._actMe = s; S.sendTo(q.ws, { actMe: me || {} }); }
     }
     const cv = VAULT5.view(A.vault, { now }), cs = JSON.stringify([cv.claims, cv.gaining, cv.alarm, cv.ward]);   // crown: to everyone, 4 Hz while it changes
-    if (cs !== A.crownSig && now - A.crownT >= 250) { A.crownSig = cs; A.crownT = now; S.bcast(m, { crown: cv.claims.length || cv.alarm ? cv : null }); }
+    if (cs !== A.crownSig && now - A.crownT >= 250 && !S.rule('crown')) { A.crownSig = cs; A.crownT = now; S.bcast(m, { crown: cv.claims.length || cv.alarm ? cv : null }); }
     const f = VB5.roundFields(A.H, now, m.endsAt - now), rs = JSON.stringify([f.breach, f.armed, f.writs, f.vbNext ? 1 : 0, hiddenRooms(m)]);   // roundState fields changed: tell everyone now, not at the next 1 s beat
     if (rs !== A.rfSig && now - A.rfT >= 250) { const first = !A.rfSig; A.rfSig = rs; A.rfT = now; if (!first) S.broadcastRound(m); }
   }
@@ -424,7 +424,7 @@ module.exports = function create(S) {
     if (!m.act) return; const now = Date.now(), A = m.act;
     S.sendTo(ws, { trees: m.trees });
     if (kindOfKey(p.room)) S.sendTo(ws, actSMsg(m, p.room, now, viewOf(m, p.room, now)));
-    const cv = VAULT5.view(A.vault, { now }); S.sendTo(ws, { crown: cv.claims.length || cv.alarm ? cv : null });
+    const cv = VAULT5.view(A.vault, { now }); if (!S.rule('crown')) S.sendTo(ws, { crown: cv.claims.length || cv.alarm ? cv : null });
     p._actMe = null;
   }
 
@@ -461,7 +461,7 @@ module.exports = function create(S) {
     const now = Date.now(), f = VB5.roundFields(A.H, now, m.started ? m.endsAt - now : null), o = { vb: f.vb, vbNext: f.vbNext, breach: f.breach, armed: f.armed, writs: f.writs, trees: m.trees };
     const hid = hiddenRooms(m); if (hid.length) o.hidden = hid;
     if (m.sudden) o.vent = 1;
-    const cv = VAULT5.view(A.vault, { now }); if (cv.claims.length || cv.alarm) o.crown = cv;
+    const cv = VAULT5.view(A.vault, { now }); if ((cv.claims.length || cv.alarm) && !S.rule('crown')) o.crown = cv;   // the legacy GK_RULES crown rule owns the crown message when it is on
     return o;
   }
   // the time limit (after the last round): highest claim (at least 5 s), then kills, then HP, then the lowest id. live = [[ws, player]]
