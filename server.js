@@ -50,7 +50,7 @@ const VAULT = ROOM_DOORS['4'] || []; // the 4 doors touching the middle vault ro
 const vaultVotes = m => new Set(Object.keys(m.sel).filter(k => VAULT.includes(m.sel[k]))).size; // distinct rooms selecting a vault door
 const roundState = m => ({ round: { n: m.round, left: Math.max(0, m.endsAt - Date.now()), dur: m.dur }, sel: m.sel, open: m.open, vaultVotes: vaultVotes(m), fizzled: m.fizzled || [] });
 const broadcastRound = m => bcast(m, roundState(m));
-const matchInfo = m => { let lo = Infinity, hi = -Infinity; for (const p of m.players.values()) { lo = Math.min(lo, p.wins); hi = Math.max(hi, p.wins); } return { size: m.players.size, minWins: m.players.size ? lo : 0, maxWins: m.players.size ? hi : 0 }; };
+const matchInfo = m => { let lo = Infinity, hi = -Infinity; for (const p of m.players.values()) { lo = Math.min(lo, p.wins); hi = Math.max(hi, p.wins); } return { size: m.players.size, minWins: m.players.size ? lo : 0, maxWins: m.players.size ? hi : 0, alive: [...m.players.values()].filter(p => p.entered && !p.dead).length }; };
 const broadcastMatch = m => bcast(m, { match: matchInfo(m) });
 function findMatch(wins) {
   let best = null;
@@ -67,7 +67,7 @@ function leave(m, ws) { // remove a player from their match; empty matches disap
   if (!m.players.delete(ws)) return;
   m.dirty = true;
   if (gone && m.sel[gone.room] != null && ![...m.players.values()].some(q => q.room === gone.room)) { delete m.sel[gone.room]; broadcastRound(m); } // an empty room's door vote no longer counts
-  if (!m.players.size) matches.delete(m.id); else broadcastMatch(m);
+  if (!m.players.size) matches.delete(m.id); else { broadcastMatch(m); checkWin(m); }
 }
 setInterval(() => { // one global timer steps every match
   const now = Date.now();
@@ -77,13 +77,16 @@ setInterval(() => { // one global timer steps every match
       const picked = [...new Set(Object.values(m.sel))], ok = vaultVotes(m) >= 2; // vault doors need 2 different rooms
       m.open = picked.filter(d => ok || !VAULT.includes(d)); m.fizzled = ok ? [] : picked.filter(d => VAULT.includes(d)); m.sel = {}; m.round++; m.dur = 45000; m.endsAt = now + m.dur; broadcastRound(m); m.lastRound = now; }
     else if (now - m.lastRound >= 1000) { m.lastRound = now; broadcastRound(m); }
+    // COMBAT-BEGIN regen: 1 HP every 4 s once a player has not been hit for 6 s
+    for (const p of m.players.values()) if (p.entered && !p.dead && p.stats && p.stats.health < p.stats.maxHealth && now - (p.hurtAt || 0) >= C.regenIdle && now - (p.regenAt || 0) >= C.regenEvery) { p.regenAt = now; p.stats.health = Math.min(p.stats.maxHealth, p.stats.health + C.regenAmt); m.dirty = true; }
+    // COMBAT-END
     if (m.dirty) { m.dirty = false; bcast(m, { players: [...m.players.values()].map(pub) }); } // positions go out at 20 Hz
   }
 }, 50);
 
 // 0 small 30%, 1 medium 30%, 2 big 30%, 3 wizard 9%, 4 king 1%
 // Equipment decides combat stats: attack damage comes from the weapon (items.js), health from the armour.
-const G = require('./items.js'), ITEMS = G.ITEMS;
+const G = require('./items.js'), ITEMS = G.ITEMS, C = G.COMBAT;
 const info = k => (typeof k === 'string' && k.length < 40 && G.info(k)) || null; // any item key incl. goblin brains
 const isItem = k => !!info(k);
 const SLOT_IDS = new Set([...Array.from({ length: 9 }, (_, i) => 'b' + i), ...Array.from({ length: 3 }, (_, i) => 'q' + i), 'weapon', 'armor']);
@@ -171,7 +174,7 @@ function move(p, from, to) { // inventory move/swap, strictly validated
   setSlot(p.inv, to, a); setSlot(p.inv, from, b == null ? null : b);
   recalc(p); return true;
 }
-const pub = p => ({ id: p.id, goblin: p.goblin, wins: p.wins, box: p.box, room: p.room, x: p.x, z: p.z, yaw: p.yaw, stats: p.stats, gear: p.gear }); // never includes the inventory
+const pub = p => ({ kills: p.kills || 0, id: p.id, goblin: p.goblin, wins: p.wins, box: p.box, room: p.room, x: p.x, z: p.z, yaw: p.yaw, stats: p.stats, gear: p.gear }); // never includes the inventory
 function addDrop(m, p, items) {
   if (!items.length) return;
   m.drops.push({ id: m.nextDrop++, x: +p.x.toFixed(2), z: +p.z.toFixed(2), items }); if (m.drops.length > 60) m.drops.shift();
@@ -189,10 +192,37 @@ function spawn() {
 function die(ws, p) { // a dead player drops everything where they fell and leaves the match
   const m = p.match; if (p.dead || !m) return;
   const items = allItems(p.inv), brain = G.brainKey(p.stats.knowledge); // the brain carries the victim's CURRENT knowledge
-  p.dead = true; leave(m, ws); // the client goes back to the menu or requeues with a new connection
+  m.deaths = (m.deaths || 0) + 1; p.dead = true; leave(m, ws); // the client goes back to the menu or requeues with a new connection
   addDrop(m, p, [...items, brain]);
-  sendTo(ws, { died: { items, brain } });
+  sendTo(ws, { died: { items, brain, by: p.killedBy || null } });
 }
+// COMBAT-BEGIN (server-authoritative melee/ranged attacks, kills and the DEFAULT win rule: last goblin standing; see docs/FEATURES.md)
+function checkWin(m) {   // DEFAULT RULE (owner has not decided): >= 2 players entered the rooms, at least one died, exactly one living entered player is left -> that player wins
+  if (!m.deaths || (m.enteredEver || 0) < 2) return;
+  const living = [...m.players.entries()].filter(([, q]) => q.entered && !q.dead);
+  if (living.length === 1) win(living[0][0], living[0][1]);
+}
+function attack(m, ws, p, now) {   // {atk:1}: rate limit by weapon, nearest valid target in range, in the 70 degree cone, same room key
+  if (!p.entered || p.dead) return;
+  const cb = G.combat(p.inv.weapon);
+  if (now - (p.atkAt || 0) < cb.cd * 0.9) return;   // 10% jitter allowance
+  p.atkAt = now; bcast(m, { swing: p.id });
+  const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw), reach = cb.range + C.slack;   // forward vector, same as the client's movement
+  let best = null, bd = Infinity;
+  for (const [tws, t] of m.players) {
+    if (t === p || t.dead || !t.entered || t.room !== p.room) continue;
+    const dx = t.x - p.x, dz = t.z - p.z, d = Math.hypot(dx, dz);
+    if (d > reach) continue;
+    if (d > 0.05 && (dx * fx + dz * fz) / d < Math.cos(C.cone)) continue;
+    if (d < bd) { bd = d; best = [tws, t]; }
+  }
+  if (!best) return;
+  const [tws, t] = best, hp = Math.max(0, t.stats.health - cb.dmg);
+  t.stats.health = hp; t.hurtAt = now; m.dirty = true;
+  bcast(m, { hit: { from: p.id, to: t.id, dmg: cb.dmg, hp, max: t.stats.maxHealth, dead: hp <= 0 } });
+  if (hp <= 0) { p.kills = (p.kills || 0) + 1; t.killedBy = p.id; sendTo(ws, { kills: p.kills }); die(tws, t); }
+}
+// COMBAT-END
 function eatBrain(p, key) { // applies a brain's knowledge gain, returns the gain
   const gain = G.brainGain(key);
   p.stats.knowledge = Math.round((p.stats.knowledge + gain) * 100) / 100;
@@ -256,7 +286,8 @@ wss.on('connection', (ws, req) => {
     } else if (dbg && Array.isArray(d.tp) && d.tp.length === 2 && d.tp.every(v => typeof v === 'number' && Number.isFinite(v))) {
       p.x = clamp(d.tp[0]); p.z = clamp(d.tp[1]); p.box = boxOf(p.x, p.z); p.room = roomKeyOf(p.x, p.z); m.dirty = true;
     } else if (dbg && Number.isFinite(d.gold)) { p.gold = Math.max(0, Math.floor(d.gold)); sendGold(p);
-    } else if (d.enter === 1) { if (!m.started) { m.started = true; m.endsAt = now + m.dur; broadcastRound(m); }
+    } else if (d.atk === 1) { attack(m, ws, p, now);
+    } else if (d.enter === 1) { if (!p.entered) { p.entered = true; m.enteredEver = (m.enteredEver || 0) + 1; broadcastMatch(m); } if (!m.started) { m.started = true; m.endsAt = now + m.dur; broadcastRound(m); }
     } else if (typeof d.eat === 'string') { eat(p, d.eat);
     } else if (Array.isArray(d.loot)) { const why = loot(m, p, d.loot); if (why) sendTo(ws, { lootFail: why });
     } else if (typeof d.craft === 'string') {

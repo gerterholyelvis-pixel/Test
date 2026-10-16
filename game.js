@@ -3062,8 +3062,8 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
   const sendDrops = () => net.onmessage && net.onmessage({ drops: clone(dropsSim) });
   const roomIdAt = () => CHEST_ROOMS.findIndex(C => Math.abs(meP.x - C.cx) <= 4 && Math.abs(meP.z - C.cz) <= 4);
   const eatSim = key => { const gain = itemsData().brainGain(key); meP.know = Math.round((meP.know + gain) * 100) / 100; net.onmessage && net.onmessage({ ate: { gain, knowledge: meP.know } }); };
-  const sendMatch = () => { const w = list.map(p => p.wins); net.onmessage && net.onmessage({ match: { size: 5, minWins: Math.min(...w), maxWins: Math.max(...w) } }); };
-  const entry = ({ id, goblin, box, x, z, yaw, seq, inv, wins, know }) => { const s = invStats(inv, goblin, know); return { id, goblin, box, x, z, yaw, seq, stats: s, gear: { weapon: inv.weapon && infoOf(inv.weapon) ? infoOf(inv.weapon).name : null, armor: inv.armor && infoOf(inv.armor) ? infoOf(inv.armor).name : null }, wins }; };
+  const sendMatch = () => { const w = list.map(p => p.wins); net.onmessage && net.onmessage({ match: { size: 5, alive: list.length, minWins: Math.min(...w), maxWins: Math.max(...w) } }); };
+  const entry = ({ id, goblin, box, x, z, yaw, seq, inv, wins, know, hp, kills }) => { const s = invStats(inv, goblin, know); if (hp != null) s.health = Math.min(hp, s.maxHealth); return { id, goblin, box, x, z, yaw, seq, kills: kills || 0, stats: s, gear: { weapon: inv.weapon && infoOf(inv.weapon) ? infoOf(inv.weapon).name : null, armor: inv.armor && infoOf(inv.armor) ? infoOf(inv.armor).name : null }, wins }; };
   const emit = () => net.onmessage && net.onmessage({ players: list.map(entry) });
   // same round machine as server.js, run locally: 30 s first round, 45 s after; bots pick a door in their room each round
   const rs = { n: 1, dur: 30000, endsAt: performance.now() + 30000, sel: {}, open: [], fizzled: [] };
@@ -3071,9 +3071,54 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
   const rmsg = () => ({ round: { n: rs.n, left: Math.max(0, rs.endsAt - performance.now()), dur: rs.dur }, sel: { ...rs.sel }, open: rs.open.slice(), vaultVotes: votes(), fizzled: rs.fizzled.slice() });
   const emitRound = () => net.onmessage && net.onmessage(rmsg());
   const botPlan = () => { for (const b of list) if (b.bot) b.selAt = performance.now() + 1500 + Math.random() * (rs.dur - 6000); };
+  // COMBAT-BEGIN offline simulation of the server's combat: bots have health, fight back within 6 m, drop loot when killed; same rules as server.js (items.js combat())
+  let simDeaths = 0;
+  const wcOf = p => (itemsData().combat ? itemsData().combat(p.inv.weapon) : { dmg: 1, range: 2.2, cd: 600, ranged: false });
+  const maxHpOf = p => invStats(p.inv, p.goblin, p.know).maxHealth;
+  const hpOf = p => (p.hp == null ? (p.hp = maxHpOf(p)) : (p.hp = Math.min(p.hp, maxHpOf(p))));
+  const inCone = (a, t, reach) => { const dx = t.x - a.x, dz = t.z - a.z, d = Math.hypot(dx, dz); return d <= reach && (d < 0.05 || (dx * -Math.sin(a.yaw) + dz * -Math.cos(a.yaw)) / d >= Math.cos(itemsData().COMBAT.cone)); };
+  function simKill(t, from) {
+    simDeaths++; from.kills = (from.kills || 0) + 1;
+    if (from === meP) net.onmessage && net.onmessage({ kills: from.kills });
+    const G = itemsData(), items = invAll(t.inv), brain = G.brainKey ? G.brainKey(t.know) : null;
+    dropsSim.push({ id: nextDrop++, x: +t.x.toFixed(2), z: +t.z.toFixed(2), items: brain ? [...items, brain] : items });   // loot the way the server drops it
+    if (t === meP) { t.dead = true; net.onmessage && net.onmessage({ died: { items, brain, by: from.id } }); } else list.splice(list.indexOf(t), 1);
+    sendDrops(); emit(); sendMatch();
+    if (!meP.dead && list.every(p => p === meP)) net.onmessage && net.onmessage({ won: { items: invAll(meP.inv), gold: meP.gold, parts: clone(meP.parts) } });   // last goblin standing
+  }
+  function simHit(t, dmg, from) {
+    const max = maxHpOf(t); t.hp = Math.max(0, hpOf(t) - dmg); t.hurtAt = performance.now();
+    net.onmessage && net.onmessage({ hit: { from: from.id, to: t.id, dmg, hp: t.hp, max, dead: t.hp <= 0 } });
+    if (t.hp <= 0) simKill(t, from); else emit();
+  }
+  function simAtk() {   // the player's {atk:1}
+    if (!meP || meP.dead || !rs.started) return;
+    const c = wcOf(meP), now = performance.now(); if (now - (meP.atkAt || 0) < c.cd * 0.9) return; meP.atkAt = now;
+    net.onmessage && net.onmessage({ swing: meP.id });
+    const key = roomKeyAt(meP.x, meP.z); let best = null, bd = 1e9;
+    for (const b of list) { if (!b.bot || roomKeyAt(b.x, b.z) !== key || !inCone(meP, b, c.range + itemsData().COMBAT.slack)) continue; const d = Math.hypot(b.x - meP.x, b.z - meP.z); if (d < bd) { bd = d; best = b; } }
+    if (best) simHit(best, c.dmg, meP);
+  }
+  setInterval(() => {   // bot behaviour (a bot within 6 m in the same room walks to the player and attacks) and health regeneration
+    const now = performance.now();
+    if (meP && !meP.dead && meP.hp != null && meP.hp < maxHpOf(meP) && now - (meP.hurtAt || 0) >= 6000 && now - (meP.regenAt || 0) >= 4000) { meP.regenAt = now; meP.hp++; emit(); }
+    for (const b of list.slice()) {
+      if (!b.bot) continue;
+      if (!meP || meP.dead || !rs.started) { b.chase = false; continue; }
+      const dx = meP.x - b.x, dz = meP.z - b.z, d = Math.hypot(dx, dz), c = wcOf(b);
+      if (d >= 6 || roomKeyAt(b.x, b.z) !== roomKeyAt(meP.x, meP.z)) { b.chase = false; continue; }
+      if (!b.chase) b.atkAt = now + 900 - c.cd * 1.8;   // reaction delay when a bot first notices the player
+      b.chase = true; b.yaw = Math.atan2(-dx, -dz);
+      const stop = c.ranged ? 4 : 1.7;
+      if (d > stop) { b.x += dx / d * 2.4 * 0.1; b.z += dz / d * 2.4 * 0.1; b.box = roomAt(b.x, b.z); }
+      if (!window.GK_BOTS_PASSIVE && d <= c.range && now - (b.atkAt || 0) >= c.cd * 1.8) { b.atkAt = now; net.onmessage && net.onmessage({ swing: b.id }); if (inCone(b, meP, c.range + 0.3)) simHit(meP, c.dmg, b); }
+    }
+  }, 100);
+  // COMBAT-END
   const net = {
     onmessage: null,
     send(m) {
+      if (m.atk === 1) simAtk();
       if (m.enter === 1 && !rs.started) { rs.started = true; rs.endsAt = performance.now() + rs.dur; botPlan(); emitRound(); }
       if (Number.isInteger(m.sel) && meP) { const k = roomKeyAt(meP.x, meP.z); if ((ROOM_DOORS[k] || []).includes(m.sel) && rs.sel[k] !== m.sel) { rs.sel[k] = m.sel; emitRound(); } }
       if (m.m && meP) { [meP.x, meP.z, meP.yaw] = m.m; meP.box = roomAt(meP.x, meP.z); } if (m.reroll) { const o = list.indexOf(meP); seq++; meP = mk(false); meP.id = list[o].id; list[o] = meP; sendInv(); sendGold(); sendParts(); emit(); }
@@ -3138,7 +3183,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
   setInterval(emitRound, 1000);
   setInterval(() => {
     for (const b of list) {
-      if (!b.bot) continue;
+      if (!b.bot || b.chase) continue;
       const dx = b.tx - b.x, dz = b.tz - b.z, d = Math.hypot(dx, dz);
       if (d < 0.3) {
         b.wait -= 0.05;
@@ -3151,7 +3196,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     }
     emit();
   }, 50);
-  setInterval(() => { const bots = list.filter(p => p.bot); if (bots.length > 2 && Math.random() < 0.5) list.splice(list.indexOf(bots[0]), 1); else if (bots.length < 6) list.push(mk(true)); sendMatch(); }, 7000);
+  setInterval(() => { if (simDeaths) { sendMatch(); return; } const bots = list.filter(p => p.bot); if (bots.length > 2 && Math.random() < 0.5) list.splice(list.indexOf(bots[0]), 1); else if (bots.length < 6) list.push(mk(true)); sendMatch(); }, 7000);
   return net;
 }
 
@@ -3186,6 +3231,7 @@ const handleMsg = d => {
   if (d.lootFail) lootFailFx(d.lootFail);
   if (d.died) showDeathScreen(d.died);
   if (d.won) showVictory(d.won);
+  if (d.swing != null || d.hit || d.kills != null || d.match) combatMsg(d);   // COMBAT
   if (d.you) me = d.you;
   if (d.round || d.sel || d.open) applyRound(d);
   if (!d.players) return;
@@ -3200,7 +3246,7 @@ const handleMsg = d => {
       actors.set(p.id, a);
       if (p.id === me) spawned = false;
     }
-    a.tx = p.x; a.tz = p.z; a.tyaw = p.yaw; a.box = p.box;
+    a.tx = p.x; a.tz = p.z; a.tyaw = p.yaw; a.box = p.box; combatSync(a, p);
     if (p.id === me && !spawned) { P.x = p.x; P.z = p.z; P.yaw = p.yaw; P.pitch = 0; a.x = p.x; a.z = p.z; spawned = true; }
   }
   const mine = actors.get(me);
@@ -3976,6 +4022,106 @@ function blocked(x, z) {
 }
 const wrapPi = a => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
 let last = performance.now(), sendT = 0;
+// COMBAT-BEGIN (left click swings the equipped weapon, server applies damage; floating numbers, hurt vignette, health bars; see docs/reports/combat.md)
+const CB = { last: 0, kills: 0, alive: 0, size: 0, floats: [], bars: new Map(), hud: null, hudSig: '', vig: null, SW: 0.34, HIT: 0.35 };
+function combatSwing() {   // left click: swing animation on my own goblin now, the server decides whether anything is hit
+  if (GK.mode !== 'play' || invOpen || shopOpen || !spawned) return false;
+  const mine = actors.get(me); if (!mine) return false;
+  const cb = itemsData().combat ? itemsData().combat(invReady ? myInv.weapon : null) : { cd: 600 }, now = performance.now();
+  if (now - CB.last < cb.cd) return false;
+  CB.last = now; mine.swing = 1e-4; net.send({ atk: 1 }); return true;
+}
+canvas.addEventListener('mousedown', e => { if (e.button === 0) combatSwing(); });
+function combatSync(a, p) { if (p.stats && p.stats.health != null) { a.hp = p.stats.health; a.maxHp = p.stats.maxHealth || p.stats.health; } if (p.kills != null) a.kills = p.kills; }
+function combatFloat(text, pos, color, size) {   // floating damage number (a sprite that rises and fades)
+  const c = document.createElement('canvas'); c.width = 160; c.height = 80; const g = c.getContext('2d');
+  g.font = '800 54px system-ui,sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineWidth = 8; g.strokeStyle = 'rgba(0,0,0,.85)'; g.strokeText(text, 80, 42); g.fillStyle = color; g.fillText(text, 80, 42);
+  const tex = new THREE.CanvasTexture(c), sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
+  sp.scale.set(size * 2, size, 1); sp.position.copy(pos); sp.renderOrder = 999; scene.add(sp); CB.floats.push({ sp, t: 0, x: (Math.random() - 0.5) * 0.4 });
+}
+function combatHurtFx(dmg, max) {   // red vignette + screen number when I am hurt
+  if (!CB.vig) { CB.vig = document.createElement('div'); CB.vig.style.cssText = 'position:fixed;inset:0;z-index:45;pointer-events:none;opacity:0;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 42%,rgba(190,8,8,.55) 78%,rgba(120,0,0,.85) 100%)'; document.body.appendChild(CB.vig); }
+  CB.vig.animate([{ opacity: Math.min(1, 0.5 + 2 * dmg / (max || 40)) }, { opacity: 0 }], { duration: 520, easing: 'ease-out' });
+  const f = document.createElement('div'); f.textContent = '-' + dmg;
+  f.style.cssText = 'position:fixed;left:50%;top:58%;z-index:90;pointer-events:none;color:#ff4a3a;font:800 34px system-ui,sans-serif;text-shadow:0 2px 10px #000';
+  document.body.appendChild(f); f.animate([{ opacity: 1, transform: 'translate(-50%,0)' }, { opacity: 0, transform: 'translate(-50%,-50px)' }], 900).onfinish = () => f.remove();
+}
+function combatMsg(d) {   // server messages: swing, hit, kills, match (goblins left)
+  if (d.swing != null && d.swing !== me) { const a = actors.get(d.swing); if (a) a.swing = 1e-4; }
+  if (d.hit) {
+    const h = d.hit, v = actors.get(h.to), f = actors.get(h.from);
+    if (v) {
+      v.hp = h.hp; v.maxHp = h.max; v.hitT = CB.HIT;
+      const dx = f ? v.x - f.x : 0, dz = f ? v.z - f.z : 1, l = Math.hypot(dx, dz) || 1; v.kx = dx / l; v.kz = dz / l;
+      const y = (h.to === me ? 1.4 : 2.0) * (SCALE[v.goblin] || 1);
+      combatFloat('-' + h.dmg, new THREE.Vector3(v.x, y, v.z), h.from === me ? '#ffd75e' : '#ffffff', 0.5);
+      const burst = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff3a2a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.9 }));   // red hit flash on the victim (sprite only, no lights)
+      burst.scale.set(1.3, 1.3, 1); burst.position.set(v.x, 1.0 * (SCALE[v.goblin] || 1), v.z); scene.add(burst); CB.floats.push({ sp: burst, t: 0, flash: true });
+    }
+    if (h.to === me) combatHurtFx(h.dmg, h.max);
+  }
+  if (d.kills != null) { CB.kills = d.kills; toastMsg('Goblin defeated!  Kills: ' + d.kills, true); }
+  if (d.match) { CB.alive = d.match.alive | 0; CB.size = d.match.size | 0; }
+}
+function combatBar(a, id) {   // small health bar sprite over another goblin's head
+  let b = CB.bars.get(id);
+  if (b && b.a !== a) { b.tex.dispose(); CB.bars.delete(id); b = null; }
+  if (!b) {
+    const c = document.createElement('canvas'); c.width = 128; c.height = 16; const tex = new THREE.CanvasTexture(c);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+    sp.scale.set(0.9, 0.11, 1); sp.position.y = a.group.userData.label.position.y + (a.goblin === 3 ? 0.75 : a.goblin === 4 ? 0.4 : 0.26); sp.renderOrder = 5; a.group.add(sp);
+    b = { a, c, tex, sp, sig: '' }; CB.bars.set(id, b);
+  }
+  const hp = Math.max(0, a.hp), max = a.maxHp || 1, sig = hp + '/' + max;
+  if (b.sig !== sig) {
+    b.sig = sig; const g = b.c.getContext('2d'), f = Math.max(0, Math.min(1, hp / max));
+    g.clearRect(0, 0, 128, 16); g.fillStyle = 'rgba(10,10,14,.85)'; g.fillRect(0, 0, 128, 16);
+    g.fillStyle = f > 0.5 ? '#5ed05e' : f > 0.25 ? '#e0b030' : '#e04a3a'; g.fillRect(2, 2, 124 * f, 12);
+    g.strokeStyle = 'rgba(255,255,255,.7)'; g.lineWidth = 1; g.strokeRect(0.5, 0.5, 127, 15); b.tex.needsUpdate = true;
+  }
+  b.sp.visible = GK.settings.tags !== false;
+}
+function combatHud(mine) {   // health bar next to the stats panel, plus kills and "Goblins left"
+  if (!CB.hud) {
+    CB.hud = document.createElement('div');
+    CB.hud.style.cssText = 'position:fixed;left:calc(2vw + 238px);bottom:2.5vh;width:210px;padding:9px 12px;border-radius:10px;background:rgba(10,10,16,.62);border:1px solid rgba(255,90,74,.4);color:#f2efe6;font:600 14px/1.5 system-ui,sans-serif;pointer-events:none;display:none;text-shadow:0 1px 4px #000;z-index:20';
+    document.body.appendChild(CB.hud);
+  }
+  const play = GK.mode === 'play' && mine && mine.hp != null;
+  const hp = play ? Math.max(0, mine.hp) : 0, max = play ? (mine.maxHp || 1) : 1, left = CB.alive > 0 ? CB.alive : CB.size, sig = play + '|' + hp + '|' + max + '|' + left + '|' + CB.kills;
+  if (sig === CB.hudSig) return; CB.hudSig = sig;
+  CB.hud.style.display = play ? 'block' : 'none'; if (!play) return;
+  const f = Math.max(0, Math.min(100, 100 * hp / max));
+  CB.hud.innerHTML = '<div style="display:flex;justify-content:space-between"><span style="color:#ff8a7a;letter-spacing:.06em">HEALTH</span><span>' + hp + ' / ' + max + '</span></div>'
+    + '<div style="height:12px;border-radius:6px;background:#2a2a34;margin:3px 0 7px;overflow:hidden"><div style="height:100%;width:' + f + '%;background:linear-gradient(90deg,#c0392b,#e8564a);transition:width .25s"></div></div>'
+    + '<div style="display:flex;justify-content:space-between"><span>Goblins left</span><b style="color:#ffd75e">' + left + '</b></div>'
+    + '<div style="display:flex;justify-content:space-between"><span>Kills</span><b>' + CB.kills + '</b></div>';
+}
+function combatTick(dt) {   // called every frame after the goblin loop: swing, hit reaction, bars, floating numbers, HUD
+  for (const [id, a] of actors) {
+    const u = a.group.userData;
+    if (a.swing) {   // arm sweep over CB.SW seconds
+      a.swing += dt / CB.SW;
+      if (a.swing >= 1) a.swing = 0; else { const s = Math.sin(a.swing * Math.PI); u.arms[1].rotation.x = -0.15 - 2.3 * s; u.torso.rotation.y += 0.45 * s; }
+    }
+    if (a.hitT > 0) {   // knockback + lean, purely visual (the real position never changes)
+      a.hitT -= dt; const e = Math.max(0, a.hitT) / CB.HIT, s = Math.sin(Math.PI * (1 - e));
+      a.group.position.x += a.kx * 0.3 * s; a.group.position.z += a.kz * 0.3 * s; u.torso.rotation.x = 0.14 - 0.5 * s; u.head.rotation.x = -0.35 * s; a.hitLean = true;
+    } else if (a.hitLean) { a.hitLean = false; u.torso.rotation.x = 0.14; }
+    if (id !== me && a.hp != null) combatBar(a, id);
+  }
+  for (const [id, b] of CB.bars) if (actors.get(id) !== b.a) { b.tex.dispose(); CB.bars.delete(id); }
+  for (let i = CB.floats.length - 1; i >= 0; i--) {
+    const q = CB.floats[i]; q.t += dt;
+    const life = q.flash ? 0.28 : 0.95;
+    if (q.t >= life) { scene.remove(q.sp); if (q.sp.material.map && !q.flash) q.sp.material.map.dispose(); q.sp.material.dispose(); CB.floats.splice(i, 1); continue; }
+    const k = q.t / life;
+    if (q.flash) { q.sp.material.opacity = 0.9 * (1 - k); q.sp.scale.setScalar(1.3 + k); } else { q.sp.position.y += dt * 1.1; q.sp.position.x += q.x * dt; q.sp.material.opacity = k < 0.6 ? 1 : 1 - (k - 0.6) / 0.4; }
+  }
+  combatHud(actors.get(me));
+}
+GK.attack = combatSwing; GK.combatState = CB; GK.combatHurtFx = combatHurtFx;
+// COMBAT-END
 function frame(now) {
   const dt = clamp((now - last) / 1000, 0.001, 0.05); last = now; const t = now / 1000;
   if (GK.mode !== 'play' && GK.mode !== 'dead' && GK.mode !== 'win') { GK.menu && GK.menu.render(now, dt); requestAnimationFrame(frame); return; }
@@ -4052,6 +4198,7 @@ function frame(now) {
     u.spin.forEach((m, i) => m.rotation.y = t * (1 + i * 0.2));
     u.glows.forEach((s, i) => s.material.opacity = (s.userData.op ?? 0.75) * (0.85 + 0.15 * Math.sin(t * 3 + i)));
   }
+  combatTick(dt);   // COMBAT
   // camera
   ceilings.forEach(c => c.visible = inside);
   if (inside && mine && spawned) {

@@ -23,11 +23,14 @@ Screenshots live in `docs/screens/`. Agent reports live in `docs/reports/`.
 - **Items**: 20 base weapons and 20 base armours, each with its own drop chance (each list adds up to 100%); rarer means stronger. Tiers: 0 common, 1 uncommon, 2 rare, 3 mythic, 4 legendary, 5 transcendent.
 - **Inventory**: 9 backpack slots + weapon slot + armour slot + 3 quick slots (hotbar).
 - **Death**: everything is lost. The dead goblin drops its weapon, armour, inventory and its goblin brain (eat it for 5% of that goblin's knowledge). The player sees a death screen with run stats and can requeue or go to the main menu.
-- **Win**: keep the items from your inventory (they go to the start-screen Inventory tab) and the character itself (saved in the Characters tab with its victory count). There is no win condition yet.
+- **Win**: keep the items from your inventory (they go to the start-screen Inventory tab) and the character itself (saved in the Characters tab with its victory count).
+- **Win condition (DEFAULT, AWAITING THE OWNER'S DECISION)**: last goblin standing. The match must have had at least 2 players who entered the rooms; when exactly one living player remains and at least one player died, that player wins. If everyone leaves without a death there is no win. This is a placeholder rule and can be changed: it lives in `checkWin()` in server.js (offline demo: `simKill()` in game.js).
+- **Combat**: left click swings the equipped weapon (unarmed punch = 1 damage). Damage = attack stat of the weapon (at least 1, so a staff with attack 0 still does 1). Server-validated: per-weapon cooldown (dagger 0.45 s, sword/club/staff/scepter 0.6 s, mace/spear 0.65 s, axe/flail 0.75 s, halberd 0.85 s, hammer 0.9 s, bow 0.7 s, crossbow 1.0 s, unarmed 0.5 s), target within 2.2 m (bows and crossbows 12 m), inside a 70 degree cone either side of the attacker's facing, and in the same room. One target per swing, the nearest valid one. Players who have not entered the rooms yet cannot hit or be hit.
+- **Health**: health is the armour's HP. It drops when hit; at 0 the goblin dies (die(): everything drops plus the brain) and the killer's kill count goes up. Regeneration: 1 HP every 4 s when not hit for 6 s. Offline demo: bots have health, walk to the player when within 6 m in the same room, attack with the same rules and drop loot when killed; after the first kill the bot roster is frozen so the player can win by killing them all.
 - **Matchmaking**: matches are queued with goblins of similar or equal victory counts.
 
 ## Open questions for the owner
-- What is the win condition? (a test hook exists, nothing triggers it yet)
+- Is "last goblin standing" (see Win condition above) the real win rule? It is only a default for now.
 - Starting gold is a placeholder of 100.
 - How should stash items be brought into a run?
 - Recipes for crafting tiers 1 to 5.

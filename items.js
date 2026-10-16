@@ -124,6 +124,13 @@
     return { kind: 'plushie' };
   }
   const CHEST_WEAPONS = ['w:sword', 'w:axe', 'w:spear', 'w:mace', 'w:bow', 'w:dagger'];   // legacy: old 6-entry chest list (indices), kept until the client reads chestKeys
-  root.GKITEMS = { randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, START, KNOWLEDGE, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, brainKey, isBrain, brainKnowledge, brainGain, info };
+  // ---- COMBAT rules shared by server and client (server is authoritative). weaponKey may be null (unarmed).
+  const COMBAT = { melee: 2.2, ranged: 12, cone: 70 * Math.PI / 180, slack: 0.3, unarmed: 1, regenIdle: 6000, regenEvery: 4000, regenAmt: 1 };
+  const SWING_CD = { dagger: 450, sword: 600, club: 600, mace: 650, spear: 650, axe: 750, flail: 750, hammer: 900, halberd: 850, bow: 700, crossbow: 1000, staff: 600, scepter: 600 };   // ms between swings per weapon family, default 600
+  function combat(weaponKey) {   // { dmg, range, cd } for the equipped weapon; damage is the attack stat, at least 1 (a staff with attack 0 still bonks for 1)
+    const w = weaponKey && ITEMS[weaponKey], fam = w ? w.family : null, ranged = fam === 'bow' || fam === 'crossbow';
+    return { dmg: w ? Math.max(1, w.attack) : COMBAT.unarmed, range: ranged ? COMBAT.ranged : COMBAT.melee, cd: w ? (SWING_CD[fam] || 600) : 500, ranged };
+  }
+  root.GKITEMS = { randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, START, KNOWLEDGE, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.GKITEMS;
 })(typeof window !== 'undefined' ? window : globalThis);
