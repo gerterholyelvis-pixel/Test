@@ -2533,6 +2533,7 @@ window.GKRULES = (() => {
     }
     if (d.bolt) { const b = d.bolt, spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow(), color: 0xb89cff, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })); spr.scale.set(0.7, 0.7, 1); scene.add(spr); R.bolts.set(b.id, { spr, x: b.x, z: b.z, vx: b.vx, vz: b.vz, range: b.range, t0: performance.now() }); snd('swing', { x: b.x, z: b.z }); kick(); }
     if (d.boltEnd) { const b = R.bolts.get(d.boltEnd.id); if (b) { scene.remove(b.spr); R.bolts.delete(d.boltEnd.id); } }
+    if (d.showdown && !R.showdown) { R.showdown = 1; toastMsg('THREE GOBLINS LEFT: every door is open!', false, 3500); }   // PACE
     if (d.klaxon) { toastMsg('KLAXON: doors close at the end of the round!', false); for (let i = 0; i < 3; i++) setTimeout(() => snd('tickLast'), i * 350); }
     if (d.bribeFail) toastMsg({ pick: 'Select a door first', gold: 'Not enough gold (50)', max: 'Bribe limit reached', room: 'Not at a room panel' }[d.bribeFail] || 'No bribe', false);
   }
@@ -6159,7 +6160,7 @@ function combatMsg(d) {   // server messages: swing, hit, kills, match (goblins 
     { const fam = f && f.vmFam, ak = h.to === me ? (invReady ? myInv.armor : null) : (v && v.gArm !== undefined ? vmArmKey(v.gArm) : null), ait = ak && itemsData().ITEMS[ak], armor = ait && ait.family; /* FEEL3: weapon and armour families pick the hit sound */
       if (h.to === me) { combatHurtFx(h.dmg, h.max); snd('hit', { fam, armor, vol: 0.7 }); snd('hurt'); try { GK.feel.hurt(h.dmg, h.max); } catch (e) {} if (f) feel2Arc(f); /* FEEL2 */ } else if (v) snd('hit', h.from === me ? { fam, armor } : { x: v.x, z: v.z, fam, armor }); }
   }
-  if (d.kills != null) { CB.kills = d.kills; toastMsg('Goblin defeated!  Kills: ' + d.kills, true); }
+  if (d.kills != null) { CB.kills = d.kills; toastMsg('Goblin defeated!  Kills: ' + d.kills + (d.bounty ? '   +' + d.bounty + ' gold' : ''), true); }   /* PACE: bounty */
   if (d.match) { CB.alive = d.match.alive | 0; CB.size = d.match.size | 0; }
 }
 function combatBar(a, id) {   // small health bar sprite over another goblin's head
