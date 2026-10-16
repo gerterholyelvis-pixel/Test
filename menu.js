@@ -165,12 +165,14 @@ const itipEl = $('itip');
 const TCOL = { common: '#b9b4a4', uncommon: '#6fdc6a', rare: '#5aa8ff', mythic: '#c06bff', legendary: '#ffb02e', transcendent: '#8ff6ff' };
 function tip(it, e) {
   if (!it) { itipEl.style.display = 'none'; return; }
-  itipEl.textContent = ''; const b = document.createElement('b'); b.textContent = it.name; const s = document.createElement('span');
+  itipEl.textContent = ''; itipEl.style.setProperty('--tc', TCOL[it.tier] || 'var(--gold3)'); const b = document.createElement('b'); b.textContent = it.name; const s = document.createElement('span');
   const tn = it.tierN != null ? it.tierN : null, tname = it.tier ? it.tier[0].toUpperCase() + it.tier.slice(1) : '';
   const st = it.attack != null ? 'Attack ' + it.attack : it.health != null ? 'Health ' + it.health : (it.desc || '');
   s.textContent = [tn != null ? 'Tier ' + tn + (tname ? ' \u00b7 ' + tname : '') : '', st].filter(Boolean).join(' \u00b7 ');
   if (it.tier && TCOL[it.tier]) b.style.color = TCOL[it.tier];
   itipEl.append(b, s);
+  if (it.desc && it.attack == null && it.health == null) { /* desc already in the stat line */ } else if (it.desc) { const d = document.createElement('em'); d.textContent = it.desc; itipEl.appendChild(d); }
+  if (it.price) { const p = document.createElement('i'); p.textContent = 'Worth ~' + it.price + ' gold'; itipEl.appendChild(p); }
   itipEl.style.display = 'block';
   const w = itipEl.offsetWidth, h = itipEl.offsetHeight;
   itipEl.style.left = Math.max(4, Math.min(innerWidth - w - 4, e.clientX + 14)) + 'px'; itipEl.style.top = Math.max(4, Math.min(innerHeight - h - 4, e.clientY + 14)) + 'px';
@@ -211,7 +213,7 @@ function renderInv() {
     if (i < st.length) {
       const it = itemInfo(st[i]); s.classList.add('full');
       if (it.tier && TCOL[it.tier]) { s.style.borderColor = TCOL[it.tier] + '66'; s.dataset.t = it.tier; }
-      s.appendChild(window.GKICONS ? GKICONS.canvas(it.key, 40) : document.createTextNode('?'));
+      s.appendChild(window.GKICONS ? GKICONS.canvas(it.key, 52) : document.createTextNode('?'));
       if (it.tierN != null) { const bd = document.createElement('i'); bd.className = 'tb'; bd.textContent = it.tierN; bd.style.color = TCOL[it.tier] || '#ddd'; s.appendChild(bd); }
       s.onmouseenter = s.onmousemove = e => tip(it, e); s.onmouseleave = () => tip(null);
     }
