@@ -28,7 +28,7 @@ const equip = async (c, key) => { c.send({ give: key }); await c.until(x => x.st
         const [a, b] = await pair(crown); eq(a.state.rules, ['crown']);
         a.send({ tp: [0, 0] }); await a.until(x => x.state.crown && x.state.crown.id === a.state.you, 2000, 'crown progress');
         assert(a.msgs.some(m => m.feed && /claiming the crown/.test(m.feed.msg || '')), 'global alert'); assert(b.msgs.some(m => m.feed && /claiming the crown/.test(m.feed.msg || '')), 'the others get the alert too');
-        await sleep(600); b.send({ tp: [2.4, 0] }); await sleep(100); b.send({ m: [2.4, 0, Math.PI / 2] }); b.send({ atk: 1 });   // b is off the dais, hits a from 2.4 m
+        await sleep(600); b.send({ tp: [-2.4, 0] }); await sleep(100); b.send({ m: [-2.4, 0, -Math.PI / 2] }); b.send({ atk: 1 });   // b is off the dais (west side: the relic pedestal stands at +2.4), hits a from 2.4 m
         await a.until(x => x.msgs.some(m => m.hit && m.hit.to === x.state.you), 1500, 'a was hit'); const hitAt = a.msgs.length;
         await a.until(x => x.msgs.slice(hitAt).some(m => m.crown && m.crown.p < 0.4), 1500, 'progress restarts after damage');
         await a.until(x => x.state.won, 4000, 'crowned'); await b.until(x => x.state.died, 2000, 'the beaten goblin is out'); await b.until(x => x.state.matchEnd, 2000, 'match end'); eq(b.state.matchEnd.crown, 1);
