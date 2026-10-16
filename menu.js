@@ -77,7 +77,7 @@ function show(name) {
   setTimeout(() => { const first = name === 'chars' && document.querySelector('#chars-list .cplay'); const el = first || $(f); el && el.focus({ preventScroll: true }); }, 30);
   if (name === 'main') $('b-start').focus();
   curPanel = name; document.querySelector('#menu .col').classList.toggle('sub', name !== 'main'); $('menu').classList.toggle('sub', name !== 'main');
-  document.querySelector('#menu .col').classList.toggle('wide', name === 'chars' || name === 'inv'); tip(null);
+  document.querySelector('#menu .col').classList.toggle('wide', name === 'chars' || name === 'inv'); document.querySelector('#menu .col').classList.toggle('xwide', name === 'settings' || name === 'controls'); tip(null);
 }
 let curPanel = 'main';
 $('b-settings').onclick = () => show('settings'); $('b-controls').onclick = () => show('controls');
