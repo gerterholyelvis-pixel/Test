@@ -24,7 +24,13 @@ const me = c => (c.state.players || []).find(p => p.id === c.state.you);
   srv.stop();
   const s2 = await L.startServer({ GK_ROUND_MS: '60000' });
   try {
-    fail += await L.run('act5-crown', [['death loses the claim', async () => {
+    fail += await L.run('act5-crown', [['vault coffer: a 2 s scoop pays 12 gold and empties a handful', async () => {
+      const c = await connect(s2.port), K = require('../act5.js').ANCHORS['12'].K1, g0 = c.state.gold;
+      c.send({ tp: [K.x + 2.1, K.z] }); await sleep(200); c.send({ act: { r: '12', a: 'K1', v: 'use' } });   // a spot clear of the vault pillar
+      await c.until(x => x.state.gold === g0 + 12, 3500, '+12 gold');
+      await c.until(x => x.msgs.some(m => m.actS && m.actS.r === '12' && m.actS.st.cof.K1 === 2), 1500, 'K1 has 2 handfuls left');
+      await c.close();
+    }], ['death loses the claim', async () => {
       const c = await connect(s2.port); c.send({ actDbg: { claim: 8000 } });
       const [vx, vz] = W.rc(W.VAULT); c.send({ tp: [vx + 0.5, vz] });
       await c.until(x => x.state.crown && x.state.crown.claims.some(e => e.id === x.state.you && e.s >= 8), 4000, 'the claim of 8 s');
