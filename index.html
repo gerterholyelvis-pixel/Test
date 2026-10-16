@@ -341,11 +341,51 @@ div:is([style*="z-index:25"],[style*="z-index: 25"]){border-radius:3px!important
 .rcard .cport{width:58px;height:58px;box-shadow:none;border-width:1px}.rcard .cinfo{min-width:0}
 .rn{font-size:var(--t2,15px);color:var(--txt);letter-spacing:.04em}.ro{margin-left:6px;font-size:var(--t1,13px);color:var(--teal);letter-spacing:.08em}.rcard.king .rn{color:var(--gold2)}
 .rp{font-size:var(--t1,13px);color:#e8c9a8}.rd{font-size:var(--t1,13px);color:var(--mut);line-height:1.3}
+/* TITLE2-BEGIN: title screen: logotype, refined menu buttons, vignette, film grain, intro curtain (the 3D hall lives in menu.js) */
+#menu h1.title{margin:0 0 clamp(12px,3vh,30px);width:auto;padding:0;line-height:0;font-size:0;background:none;-webkit-background-clip:border-box;background-clip:border-box;color:inherit;filter:none;animation:lgIn 1.2s cubic-bezier(.2,.8,.2,1) .15s backwards}
+#menu h1.title .logo{display:block;width:clamp(260px,min(50vw,62vh),680px);height:auto;overflow:visible;filter:drop-shadow(0 0 26px rgba(245,170,50,.28)) drop-shadow(0 12px 22px rgba(0,0,0,.75))}
+#menu.sub h1.title .logo{width:clamp(170px,min(26vw,22vh),270px)}
+#menu.sub h1.title{margin-bottom:clamp(8px,2vh,18px)}
+.logo text{font-family:var(--disp);font-weight:900}
+.lg-glint{animation:lgGlint 8s ease-in-out 2.4s infinite}
+@keyframes lgGlint{0%{transform:skewX(-18deg) translateX(0)}22%,100%{transform:skewX(-18deg) translateX(900px)}}
+@keyframes lgIn{from{opacity:0;transform:translateY(16px) scale(.97)}to{opacity:1;transform:none}}
+body[data-gfx=low] .lg-glint{animation:none;opacity:0}
+@media (max-height:640px){#menu h1.title .logo{width:clamp(200px,min(36vw,40vh),420px)}}
+#p-main .mbtn{min-width:min(330px,80vw);padding-left:clamp(28px,2.6vw,40px);border:0;border-left:0;clip-path:none;overflow:visible;box-shadow:none;color:#e6dfca;font-weight:600;letter-spacing:.26em;
+ background:linear-gradient(90deg,rgba(14,11,9,.66),rgba(14,11,9,.2) 78%,transparent);animation:btnIn .6s cubic-bezier(.2,.8,.2,1) backwards;
+ transition:transform .25s cubic-bezier(.2,.8,.2,1),color .2s,background .25s}
+#p-main .mbtn:nth-child(1){animation-delay:.45s}#p-main .mbtn:nth-child(2){animation-delay:.52s}#p-main .mbtn:nth-child(3){animation-delay:.59s}
+#p-main .mbtn:nth-child(4){animation-delay:.66s}#p-main .mbtn:nth-child(5){animation-delay:.73s}#p-main .mbtn:nth-child(6){animation-delay:.8s}
+@keyframes btnIn{from{opacity:0;transform:translateX(-22px)}to{opacity:1;transform:none}}
+#p-main .mbtn::before{content:"";position:absolute;inset:auto;left:10px;top:50%;width:9px;height:9px;margin-top:-4.5px;z-index:auto;background:linear-gradient(135deg,var(--gold2),var(--gold3));opacity:.35;transform:rotate(45deg) scale(.55);transition:transform .3s cubic-bezier(.2,.8,.2,1),opacity .25s}
+#p-main .mbtn::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:linear-gradient(90deg,rgba(245,196,81,.55),rgba(245,196,81,.1) 82%,transparent);transition:opacity .25s}
+#p-main .mbtn:hover,#p-main .mbtn:focus-visible{transform:translateX(12px);color:var(--gold2);box-shadow:none;border:0;background:linear-gradient(90deg,rgba(245,196,81,.24),rgba(245,196,81,.05) 78%,transparent)}
+#p-main .mbtn:hover::before,#p-main .mbtn:focus-visible::before{opacity:1;transform:rotate(45deg) scale(1)}
+#p-main .mbtn:active{transform:translateX(12px) scale(.985);box-shadow:none}
+#p-main .mbtn:focus-visible{outline:1px solid rgba(255,227,154,.5);outline-offset:2px}
+#p-main .mbtn.primary{color:#1a1104;border:0;background:linear-gradient(90deg,var(--gold2),var(--gold) 62%,#d9962b);clip-path:polygon(0 0,100% 0,calc(100% - 16px) 100%,0 100%);box-shadow:none;filter:drop-shadow(0 0 14px rgba(245,170,50,.35))}
+#p-main .mbtn.primary::before{background:linear-gradient(135deg,#5a3608,#2a1804);opacity:.8}
+#p-main .mbtn.primary::after{display:none}
+#p-main .mbtn.primary:hover,#p-main .mbtn.primary:focus-visible{color:#120a02;background:linear-gradient(90deg,#fff3c4,var(--gold2) 60%,var(--gold));filter:drop-shadow(0 0 22px rgba(255,190,70,.6))}
+body.menu #vig{background:radial-gradient(ellipse at 62% 48%,transparent 28%,rgba(0,0,0,.4) 68%,rgba(0,0,0,.88) 100%),linear-gradient(180deg,rgba(0,0,0,.35),transparent 18%,transparent 78%,rgba(0,0,0,.5))}
+#grain{position:fixed;inset:-64px;z-index:7;pointer-events:none;display:none;opacity:.075;background-size:128px 128px;mix-blend-mode:overlay}
+body.menu #grain{display:block;animation:grainJit .8s steps(1) infinite}
+@keyframes grainJit{0%{transform:translate(0,0)}20%{transform:translate(-31px,17px)}40%{transform:translate(23px,-42px)}60%{transform:translate(-12px,-26px)}80%{transform:translate(38px,29px)}}
+body[data-gfx=low] #grain{animation:none;mix-blend-mode:normal;opacity:.04}
+@media (prefers-reduced-motion:reduce){body.menu #grain,.lg-glint,#menu h1.title,#p-main .mbtn{animation:none}}
+#tcurtain{position:fixed;inset:0;z-index:9;pointer-events:none;background:#050408;opacity:1;transition:opacity 1.5s ease-out .1s}
+#tcurtain.up{opacity:0}
+body:not(.menu):not(.rolling) #tcurtain{display:none}
+body:not(.tready) #menu h1.title,body:not(.tready) #p-main .mbtn{animation-play-state:paused}
+#tcurtain.go{background:radial-gradient(ellipse at 62% 46%,#fff0c0 0%,#ffb84a 30%,#3a1a06 80%);animation:curtainGo .95s ease-in-out both}
+@keyframes curtainGo{0%{opacity:0}35%{opacity:.85}100%{opacity:0}}
+/* TITLE2-END */
 </style>
 <script type="importmap">{"imports":{"three":"/three/three.module.js","three/addons/":"/three/addons/"}}</script>
 </head>
 <body class="menu">
-<div id="vig"></div><div id="dot"></div>
+<div id="vig"></div><div id="dot"></div><div id="grain"></div><div id="tcurtain"></div>
 <div id="hud"><div id="me">Connecting...</div><div id="cnt"></div></div>
 <div id="hint">WASD move &nbsp;·&nbsp; Mouse look &nbsp;·&nbsp; E interact &nbsp;·&nbsp; Tab inventory &nbsp;·&nbsp; Shift sprint &nbsp;·&nbsp; Space jump &nbsp;·&nbsp; V overview</div>
 <button id="rr">New goblin</button>
@@ -355,7 +395,49 @@ div:is([style*="z-index:25"],[style*="z-index: 25"]){border-radius:3px!important
 <!-- FULLSCREEN-END -->
 <div id="menu">
  <div class="col">
-  <h1 class="title"><span>Goblin</span><span>King</span></h1>
+  <h1 class="title" aria-label="Goblin King">
+   <svg class="logo" viewBox="0 0 640 410" role="img" aria-hidden="true" focusable="false">
+    <defs>
+     <linearGradient id="lgGold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff7d2"/><stop offset=".3" stop-color="#ffd45e"/><stop offset=".52" stop-color="#d9962b"/>
+      <stop offset=".54" stop-color="#7d4a0b"/><stop offset=".72" stop-color="#e6ac38"/><stop offset="1" stop-color="#ffe9a0"/>
+     </linearGradient>
+     <linearGradient id="lgCrown" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff0b0"/><stop offset=".55" stop-color="#e8a929"/><stop offset="1" stop-color="#8a5510"/></linearGradient>
+     <radialGradient id="lgRuby" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#ff8a7a"/><stop offset=".5" stop-color="#c4122f"/><stop offset="1" stop-color="#5c0614"/></radialGradient>
+     <radialGradient id="lgTeal" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#b6fff0"/><stop offset=".55" stop-color="#25bfa0"/><stop offset="1" stop-color="#0b5a4a"/></radialGradient>
+     <linearGradient id="lgRule" gradientUnits="userSpaceOnUse" x1="462" y1="0" x2="632" y2="0"><stop offset="0" stop-color="#ffd45e"/><stop offset=".7" stop-color="#b9801f"/><stop offset="1" stop-color="#b9801f" stop-opacity="0"/></linearGradient>
+     <linearGradient id="lgGlint" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="120" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".85"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+     <filter id="lgBevel" x="-4%" y="-8%" width="108%" height="120%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="2.4" result="b"/>
+      <feSpecularLighting in="b" surfaceScale="6" specularConstant="1" specularExponent="26" lighting-color="#fff4cc" result="s"><feDistantLight azimuth="235" elevation="48"/></feSpecularLighting>
+      <feComposite in="s" in2="SourceAlpha" operator="in" result="s2"/>
+      <feComposite in="SourceGraphic" in2="s2" operator="arithmetic" k1="0" k2="1" k3=".85" k4="0"/>
+     </filter>
+     <text id="lgG" x="8" y="232" font-size="156" textLength="610" lengthAdjust="spacingAndGlyphs">GOBLIN</text>
+     <text id="lgK" x="8" y="378" font-size="170" textLength="430" lengthAdjust="spacingAndGlyphs">KING</text>
+     <g id="lgCr">
+      <path d="M0 80 L5 24 L23 50 L41 9 L60 44 L80 0 L100 46 L119 11 L137 50 L156 28 L160 80 Z" />
+     </g>
+     <mask id="lgMask" maskUnits="userSpaceOnUse" x="0" y="0" width="640" height="410"><g fill="#fff"><use href="#lgG"/><use href="#lgK"/></g></mask>
+    </defs>
+    <g class="lg-shadow" fill="#1d1004" stroke="#1d1004" stroke-width="12" stroke-linejoin="round"><use href="#lgG" y="6"/><use href="#lgK" y="6"/></g>
+    <g class="lg-edge" fill="#8a5a10" stroke="#4a2c06" stroke-width="7" stroke-linejoin="round"><use href="#lgG" y="3"/><use href="#lgK" y="3"/></g>
+    <g class="lg-face" fill="url(#lgGold)" filter="url(#lgBevel)"><use href="#lgG"/><use href="#lgK"/></g>
+    <g mask="url(#lgMask)"><rect class="lg-glint" x="-140" y="40" width="120" height="360" fill="url(#lgGlint)" transform="skewX(-18)"/></g>
+    <g class="lg-crown" transform="translate(214 14) rotate(-5 80 40) scale(1.3)">
+     <use href="#lgCr" fill="#1d1004" stroke="#1d1004" stroke-width="9" stroke-linejoin="round" transform="translate(0 3)"/>
+     <use href="#lgCr" fill="url(#lgCrown)" stroke="#5a3608" stroke-width="3" stroke-linejoin="round"/>
+     <g fill="#ffe9a0" stroke="#5a3608" stroke-width="2"><circle cx="5" cy="22" r="5"/><circle cx="41" cy="8" r="5"/><circle cx="80" cy="-1" r="6"/><circle cx="119" cy="10" r="5"/><circle cx="156" cy="27" r="5"/></g>
+     <path d="M2 62 H158 V78 H3 Z" fill="#b57a1c" stroke="#5a3608" stroke-width="2.5" stroke-linejoin="round"/>
+     <path d="M4 66 H156" stroke="#ffe9a0" stroke-width="1.6" opacity=".75"/>
+     <ellipse cx="80" cy="45" rx="9" ry="11" fill="url(#lgRuby)" stroke="#5a3608" stroke-width="2.5"/>
+     <ellipse cx="45" cy="52" rx="5.5" ry="7" fill="url(#lgTeal)" stroke="#5a3608" stroke-width="2"/>
+     <ellipse cx="115" cy="52" rx="5.5" ry="7" fill="url(#lgTeal)" stroke="#5a3608" stroke-width="2"/>
+     <g fill="#5a3608"><circle cx="20" cy="70" r="2"/><circle cx="60" cy="70" r="2"/><circle cx="100" cy="70" r="2"/><circle cx="140" cy="70" r="2"/></g>
+    </g>
+    <g class="lg-rule"><path d="M462 340 H590" stroke="url(#lgRule)" stroke-width="3"/><path d="M462 356 H550" stroke="url(#lgRule)" stroke-width="1.5" opacity=".6"/><path d="M462 340 l10 -12 l10 12 l-10 12 z" fill="url(#lgCrown)" stroke="#5a3608" stroke-width="2" stroke-linejoin="round"/></g>
+   </svg>
+  </h1>
 
   <div class="panel on" id="p-main"><div class="btns">
    <button class="mbtn primary" id="b-start">Start<span class="ar">&#9654;</span></button>
