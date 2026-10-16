@@ -27,6 +27,21 @@ const walk = async (c, x0, z0, x1, z1, secs, speed) => {   // send {m} every 66 
         assert(c.state.t - t1 >= 90 && c.state.t - t1 < 400, 'server clock advances in ms: ' + (c.state.t - t1));
         c.send({ ping: 'x' }); c.send({ ping: null }); await sleep(100); assert(srv.alive()); await c.close();
       }],
+      ['jump: {m:[x,z,yaw,cm]} reaches other players in the snapshot speed slot (v = speed + 100 * cm), stays 2D, ends with a grounded snapshot', async () => {
+        const [a, b] = await pair(srv, 0); a.send({ tp: [-15, -15] }); b.send({ tp: [-13, -15] }); await sleep(150);
+        const n = a.msgs.length, jumpCm = [0, 22, 54, 82, 90, 80, 52, 20];
+        for (const cm of jumpCm) { b.send({ m: [-13, -15, 0, cm] }); await sleep(66); }
+        b.send({ m: [-13, -15, 0] }); await sleep(250);
+        const mine = snapsOf(a, b.state.you, n), air = mine.filter(s => s.v >= 100);
+        assert(air.length >= 4, 'jump reaches the other player: ' + JSON.stringify(mine.map(s => s.v)));
+        assert(air.every(s => s.x === -13 && s.z === -15), 'position unchanged: movement stays 2D');
+        const cms = air.map(s => Math.floor(s.v / 100)); assert(Math.max(...cms) >= 80 && Math.max(...cms) <= 90, 'peak height in cm: ' + cms);
+        assert(air.every(s => s.v % 100 < 1), 'speed part stays 0 when standing still');
+        eq(mine[mine.length - 1].v, 0, 'a final grounded snapshot ends the jump');
+        const bad = a.msgs.length; b.send({ m: [-13, -15, 0, 5000] }); await sleep(150);
+        assert(snapsOf(a, b.state.you, bad).every(s => Math.floor(s.v / 100) <= 100), 'jump height is clamped on the server');
+        b.send({ m: [-13, -15, 0] }); await sleep(100); await a.close(); await b.close();
+      }],
       ['snapshots: flat {s:[t, id,x,z,yaw,speed,age,...]}, rounded, only movers, never yourself; moving does not resend the slow players list', async () => {
         const [a, b] = await pair(srv, 0); a.send({ tp: [-15, -15] }); b.send({ tp: [-13, -15] }); await sleep(150);
         const n = a.msgs.length, nb = b.msgs.length; await walk(b, -13, -15, -9.7, -15, 0.7, 4.6); await sleep(150);

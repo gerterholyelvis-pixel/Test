@@ -3715,7 +3715,7 @@ function dropGoblin(g) { // free GPU memory of a removed goblin (shared geometry
 }
 // NET-BEGIN (client side of the netcode: snapshot interpolation with an adaptive delay, clock sync, ping readout, server corrections; see docs/reports/netcode.md)
 const NETC = { off: null, offPong: false, rtt: 0, delay: 100, jit: 0, lastArr: 0, lastT: 0, rt: 0, fix: null, el: null, txt: '' };
-const NS = { x: 0, z: 0, yaw: 0 };   // scratch result of netSample (no per-frame allocation)
+const NS = { x: 0, z: 0, yaw: 0, y: 0 };   // scratch result of netSample (no per-frame allocation)
 const srvNow = () => performance.now() + (NETC.off || 0);   // estimate of the server clock in ms
 function netRenderT(dt) {   // the server time that remote goblins are drawn at: now minus the interpolation delay (never runs backwards)
   NETC.delay += (clamp(66 + 2 * NETC.jit, 70, 150) - NETC.delay) * Math.min(1, dt * 2);
@@ -3743,8 +3743,8 @@ function netSnap(s) {   // {s:[t, id,x,z,yaw,speed,age, ...]}: buffer one entry 
     const a = actors.get(s[i]); if (!a || s[i] === me) continue;
     const et = t - s[i + 5], b = a.buf || (a.buf = []), l = b[b.length - 1];
     if (l && et <= l.t) continue;
-    if (l && l.v === 0 && et - l.t > 250) b.push({ t: et - 66, x: l.x, z: l.z, yaw: l.yaw, v: 0 });   // was standing still: hold the old spot until just before he moved
-    b.push({ t: et, x: s[i + 1], z: s[i + 2], yaw: s[i + 3], v: s[i + 4] });
+    if (l && l.v === 0 && et - l.t > 250) b.push({ t: et - 66, x: l.x, z: l.z, yaw: l.yaw, v: 0, y: l.y });   // was standing still: hold the old spot until just before he moved
+    b.push({ t: et, x: s[i + 1], z: s[i + 2], yaw: s[i + 3], v: s[i + 4] % 100, y: Math.floor(s[i + 4] / 100) / 100 });   // JUMP: the speed slot also carries the jump height in cm (v + 100 * cm)
     while (b.length > 3 && b[1].t < et - 1500) b.shift();
   }
 }
@@ -3752,14 +3752,14 @@ function netSample(a, rt) {   // position of a remote goblin at server time rt: 
   const b = a.buf, n = b ? b.length : 0; if (!n) return null;
   const L = b[n - 1];
   if (rt >= L.t) {
-    NS.x = L.x; NS.z = L.z; NS.yaw = L.yaw;
+    NS.x = L.x; NS.z = L.z; NS.yaw = L.yaw; NS.y = L.y || 0;
     if (L.v > 0 && n > 1) { const q = b[n - 2], dx = L.x - q.x, dz = L.z - q.z, d = Math.hypot(dx, dz), o = Math.min(rt - L.t, 100) / 1000; if (d > 1e-4) { NS.x += dx / d * L.v * o; NS.z += dz / d * L.v * o; } }
     return NS;
   }
-  if (rt <= b[0].t) { NS.x = b[0].x; NS.z = b[0].z; NS.yaw = b[0].yaw; return NS; }
+  if (rt <= b[0].t) { NS.x = b[0].x; NS.z = b[0].z; NS.yaw = b[0].yaw; NS.y = b[0].y || 0; return NS; }
   let i = n - 2; while (i > 0 && b[i].t > rt) i--;
   const A = b[i], B = b[i + 1], f = (rt - A.t) / (B.t - A.t || 1);
-  NS.x = A.x + (B.x - A.x) * f; NS.z = A.z + (B.z - A.z) * f; NS.yaw = A.yaw + wrapPi(B.yaw - A.yaw) * f; return NS;
+  NS.x = A.x + (B.x - A.x) * f; NS.z = A.z + (B.z - A.z) * f; NS.yaw = A.yaw + wrapPi(B.yaw - A.yaw) * f; NS.y = (A.y || 0) + ((B.y || 0) - (A.y || 0)) * f; return NS;
 }
 function netFixStep(a, dt) {   // the server refused a move ({fix:[x,z]}): blend my position back to the last accepted one (snap when it is far away)
   const f = NETC.fix; if (!f) return;
@@ -4769,6 +4769,7 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyK' && !e.repeat && window.GK_OFFLINE && GK.mode === 'play' && actors.get(me)) { // demo only: K = die, to see the loot drop and the death screen
     const r = netReal && netReal.demoDie && netReal.demoDie(); showDeathScreen(r || { items: invAll(myInv) });
   }
+  JUMP.key(e);
   keys.add(e.code); if (e.code === 'KeyV' && !e.repeat) inside = !inside; });
 document.addEventListener('visibilitychange', () => keys.clear());
 addEventListener('keyup', e => keys.delete(e.code));
@@ -6045,7 +6046,7 @@ function vmUpdate(dt, t, mine) {   // hook: every frame after the actor loop, be
   const dyaw = wrapPi(P.yaw - VM.lyaw), dpit = P.pitch - VM.lpit; VM.lyaw = P.yaw; VM.lpit = P.pitch;
   VM.lagX += (-dyaw * 0.9 - VM.lagX) * Math.min(1, dt * 9) * 0.5 - VM.lagX * Math.min(1, dt * 4); VM.lagY += (dpit * 0.9 - VM.lagY) * Math.min(1, dt * 9) * 0.5 - VM.lagY * Math.min(1, dt * 4);
   const lx = clamp(VM.lagX, -0.12, 0.12), ly = clamp(VM.lagY, -0.1, 0.1), ph = mine.phase;
-  const ox = Math.sin(t * 1.1) * 0.004 + Math.sin(ph * 0.5) * 0.014 * moving + lx, oy = Math.sin(t * 1.6) * 0.004 + Math.abs(Math.sin(ph)) * 0.02 * moving - 0.01 * moving + ly - eqL * 0.5;
+  const ox = Math.sin(t * 1.1) * 0.004 + Math.sin(ph * 0.5) * 0.014 * moving + lx, oy = Math.sin(t * 1.6) * 0.004 + Math.abs(Math.sin(ph)) * 0.02 * moving - 0.01 * moving + ly - eqL * 0.5 + JUMP.vmY();
   VM.kick = Math.max(0, VM.kick - dt * 7);
   VM.root.position.set(ox, oy, VM.kick * 0.045); VM.root.rotation.set(eqL * 0.7 + VM.kick * 0.05 + Math.sin(t * 1.3) * 0.004 + ly * 0.6, -lx * 1.2, -lx * 0.8 + Math.sin(ph * 0.5) * 0.012 * moving);
   // clip pose
@@ -6238,6 +6239,44 @@ const SOC = (() => {
 })();
 GK.social = SOC;
 // SOCIAL-END
+// JUMP-BEGIN (Space: a cosmetic hop. y moves only my camera, my goblin, the viewmodel and the snapshot; collision, doors, ranges and hits stay 2D, so jumping dodges nothing; server side is the JUMP block in server.js)
+const JUMP = (() => {
+  const H = 0.9, T = 0.55, G = 8 * H / (T * T), V0 = 4 * H / T, COYOTE = 0.08, BUF = 0.1, DIPT = 0.26;   // 0.9 m apex, 0.55 s in the air
+  const J = { y: 0, vy: 0, air: false, buf: 0, coy: COYOTE, dipT: 9 };
+  const active = () => GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked && spawned;
+  const dip = () => { const k = J.dipT / DIPT; return k >= 1 ? 0 : Math.sin(Math.PI * Math.min(1, k * 1.6)) * (1 - k); };   // 0..1 landing bump
+  const start = () => { J.air = true; J.vy = V0; J.coy = 0; J.buf = 0; snd('hup'); };
+  J.key = e => {
+    if (e.code !== 'Space') return;
+    const tg = e.target && e.target.tagName; if (tg === 'INPUT' || tg === 'TEXTAREA' || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (!active()) return;
+    e.preventDefault();   // no page scroll, no focused button pressed
+    if (!e.repeat) J.buf = BUF;
+  };
+  J.step = (dt, on) => {
+    if (!on) J.buf = 0; else J.buf = Math.max(0, J.buf - dt);
+    J.dipT += dt;
+    if (!J.air) { J.coy = COYOTE; if (on && J.buf > 0) start(); }   // coyote: there are no ledges yet, so the grace never decides anything; a jump pressed after walking off one would still count for 80 ms
+    if (J.air) {
+      J.y += J.vy * dt - 0.5 * G * dt * dt; J.vy -= G * dt;
+      if (J.y <= 0) { J.y = 0; J.vy = 0; J.air = false; J.dipT = 0; snd('thud'); if (on && J.buf > 0) start(); }
+    }
+  };
+  J.camY = () => J.y - (GK.settings.bob === false ? 0 : 0.07 * dip());   // landing dip follows the head bob setting
+  J.vmY = () => (J.air ? 0.035 * clamp(J.vy / V0, -0.5, 1) : 0) - (GK.settings.bob === false ? 0 : 0.05 * dip());
+  J.tail = () => (J.y > 0.004 ? [Math.round(J.y * 100)] : []);   // 4th element of {m}: height in cm, only while airborne
+  J.pose = (a, u, id, dt) => {   // after GA.anim: ears flop (rising: down, falling: up, landing: a bounce), remote hop sounds
+    const y = a.jy || 0, py = a.jyP || 0; a.jyP = y;
+    if (id !== me && dt > 0) { const o = { x: a.x, z: a.z }; if (py < 0.01 && y > 0.03) snd('hup', o); else if (py > 0.03 && y < 0.01) snd('thud', o); }
+    const vy = dt > 0 ? (y - py) / dt : 0, air = y > 0.01;
+    let tg = air ? clamp(vy / 5, -1, 1) : 0; if (!air && py > 0.01) a.jfl = 1;   // landing: ears slap down
+    a.jfl = (a.jfl || 0) + (tg - (a.jfl || 0)) * Math.min(1, dt * (air ? 16 : 9));
+    if (Math.abs(a.jfl) < 0.01 || !u.earL) return;
+    for (let i = 0; i < 2; i++) { const ear = i ? u.earR : u.earL, s = i ? 1 : -1; ear.rotation.z += s * 0.85 * a.jfl; ear.rotation.x += 0.3 * a.jfl; }
+  };
+  return J;
+})();
+// JUMP-END
 function frame(now) {
   const dt = clamp((now - last) / 1000, 0.001, 0.05); last = now; const t = now / 1000;
   if (GK.mode !== 'play' && GK.mode !== 'dead' && GK.mode !== 'win') { vmHide(); GK.menu && GK.menu.render(now, dt); requestAnimationFrame(frame); return; }
@@ -6258,8 +6297,9 @@ function frame(now) {
     run.dist += Math.hypot(P.x - ox, P.z - oz);
     P.speed += (Math.hypot(P.x - ox, P.z - oz) / dt - P.speed) * Math.min(1, dt * 12);
     mine.x = P.x; mine.z = P.z; mine.yaw = P.yaw; mine.speed = P.speed;
-    sendT += dt; if (sendT > 0.066) { sendT = 0; net.send({ m: [+P.x.toFixed(2), +P.z.toFixed(2), +P.yaw.toFixed(3)] }); }
+    sendT += dt; if (sendT > 0.066) { sendT = 0; net.send({ m: [+P.x.toFixed(2), +P.z.toFixed(2), +P.yaw.toFixed(3), ...JUMP.tail()] }); }
   }
+  JUMP.step(dt, !!(mine && spawned && GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked));   // JUMP
   // doors
   for (const d of doors) {
     const near = d.open, prev = d.p;   // doors open/close from the round state (GK.setDoorsOpen)
@@ -6298,14 +6338,15 @@ function frame(now) {
     if (id !== me) {
       const s = netSample(a, nrt), nx = s ? s.x : a.x, nz = s ? s.z : a.z;
       a.speed += (Math.hypot(nx - a.x, nz - a.z) / dt - a.speed) * Math.min(1, dt * 8);
-      a.x = nx; a.z = nz; if (s) a.yaw = s.yaw;
-    } else netFixStep(a, dt);
+      a.x = nx; a.z = nz; if (s) a.yaw = s.yaw; a.jy = s ? s.y : 0;   // JUMP: remote height from the snapshots
+    } else { netFixStep(a, dt); a.jy = JUMP.y; }
     const u = a.group.userData, g = a.group;
-    g.position.set(a.x, 0, a.z); g.rotation.y = a.yaw + Math.PI;
+    g.position.set(a.x, a.jy || 0, a.z); g.rotation.y = a.yaw + Math.PI;
     g.visible = !(inside && id === me);
     u.label.visible = id !== me && GK.settings.tags;
     const walk = clamp(a.speed / 3.5, 0, 1); a.phase += dt * a.speed * 2.3;
     GA.anim(a, u, id, t, dt, walk);   // GOBLINART: waddle, breathing, ear twitch, flinch, gear
+    JUMP.pose(a, u, id, dt);   // JUMP: ears-flop pose and remote hop sounds, after GA.anim
     UNIQUE.actor(a, u, id, t);   // UNIQUE: knowledge glow, brain aura, king marker
     SOC.actor(a, u, id, t);   // SOCIAL: emote pose, bubble, disconnected icon
   }
@@ -6316,7 +6357,7 @@ function frame(now) {
   for (let i = 0; i < ceilings.length; i++) ceilings[i].visible = inside;
   if (GK.fun && GK.fun.camera(cam, dt)) { /* FUN: spectator camera */ } else if (inside && mine && spawned) {
     const eye = 1.5 * SCALE[mine.goblin];
-    cam.fov = GK.settings.fov; cam.position.set(P.x, eye + (GK.settings.bob === false ? 0 : Math.sin(mine.phase) * 0.035 * clamp(P.speed / 3.5, 0, 1)), P.z);   // FEEL: head bob can be switched off in Settings
+    cam.fov = GK.settings.fov; cam.position.set(P.x, eye + JUMP.camY() + (GK.settings.bob === false ? 0 : Math.sin(mine.phase) * 0.035 * clamp(P.speed / 3.5, 0, 1)), P.z);   // FEEL: head bob can be switched off in Settings
     cam.rotation.set(P.pitch, P.yaw, 0);
     /* FEEL-BEGIN */ if (GK.feel) GK.feel.camera(cam, dt, mine); /* FEEL-END */
   } else {

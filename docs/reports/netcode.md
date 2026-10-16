@@ -47,3 +47,6 @@ Browser check (software GL, about 7 fps, Browser pane): server mode with a ws go
 - Door open state: the server treats a door as open the moment it is in the open list; the client's door animation takes 0.8 s (2.4 s vault) before it lets you through, so you are slightly stricter than the server.
 - A speed-hacker who stays below 9.75 m/s plus the 1.2 m bank is not caught. Fast `fix` chains right after a real teleport are only throttled, not logged.
 - Reconnect grace (plan, "if cheap") was not started.
+
+## Jump (Space)
+Code: JUMP-BEGIN/END in game.js (before frame) and server.js (next to the NET block), plus hooks in the key handler, frame, camera, viewmodel and netSnap/netSample. Cosmetic only: 0.9 m apex, 0.55 s airtime, 80 ms coyote, 100 ms buffer, no double jump. The client adds a 4th element to {m} (height in cm, only while airborne); the server clamps it to 0..100 and sends it in the snapshot speed slot as v = speed + 100 * cm, so stride and message count are unchanged. Collision, doors and attack range stay 2D: jumping does not dodge attacks. Test: tests/netcode.test.js, "jump".
