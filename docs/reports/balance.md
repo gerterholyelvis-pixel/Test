@@ -39,3 +39,6 @@ Bots walk at their class speed too. The server's movement budget derives from `M
 ## Open (owner)
 - Knowledge still does nothing in a match (tiers 1-5 recipes do not exist), so brains are only worth their glow. That is the next real lever for Small and Wizard.
 - Crown win, doorclose, starting gold, stash-to-run: unchanged, see HANDOFF.md.
+
+## Fairness simulation (after this pass)
+`node tests/sim-fairness.js 3 1` (tier 5 gear, 9 s rounds, sudden death from round 3, 7 bots): places **2, 1, 2 of 8**, 1-2 kills each, every run reached round 7. QA-3 reported dying in round 3-4 of every such match with the same gear before the gang cap, misses and vault healing.
