@@ -2772,8 +2772,8 @@ const GA = (() => {
     return L(L(L(h(0, 0, 0), h(1, 0, 0), u), L(h(0, 1, 0), h(1, 1, 0), u), v), L(L(h(0, 0, 1), h(1, 0, 1), u), L(h(0, 1, 1), h(1, 1, 1), u), v), w);
   };
   // material presets written into the aMat vertex attribute: [roughness, metalness, emissive amount, cloth-texture mix]
-  const SK = [0.5, 0, 0, 0], CL = [0.92, 0, 0, 1], LT = [0.6, 0, 0, 0.6], MT = [0.3, 1, 0, 0], GD = [0.2, 1, 0.22, 0], BN = [0.42, 0, 0, 0], GL = [0.4, 0, 1.8, 0], GEM = [0.28, 0.1, 1.0, 0], DK = [0.85, 0, 0, 0], HR = [0.85, 0, 0, 0.35];
-  A.P = { SK, CL, LT, MT, GD, BN, GL, GEM, DK, HR };
+  const SK = [0.55, 0, 0, 0], SKE = [0.55, 0, 0.1, 0], CL = [0.92, 0, 0, 1], LT = [0.6, 0, 0, 0.6], MT = [0.3, 1, 0, 0], GD = [0.2, 1, 0.22, 0], BN = [0.42, 0, 0, 0], GL = [0.4, 0, 1.8, 0], GEM = [0.28, 0.1, 1.0, 0], DK = [0.85, 0, 0, 0], HR = [0.85, 0, 0, 0.35];
+  A.P = { SK, SKE, CL, LT, MT, GD, BN, GL, GEM, DK, HR };
   const lin = h => new Col(h);
   // ---- vertex colour functions (positions are in the baked group's local space; they return linear rgb)
   function skinFn(base, o = {}) {
@@ -2784,6 +2784,8 @@ const GA = (() => {
       if (o.belly) { const f = sstep(0.1, 0.75, nz) * sstep(0.62, 0.25, y); r += (pale.r - r) * f; g += (pale.g - g) * f; b += (pale.b - b) * f; }
       const sh = sstep(0.2, -0.9, ny) * 0.28; r *= 1 - sh; g *= 1 - sh * 0.8; b *= 1 - sh * 0.6;   // cavity shading under chins, arms and the belly
       if (tint) { const f = Math.max(0, n1 + 0.15) * 0.8; r += (tint.r - r) * f; g += (tint.g - g) * f; b += (tint.b - b) * f; }
+      const rud = sstep(0.52, 0.8, vnoise(x * 4 + 9, y * 4 + 2, z * 4)), l = (r * 0.3 + g * 0.55 + b * 0.15) * 0.1;   // T10: ruddy blotches (blood under the skin) and a touch less saturation: less vinyl
+      r = r * 0.9 + l + rud * 0.07 * r; g = g * 0.9 + l - rud * 0.02; b = b * 0.9 + l - rud * 0.02;
       return [r * k, g * k, b * (k * 0.97)];
     };
   }
@@ -2839,6 +2841,24 @@ const GA = (() => {
     geo.computeVertexNormals(); return geo;
   }
   A.taperTube = taperTube;
+  // T10: a shaped pauldron (replaces the old hemisphere + torus): three overlapping lames (lathe domes with a rolled lip), each wider and lower than the last, a raised central ridge and
+  // optional spikes that curve up and out. Built in the shoulder's tilted frame (B.push), so it sits on the shoulder like a cap. o: c (plate), c2 (lower lames), rim (edge), spikes (count), gem.
+  A.pauldron = (B, px, py, sd, k, o = {}) => {
+    const c = o.c ?? 0x7a8088, c2 = o.c2 ?? c, rim = o.rim ?? 0xc9a24a, m = o.m ?? MT, sp = o.spikes ?? 0, edge = o.edge ?? MT;
+    B.push([px, py, 0], [0, 0, -sd * 0.34], [1, 1, 1]);
+    const lame = (R, H, y, col) => {
+      B.lathe([[0.001, H], [R * 0.32, H * 0.97], [R * 0.64, H * 0.84], [R * 0.86, H * 0.55], [R * 0.97, H * 0.18], [R * 1.04, 0], [R * 1.05, -0.02 * k], [R * 0.99, -0.034 * k], [R * 0.9, -0.03 * k], [R * 0.78, -0.012 * k]], 22, col, m, { p: [0, y, 0], s: [1, 1, 0.92], v: 0.1 });
+      B.tor(0, y - 0.012 * k, 0, R * 1.02, 0.015 * k, Math.PI / 2, 0, 0, rim, edge, { s: [1, 1, 1] });   // rolled edge
+    };
+    lame(0.19 * k, 0.1 * k, 0.0, c); lame(0.225 * k, 0.07 * k, -0.062 * k, c2); lame(0.26 * k, 0.05 * k, -0.118 * k, c2);
+    B.tube([[0, -0.01 * k, 0.2 * k], [0, 0.07 * k, 0.15 * k], [0, 0.118 * k, 0], [0, 0.07 * k, -0.15 * k], [0, -0.01 * k, -0.2 * k]], 0.018 * k, 0.018 * k, rim, edge, { rad: 6, segs: 14 });   // ridge over the top
+    for (let i = 0; i < sp; i++) {
+      const a = sp === 1 ? 0 : (i / sp) * TAU + 0.5, rr = sp === 1 ? 0 : 0.09 * k, bx = Math.cos(a) * rr, bz = Math.sin(a) * rr, h = (sp === 1 ? 0.34 : 0.22 + (i % 2) * 0.05) * k;
+      B.tube([[bx, 0.1 * k, bz], [bx * 1.25 + Math.cos(a) * 0.02, 0.1 * k + h * 0.55, bz * 1.25], [bx * 1.6 + Math.cos(a) * 0.05, 0.1 * k + h, bz * 1.6]], 0.034 * k, 0.004, o.spike ?? 0xaab0b8, MT, { rad: 6, segs: 10 });
+    }
+    if (o.gem) B.es(0, 0.125 * k, 0, 0.026 * k, 0.026 * k, 0.026 * k, o.gem, GEM);
+    B.pop();
+  };
   // ---- textures: cached, 512 px max, shared by every goblin of a type
   A.bump = canvasTex(512, 512, (g, w, h) => {   // skin: pores, wrinkles and warts (grey = flat, bright = raised)
     g.fillStyle = '#808080'; g.fillRect(0, 0, w, h);
@@ -2871,6 +2891,18 @@ const GA = (() => {
       if (type === 1 || type === 2) { g.strokeStyle = 'rgba(0,0,0,.18)'; g.lineWidth = 2; for (let i = 0; i < 60; i++) { const x = Math.random() * w, y = Math.random() * h; g.beginPath(); g.moveTo(x, y); g.lineTo(x + 20 + Math.random() * 30, y + Math.random() * 8 - 4); g.stroke(); } }
     });
   }
+  // T10 skin look: skin vertices are flagged by roughness 0.55 (the SK preset). A warm fresnel rim (colour set per room by GA.tick: warm in rooms, gold in the vault)
+  // plus a fake subsurface scatter (the albedo bleeds red-orange at grazing angles, strongest where the surface is thin: the ears' emissive inner side).
+  A.U = { rim: { value: 1 }, rimCol: { value: new Col(0xffa86a) }, hull: true, vk: 0 };
+  const SKIN_FRAG = `
+    float skinF = (1.0 - smoothstep(0.0, 0.012, abs(vMat.x - 0.55))) * (1.0 - vMat.w) * uRim;
+    if (skinF > 0.0) {
+      float ndv = clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0);
+      float fr = pow(1.0 - ndv, 2.4);
+      vec3 sss = diffuseColor.rgb * vec3(1.9, 0.55, 0.3) * (pow(1.0 - ndv, 1.4) * 0.22 + vMat.z * 0.5);
+      outgoingLight += skinF * (uRimCol * fr * 0.34 + sss * (0.35 + 0.65 * fr));
+    }
+`;
   // ---- the one material per type: vertex colours + per-vertex roughness / metalness / emissive / cloth mix, so a whole limb is one draw call
   function uber(type) {
     if (A.mats[type]) return A.mats[type];
@@ -2878,7 +2910,9 @@ const GA = (() => {
     m.customProgramCacheKey = () => 'goblin-uber';
     m.onBeforeCompile = sh => {
       sh.vertexShader = sh.vertexShader.replace('void main() {', 'attribute vec4 aMat;\nvarying vec4 vMat;\nvoid main() {').replace('#include <color_vertex>', '#include <color_vertex>\n\tvMat = aMat;');
-      sh.fragmentShader = sh.fragmentShader.replace('void main() {', 'varying vec4 vMat;\nvoid main() {')
+      sh.uniforms.uRimCol = A.U.rimCol; sh.uniforms.uRim = A.U.rim;   // T10: shared by every goblin material (one program); Low sets uRim to 0
+      sh.fragmentShader = sh.fragmentShader.replace('void main() {', 'varying vec4 vMat;\nuniform vec3 uRimCol;\nuniform float uRim;\nvoid main() {')
+        .replace('#include <opaque_fragment>', SKIN_FRAG + '#include <opaque_fragment>')
         .replace('#include <map_fragment>', '#ifdef USE_MAP\n\tdiffuseColor.rgb *= mix(vec3(1.0), texture2D(map, vMapUv).rgb, vMat.w);\n#endif')
         .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = vMat.x;')
         .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = vMat.y;')
@@ -2887,7 +2921,14 @@ const GA = (() => {
     };
     return A.mats[type] = m;
   }
-  A.uber = uber;
+  A.uber = uber; A.clothTex = clothTex;
+  // T10: the same skin look for plain MeshStandardMaterials (the first-person hand): shares the rim uniforms, one extra program in total
+  A.skinPatch = (m, key) => {
+    const frag = SKIN_FRAG.replace(/float skinF = .*;/, 'float skinF = uRim;').replace(/vMat\.z/g, '0.0');
+    m.customProgramCacheKey = () => key;
+    m.onBeforeCompile = sh => { sh.uniforms.uRimCol = A.U.rimCol; sh.uniforms.uRim = A.U.rim; sh.fragmentShader = sh.fragmentShader.replace('void main() {', 'uniform vec3 uRimCol;\nuniform float uRim;\nvoid main() {').replace('#include <opaque_fragment>', frag + '#include <opaque_fragment>'); };
+    return m;
+  };
   // per-goblin variation: a clone of the type's material with a slight colour multiplier (same shader program, same geometry), so no two goblins of a type are the same shade
   function uberVar(type) {
     const base = uber(type), m = base.clone(), k = type >= 3 ? 0.5 : 1, r = () => Math.random() - 0.5;
@@ -2902,6 +2943,25 @@ const GA = (() => {
     const mesh = new THREE.Mesh(geo, A.curMat || uber(type)); parent.add(mesh); if (PERF2_ON) perf2Lod.meshes.set(mesh, ck); return mesh;   // PERF2: remember the cache key (goblin level of detail)
   }
   A.bake = bake;
+  // ---- T10: inverted-hull ink outline (A7). One shared program, one shared material. Hulls reuse the baked geometry of the head, torso and ears only (4 extra draws per goblin), push the
+  // vertices out along the smooth normal and draw the back faces in dark ink: the silhouette reads against the white rooms. Medium and above, goblins within 6.5 m, never the local one.
+  A.hullMat = new THREE.MeshBasicMaterial({ color: 0x1a1410, side: THREE.BackSide, fog: false });
+  A.hullMat.customProgramCacheKey = () => 'goblin-hull';
+  A.hullMat.onBeforeCompile = sh => { sh.vertexShader = sh.vertexShader.replace('#include <begin_vertex>', 'vec3 transformed = position + normalize(normal) * 0.01;'); };
+  A.hullSrc = new WeakMap();
+  A.hulls = u => {
+    u.hulls = [];
+    for (const part of [u.head, u.torso, u.earL, u.earR]) {
+      if (!part) continue;
+      for (const c of part.children) if (c.isMesh && c.geometry.attributes.aMat && !c.userData.hull) { const h = new THREE.Mesh(c.geometry, A.hullMat); h.userData.keep = 1; h.userData.hull = 1; A.hullSrc.set(h, c); h.visible = false; h.frustumCulled = c.frustumCulled; part.add(h); u.hulls.push(h); }
+    }
+  };
+  A.hullStep = (u, d2) => {
+    if (!u.hulls) return;
+    const on = A.U.hull && d2 < 42 && !u.dead && u.lodLvl !== 2 && u.lodLvl !== 1;
+    if (u.hullOn !== on) { u.hullOn = on; for (const h of u.hulls) h.visible = on; }
+    if (on && !u.hullLow && typeof perf2Lod !== 'undefined') { let n = 0; for (const h of u.hulls) { const ck = perf2Lod.meshes.get(A.hullSrc.get(h)), g1 = ck && perf2Lod.geo.get(ck + '|1'); if (g1) { h.geometry = g1; n++; } } if (n === u.hulls.length) u.hullLow = true; }   // the outline only needs a rough hull: use the simplified (level 1) geometry once it is built
+  };
   // ---- sculpted head: an ellipsoid pushed into a heavy brow, sunken eye sockets, cheek bones and a jutting underbite
   function sculptHead(w, h, d, o = {}) {
     const g = new THREE.SphereGeometry(1, 44, 32), p = g.attributes.position;
@@ -3051,11 +3111,16 @@ function gaHead(B, type, b) {
   B.tube([[-0.16, 0.34, 0.2], [-0.15, 0.28, 0.24], [-0.17, 0.2, 0.22]], 0.007, 0.007, 0xc98a82, SK, { rad: 5 });   // scar
 }
 function gaEarBake(B, type, s) {
-  const P = GAT[type], len = 0.5 * P.ear, wid = 0.15, droop = [0.66, 0.55, 0.4, 0.55, 0.5, -0.22, 0.3, 0.55, 0.78, 0.45, 0.12, 0.2][type];   // GOBTYPES: a negative droop curls the tip up (the scout's upright ears)
-  const sk = skinFn(CFG[type].skin, { tint: 0x203a10 });
+  const P = GAT[type], len = 0.5 * P.ear, wid = 0.15, droop = [0.66, 0.55, 0.4, 0.55, 0.5, -0.22, 0.3, 0.55, 0.78, 0.45, 0.12, 0.2][type];
+  const sk0 = skinFn(CFG[type].skin, { tint: 0x203a10 }), warmEnd = lin(0xd0705a);
+  const sk = (x, y, z, nx, ny, nz) => { const c = sk0(x, y, z, nx, ny, nz), t = sstep(0.25, 1, Math.abs(x) / len) * 0.38; return [c[0] + (warmEnd.r - c[0]) * t, c[1] + (warmEnd.g - c[1]) * t, c[2] + (warmEnd.b - c[2]) * t]; };   // T10: the outer ear warms towards the tip
+  const rose = lin(0x9a4452), pink = lin(0xbc7a74), skinC = lin(CFG[type].skin);
+  const inner = (x, y, z) => { const t = sstep(0.0, 1, Math.abs(x) / len), n = vnoise(x * 18, y * 18, z * 18) - 0.5, ve = Math.pow(Math.abs(Math.sin(y * 70 + x * 20 + n * 3)), 12) * 0.22;   // T10: a gradient (deep rose at the root, softer pink, skin at the rim) with faint veins: no flat mauve band, no rainbow
+    const k = 1 + n * 0.25 - ve, e = sstep(0.82, 1, t);
+    return [(rose.r + (pink.r - rose.r) * t + (skinC.r - pink.r) * e) * k, (rose.g + (pink.g - rose.g) * t + (skinC.g - pink.g) * e) * k, (rose.b + (pink.b - rose.b) * t + (skinC.b - pink.b) * e) * k]; };
   B.push([0, 0, 0], [0, 0, 0], [s, 1, 1]);
   B.add(earGeoFor(len, wid, droop, false), { c: sk, m: SK, uv: 1.5 });
-  B.add(earGeoFor(len, wid, droop, true), { c: 0x9c6a74, m: SK, v: 0.12, p: [0.02, 0, 0.012], s: [0.9, 0.78, 1] });   // UNIQUE: darker, less saturated inner ear
+  B.add(earGeoFor(len, wid, droop, true), { c: inner, m: SKE, p: [0.02, 0, 0.012], s: [0.9, 0.78, 1] });   // thin inner ear: glows red when the light passes through (emissive + the subsurface term in the skin shader)
   const rim = (y0, c1, c2, y3) => { const pts = [], bz = (a, b, c, d, u) => (1 - u) ** 3 * a + 3 * (1 - u) ** 2 * u * b + 3 * (1 - u) * u * u * c + u ** 3 * d; for (let i = 0; i <= 10; i++) { const u = i / 10, x = bz(0, c1[0], c2[0], c2[2], u), y = bz(y0, c1[1], c2[1], y3, u), t = x / len; pts.push([x, y + Math.sign(y0) * 0.012 - droop * t * t * len, 0.03 - 0.06 * t * t * len + A.earCup(len, wid, y, t) + 0.016]); } return pts; };
   B.tube(rim(wid * 0.5, [len * 0.2, wid * 1.15], [len * 0.55, wid * 1.0, len * 0.82], wid * 0.1), 0.017, 0.008, sk, SK, { rad: 6 });   // UNIQUE: rolled rim along the top edge
   B.tube(rim(-wid * 0.5, [len * 0.25, -wid * 0.7], [len * 0.62, -wid * 0.5, len * 0.9], -wid * 0.4), 0.014, 0.007, sk, SK, { rad: 6 });   // and the bottom edge
@@ -3113,10 +3178,7 @@ const A_EARS = {};
       for (const [x, y, rz, l] of [[-0.12, 0.42, 0.7, 0.2], [-0.08, 0.36, 0.7, 0.15], [0.15, 0.2, -0.5, 0.18]]) B.tube([[x * b, y + l * 0.5, 0.29 * b], [x * b - 0.03, y, 0.3 * b], [x * b - 0.07 * Math.sign(rz) * -1, y - l * 0.5, 0.29 * b]], 0.008, 0.008, 0xd9a0a0, SK, { rad: 5 });   // claw scars
       for (const s of [-1, 1]) {   // fur mantle and a spiked pauldron (the left one is huge)
         const big = s < 0 ? 1.35 : 0.85, px = s * 0.43 * b, py = 0.56;
-        B.add(new THREE.SphereGeometry(1, 20, 12, 0, TAU, 0, Math.PI * 0.55), { p: [px, py, 0], r: [0, 0, -s * 0.32], s: [0.2 * big, 0.14 * big, 0.2 * big], c: 0x7a8088, m: MT, v: 0.1 });
-        B.tor(px, py - 0.02, 0, 0.2 * big, 0.022, Math.PI / 2, 0, -s * 0.32, 0xc9a24a, MT);
-        for (let i = 0; i < 5; i++) { const a = i * 1.257 + 0.3, rr = 0.1 * big; B.k(px + Math.cos(a) * rr, py + 0.1 * big, Math.sin(a) * rr, 0.03 * big, 0.17 * big, Math.sin(a) * 0.5, -Math.cos(a) * 0.5, 0x9aa0a8, MT); }
-        B.k(px, py + 0.12 * big, 0, 0.045 * big, 0.26 * big, 0, 0, 0xaab0b8, MT);
+        A.pauldron(B, px, py, s, big, { c: 0x6c7480, c2: 0x5d6570, rim: 0xc9a24a, spikes: s < 0 ? 5 : 3 });   // T10: layered lames with curved spikes
         for (let i = 0; i < 9; i++) { const a = i * 0.7; B.k(px + Math.cos(a) * 0.2 * big, py - 0.03, Math.sin(a) * 0.2 * big, 0.035, 0.1, Math.sin(a) * 1.3 - 0.0, -Math.cos(a) * 1.3, 0x5a4636, HR); }   // fur trim
       }
     }
@@ -3147,10 +3209,7 @@ const A_EARS = {};
       B.es(0, 0.36, 0.345 * b, 0.04, 0.05, 0.025, 0xff3355, GEM); B.add(new THREE.OctahedronGeometry(1), { p: [0, 0.37, 0.335 * b], s: [0.06, 0.075, 0.015], c: 0xffc933, m: GD });
       for (const s of [-1, 1]) {
         const px = s * 0.43 * b, py = 0.55;
-        B.add(new THREE.SphereGeometry(1, 20, 10, 0, TAU, 0, Math.PI / 2), { p: [px, py, 0], r: [0, 0, -s * 0.35], s: [0.19, 0.13, 0.19], c: 0xffc933, m: GD });
-        B.tor(px, py, 0, 0.19, 0.016, Math.PI / 2, 0, -s * 0.35, 0xffc933, GD);
-        for (let i = 0; i < 5; i++) { const a = i * 1.257; B.k(px + Math.sin(a) * 0.1, py + 0.08, Math.cos(a) * 0.1, 0.026, 0.13, Math.cos(a) * 0.55, -Math.sin(a) * 0.55, 0xffc933, GD); }
-        B.es(px, py + 0.07, 0.15, 0.035, 0.035, 0.02, s > 0 ? 0xff3355 : 0x3377ff, GEM);
+        A.pauldron(B, px, py, s, 0.8, { c: 0xffc933, c2: 0xf0b428, rim: 0xffe38a, m: GD, edge: GD, spikes: 3, spike: 0xffc933, gem: s > 0 ? 0xff3355 : 0x3377ff });   // T10: layered gold lames
       }
       for (let i = 0; i < 9; i++) { const a = Math.PI + (i - 4) * 0.36, hgt = 0.34 - Math.abs(i - 4) * 0.035; B.add(A.g.cone, { p: [Math.sin(a) * 0.3, 0.68, Math.cos(a) * 0.25 - 0.03], s: [0.06, hgt, 0.015], r: [-Math.cos(a) * 0.35, 0, Math.sin(a) * 0.35], c: 0x7a0a1e, m: CL }); if (i % 2) B.es(Math.sin(a) * 0.32, 0.68 + hgt, Math.cos(a) * 0.27 - 0.03, 0.02, 0.02, 0.02, 0xffc933, GD); }   // standing fan collar
     }
@@ -3292,7 +3351,7 @@ const A_EARS = {};
       for (const s of [-1, 1]) strap(B, s * 0.3 * b, 0.56, -s * 0.22 * b, 0.0, 0.31 * b, 0.045, 0x2e1c10);
       B.add(new THREE.TorusGeometry(0.075, 0.02, 7, 18), { p: [0, 0.3, 0.34 * b], c: 0x8a9098, m: MT }); B.es(0, 0.3, 0.35 * b, 0.035, 0.035, 0.02, trim, GD);
       bandAt(B, 0.1, 0.375 * b, 0.04, 0x3a281c, LT); for (let i = 0; i < 6; i++) stud(B, Math.sin(-0.7 + i * 0.28) * 0.375 * b, 0.1, Math.cos(-0.7 + i * 0.28) * 0.35 * b + 0.02, trim, 0.018);
-      for (const s of [-1, 1]) { B.e(s * 0.43 * b, 0.55, 0, 0.17, 0.1, 0.17, 0x7a8088, MT, { r: [0, 0, -s * 0.3] }); for (let i = 0; i < 4; i++) { const a = i * 1.57 + 0.4; B.k(s * 0.43 * b + Math.cos(a) * 0.09, 0.6, Math.sin(a) * 0.09, 0.028, 0.14, Math.sin(a) * 0.5, -Math.cos(a) * 0.5, 0x9aa0a8, MT); } }
+      for (const s of [-1, 1]) A.pauldron(B, s * 0.43 * b, 0.55, s, 0.78, { c: 0x7a8088, c2: 0x687078, rim: trim, spikes: 3 });   // T10
       for (let i = 0; i < 5; i++) B.box((i - 2) * 0.1 * b, -0.02, 0.3 * b, 0.075, 0.2, 0.012, 0x3a281c, LT, { r: [0.12, 0, 0] });
     }
     if (fam === 'plate') {
@@ -3300,7 +3359,7 @@ const A_EARS = {};
       B.box(0, 0.38, 0.365 * b, 0.03, 0.34, 0.03, 0xaab4c0, MT); for (const s of [-1, 1]) B.tube([[s * 0.04, 0.54, 0.33 * b], [s * 0.2 * b, 0.4, 0.34 * b], [s * 0.1 * b, 0.2, 0.37 * b]], 0.01, 0.01, trim, GD, { rad: 5 });
       for (let i = 0; i < 3; i++) bandAt(B, 0.12 - i * 0.06, (0.375 - i * 0.012) * b, 0.026, i % 2 ? 0x7a8490 : 0x9aa4b0, MT);
       B.tor(0, 0.57, 0.01, 0.2 * b, 0.04, Math.PI / 2, 0, 0, 0x8c96a2, MT); bandAt(B, 0.55, 0.205 * b, 0.012, trim, GD);
-      for (const s of [-1, 1]) { const px = s * 0.43 * b; B.add(new THREE.SphereGeometry(1, 20, 10, 0, TAU, 0, Math.PI / 2), { p: [px, 0.54, 0], r: [0, 0, -s * 0.3], s: [0.2, 0.14, 0.2], c: 0x8c96a2, m: MT }); B.tor(px, 0.54, 0, 0.2, 0.018, Math.PI / 2, 0, -s * 0.3, trim, GD); B.tor(px + s * 0.04, 0.48, 0, 0.19, 0.016, Math.PI / 2, 0, -s * 0.5, 0x7a8490, MT); stud(B, px, 0.68, 0, trim, 0.02); }
+      for (const s of [-1, 1]) A.pauldron(B, s * 0.43 * b, 0.54, s, 0.85, { c: 0x8c96a2, c2: 0x7a8490, rim: trim, edge: GD, gem: trim });   // T10: plate lames, no spikes
       for (let i = 0; i < 7; i++) { const a = -0.85 + i * 0.28; stud(B, Math.sin(a) * 0.37 * b, 0.34, Math.cos(a) * 0.35 * b + 0.03, 0xc9d2dc, 0.012); }
     }
     if (fam === 'robe') {
@@ -3326,7 +3385,7 @@ const A_EARS = {};
     if (fam === 'bone') {   // curved ribs over the chest, a vertebra spine and skull-bone pauldrons
       for (let i = 0; i < 5; i++) for (const s of [-1, 1]) B.tube([[s * 0.03, 0.46 - i * 0.075, 0.37 * b], [s * 0.2 * b, 0.47 - i * 0.075, 0.33 * b], [s * 0.34 * b, 0.43 - i * 0.075, 0.12 * b]], 0.02, 0.013, 0xe8dec0, BN, { rad: 6 });
       for (let i = 0; i < 6; i++) B.es(0, 0.52 - i * 0.08, 0.38 * b, 0.026, 0.03, 0.022, 0xd8cfb0, BN);
-      bandAt(B, 0.06, 0.37 * b, 0.02, 0x4a3a28, LT); for (const s of [-1, 1]) { B.e(s * 0.42 * b, 0.55, 0, 0.14, 0.09, 0.15, 0xe8dec0, BN, { r: [0, 0, -s * 0.3] }); B.k(s * 0.44 * b, 0.63, 0, 0.04, 0.12, 0, -s * 0.25, 0xd8cfb0, BN); }
+      bandAt(B, 0.06, 0.37 * b, 0.02, 0x4a3a28, LT); for (const s of [-1, 1]) A.pauldron(B, s * 0.42 * b, 0.55, s, 0.68, { c: 0xe8dec0, c2: 0xd8cfb0, rim: 0xbfb393, m: BN, edge: BN, spikes: 1, spike: 0xe8dec0 });   // T10: bone lames with a horn
     }
     if (fam === 'fur') {   // shaggy hide over the shoulders and a pelt hem, belted
       garment(B, R, b, 0x6b5238, HR, { uv: 3, fold: [14, 0.05, -0.1, 0.5] }); ringTeeth(B, 0.5, 0.35 * b, 18, 0.07, 0.15, 0x8c6c48, HR); ringTeeth(B, -0.04, 0.35 * b, 20, 0.065, 0.17, 0x7a5c3c, HR);
@@ -3336,13 +3395,13 @@ const A_EARS = {};
       garment(B, R, b, 0x4a3a2a, LT, { uv: 2.6 });
       const pl = [[-0.17, 0.4, 0.2, 0.2, 0.2], [0.14, 0.44, 0.17, 0.15, -0.1], [-0.04, 0.2, 0.22, 0.26, 0.05], [0.2, 0.2, 0.15, 0.2, 0.12], [-0.22, 0.12, 0.17, 0.13, -0.15]];
       pl.forEach(([x, y, w, h, rz], i) => { const a = x / 0.36; B.box(x * b, y, Math.cos(a) * 0.36 * b + 0.02, w, h, 0.022, i % 2 ? 0x8a6a4a : 0x7d8590, MT, { r: [0.08, a, rz] }); for (const [dx, dy] of [[-1, -1], [1, 1]]) stud(B, x * b + dx * w * 0.38, y + dy * h * 0.36, Math.cos(a) * 0.37 * b + 0.04, 0xb0b8c0, 0.012); });
-      B.e(-0.42 * b, 0.56, 0, 0.17, 0.1, 0.17, 0x6a6e76, MT, { r: [0, 0, 0.3] }); B.box(0.43 * b, 0.55, 0, 0.14, 0.17, 0.16, 0x8a6a4a, MT, { r: [0, 0, -0.3] }); bandAt(B, 0.02, 0.37 * b, 0.02, 0x2e1c10, LT);
+      A.pauldron(B, -0.42 * b, 0.56, -1, 0.78, { c: 0x6a6e76, c2: 0x5a5e66, rim: 0x9a8a6a }); A.pauldron(B, 0.43 * b, 0.55, 1, 0.66, { c: 0x8a6a4a, c2: 0x7a5c40, rim: 0xa0a8b0 });   // T10: mismatched salvaged pauldrons bandAt(B, 0.02, 0.37 * b, 0.02, 0x2e1c10, LT);
     }
     if (fam === 'spiked') {   // dark hide harness bristling with spikes on the shoulders and across the chest
       for (const s of [-1, 1]) strap(B, s * 0.3 * b, 0.56, -s * 0.22 * b, 0.0, 0.31 * b, 0.05, 0x22160e);
       garment(B, R.slice(3), b, 0x2e2018, LT, { uv: 2.6 }); bandAt(B, 0.1, 0.375 * b, 0.034, 0x14100c, LT);
       for (let i = 0; i < 6; i++) { const a = -0.75 + i * 0.3; B.k(Math.sin(a) * 0.375 * b, 0.1, Math.cos(a) * 0.35 * b + 0.03, 0.022, 0.1, 0.9, -a, 0xa0a8b0, MT); }
-      for (const s of [-1, 1]) { B.e(s * 0.43 * b, 0.55, 0, 0.15, 0.09, 0.15, 0x3a3a40, MT, { r: [0, 0, -s * 0.3] }); for (let i = 0; i < 3; i++) B.k(s * (0.43 + 0.04 * i) * b, 0.62 + 0.02 * i, 0, 0.026, 0.15, 0, -s * (0.3 + i * 0.45), 0xa0a8b0, MT); }
+      for (const s of [-1, 1]) A.pauldron(B, s * 0.43 * b, 0.55, s, 0.72, { c: 0x3a3a40, c2: 0x2e2e34, rim: 0xa0a8b0, spikes: 4, spike: 0xa0a8b0 });   // T10
     }
     if (fam === 'lamellar') {   // rows of small laced plates, each row a little wider than the one above
       for (let r = 0; r < 7; r++) { const y = 0.5 - r * 0.08, rad = interp(R, y) * b + 0.008, n = Math.max(12, Math.round(rad * 2 * Math.PI / 0.075));
@@ -3354,13 +3413,13 @@ const A_EARS = {};
       B.box(0, 0.3, 0.37 * b, 0.26, 0.5, 0.045, 0x8a929c, MT); B.box(0, 0.3, 0.395 * b, 0.07, 0.42, 0.02, trim, GD); B.box(0, 0.3, 0.395 * b, 0.2, 0.07, 0.02, trim, GD);
       for (const [x, y] of [[-0.1, 0.5], [0.1, 0.5], [-0.1, 0.1], [0.1, 0.1]]) stud(B, x, y, 0.4 * b, 0xc9d2dc, 0.014);
       bandAt(B, 0.04, 0.38 * b, 0.04, 0x4a525c, MT); B.tor(0, 0.57, 0.01, 0.2 * b, 0.045, Math.PI / 2, 0, 0, 0x6a727c, MT);
-      B.e(-0.45 * b, 0.54, 0, 0.24, 0.17, 0.26, 0x8a929c, MT, { r: [0, 0, 0.28] }); B.tor(-0.45 * b, 0.52, 0, 0.25, 0.022, Math.PI / 2, 0, 0.28, trim, GD); B.e(0.43 * b, 0.55, 0, 0.17, 0.1, 0.17, 0x6a727c, MT, { r: [0, 0, -0.3] });
+      A.pauldron(B, -0.45 * b, 0.54, -1, 1.12, { c: 0x8a929c, c2: 0x7a828c, rim: trim, edge: GD }); A.pauldron(B, 0.43 * b, 0.55, 1, 0.78, { c: 0x6a727c, c2: 0x5a626c, rim: 0xa0a8b0 });   // T10: one huge slab pauldron
     }
     if (fam === 'gilded') {   // vault plate: polished steel breastplate with gold edging, a gem, gold pauldrons
       garment(B, R, b, 0xa6aeb8, MT, { uv: 1, segs: 40 });
       B.box(0, 0.38, 0.365 * b, 0.035, 0.34, 0.03, 0xf2c14a, GD); for (let i = 0; i < 3; i++) bandAt(B, 0.14 - i * 0.07, (0.375 - i * 0.012) * b, 0.024, i % 2 ? 0xf2c14a : 0xc9d2dc, i % 2 ? GD : MT);
       B.tor(0, 0.57, 0.01, 0.2 * b, 0.04, Math.PI / 2, 0, 0, 0xf2c14a, GD); B.es(0, 0.3, 0.385 * b, 0.032, 0.04, 0.02, 0xd02a4a, GEM);
-      for (const s of [-1, 1]) { const px = s * 0.43 * b; B.add(new THREE.SphereGeometry(1, 20, 10, 0, TAU, 0, Math.PI / 2), { p: [px, 0.54, 0], r: [0, 0, -s * 0.3], s: [0.21, 0.15, 0.21], c: 0xf2c14a, m: GD }); B.tor(px, 0.54, 0, 0.21, 0.018, Math.PI / 2, 0, -s * 0.3, 0xc9d2dc, MT); stud(B, px, 0.69, 0, 0xd02a4a, 0.02); }
+      for (const s of [-1, 1]) A.pauldron(B, s * 0.43 * b, 0.54, s, 0.88, { c: 0xf2c14a, c2: 0xe0aa38, rim: 0xc9d2dc, m: GD, gem: 0xd02a4a });   // T10: gold lames with a steel edge
       for (let i = 0; i < 7; i++) { const a = -0.85 + i * 0.28; stud(B, Math.sin(a) * 0.37 * b, 0.26, Math.cos(a) * 0.35 * b + 0.03, 0xf2c14a, 0.012); }
     }
   }
@@ -3652,6 +3711,7 @@ const A_EARS = {};
     const nameCol = type === 4 ? '#ffd75e' : type === 3 ? '#c9a6ff' : '#f1f1f1';
     const label = window.GKTAGS ? window.GKTAGS.nameTag(NAMES[type], nameCol) : new THREE.Sprite(new THREE.SpriteMaterial({ map: textTex(NAMES[type], nameCol, null, 512, 96, 'bold 52px system-ui'), transparent: true, depthWrite: false }));   // UI-TAGS: one shared atlas texture (client/ui/tags.js)
     if (!window.GKTAGS) label.scale.set(1.6, 0.3, 1); label.position.y = (GOB_TAGY[type] || 1.95) * SCALE[type]; root.add(label); u.label = label;   // UNIQUE: tag above the wizard hat / king crown
+    A.hulls(u);   // T10: ink outline hulls (head, torso, ears)
     A.curMat = null; root.userData = u; if (PERF2_ON) perf2LodInit(root, u);   // PERF2: level-of-detail copies of the baked parts
     return root;
   }
@@ -3660,6 +3720,7 @@ const A_EARS = {};
   const armName = (() => { let m = null; return n => { if (!n) return null; if (!m) { m = {}; const I = itemsData().ITEMS; for (const k in I) if (I[k].type === 'armor') m[I[k].name] = k; } return m[n] || null; }; })();
   A.gear = (a, p) => { a.gArm = p && p.gear ? p.gear.armor : undefined; };
   A.anim = (a, u, id, t, dt, walk) => {
+    A.hullStep(u, id === me ? 1e6 : (a.x - GK.cam.position.x) ** 2 + (a.z - GK.cam.position.z) ** 2);   // T10: outline on or off by preset and distance
     const type = u.type, P = GAT[type], ph = a.phase, S = Math.sin(ph), S2 = Math.abs(S), idle = 1 - walk, sc = SCALE[type], rig = u.rig;
     const f = a.hitT > 0 ? Math.sin(Math.PI * (1 - a.hitT / CB.HIT)) : 0;   // flinch envelope 0..1..0
     const key = id === me ? (invReady ? myInv.armor || null : undefined) : (a.gArm === undefined ? undefined : armName(a.gArm));
@@ -3711,6 +3772,9 @@ const A_EARS = {};
     A.corpses.push({ g, u, t: 0, side: Math.random() < 0.5 ? -1 : 1 }); if (u.label) u.label.visible = false; return true;
   };
   A.tick = dt => {
+    const hi = GK.settings.gfx !== 'low'; A.U.hull = hi; A.U.rim.value = hi ? 1 : 0;   // T10: Low is plain (no rim, no subsurface, no outline); the rim turns gold inside the vault (centred on the origin, +-9 m)
+    const vault = Math.abs(cam.position.x) < 10 && Math.abs(cam.position.z) < 10; A.U.vk += ((vault ? 1 : 0) - A.U.vk) * Math.min(1, dt * 3);
+    A.U.rimCol.value.setRGB(1.0, 0.42 + 0.3 * A.U.vk, 0.2 - 0.12 * A.U.vk);
     for (let i = A.corpses.length - 1; i >= 0; i--) {
       const c = A.corpses[i], u = c.u, g = c.g, t = c.t += dt, k1 = sstep(0, 0.45, t), k2 = sstep(0.35, 1.05, t), fade = sstep(1.8, 2.3, t), sc = SCALE[u.type];
       u.legs[0].rotation.x = -1.15 * k1; u.legs[1].rotation.x = -0.9 * k1; u.legs[0].rotation.z = -0.15 * k1; u.legs[1].rotation.z = 0.2 * k1; u.legs[0].scale.y = u.legs[1].scale.y = 1;
@@ -6875,18 +6939,20 @@ const VM_FPX = { bow: 1.82, spear: 2.5, axe: 0.87 };
 const VM_ADJ = { bow: { rot: [0, 0.5, 0.12] }, crossbow: { rot: [-1.2, -0.7, 0.2], pos: [-0.05, 0, 0] }, spear: { rot: [-0.7, 0, 0] }, axe: { rot: [-0.1, 0, 0] } };   // per-family overrides of the weapon's pose in the hand: { rot: [x, y, z], pos: [x, y, z] } (applied after the tables above)
 const VM_SECS = { slash: 0.46, thrust: 0.5, smash: 0.7, bow: 0.66, cast: 0.6, fist: 0.32 };   // clip length at most; also capped to 0.85 x the weapon cooldown
 const VM_HITAT = { slash: 0.44, thrust: 0.4, smash: 0.56, bow: 0.64, cast: 0.46, fist: 0.4 };   // when the blow lands inside the clip (fraction)
-const vmSkin = new THREE.MeshStandardMaterial({ color: 0x6fa83a, roughness: 0.62, metalness: 0, emissive: 0x24520f, emissiveIntensity: 0.22, envMapIntensity: 0.9 });
-const vmSkinDeep = new THREE.MeshStandardMaterial({ color: 0x55872b, roughness: 0.7, emissive: 0x1d4010, emissiveIntensity: 0.5 });
-const vmLeather = new THREE.MeshStandardMaterial({ color: 0x6a4524, roughness: 0.85, emissive: 0x2a1608, emissiveIntensity: 0.4 });
+// T10: the hand uses the goblin skin look (pore/wart bump, warm rim + subsurface bleed from GA.skinPatch, redder knuckles) and the sleeve the stitched cloth weave
+const vmBump = GA.bump.clone(); vmBump.repeat.set(2.5, 2.5); vmBump.needsUpdate = true;
+const vmWeave = GA.clothTex(1).clone(); vmWeave.repeat.set(2, 3); vmWeave.needsUpdate = true;
+const vmSkin = GA.skinPatch(new THREE.MeshStandardMaterial({ color: 0x6aa238, roughness: 0.55, metalness: 0, emissive: 0x24520f, emissiveIntensity: 0.16, envMapIntensity: 0.9, bumpMap: vmBump, bumpScale: 1.6 }), 'vm-skin');
+const vmSkinDeep = GA.skinPatch(new THREE.MeshStandardMaterial({ color: 0x7e8a34, roughness: 0.6, emissive: 0x4a1a0c, emissiveIntensity: 0.35, bumpMap: vmBump, bumpScale: 2.4 }), 'vm-skin');
+const vmLeather = new THREE.MeshStandardMaterial({ color: 0x8a5a30, map: vmWeave, roughness: 0.88, emissive: 0x2a1608, emissiveIntensity: 0.3 });
 const vmClaw = new THREE.MeshStandardMaterial({ color: 0xe8dfc0, roughness: 0.5, emissive: 0x4a4430, emissiveIntensity: 0.4 });
 const vmSph = new THREE.SphereGeometry(1, 14, 10), vmCap = new THREE.CapsuleGeometry(0.02, 0.07, 4, 10), vmCone = new THREE.ConeGeometry(0.012, 0.035, 6), vmCyl = new THREE.CylinderGeometry(1, 1, 1, 14);
 function vmHandMesh(side) {   // grip axis = local y, palm behind (+z), three chunky fingers wrapped in front (-z), thumb on the near side; forearm runs back toward the camera
   const g = new THREE.Group(), add = (geo, mat, x, y, z, sx, sy, sz) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); g.add(m); return m; };
-  add(vmSph, vmSkin, 0, 0, 0.03, 0.058, 0.075, 0.05);
+  add(vmSph, vmSkin, 0, 0, 0.05, 0.058, 0.075, 0.05);   // palm: behind the handle, so the weapon sits in the grip instead of passing through it
   for (let i = -1; i <= 1; i++) {
-    const f = add(vmCap, vmSkin, 0, i * 0.047, -0.032, 1.05, 1, 1.05); f.rotation.z = Math.PI / 2;   // finger wrapped across the handle
-    add(vmSph, vmSkinDeep, -side * 0.058, i * 0.047, -0.026, 0.024, 0.024, 0.024);                     // knuckle
-    const c = add(vmCone, vmClaw, side * 0.062, i * 0.047, -0.04, 1.1, 1.1, 1.1); c.rotation.z = -side * 1.35; c.rotation.x = 0.5;   // claw
+    const f = add(vmCap, vmSkin, 0, i * 0.047, -0.03, 1.05, 1, 1.05); f.rotation.z = Math.PI / 2;   // finger wrapped across the handle
+    add(vmSph, vmSkinDeep, -side * 0.058, i * 0.047, -0.024, 0.028, 0.026, 0.026);                     // knuckle (redder, bigger)    const c = add(vmCone, vmClaw, side * 0.062, i * 0.047, -0.04, 1.1, 1.1, 1.1); c.rotation.z = -side * 1.35; c.rotation.x = 0.5;   // claw
   }
   const th = add(vmCap, vmSkin, side * 0.05, 0.062, -0.012, 1.15, 0.85, 1.15); th.rotation.z = side * 0.5; th.rotation.x = 0.2;   // thumb
   add(vmCone, vmClaw, side * 0.06, 0.1, -0.03, 1.1, 1.1, 1.1).rotation.z = side * 0.4;
