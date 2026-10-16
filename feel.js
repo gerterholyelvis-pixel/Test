@@ -16,7 +16,7 @@
   const css = document.createElement('style');
   css.textContent =
     '#gkPrompt{position:fixed;left:50%;top:calc(50% + 44px);transform:translateX(-50%);z-index:25;pointer-events:none;display:flex;align-items:center;gap:9px;padding:6px 15px 6px 8px;border-radius:9px;background:rgba(10,10,16,.68);border:1px solid rgba(255,215,94,.4);font:600 15px/1 system-ui,sans-serif;color:#f2efe6;letter-spacing:.03em;text-shadow:0 1px 3px #000;opacity:0;transition:opacity .14s}' +
-    '#gkPrompt.on{opacity:1}#gkPrompt b{display:inline-block;min-width:24px;text-align:center;padding:4px 7px;border-radius:5px;background:#ffd75e;color:#1a1405;font-weight:800;box-shadow:0 2px 0 #a8741a}' +
+    '#gkPrompt.low{top:auto;bottom:calc(2.5vh + 150px)}#gkPrompt.on{opacity:1}#gkPrompt b{display:inline-block;min-width:24px;text-align:center;padding:4px 7px;border-radius:5px;background:#ffd75e;color:#1a1405;font-weight:800;box-shadow:0 2px 0 #a8741a}' +
     '#gkBanner{position:fixed;left:0;right:0;top:19%;z-index:31;pointer-events:none;display:none;justify-content:center}' +
     '#gkBanner div{padding:10px 40px 12px;font:900 clamp(22px,4vw,44px)/1 system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#ffe9a8;text-shadow:0 0 18px #ff9a00,0 3px 10px #000;background:linear-gradient(90deg,transparent,rgba(12,8,2,.78) 18%,rgba(12,8,2,.78) 82%,transparent);border-top:2px solid rgba(255,200,70,.55);border-bottom:2px solid rgba(255,200,70,.55)}' +
     '#gkFade{position:fixed;inset:0;z-index:9;background:#000;opacity:0;pointer-events:none}' +
@@ -56,7 +56,8 @@
   // ---- interaction prompt ----
   const promptEl = mk('div', 'gkPrompt'); promptEl.innerHTML = '<b>E</b><span></span>';
   const promptTxt = promptEl.lastChild; let promptNow = '';
-  function setPrompt(t) { if (t === promptNow) return; promptNow = t; if (t) promptTxt.textContent = t; promptEl.classList.toggle('on', !!t); }
+  let promptLow = false;
+  function setPrompt(t, low) { low = !!low; if (low !== promptLow) { promptLow = low; promptEl.classList.toggle('low', low); } if (t === promptNow) return; promptNow = t; if (t) promptTxt.textContent = t; promptEl.classList.toggle('on', !!t); }   // low: aiming at a door panel, the prompt sits above the hotbar so it never covers the panel's rows
   function promptFor(A) {
     if (A.cpAim) return 'Select door';
     const h = A.hover();
@@ -181,7 +182,7 @@
       }
       // sprint FOV kick eases in and out
       kick += ((sprint && P.speed > 4.2 && A.spawned ? 5 : 0) - kick) * Math.min(1, dt * 5);
-      setPrompt(A.spawned && A.inside && !inv && !shop ? promptFor(A) : '');
+      setPrompt(A.spawned && A.inside && !inv && !shop ? promptFor(A) : '', A.cpAim);
     },
     camera(cam, dt, mine) {   // called after game.js positioned the camera: FOV kick and a whisper of side sway
       cam.fov += kick;
