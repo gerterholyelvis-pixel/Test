@@ -3769,7 +3769,7 @@ const handleMsg0 = d => {
       actors.set(p.id, a);
       if (p.id === me) spawned = false;
     }
-    a.box = p.box; combatSync(a, p); vmGear(a, p); GA.gear(a, p); UNIQUE.sync(a, p); SOC.sync(a, p);   // positions of existing goblins come from the snapshots (NET), not from this slow list
+    a.box = p.box; a.npc = p.npc; combatSync(a, p); vmGear(a, p); GA.gear(a, p); UNIQUE.sync(a, p); SOC.sync(a, p);   // positions of existing goblins come from the snapshots (NET), not from this slow list
     if (p.id === me && !spawned) { P.x = p.x; P.z = p.z; P.yaw = p.yaw; P.pitch = 0; a.x = p.x; a.z = p.z; spawned = true; }
   }
   const mine = actors.get(me);
@@ -3889,6 +3889,138 @@ function showDeathScreen(info) {
   $('deathQueue').focus();
 }
 GK.showDeathScreen = showDeathScreen;
+// MINIMAP-BEGIN (HUD minimap top right + M overlay; see docs/reports/minimap.md). Reads RS, DINFO, actors, P, CHEST_ROOMS. No lights, no per-frame allocation: redraws at most 10 Hz and only when the signature changes.
+(() => {
+  const WD = window.GKWORLD, LIM = WD.LIM, HALF = WD.HALF, CSZ = WD.CS, NR = 9 + CHEST_ROOMS.length;
+  const st = document.createElement('style');
+  st.textContent = '#gkMM{position:fixed;top:84px;right:12px;z-index:29;pointer-events:none;display:none;line-height:0;border:2px solid #c9a13a;border-radius:10px;box-shadow:inset 0 0 0 1px #5a4513,0 0 0 1px #2a1e08,0 4px 16px rgba(0,0,0,.65);overflow:hidden}'
+    + '#gkMMBig{position:fixed;inset:0;z-index:60;pointer-events:none;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.5)}'
+    + '#gkMMBig canvas{border:3px solid #c9a13a;border-radius:14px;box-shadow:inset 0 0 0 1px #5a4513,0 8px 40px rgba(0,0,0,.8)}#gkMM canvas{display:block}';
+  document.head.appendChild(st);
+  const box = document.createElement('div'); box.id = 'gkMM'; const cv = document.createElement('canvas'); box.appendChild(cv);
+  const bigBox = document.createElement('div'); bigBox.id = 'gkMMBig'; const cvB = document.createElement('canvas'); bigBox.appendChild(cvB);
+  document.body.appendChild(box); document.body.appendChild(bigBox);
+  const gS = cv.getContext('2d'), gB = cvB.getContext('2d');
+  // ---- static tables (built once)
+  const CI = new Int8Array(36);   // parent*4 + side (N,E,S,W) -> chest id
+  CHEST_ROOMS.forEach(c => { CI[c.parent * 4 + 'NESW'.indexOf(c.side)] = c.id; });
+  const KEYS = []; for (let i = 0; i < NR; i++) KEYS.push(i < 9 ? String(i) : 'c' + (i - 9));
+  const idxOf = k => k[0] === 'c' ? 9 + (+k.slice(1)) : +k;
+  const keyIdx = (x, z) => z < -HALF ? 9 + CI[WD.gi(x) * 4] : z > HALF ? 9 + CI[(WD.gi(x) + 6) * 4 + 2] : x < -HALF ? 9 + CI[WD.gi(z) * 12 + 3] : x > HALF ? 9 + CI[(WD.gi(z) * 3 + 2) * 4 + 1] : WD.gi(x) + 3 * WD.gi(z);
+  const ND = DINFO.length, dA = new Int8Array(ND), dB = new Int8Array(ND), dX = new Float32Array(ND), dZ = new Float32Array(ND), dH = new Uint8Array(ND), dKind = new Uint8Array(ND);
+  const DIRV = { NORTH: [0, -1], EAST: [1, 0], SOUTH: [0, 1], WEST: [-1, 0] };
+  DINFO.forEach(d => {
+    dA[d.id] = idxOf(d.a); dB[d.id] = idxOf(d.b); const [cx, cz] = WD.rc(dA[d.id]), v = DIRV[d.da];
+    dX[d.id] = cx + v[0] * WD.roomW(dA[d.id]) / 2; dZ[d.id] = cz + v[1] * WD.roomD(dA[d.id]) / 2; dH[d.id] = v[1] !== 0 ? 1 : 0; dKind[d.id] = d.kind === 'vault' ? 1 : 0;
+  });
+  const dirOf = (d, k) => DIRV[d.a === k ? d.da : d.db];
+  // ---- state
+  const disc = new Uint8Array(12), openF = new Uint8Array(ND), vis = new Uint8Array(NR);
+  let layRef = null, openRef = null, selRef = null, lastRef = null, lastSig = 1e9, prevOn = false, bigOpen = false, szS = 0, szB = 0, dprC = 0, bgS = null, bgB = null, fontS = '', fontB = '', fontCap = '', forceDraw = true, feedTop = -1;
+  let cg = null, cip = 1, cbig = false, cmy = 0, sigH = 0;   // per-draw context for the shared actor callbacks
+  const cfg = () => GK.settings || {};
+  // parchment background (rendered once per size) with a vignette
+  const makeBg = (S, dpr) => {
+    const c = document.createElement('canvas'); c.width = c.height = Math.round(S * dpr); const g = c.getContext('2d'); g.scale(dpr, dpr);
+    g.fillStyle = '#17120b'; g.fillRect(0, 0, S, S);
+    const n = Math.round(S * S / 14); let s = 12345;   // deterministic parchment speckle and fibres
+    for (let i = 0; i < n; i++) { s = (s * 1664525 + 1013904223) >>> 0; const x = (s & 0xffff) / 65535 * S; s = (s * 1664525 + 1013904223) >>> 0; const y = (s & 0xffff) / 65535 * S; g.fillStyle = (s & 0x100) ? 'rgba(214,186,128,.07)' : 'rgba(60,40,18,.12)'; g.fillRect(x, y, 1 + (s >> 9 & 1), 1); }
+    g.strokeStyle = 'rgba(190,160,100,.05)'; g.lineWidth = 1; for (let i = 0; i < S / 5; i++) { s = (s * 1664525 + 1013904223) >>> 0; const x = (s & 0xffff) / 65535 * S; s = (s * 1664525 + 1013904223) >>> 0; const y = (s & 0xffff) / 65535 * S; g.beginPath(); g.moveTo(x, y); g.lineTo(x + 6 + (s & 7), y + ((s >> 4 & 7) - 3)); g.stroke(); }
+    const r = g.createRadialGradient(S / 2, S / 2, S * .3, S / 2, S / 2, S * .75); r.addColorStop(0, 'rgba(0,0,0,0)'); r.addColorStop(1, 'rgba(0,0,0,.55)'); g.fillStyle = r; g.fillRect(0, 0, S, S);
+    return c;
+  };
+  const sizeFor = big => big ? Math.round(Math.max(300, Math.min(innerHeight * .84, innerWidth * .92, 860))) : Math.round(Math.max(150, Math.min(220, innerWidth * .12)));
+  function resize(big) {
+    const S = sizeFor(big), dpr = Math.min(3, window.devicePixelRatio || 1), c = big ? cvB : cv;
+    c.width = c.height = Math.round(S * dpr); c.style.width = c.style.height = S + 'px';
+    const bg = makeBg(S, dpr), f = '700 ' + Math.round(S / (big ? 28 : 15)) + 'px system-ui,sans-serif';
+    if (big) { szB = S; bgB = bg; fontB = f; fontCap = '600 ' + Math.round(S / 50) + 'px system-ui,sans-serif'; } else { szS = S; bgS = bg; fontS = f; }
+    forceDraw = true;
+  }
+  // ---- drawing helpers (px units: after g.scale(1/sc))
+  function arrowPx(g, r, fill, line) { g.beginPath(); g.moveTo(0, -r * 1.35); g.lineTo(r * .95, r * .95); g.lineTo(0, r * .5); g.lineTo(-r * .95, r * .95); g.closePath(); g.fillStyle = fill; g.fill(); g.lineWidth = 1.5; g.strokeStyle = line; g.stroke(); }
+  function iconChest(g, r) { g.fillStyle = '#e8b830'; g.fillRect(-r, -r * .45, r * 2, r * 1.2); g.fillStyle = '#b07a14'; g.fillRect(-r, -r * .95, r * 2, r * .55); g.fillStyle = '#3a2506'; g.fillRect(-r * .2, -r * .3, r * .4, r * .5); g.lineWidth = 1; g.strokeStyle = '#3a2506'; g.strokeRect(-r, -r * .95, r * 2, r * 1.7); }
+  function iconMerch(g, r) { g.beginPath(); g.arc(0, 0, r, 0, 6.2832); g.fillStyle = '#2fd0c0'; g.fill(); g.lineWidth = 1.5; g.strokeStyle = '#0b4a45'; g.stroke(); g.fillStyle = '#0b4a45'; g.fillRect(-r * .1, -r * .55, r * .2, r * 1.1); g.fillRect(-r * .55, -r * .1, r * 1.1, r * .2); }
+  function iconMyst(g, font) { g.font = font; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineWidth = 3; g.strokeStyle = '#1a0a2a'; g.strokeText('?', 0, 1); g.fillStyle = '#c58cff'; g.fillText('?', 0, 1); }
+  function tickMark(g, r) { g.lineWidth = 2.2; g.strokeStyle = '#5dff8a'; g.lineCap = 'round'; g.beginPath(); g.moveTo(-r * .6, 0); g.lineTo(-r * .1, r * .55); g.lineTo(r * .7, -r * .5); g.stroke(); g.lineCap = 'butt'; }
+  const actorDot = (a, id) => {   // fog of war: only goblins in my room or behind one of my open doors
+    if (id === me || a.npc || vis[keyIdx(a.x, a.z)] !== 1) return;
+    cg.beginPath(); cg.arc(a.x, a.z, (cbig ? 4.5 : 3) * cip, 0, 6.2832); cg.fill(); cg.stroke();
+  };
+  const actorSig = (a, id) => { if (id === me || a.npc) return; sigH = (sigH * 31 + Math.round(a.x * 2)) | 0; sigH = (sigH * 31 + Math.round(a.z * 2)) | 0; };
+  function draw(g, S, big, bg, font) {
+    const dpr = g.canvas.width / S, rot = cfg().mmNorth === false ? P.yaw : 0, sc = (S - S * .1) / (2 * LIM) * (rot ? .72 : 1), ip = 1 / sc;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.drawImage(bg, 0, 0, S, S);
+    const my = keyIdx(P.x, P.z), rr = big ? 9 : 5;
+    g.save(); g.translate(S / 2, S / 2); g.rotate(rot); g.scale(sc, sc);
+    for (let i = 0; i < 9; i++) {   // the 3x3 grid; the vault is gold
+      const [cx, cz] = WD.rc(i), w = WD.roomW(i) - .5, h = WD.roomD(i) - .5, v = i === WD.VAULT;
+      g.fillStyle = v ? 'rgba(201,150,30,.55)' : i === my ? 'rgba(214,190,140,.3)' : 'rgba(200,180,140,.2)'; g.fillRect(cx - w / 2, cz - h / 2, w, h);
+      g.lineWidth = (v ? 2.2 : 1.2) * ip; g.strokeStyle = v ? '#ffc933' : i === my ? '#e8d6a0' : 'rgba(170,150,110,.7)'; g.strokeRect(cx - w / 2, cz - h / 2, w, h);
+    }
+    for (let i = 0; i < CHEST_ROOMS.length; i++) {   // the 12 outer rooms, tinted once discovered
+      const c = CHEST_ROOMS[i], d = disc[i], t = c.type, hh = CSZ / 2 - .3, here = my === 9 + i;
+      g.fillStyle = !d ? 'rgba(60,50,35,.5)' : t === 'mystery' ? 'rgba(110,50,170,.4)' : t === 'merchant' ? 'rgba(30,150,140,.38)' : 'rgba(210,160,40,.32)'; g.fillRect(c.cx - hh, c.cz - hh, hh * 2, hh * 2);
+      g.lineWidth = 1.1 * ip; g.strokeStyle = here ? '#e8d6a0' : d ? 'rgba(200,170,110,.85)' : 'rgba(130,110,80,.55)'; g.strokeRect(c.cx - hh, c.cz - hh, hh * 2, hh * 2);
+    }
+    g.strokeStyle = 'rgba(120,175,255,.42)'; g.fillStyle = 'rgba(120,175,255,.42)'; g.lineWidth = 1.6 * ip;   // last round's picks: faint arrows (door intel)
+    for (let i = 0; i < NR; i++) {
+      const id = RS.lastSel[KEYS[i]]; if (id === undefined || !DINFO[id]) continue;
+      const v = dirOf(DINFO[id], KEYS[i]), cx = i < 9 ? WD.rc(i)[0] : CHEST_ROOMS[i - 9].cx, cz = i < 9 ? WD.rc(i)[1] : CHEST_ROOMS[i - 9].cz, L = i < 9 ? 3.2 : 1.8, hx = v[0] * L, hz = v[1] * L;
+      g.beginPath(); g.moveTo(cx - hx * .4, cz - hz * .4); g.lineTo(cx + hx, cz + hz); g.stroke();
+      g.beginPath(); g.moveTo(cx + hx * 1.25, cz + hz * 1.25); g.lineTo(cx + hx * .7 - v[1] * L * .45, cz + hz * .7 + v[0] * L * .45); g.lineTo(cx + hx * .7 + v[1] * L * .45, cz + hz * .7 - v[0] * L * .45); g.closePath(); g.fill();
+    }
+    const mySel = my < NR ? RS.sel[KEYS[my]] : undefined;   // doors: green open, red closed, gold-brown vault, blue ring = my room's pick
+    for (let id = 0; id < ND; id++) {
+      const hx = dH[id] ? 2.6 : 0, hz = dH[id] ? 0 : 2.6, picked = mySel === id;
+      g.lineWidth = (picked ? 4.2 : 3) * ip; g.strokeStyle = openF[id] ? '#6dff9a' : dKind[id] ? '#b9892a' : '#8a3b2c';
+      g.beginPath(); g.moveTo(dX[id] - hx, dZ[id] - hz); g.lineTo(dX[id] + hx, dZ[id] + hz); g.stroke();
+      if (picked) { g.lineWidth = 1.4 * ip; g.strokeStyle = '#bfe6ff'; g.beginPath(); g.arc(dX[id], dZ[id], 3.6, 0, 6.2832); g.stroke(); }
+    }
+    for (let i = 0; i < CHEST_ROOMS.length; i++) {   // type icons (discovered only, upright) and claimed ticks
+      const c = CHEST_ROOMS[i], claimed = GK.claimedRooms && GK.claimedRooms.has(c.id); if (!disc[i] && !claimed) continue;
+      g.save(); g.translate(c.cx, c.cz); g.rotate(-rot); g.scale(ip, ip);
+      if (disc[i]) { c.type === 'merchant' ? iconMerch(g, rr) : c.type === 'mystery' ? iconMyst(g, font) : iconChest(g, rr); }
+      if (claimed) { g.fillStyle = 'rgba(0,0,0,.5)'; g.fillRect(-rr * 1.3, -rr * 1.3, rr * 2.6, rr * 2.6); tickMark(g, rr * 1.4); }
+      g.restore();
+    }
+    vis.fill(0); if (my < NR) { vis[my] = 1; for (let id = 0; id < ND; id++) if (openF[id]) { if (dA[id] === my) vis[dB[id]] = 1; else if (dB[id] === my) vis[dA[id]] = 1; } }
+    g.lineWidth = 1.5 * ip; g.strokeStyle = '#1a0606'; g.fillStyle = '#ff5a3a'; cg = g; cip = ip; cbig = big; actors.forEach(actorDot);
+    g.save(); g.translate(P.x, P.z); g.rotate(-P.yaw); g.scale(ip, ip); arrowPx(g, big ? 9 : 6, '#fff2b8', '#2a1e08'); g.restore();   // me: arrow, facing = up in north-up mode
+    g.restore();
+    const R = S / 2 - S * .04; g.font = font; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#e8c860'; g.fillText('N', S / 2 + Math.sin(rot) * R, S / 2 - Math.cos(rot) * R);
+    if (big) { g.font = fontCap; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillStyle = 'rgba(232,214,160,.85)'; g.fillText('M to close', S * .03, S * .975); g.textAlign = 'right'; g.fillText('green open  red closed  blue ring picked  faint arrows last round', S * .97, S * .975); }
+  }
+  function discover(my) {   // an outer room is known once I stand in it or look into it through an open door
+    if (my >= 9) disc[my - 9] = 1;
+    else for (let id = 0; id < ND; id++) if (openF[id]) { if (dA[id] === my && dB[id] >= 9) disc[dB[id] - 9] = 1; else if (dB[id] === my && dA[id] >= 9) disc[dA[id] - 9] = 1; }
+  }
+  function setBig(on) { bigOpen = on; bigBox.style.display = on ? 'flex' : 'none'; if (on) resize(true); forceDraw = true; }
+  addEventListener('keydown', e => {   // M (no other keydown handler uses KeyM)
+    if (e.code === 'KeyM' && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && GK.mode === 'play') { const t = e.target && e.target.tagName; if (t === 'INPUT' || t === 'TEXTAREA') return; setBig(!bigOpen); }
+    else if (e.code === 'Escape' && bigOpen) setBig(false);
+  });
+  addEventListener('resize', () => { dprC = 0; });
+  setInterval(() => {
+    const on = GK.mode === 'play' && cfg().minimap !== false;
+    if (GK.mode !== 'play' && bigOpen) setBig(false);
+    if (on !== prevOn) { prevOn = on; box.style.display = on ? 'block' : 'none'; forceDraw = true; feedTop = -1; if (!on) document.documentElement.style.removeProperty('--gkFeedTop'); }
+    if (!on) return;
+    const dpr = window.devicePixelRatio || 1;
+    if (!szS || dpr !== dprC || sizeFor(false) !== szS) { dprC = dpr; resize(false); if (bigOpen) resize(true); }
+    if (GK.layout !== layRef) { layRef = GK.layout; disc.fill(0); }
+    if (RS.open !== openRef) { openRef = RS.open; openF.fill(0); for (let i = 0; i < RS.open.length; i++) if (RS.open[i] < ND) openF[RS.open[i]] = 1; forceDraw = true; }
+    if (RS.sel !== selRef || RS.lastSel !== lastRef) { selRef = RS.sel; lastRef = RS.lastSel; forceDraw = true; }
+    const my = keyIdx(P.x, P.z); discover(my); let dc = 0; for (let i = 0; i < 12; i++) dc += disc[i];
+    sigH = (Math.round(P.x * 4) * 131 + Math.round(P.z * 4)) | 0; sigH = (sigH * 131 + Math.round(P.yaw * 25)) | 0; sigH = (sigH * 131 + (cfg().mmNorth === false ? 1 : 2) + my * 7 + (GK.claimedRooms ? GK.claimedRooms.size : 0) * 13 + dc) | 0;
+    actors.forEach(actorSig);
+    if (sigH === lastSig && !forceDraw) return; lastSig = sigH; forceDraw = false;
+    draw(gS, szS, false, bgS, fontS); if (bigOpen) draw(gB, szB, true, bgB, fontB);
+    const ft = box.offsetTop + box.offsetHeight + 8; if (ft !== feedTop) { feedTop = ft; document.documentElement.style.setProperty('--gkFeedTop', ft + 'px'); }   // the kill feed stacks under the minimap
+  }, 100);
+  GK.minimap = { open: () => setBig(true), close: () => setBig(false), disc, redraw: () => { forceDraw = true; } };
+})();
+// MINIMAP-END
 // FUN-BEGIN (kill feed, scoreboard on `, spectating after death, match summary; see docs/reports/fun.md)
 function funUrl(u) {   // add the saved character's name to the join query
   try { const c = GK.charId != null && window.GKSAVE ? GKSAVE.getCharacter(+GK.charId) : null; if (c && c.name) return u + (u.indexOf('?') < 0 ? '/?' : '&') + 'name=' + encodeURIComponent(String(c.name).slice(0, 14)); } catch (e) {}
@@ -3904,7 +4036,7 @@ GK.fun = (() => {
     if (document.getElementById('gkFunCss')) return;
     const st = document.createElement('style'); st.id = 'gkFunCss';
     st.textContent = '@keyframes gkFeedIn{from{transform:translateX(30px);opacity:0}to{transform:none;opacity:1}}'
-      + '#gkFeed{position:fixed;top:12px;right:12px;z-index:31;display:flex;flex-direction:column;align-items:flex-end;gap:5px;pointer-events:none;font:600 14px/1.25 system-ui,sans-serif}'
+      + '#gkFeed{position:fixed;top:var(--gkFeedTop,12px);right:12px;z-index:31;display:flex;flex-direction:column;align-items:flex-end;gap:5px;pointer-events:none;font:600 14px/1.25 system-ui,sans-serif}'
       + '#gkFeed div{padding:6px 12px;border-radius:9px;background:rgba(10,10,16,.66);border:1px solid rgba(255,215,94,.3);color:#e9e5da;text-shadow:0 1px 3px #000;animation:gkFeedIn .25s ease-out;transition:opacity .6s;max-width:min(520px,70vw);box-shadow:0 2px 10px rgba(0,0,0,.4)}'
       + '#gkFeed div.me{border-color:' + GOLDC + ';box-shadow:0 0 14px rgba(255,215,94,.35)}#gkFeed div.fade{opacity:0}#gkFeed b{color:' + GOLDC + '}#gkFeed b.v{color:#ff8a7a}#gkFeed i{color:#fff;font-style:normal}'
       + '.gkFunBtn{padding:11px 18px;border-radius:10px;font:800 14px system-ui,sans-serif;letter-spacing:.08em;cursor:pointer;pointer-events:auto}'
