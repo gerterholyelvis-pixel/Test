@@ -1053,6 +1053,7 @@ function voteDoor(m, p, now, except) {   // weighted pick of a door of this room
       else if (L === 'chest') w *= p.claimed && p.claimed.has(id) ? 0.3 : hurt ? 2.5 : 1;   // wounded bots want a quiet chest room
       else if (L === 'mystery' && my && my.kind === 'enemy') w *= hurt ? 0.25 : 1;
     } else w = 1 + (m.round > 3 && DIST_V[o] < DIST_V[p.room] ? 3 : 0);
+    if (p.bot && !isHatch(d) && d !== except) w = b5Vote(m, p, d, o, w);   // BOTS5: the 2-room vault rule, doors toward the bot's goal
     ws.push(w); tot += w;
   }
   if (!doors.length || tot <= 0) return;
@@ -1078,6 +1079,7 @@ function lootNearby(m, p, dt, now) {   // walk to useful loot piles in this room
 }
 function roomGoals(m, p) {   // once per visit: claim a chest/mystery prize, buy from the merchant with the gold we have
   const b = p.brain, mm = /^c(\d+)$/.exec(p.room); if (!mm || b.done[p.room]) return;
+  if (p.bot && b5Station(m, p)) return;   // BOTS5: homes, the Forge and the Grand Recycler go through station5
   b.done[p.room] = 1; const id = +mm[1], L = m.layout[id];
   if (L === 'merchant') {
     const shop = m.shops[id]; let bi = -1, bg = 0;
@@ -1087,8 +1089,266 @@ function roomGoals(m, p) {   // once per visit: claim a chest/mystery prize, buy
   equipBest(m, p); botStations(m, p);   // LOOT: recycle junk, craft tier 0
   equipBest(m, p);
 }
+// BOTS5-BEGIN (task G, docs/reports/bots5.md): bots play the 5x5 game. Pure scoring lives in botgoals.js; this block holds the per-bot goal (home work, the Master Forge,
+// the Grand Recycler, tree rooms, vaultbreaker heists, THE VAULT and its crown), the activity driver that sends the SAME {act} verbs a human sends (A5.act, so every rule,
+// reach check, rate limit and cap applies), the vault vote under the 2-room rule (co-op votes, bribes, lockpicks), the per-round vaultbreaker re-key, venting,
+// a stuck watchdog, per-match stats (GK_DEBUG {bot5:1}) and per-feature cost (BS.f5, tests/bots.test.js). Hooks elsewhere in BOTS are one-liners tagged BOTS5.
+const BG = require('./botgoals.js'), ACTF = require('./activity.js'), VB5M = require('./vb5.js'), V5M = require('./vault5.js');
+const B5_ADJ = {}; for (const k of Object.keys(ADJ)) B5_ADJ[k] = ADJ[k].map(e => e.to);
+const ALLD = BG.allDist(B5_ADJ);   // door hops between every pair of rooms over all doors (41 x 41, built once)
+const TREE5 = new Set(WORLD.TREE_CELLS.map(String)), VB5C = new Set(Object.values(WORLD.VB_CELLS).map(String));
+const OUTER5 = new Set(WORLD.ROOMS.filter(r => r.kind === 'arena').map(r => r.key));   // the 16 plain halls of the outer ring (vented in sudden death, like homes and loot rooms)
+const GOAL5 = new Set([...TREE5, ...VB5C, VK]), WANT5 = [...GOAL5, ...WORLD.LOOT_IDS.map(i => 'c' + i)];   // the rooms a bot can want from afar (plus its own home)
+const f5 = (k, t0) => { const f = BS.f5 || (BS.f5 = { score: 0, act: 0, station: 0, vote: 0, watch: 0 }); f[k] += Number(process.hrtime.bigint() - t0) / 1e6; };
+const st5 = m => m.b5 || (m.b5 = { tree: {}, vb: {}, vault: {}, treeU: {}, vbU: {}, home: 0, forge: 0, grand: 0, crafted: 0, recycled: 0, brewed: 0, rested: 0, bribes: 0, coop: 0, lockpicks: 0, vaultPicks: 0, stuck: 0, hardStuck: 0, rekey: 0, left: {}, seen: {}, visits: { tree: 0, vb: 0, vault: 0 }, leaveWhy: {} });
+const invCount = (p, k) => { let n = 0; for (const x of p.inv.backpack) if (x === k) n++; for (const x of p.inv.quick) if (x === k) n++; return n; };
+const slotOf5 = (p, k) => BOT_SLOTS.find(s => getSlot(p.inv, s) === k);
+const healCount5 = p => { let n = 0; for (const x of [...p.inv.backpack, ...p.inv.quick]) if (x && BN.healValue(info(x)) > 0) n++; return n; };
+function b5Init(m, p) { const b = p.brain; if (!b.p5) { b.p5 = BG.persona(Math.random); p.skill = b.p5.skill; b.d5 = {}; b.vr5 = {}; b.w5 = {}; } return b; }
+function knowLeft5(m, p) { if (!m.act) return 0; const u = ACTF.limit.used(m.act.L, p, 'know'); return Math.max(0, Math.min(ACTF.C.TREE_KNOW_ROUND - u.round, ACTF.C.TREE_KNOW_MATCH - u.match)); }
+function bestCraft5(p, type) {   // the best upgrade this bench type makes from the parts the bot carries (weapon or armour over what it wears, a heal when it has none)
+  let sum = 0; for (const k in p.parts) sum += p.parts[k] || 0; if (!sum) return null;
+  const cur = { attack: p.inv.weapon && info(p.inv.weapon) ? info(p.inv.weapon).attack || 0 : 0, armor: p.inv.armor && info(p.inv.armor) ? armorVal(info(p.inv.armor)) : 0, heals: healCount5(p) };
+  let best = null, bv = 0;
+  for (const r of G.RECIPES) {
+    const bc = G.benchCraft(p, r, type, p.perks); if (bc.why) continue;
+    let ok = true; for (const k in bc.cost) if ((p.parts[k] || 0) < bc.cost[k]) { ok = false; break; } if (!ok) continue;
+    const o = G.ITEMS[r.out]; if (!o) continue;
+    const v = BG.craftValue({ type: o.type, attack: o.attack, score: o.type === 'armor' ? armorVal(o) : undefined, heal: BN.healValue(o) }, cur);
+    if (v > bv) { bv = v; best = r; }
+  }
+  return best;
+}
+function junk5(p) { let n = 0; for (const s of BOT_SLOTS) { const k = getSlot(p.inv, s); if (k && isJunkW(p, k)) n++; } return n; }
+function kind5(m, p, key) {   // the bot's view of a room: home (its own) | foreign | forge | grand | tree | vb | vault | vent | other
+  if (key === VK) return 'vault'; if (TREE5.has(key)) return 'tree'; if (VB5C.has(key)) return 'vb';
+  if (key === p.home) return 'home'; if (isHome(key)) return 'foreign';
+  if (key[0] === 'c') { const L = m.layout[+key.slice(1)]; return L === 'forge' ? 'forge' : L === 'grand' ? 'grand' : m.sudden ? 'vent' : 'other'; }
+  return m.sudden && OUTER5.has(key) ? 'vent' : 'other';
+}
+function treeInfo5(m, p, key, now, base) {   // the `b` object of rooms5-trees.js spec.bot (docs/reports/rooms5-trees.md); `base`: the room-independent part, reused across the 4 tree rooms
+  const b = p.brain, an = A5.ANCHORS[key] || {}; let others = 0;
+  for (const q of m.players.values()) if (q !== p && !q.dead && q.entered && !q.npc && q.room === key) others++;
+  let o = base;
+  if (!o) {
+    let junkSlot = -2, brain = false, husk = 0, scions = 0, heals = 0;
+    for (let i = 0; i < 12; i++) {
+      const k = i < 9 ? p.inv.backpack[i] : p.inv.quick[i - 9]; if (!k) continue;
+      if (junkSlot < 0 && isJunkW(p, k)) junkSlot = i; if (G.isBrain(k)) brain = true; else if (k === 'x:huskbrain') husk++; else if (k === 'x:scion') scions++; else if (BN.healValue(info(k)) > 0) heals++;
+    }
+    o = { now, round: m.round, sudden: !!m.sudden, knowLeft: knowLeft5(m, p), hpFrac: hpFrac(p), aggr: b.aggr, greed: b.greed, coop: b.p5.coop > 0.5,
+      brainOf: brain ? 'goblin' : husk ? 'husk' : null, scions, junk: junkSlot >= 0, junkSlot, healItems: heals, hasGear: !!p.inv.weapon, cautious: b.caution > 0.5 };
+  }
+  return Object.assign({}, o, { anchor: id => an[id] || null, others });
+}
+function vbInfo5(m, p, key, now) {   // the `info` object of VB5.botHint
+  const b = p.brain, H = m.act.H, wantVault = (b.v5 || 0) > 4 || m.round >= 3, wantNoVault = !wantVault && b.p5.spoil, ram = H.st.ram;
+  return { now, round: m.round, sudden: !!m.sudden, gold: p.gold || 0, metal: (p.parts && p.parts.metal) || 0, has: k => invCount(p, k === 'x:wedge' ? 'x:ironwedge' : k) > 0,
+    aggression: b.aggr, greed: b.greed, wantVault, wantNoVault, rivalArmed: !!H.st.keystone.armed && b.lit5 !== m.round,
+    defend: wantNoVault && VB5M.typeAt(H, key) === 'ram' && !!ram && ram.handles.some(h => h != null && h !== p.id) };
+}
+function hint5(m, p, key, now, base) {   // {score, next, maxStay, type} for an activity room
+  const A = m.act; if (!A) return null;
+  if (TREE5.has(key)) { const t = A.trees[key], sp = t && ACTF.get(t.type); if (!sp || !sp.bot || !sp.bot.score) return null; const bi = treeInfo5(m, p, key, now, base); return { score: sp.bot.score(bi, p, t.st) * p.brain.p5.tree, next: () => sp.bot.next(bi, p, t.st), maxStay: sp.bot.maxStay || 45000, type: t.type }; }
+  if (VB5C.has(key)) { const h = VB5M.botHint(A.H, key, p, vbInfo5(m, p, key, now)); return { score: h.score * p.brain.p5.heist, next: () => h.next, maxStay: h.maxStay || 45000, type: VB5M.typeAt(A.H, key) }; }
+  return null;
+}
+function vaultWant5(m, p, now) {
+  const b = p.brain, v = m.act && m.act.vault; let wardens = 0;
+  if (v && v.gaining != null) for (const q of m.players.values()) if (q.npc === 'warden' && !q.dead && q.room === VK) wardens++;
+  return BG.vaultWant({ round: m.round, sudden: !!m.sudden, sudRound: SUDDEN_ROUND, msLeft: m.endsAt - now, gaining: !!v && v.gaining != null && v.gaining !== p.id, wardens, hpFrac: hpFrac(p), aggr: b.aggr, patience: b.patience });
+}
+function b5Prep(m, p, now, dist) {   // once per pickDest: what the bot could do where; c.terms[key] = the extra pickDest term of every reachable room
+  const t0 = process.hrtime.bigint(), b = b5Init(m, p), c = { work: null, hints: {}, vault: 0, terms: {} };
+  const junk = junk5(p), craftN = !!bestCraft5(p, 'normal'), craftM = !!bestCraft5(p, 'master');
+  let tank = false; const h = m.homes && m.homes[p.home]; if (h && h.pump && !h.dead && typeof h.pump.tank === 'number') tank = h.pump.tank + Math.floor((now - (h.pump.t || now)) / 5000) >= 20;   // ELIXIR (when merged): a full pump is worth a trip
+  c.work = { junk, craftN, craftM, tank }; c.shut = !m.sudden && !VAULT.some(d => isOpen(m, d));
+  b.v5 = c.vault = vaultWant5(m, p, now);
+  if (m.act && b.h5 && now - b.h5.t < 1500 && b.h5.room === p.room && b.h5.round === m.round) c.hints = b.h5.hints;   // the room hints change slowly: reuse them for 1.5 s
+  else if (m.act) { let base = null; for (const k of GOAL5) if (k !== VK) { try { if (!base && TREE5.has(k)) base = treeInfo5(m, p, k, now); c.hints[k] = hint5(m, p, k, now, base); } catch (e) { c.hints[k] = null; } } b.h5 = { t: now, room: p.room, round: m.round, hints: c.hints }; }
+  let want = null, ws = -1e9;   // the room the bot most wants, reachable or not (votes steer toward it)
+  for (const k of [...WANT5, p.home]) { const s = b5Term(m, p, k, ALLD[p.room] ? ALLD[p.room][k] : 9, c) - 0.35 * ((ALLD[p.room] && ALLD[p.room][k]) || 0); if (s > ws) { ws = s; want = k; } }
+  b.want5 = ws > 2 ? want : null;
+  if (dist) for (const k in dist) c.terms[k] = b5Term(m, p, k, dist[k], c);
+  f5('score', t0); return c;
+}
+function b5Term(m, p, key, dist, c) {   // the extra pickDest term for one room (botgoals.js roomTerm)
+  const b = p.brain, kind = kind5(m, p, key), w = c.work, hn = c.hints[key];
+  const vaultShut = c.shut;
+  return BG.roomTerm({ kind, dist, hint: hn ? hn.score : 0, work: w.junk >= 2 || w.craftN, junk: w.junk, master: w.craftM, tank: w.tank, hpFrac: hpFrac(p), sudden: !!m.sudden, round: m.round,
+    done: b.d5[key] === m.round, vault: kind === 'vb' ? (vaultShut ? c.vault : 0) : c.vault, homeBody: b.p5.homeBody });
+}
+function b5Pick(m, p, key, now) {   // pickDest chose `key`: remember it as the goal when there is something to do there
+  const b = p.brain, kind = kind5(m, p, key);
+  if (B5LOG === 'pick') console.log('B5', p.id, p.room, '->', key, kind, junk5(p), p.home);
+  if (b.d5[key] === m.round && key !== VK) b.g5 = null;   // finished (or fled) there this round
+  else if (kind === 'home' || kind === 'forge' || kind === 'grand' || GOAL5.has(key)) b.g5 = { room: key, kind, type: VB5C.has(key) && m.act ? VB5M.typeAt(m.act.H, key) : null, since: 0, nextAt: 0, rep: 0, sig: '', crafts: 0, acts: 0 };
+  else b.g5 = null;
+}
+function b5Station(m, p) {   // roomGoals hook: own home, the Forge and the Grand Recycler are worked by station5 (timed crafts, one click per beat), never by the one-shot legacy botStations; other homes are off limits
+  const b = b5Init(m, p), kind = kind5(m, p, p.room);
+  if (kind !== 'home' && kind !== 'forge' && kind !== 'grand' && kind !== 'foreign') return false;
+  if (kind !== 'foreign' && !b.g5 && b.d5[p.room] !== m.round) {
+    const junk = junk5(p), has = kind === 'home' ? junk > 0 || !!bestCraft5(p, 'normal') || hpFrac(p) < 0.75 : kind === 'forge' ? !!bestCraft5(p, 'master') : junk > 0;
+    if (has) b5Pick(m, p, p.room, Date.now());
+  }
+  return true;
+}
+function leave5(m, p, now, why) { const b = p.brain, g = b.g5; if (g) { b.d5[g.room] = m.round; const L = st5(m).leaveWhy; L[why || 'done'] = (L[why || 'done'] || 0) + 1; } b.g5 = null; b.route = []; b.idleUntil = now; }
+function busy5(m, key, p) {   // a channel, grip or running sequence of this bot in this room: stand still
+  const A = m.act; if (!A) return false;
+  if (TREE5.has(key)) { const st = A.trees[key].st; for (const n in st.chs) if (st.chs[n].by === p.id) return true; return !!(st.grip && st.grip.by === p.id); }
+  if (VB5C.has(key)) { const s = VB5M.stOf(A.H, key); return !!s && s.ch.some(c => c.pid === p.id); }
+  if (key === VK) { for (const k in A.vault.ch) if (A.vault.ch[k].by === p.id) return true; }
+  return false;
+}
+const B5LOG = DBG && process.env.GK_B5LOG;   // GK_DEBUG trace of one activity type (e.g. GK_B5LOG=keystone): the hint, the room view, busy, position, HP %
+const walk5 = (m, p, x, z, dt, now) => { const b = p.brain; b.mv5 = now; const [tx, tz] = clampIn(p.room, x, z, 0.6); if (Math.hypot(tx - p.x, tz - p.z) > 4) b.speed = sprintOf(p); stepTo(m, p, tx, tz, dt, now); };   // sprint across the room like a player, walk the last metres
+function vaultNext5(m, p, now) {   // THE VAULT (vault5.js has no bot hints): contest a claimant, claim late, scoop the coffers, sit out the treasury
+  const v = m.act.vault, b = p.brain, late = m.round >= SUDDEN_ROUND - 1 || m.sudden;
+  if (v.gaining != null && v.gaining !== p.id) return { stay: 'dais' };   // 2 on the dais freeze the claim; the combat code fights whoever is visible
+  if (late && hpFrac(p) > 0.3) return { stay: 'dais' };
+  let best = null, bd = 1e9;
+  if (ACTF.limit.ok(v.L, p, 'scoop', V5M.K.SCOOP_PER_ROUND) && b.greed > 0.25) for (const k of V5M.K.COFFERS) { if (ACTF.pool.level(v.pools[k], now) < 1 || v.ch[k].by != null) continue; const a = A5.ANCHORS[VK][k], d = Math.hypot(a.x - p.x, a.z - p.z); if (d < bd) { bd = d; best = k; } }
+  if (best) return { verb: 'use', a: best };
+  if (!m.sudden && m.endsAt - now < 30000) return { idle: true };   // be inside when the treasury pays
+  if (m.round >= 3 && b.aggr > 0.5) return { stay: 'dais' };
+  return null;
+}
+function act5Think(m, p, now, dt) {   // the bot is in its activity room: follow the room's bot hints through the human `act` path. true = handled this tick
+  const b = p.brain, g = b.g5, key = p.room, A = m.act;
+  if (now >= b.lootOff && lootNearby(m, p, dt, now)) { b.lootAt = now; return true; }   // husk brains, spring water and dropped loot first
+  if (key === VK && !m.relicTaken && m.relicKey && (b.relicTries || 0) <= 2) return false;   // LOOT relicGoal takes the relic first
+  let next = null, maxStay = 45000, type = null;
+  if (key === VK) { next = vaultNext5(m, p, now); maxStay = 90000; type = 'vault'; }
+  else { const h = hint5(m, p, key, now); if (h) { next = h.next(); maxStay = h.maxStay; type = h.type; } }
+  if (VB5C.has(key) && b.caution > 0.5) { const rk = VB5M.risk(A.H, key, now); if ((rk.kind === 'noise' && rk.v > 60) || (rk.kind === 'alarm' && rk.v > 0) || (rk.kind === 'resonance' && rk.v > 60)) next = null; }   // cautious bots leave a noisy heist
+  if (B5LOG && type === B5LOG) console.log('B5', p.id, type, JSON.stringify(next), VB5C.has(key) ? JSON.stringify(VB5M.view(A.H, key, now).st) : '', busy5(m, key, p), Math.round(p.x), Math.round(p.z), Math.round(hpFrac(p) * 100));
+  if (now - g.since > maxStay) { leave5(m, p, now, 'maxStay'); return false; }
+  if (hpFrac(p) < b.flee + 0.1 && key !== VK) { leave5(m, p, now, 'hurt'); return false; }
+  if (!next || next.go === 'exit') { leave5(m, p, now, next ? 'exit' : 'done'); return false; }
+  const an = A5.ANCHORS[key] || {}, busy = busy5(m, key, p), S = st5(m), R = WORLD.roomRect(key);
+  if (busy) { const a = an[next.a || next.stay || next.go]; if (a) face(m, p, a.x, a.z, now, false); return true; }   // a running channel: hold still (moving 0.6 m breaks it)
+  if (next.fight || next.idle) { idleLook(m, p, now); return true; }
+  if (next.memory) {   // Memory Tree: touch the lanterns in order, each with the skill roll
+    const pos = next.pos | 0; if (g.memPos !== pos || g.memSeq !== next.seq) { g.memPos = pos; g.memSeq = next.seq; g.memA = BG.lantern(next.seq, pos, BG.pressOk(b.p5.skill, Math.random()), Math.random()); }
+    next = { verb: 'use', a: g.memA, mem: 1 };
+  }
+  const aid = next.go || next.stay || next.a, a = an[aid]; if (!a) { leave5(m, p, now, 'anchor'); return false; }
+  if (next.stay) { if (Math.hypot(p.x - a.x, p.z - a.z) > Math.min(0.9, (a.r || 1) * 0.6)) walk5(m, p, a.x, a.z, dt, now); else idleLook(m, p, now); return true; }
+  if (next.go) { if (!BG.inReach(a, p.x, p.z, 0.7)) { const [x, z] = BG.standPoint(a, p.x, p.z, R.cx, R.cz); walk5(m, p, x, z, dt, now); } else idleLook(m, p, now); return true; }
+  if (!BG.inReach(a, p.x, p.z, 1.2)) { const [x, z] = BG.standPoint(a, p.x, p.z, R.cx, R.cz); walk5(m, p, x, z, dt, now); return true; }
+  if (now < g.nextAt) { face(m, p, a.x, a.z, now, false); return true; }
+  if (next.verb === 'tap' && TREE5.has(key)) {   // a tree timing press: wait for the window (skill roll per attempt), then press like a human
+    const tm = A.trees[key].st._tm;
+    if (tm && tm.by === p.id) { if (g.tapT0 !== tm.t0) { g.tapT0 = tm.t0; g.tapHit = BG.pressOk(b.p5.skill, Math.random()); g.tapWait = now; } if (!BG.tapNow(tm, now, g.tapHit) && now - g.tapWait < 2500) return true; }
+  }
+  const sig = next.verb + ':' + aid + ':' + (next.x == null ? '' : next.x);
+  if (next.verb !== 'tap' && !next.mem) { g.rep = sig === g.sig ? g.rep + 1 : 0; g.sig = sig; if (g.rep >= 6) { leave5(m, p, now, 'futile'); return false; } }
+  if (++g.acts > 80) { leave5(m, p, now, 'acts'); return false; }
+  const msg = { r: key, a: aid, v: next.verb }; if (Number.isInteger(next.x)) msg.x = next.x;
+  face(m, p, a.x, a.z, now, false);
+  A5.act(m, p, msg, now);
+  if (type === 'keystone' && next.verb === 'use') b.lit5 = m.round;
+  const bag = TREE5.has(key) ? S.tree : VB5C.has(key) ? S.vb : S.vault, users = TREE5.has(key) ? S.treeU : VB5C.has(key) ? S.vbU : null;
+  bag[type] = (bag[type] || 0) + 1; if (users) users[p.id] = 1;
+  g.nextAt = now + (next.verb === 'tap' ? rnd(420, 650) : rnd(380, 750));
+  return true;
+}
+function stationSpot5(key, kind) {   // in front of the home bench / the Forge bench / the Grand Recycler
+  const c = WORLD.CHEST[+key.slice(1)], L = kind === 'home' ? WORLD.HOME_LAYOUT.bench : WORLD.LOOT_LAYOUT[kind];
+  return WORLD.attLocal(c, L[0], L[1] + 1.5);
+}
+function station5(m, p, now, dt) {   // home work at the bench and recycler (owner), the Master Forge, the Grand Recycler; resting at home when hurt
+  const b = p.brain, g = b.g5, key = p.room, S = st5(m);
+  if (!g.counted) { g.counted = 1; S[g.kind] = (S[g.kind] || 0) + 1; }
+  if (now - g.since > 32000 || (m.sudden && g.kind === 'home')) { leave5(m, p, now, 'stationTime'); return false; }
+  if (p.crafting) { idleLook(m, p, now); return true; }   // wait out craftMs at the bench (a hit or leaving cancels it and refunds)
+  const sp = g.spot || (g.spot = stationSpot5(key, g.kind));
+  if (B5LOG === 'station') console.log('B5', p.id, g.kind, key, sp.map(Math.round), Math.round(p.x * 10) / 10, Math.round(p.z * 10) / 10, junk5(p), JSON.stringify(p.inv.backpack), p.inv.weapon);
+  if (Math.hypot(p.x - sp[0], p.z - sp[1]) > 0.8) { walk5(m, p, sp[0], sp[1], dt, now); return true; }
+  if (now < g.nextAt) { idleLook(m, p, now); return true; }
+  g.nextAt = now + rnd(450, 900);   // one panel click per beat, like a player
+  const t0 = process.hrtime.bigint();
+  try {
+    if (hasStation(m, p, 'recycler')) for (const s of BOT_SLOTS) { const k = getSlot(p.inv, s); if (k && isJunkW(p, k)) { if (!recycle(m, p, s)) S.recycled++; return true; } }
+    const bench = stationAt(m, p, 'workbench');
+    if (bench && typeof brewAt === 'function' && (p.elixir | 0) >= 8 && !healCount5(p) && !g.brewed) { g.brewed = 1; try { if (!brewAt(m, p, 'heal')) S.brewed++; } catch (e) {} return true; }   // ELIXIR (when merged): a Healing Draught
+    if (bench && g.crafts < 3) { const r = bestCraft5(p, bench.type); if (r) { g.crafts++; if (!craft(m, p, r.id)) S.crafted++; return true; } }
+    if (knowBench(m, p)) botLearn(m, p);
+    equipBest(m, p);
+    if (g.kind === 'home' && hpFrac(p) < 0.75 && !m.sudden && now - g.since < 26000) { if (!g.rest) { g.rest = 1; S.rested++; } return true; }   // heal up at home before going out again
+  } finally { f5('station', t0); }
+  leave5(m, p, now, 'stationDone'); return false;
+}
+function b5Vote(m, p, d, o, w) {   // voteDoor weight hook: the vault door under the 2-room rule, other doors toward the room the bot wants
+  const t0 = process.hrtime.bigint(), b = b5Init(m, p);
+  try {
+    if (o === VK) {
+      let others = 0; for (const k in m.sel) if (k !== p.room && VAULT.includes(m.sel[k])) others += 1 + (rule('bribe') ? (m.bribes && m.bribes[k]) || 0 : 0) + (m.picked && m.picked[k] ? 1 : 0);
+      let extra = 0; if (m.act && VB5C.has(p.room)) { const H = m.act.H, t = VB5M.typeAt(H, p.room); if (t === 'keystone' && H.st.keystone.armed) extra++; if (t === 'counting') extra += Math.max(0, H.st.counting.writs - H.st.counting.counters); if ((H.breach[d] || 0) >= VB5M.K.CRACKED) extra++; }
+      return BG.vaultVote({ round: m.round, sudden: !!m.sudden, hurt: hpFrac(p) < 0.5, others, extra, bribe: rule('bribe') && (p.gold || 0) >= BRIBE.cost + 15, pick: invCount(p, 'x:lockpick') > 0, want: b.v5 || 0, spoil: b.p5.spoil });
+    }
+    if (w > 0 && b.want5 && ALLD[p.room] && ALLD[o]) w *= BG.stepFactor(ALLD[p.room][b.want5], ALLD[o][b.want5]);
+    if (w > 0 && m.round >= 2 && isHome(o) && o !== p.home) w = 0;
+    return w;
+  } finally { f5('vote', t0); }
+}
+function vote5(m, p, now) {   // every ~1.5 s: vote in each room the bot passes (not once per round), complete a vault vote, bribe or pick the lock for the missing vote
+  const b = p.brain; if (now < (b.v5At || 0) || m.sudden || !isArena(p.room)) return; b.v5At = now + rnd(1200, 1800);
+  const t0 = process.hrtime.bigint(), S = st5(m), room = p.room;
+  try {
+    if (m.sel[room] == null && b.votedRound === m.round && b.vr5[room] !== m.round && now - (p.roomAt || 0) > 2000 + b.patience * 4000 && !humanIn(m, room)) { b.vr5[room] = m.round; voteDoor(m, p, now); }   // a second room this round gets a pick too
+    const vd = (ROOM_DOORS[room] || []).find(d => VAULT.includes(d)); if (vd == null) return;
+    let others = 0; for (const k in m.sel) if (k !== room && VAULT.includes(m.sel[k])) others++;
+    if (others >= 1 && m.sel[room] !== vd && b.coop5 !== m.round && (b.v5 || 0) > 2 && !b.p5.spoil && !(m.sealed && m.sealed[room]) && !humanIn(m, room) && (m.sel[room] == null || [...m.players.values()].some(q => q.bot && q.id === m.selBy[room]))) {
+      b.coop5 = m.round; m.sel[room] = vd; m.selBy[room] = p.id; S.coop++; broadcastRound(m);   // co-op: a second room's vault vote completes the rule
+    }
+    if (m.sel[room] === vd && m.selBy[room] === p.id) {
+      if (b.vp5 !== m.round) { b.vp5 = m.round; S.vaultPicks++; }
+      if (vaultVotes(m) < 2) {
+        const sl = slotOf5(p, 'x:lockpick');
+        if (sl && !(m.picked && m.picked[room])) { if (!useItem(m, p, sl, now)) S.lockpicks++; }
+        else if (rule('bribe') && (p.gold || 0) >= BRIBE.cost + 15 && !((m.bribes && m.bribes[room]) > 0) && (m.endsAt - now < 30000 || b.greed < 0.4)) { if (!bribe(m, p)) S.bribes++; }
+      }
+    }
+  } finally { f5('vote', t0); }
+}
+function b5Think(m, p, now, dt) {   // from botThink (after fights and flight): goal bookkeeping, votes, the stuck watchdog, then the activity / station driver. true = handled
+  const b = b5Init(m, p), S = st5(m);
+  S.seen[p.id] = 1; if (p.room !== p.home) S.left[p.id] = 1;
+  if (S.vr !== m.round) { S.vr = m.round; if (S.vOpen == null && !m.sudden && VAULT.some(d => m.open.includes(d))) S.vOpen = m.round; }   // the first round a vault door stood open (before sudden death)
+  vote5(m, p, now);
+  { const t0 = process.hrtime.bigint(), moving = (b.route.length > 0 || now - (b.mv5 || 0) < 300) && b.mode !== 'flee', ms = BG.watch(b.w5, p.x, p.z, p.room, now, moving);   // stuck watchdog: wanting to move but not moving
+    if (ms > 6000) { S.stuck++; if (b.w5.last && now - b.w5.last < 20000 && Math.hypot(p.x - b.w5.lx, p.z - b.w5.lz) < 1) S.hardStuck++; b.w5.last = now; b.w5.lx = p.x; b.w5.lz = p.z; b.w5.t = now; b.route = []; b.nav = {}; if (b.g5 && b.g5.room === p.room) leave5(m, p, now, 'stuck'); else b.g5 = null; b.idleUntil = now + 200; }
+    f5('watch', t0); }
+  const g = b.g5; if (!g || !m.act) return false;
+  if (g.kind === 'vb' && g.type && VB5M.typeAt(m.act.H, g.room) !== g.type) {   // the vaultbreakers re-keyed: follow the type to its new room
+    const cell = VB5M.cellOf(m.act.H, g.type); S.rekey++;
+    if (cell && cell !== p.room && routeTo(m, p, cell)) { g.room = cell; g.since = 0; g.acts = 0; g.rep = 0; } else if (cell === p.room) { g.room = cell; } else b.g5 = null;
+    if (!b.g5) return false;
+  }
+  if (g.room !== p.room) return false;   // still on the way
+  if (!g.since) { g.since = now; b.route = []; if (GOAL5.has(g.room)) S.visits[g.kind]++; }
+  if (g.kind === 'home' || g.kind === 'forge' || g.kind === 'grand') return station5(m, p, now, dt);
+  const t0 = process.hrtime.bigint(); try { return act5Think(m, p, now, dt); } finally { f5('act', t0); }
+}
+function bot5Lab(m, cmd) {   // GK_DEBUG {bot5:{goal: roomKey}}: the first living bot is put into that room with it as its goal (tests/bots5.test.js)
+  const p = [...m.players.values()].find(q => q.bot && !q.dead && q.entered), key = cmd && typeof cmd.goal === 'string' && RB[cmd.goal] ? cmd.goal : null; if (!p || !key) return;
+  const b = b5Init(m, p), r = RB[key], pr = p.room; place(p, r.cx + 1.2, r.cz + 1.2); noteRoom(m, p, pr);
+  delete b.d5[key]; b.route = []; b.mode = ''; b.tgt = null; b.g5 = null; b5Pick(m, p, key, Date.now()); b.lab5 = p.id; m.dirty = true;
+}
+function bot5Stat(m) {   // GK_DEBUG {bot5:1}: this match's bot stats for tests/bots5.test.js and tests/sim-fairness.js
+  const S = st5(m), bots = [...m.players.values()].filter(q => q.bot), lab = bots.find(q => q.brain && q.brain.lab5 === q.id);
+  const claims = m.act ? V5M.view(m.act.vault, { now: Date.now() }).claims : [];
+  return { round: m.round, ended: !!m.ended, sudden: !!m.sudden, tree: S.tree, vb: S.vb, vault: S.vault, treeUsers: Object.keys(S.treeU).length, vbUsers: Object.keys(S.vbU).length, home: S.home, forge: S.forge, grand: S.grand,
+    crafted: S.crafted, recycled: S.recycled, brewed: S.brewed, rested: S.rested, bribes: S.bribes, coop: S.coop, lockpicks: S.lockpicks, vaultPicks: S.vaultPicks, stuck: S.stuck, hardStuck: S.hardStuck, rekey: S.rekey, vaultOpen: S.vOpen == null ? null : S.vOpen,
+    left: Object.keys(S.left).length, bots: Object.keys(S.seen).length, alive: bots.filter(q => !q.dead).length, visits: S.visits, leaveWhy: S.leaveWhy, trees: m.trees, vbLayout: m.vb, claims, lab: lab ? { id: lab.id, room: lab.room, goal: lab.brain.g5 ? lab.brain.g5.room : null, know: lab.stats.knowledge, gold: lab.gold, pack: lab.inv.backpack.filter(Boolean) } : null, rewards: m.act ? Object.fromEntries(Object.entries(m.act.log).map(([k, v]) => [k, v.n])) : {}, f5: BS.f5 || null, sweeps: BS.n, sweepMean: BS.n ? BS.sum / BS.n : 0 };
+}
+// BOTS5-END
 function pickDest(m, p, now) {   // idle: where to go next (claimable rooms, the merchant, the vault later, hunting, otherwise wander in the room)
   const b = p.brain, dist = reach(m, p.room), here = new Set(), hunt = {};
+  const c5 = p.bot ? b5Prep(m, p, now, dist) : null;   // BOTS5
   for (const q of m.players.values()) if (q !== p && !q.dead && q.entered && !q.npc) hunt[q.room] = (hunt[q.room] || 0) + 1;
   let best = null, bs = -1e9;
   for (const key in dist) {
@@ -1107,8 +1367,11 @@ function pickDest(m, p, now) {   // idle: where to go next (claimable rooms, the
     if (m.sudden && key === VK && now >= b.sdAt) s += 7;   // AI: patient bots head for the vault later
     if (key === b.avoidRoom && now < b.avoidUntil) s -= 9;   // AI: not back into the room it ran from, yet
     if (key === p.room) s -= b.done[key] || !/^c/.test(key) ? 1 : 0;
+    if (c5) s += c5.terms[key] || 0;   // BOTS5: home work, Forge, Grand Recycler, tree rooms, heists, the vault, venting
     if (s > bs) { bs = s; best = key; }
   }
+  if (c5 && best) b5Pick(m, p, best, now);   // BOTS5: the goal the activity driver works on when the bot gets there
+  if (c5 && best === p.room && b.g5 && b.g5.room === p.room) return;   // BOTS5: the goal is this room: start on it now
   if (best && best !== p.room && routeTo(m, p, best)) return;
   b.route = [pointIn(p.room, 1.5)]; b.cross = false; b.idleUntil = now + rnd(1200, 4200);
 }
@@ -1169,6 +1432,7 @@ function botThink(m, p, now, dt) {
   }
   if (now < b.waitUntil) { idleLook(m, p, now); return; }   // AI: holding at the doorway
   if (rule('crown') && p.room === VK) { if (Math.hypot(p.x, p.z) > 1.0) stepTo(m, p, 0, 0, dt, now); return; }   // RULES crown: bots go and stand on the dais, and fight whoever is on it
+  if (bot && b5Think(m, p, now, dt)) return;   // BOTS5: the 5x5 goals (home work, stations, tree rooms, heists, the vault and its crown)
   if (b.route.length) {
     if (b.cross) b.speed = sprintOf(p);   // AI: sprint between rooms
     follow(m, p, dt, now); if (!b.route.length) b.idleUntil = Math.max(b.idleUntil, now + rnd(500, 2200)); return;   // arrived: look around a moment
@@ -1580,6 +1844,7 @@ wss.on('connection', (ws, req) => {
     let d; try { d = JSON.parse(raw.toString()); } catch { return; }
     if (p.dead && d && typeof d.ping === 'number' && Number.isFinite(d.ping)) return sendTo(ws, { pong: d.ping, t: srvT() });
     if (p.dead && d && d.botstat && process.env.GK_DEBUG) return sendTo(ws, { botstat: { n: BS.n, sum: BS.sum, max: BS.max, calls: BS.calls, bad: BS.bad, tick: TS, heap: process.memoryUsage().heapUsed, matches: matches.size, tokens: socTokens.size, ips: ipCount.size } });   // debug stats still answer a dead human (bots can kill the test client)
+    if (d && d.bot5 && process.env.GK_DEBUG) { if (typeof d.bot5 === 'object') bot5Lab(m, d.bot5); return sendTo(ws, { bot5: bot5Stat(m) }); }   // BOTS5: per-match bot stats (tests, sim), also for a dead spectator; {bot5:{goal}} lab
     if (p.dead || !d || typeof d !== 'object' || Array.isArray(d)) return;
     const dbg = !!process.env.GK_DEBUG;
     /* MATCH-BEGIN */ if (d.cancel === 1) { if (m.phase === 'queue') { leave(m, ws); ws.close(); } return; }

@@ -42,7 +42,11 @@ function inWall(x, z) {
         const wins = [0, 20, 50, 100, 200, 400, 800, 1600], cs = await Promise.all(wins.map(w => connect(srv.port, 'wins=' + w)));
         await sleep(4000); const st = await botstat(cs[0]);
         const mean = st.sum / st.n; console.log('         bot sweep (8 matches x 8 bots): mean ' + mean.toFixed(3) + ' ms, max ' + st.max.toFixed(2) + ' ms over ' + st.n + ' sweeps'); assert(st.n > 20, 'sweeps ran'); assert(mean < 2, 'mean bot sweep ' + mean + ' ms');
-        assert(st.bad <= 3, 'refused bot moves: ' + st.bad); for (const c of cs) await c.close();
+        assert(st.bad <= 3, 'refused bot moves: ' + st.bad);
+        { const n = cs[0].msgs.length; cs[0].send({ bot5: 1 }); await cs[0].until(x => x.msgs.slice(n).some(m => m.bot5), 2000, 'bot5'); const b5 = cs[0].msgs.slice(n).find(m => m.bot5).bot5, f = b5.f5 || {};   // BOTS5: per-feature cost of the 5x5 goals (pickDest scores, the activity driver, stations, votes, the stuck watchdog)
+          console.log('         5x5 goal features per sweep (ms): ' + Object.keys(f).map(k => k + ' ' + (f[k] / b5.sweeps).toFixed(3)).join(', '));
+          for (const k of Object.keys(f)) assert(f[k] / b5.sweeps < 0.4, 'BOTS5 feature ' + k + ' costs ' + (f[k] / b5.sweeps).toFixed(3) + ' ms per sweep'); }
+        for (const c of cs) await c.close();
       }],
     ]);
   } catch (e) { console.log('  FAIL  setup:', e.stack || e); }
