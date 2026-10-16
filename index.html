@@ -49,7 +49,7 @@ html.gkResume #menu{visibility:hidden}   /* SOCIAL: a reload during a match: no 
 #menu::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:linear-gradient(90deg,rgba(5,4,8,.88) 0%,rgba(5,4,8,.55) 34%,transparent 62%)}
 .col{width:min(520px,92vw);max-height:100vh;display:flex;flex-direction:column}
 .eyebrow{font-weight:600;letter-spacing:.42em;text-transform:uppercase;font-size:clamp(11px,1.9vh,15px);color:var(--ember);text-shadow:0 0 14px rgba(255,106,42,.6);margin:0 0 1.2vh .2em}
-h1.title{margin:0;font-family:var(--disp);font-weight:900;line-height:.92;font-size:clamp(40px,min(10.5vw,15.5vh),124px);letter-spacing:.02em;text-transform:uppercase;
+h1.title{margin:0;align-self:flex-start;width:max-content;max-width:none;padding-right:.08em;font-family:var(--disp);font-weight:900;line-height:.92;font-size:clamp(40px,min(10.5vw,15.5vh),124px);letter-spacing:.02em;text-transform:uppercase;
  background:linear-gradient(180deg,#fff3c4 0%,#f5c451 38%,#b9801f 58%,#ffe08a 74%,#8a5a10 100%);-webkit-background-clip:text;background-clip:text;color:transparent;
  filter:drop-shadow(0 2px 0 #3a2305) drop-shadow(0 0 22px rgba(245,170,50,.35)) drop-shadow(0 8px 24px rgba(0,0,0,.8))}
 h1.title span{display:block}
@@ -292,6 +292,47 @@ table.keys td:last-child{font-size:var(--t2);line-height:1.15;color:#d8d2bf}
 #qpips i.on{background:var(--gold);border-color:var(--gold2);box-shadow:0 0 10px var(--glow)}
 #qpips i.rdy{background:var(--teal);border-color:#aef6e6;box-shadow:0 0 10px rgba(56,214,180,.6)}
 @media (max-width:760px){#roll{flex-direction:column;gap:2vh}#wheelBox{--S:min(58vh,86vw)}#rside{width:min(440px,90vw);border-left:0;border-image:none;padding-left:0;text-align:center}#qpips{justify-content:center}}
+</style>
+<style>
+/* UI-POLISH: one look for the in-match HUD and every panel: gold on dark, square-cut like the title menu, the menu's condensed font, readable greys.
+   game.js builds these with inline styles, so the overrides below need !important. */
+#hud,#gkLeft>div{border-radius:3px!important;background:linear-gradient(180deg,rgba(18,15,12,.84),rgba(10,8,8,.84))!important;border:1px solid rgba(245,196,81,.26)!important;border-left:3px solid var(--gold3)!important;box-shadow:0 6px 18px rgba(0,0,0,.4);font-family:var(--ui)!important;letter-spacing:.03em}
+#gkLeft>div{font-size:16px!important;line-height:1.38!important;padding:8px 14px!important;min-width:208px}
+#gkLeft>div:is([style*="order:-1"],[style*="order: -1"]){border-left-color:var(--ember)!important}
+#gkLeft{gap:5px!important}
+#gkLeft small{font-size:.82em;color:#b9b4a6;letter-spacing:.06em}
+#gkLeft>div b{font-weight:700}
+#hud{padding:6px 14px 7px!important;font-family:var(--ui)!important;line-height:1.25!important}
+#me{font-size:clamp(18px,1.9vw,24px)!important;color:var(--gold)!important;text-transform:uppercase;letter-spacing:.08em!important}
+#cnt,.gkLobby{display:inline;font-size:clamp(14px,1.2vw,16px)!important;color:#c9c3b0!important;letter-spacing:.06em;text-transform:uppercase;margin:0!important}
+.gkLobby::before{content:"\00b7";margin:0 .5em;color:var(--gold3)}
+#hint{font-family:var(--ui)!important;font-size:15px!important;font-weight:600!important;letter-spacing:.06em;color:#d6d0be!important}
+#gkHot{border-radius:3px!important;border:1px solid rgba(245,196,81,.26)!important;background:linear-gradient(180deg,rgba(18,15,12,.7),rgba(10,8,8,.7))!important}
+.gks{border-radius:3px!important}
+.gks .kl{font-family:var(--ui)!important;font-size:13px!important;color:var(--gold2)!important}
+/* the HUD gets out of the way while a panel is open (the panel shows the same numbers) */
+body:has(:is(#gkInv,#gkShop,#gkRec,#gkCraft,#gkLoot)[style*="display: flex"]) :is(#hud,#gkLeft,#gkHot,#hint){visibility:hidden}
+/* panels: inventory, merchant, recycler, workbench, loot */
+#gkInv *,#gkShop *,#gkRec *,#gkCraft *,#gkLoot *{font-family:var(--ui)!important}
+:is(#gkInv,#gkShop,#gkRec,#gkCraft,#gkLoot) :is([style*="font-size:11px"],[style*="font-size: 11px"],[style*=" 11px system"]){font-size:13px!important}
+:is(#gkInv,#gkShop,#gkRec,#gkCraft,#gkLoot) .lab{font-size:13px!important}
+:is(#gkInv,#gkShop,#gkRec,#gkCraft,#gkLoot) :is([style*="font-size:12px"],[style*="font-size: 12px"],[style*=" 12px system"]){font-size:14px!important}
+:is(#gkInv,#gkShop,#gkRec,#gkCraft,#gkLoot) :is([style*="font-size:13px"],[style*="font-size: 13px"],[style*=" 13px system"]){font-size:15px!important}
+:is(#gkInv,#gkShop,#gkRec,#gkCraft,#gkLoot) :is([style*="font-size:14px"],[style*="font-size: 14px"],[style*=" 14px system"]){font-size:16px!important}
+:is(#gkInv,#gkShop,#gkRec,#gkCraft,#gkLoot) :is([style*="font-size:15px"],[style*="font-size: 15px"],[style*=" 15px system"]){font-size:17px!important}
+#gkInv>div,#gkShop>div,#gkRec>div,#gkCraft>div,#gkLoot>div{border-radius:3px!important;background:linear-gradient(180deg,rgba(20,17,13,.95),rgba(10,8,8,.95))!important;border:1px solid rgba(245,196,81,.35)!important;border-top:3px solid var(--gold3)!important;max-height:94vh;overflow:auto;scrollbar-width:thin;scrollbar-color:var(--gold3) transparent}
+#gkInv>div>div:first-child,#gkShop #shopTitle,#gkRec .ttl,#gkCraft .ttl,#gkLoot .ttl{font-family:var(--disp)!important;font-weight:700!important;letter-spacing:.06em!important;font-size:clamp(22px,3vw,30px)!important;color:var(--gold)!important}
+#gkInv .lab,#gkShop .lab,#gkRec .lab,#gkCraft .lab,#gkLoot .lab{color:#b9b4a6!important;letter-spacing:.2em!important}
+#gkInv button,#gkShop button,#gkRec button,#gkCraft button,#gkLoot button{border-radius:2px!important;letter-spacing:.14em!important;text-transform:uppercase}
+:is(#gkShop,#gkRec,#gkCraft,#gkLoot) [style*="border-radius:10px"],:is(#gkShop,#gkRec,#gkCraft,#gkLoot) [style*="border-radius: 10px"],:is(#gkShop,#gkRec,#gkCraft,#gkLoot) [style*="border-radius:8px"],:is(#gkShop,#gkRec,#gkCraft,#gkLoot) [style*="border-radius: 8px"]{border-radius:3px!important}
+#shopRows,#gkRec .body,#gkCraft .body,#gkLoot .body{max-height:min(58vh,520px);overflow:auto;padding-right:4px;scrollbar-width:thin;scrollbar-color:var(--gold3) transparent}
+/* inventory item tooltip and the "press E" prompts */
+div:is([style*="z-index:75"],[style*="z-index: 75"]){border-radius:3px!important;border:1px solid rgba(245,196,81,.5)!important;border-left:3px solid var(--gold)!important;font-family:var(--ui)!important;font-size:16px!important;padding:7px 12px!important;max-width:280px;background:rgba(10,8,8,.96)!important}
+.sheet{background:linear-gradient(180deg,rgba(18,15,12,.93),rgba(10,8,8,.93))}   /* the goblins on stage no longer show through the grids */
+@media (max-width:1000px){#hint{display:none!important}}   /* it wraps to four lines between the stat cards and the hotbar */
+@media (max-height:800px){.foot{display:none}}   /* the footer line would sit on top of the last menu button */
+#gkTip{border-radius:3px!important;font-family:var(--ui)!important;font-size:16px!important;border-left:3px solid var(--gold3)!important}
+div:is([style*="z-index:25"],[style*="z-index: 25"]){border-radius:3px!important;font-family:var(--ui)!important;font-size:16px!important}
 </style>
 <script type="importmap">{"imports":{"three":"/three/three.module.js","three/addons/":"/three/addons/"}}</script>
 </head>

@@ -3835,7 +3835,7 @@ const handleMsg0 = d => {
   const mine = actors.get(me);
   $('me').textContent = mine ? 'You are: ' + NAMES[mine.goblin] : GK.mode === 'dead' ? 'You are out' : GK.mode === 'win' ? 'You won' : 'Connecting...';   // after death or a win my actor is gone: do not claim we are still connecting
   if (mine) showStats(d.players.find(p => p.id === me), mine.goblin);
-  $('cnt').textContent = 'Goblin King  ·  ' + actors.size + ' online';
+  $('cnt').textContent = actors.size + ' online';
   if (mine && !assigned) { assigned = true; GK.onAssigned && GK.onAssigned(mine.goblin); }
 };
 let assigned = false;
@@ -3859,21 +3859,21 @@ function showStats(p, type) {   // small stat panel, bottom-left
   const packN = invReady ? myInv.backpack.filter(Boolean).length : 0;
   const max = st.maxHealth || st.health || 1;
   if (!statsEl._f) {   // PERF: the card is built once; each refresh only sets the text of the fields whose value changed
-    statsEl.innerHTML = '<div style="color:#ffd75e;letter-spacing:.06em;margin-bottom:4px"></div>'
+    statsEl.innerHTML = '<div style="display:none"></div>'
       + '<div style="display:flex;justify-content:space-between"><span>Attack</span><span></span></div>'
       + '<div style="display:flex;justify-content:space-between"><span>Knowledge</span><span id="hudKnow"></span></div>'
       + '<div style="display:flex;justify-content:space-between;align-items:center"><span>Gold</span><span><i class="gkcoin"></i> <b style="color:#ffd75e"></b></span></div>'
       + '<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,.12);font-weight:500;color:#cfd3dc"><div>Weapon: <b style="color:#f2efe6"></b> <small></small></div>'
       + '<div>Armour: <b style="color:#f2efe6"></b> <small></small></div>'
-      + '<div>Materials: <b style="color:#f2efe6"></b> <small>(Tab)</small></div>'
-      + '<div>Backpack: <b style="color:#f2efe6"></b> <small>(Tab)</small></div></div>';
+      + '<div>Materials: <b style="color:#f2efe6"></b></div>'
+      + '<div>Backpack: <b style="color:#f2efe6"></b></div></div>';
     const c = statsEl.children, g = c[3], gl = c[4].children;
     statsEl._f = { name: c[0], atk: c[1].lastChild, know: c[2].lastChild, gold: g.querySelector('b'), wep: gl[0].querySelector('b'), wepS: gl[0].querySelector('small'), arm: gl[1].querySelector('b'), armS: gl[1].querySelector('small'), mat: gl[2], matB: gl[2].querySelector('b'), pack: gl[3].querySelector('b') };
   }
   const F = statsEl._f, setT = (e, s) => { if (e._t !== s) { e._t = s; e.textContent = s; } };
   setT(F.name, NAMES[type].toUpperCase()); setT(F.atk, '' + st.attack); setT(F.know, fmtN(st.knowledge)); setT(F.gold, '' + myGold);
-  setT(F.wep, '' + gear.weapon); setT(F.wepS, '(' + (tierN(myInv.weapon) != null ? 'Tier ' + tierN(myInv.weapon) + ', ' : '') + st.attack + ' dmg)');
-  setT(F.arm, '' + gear.armor); setT(F.armS, '(' + (tierN(myInv.armor) != null ? 'Tier ' + tierN(myInv.armor) + ', ' : '') + max + ' HP)');
+  setT(F.wep, '' + gear.weapon); setT(F.wepS, tierN(myInv.weapon) != null ? 'T' + tierN(myInv.weapon) : '');   // the attack number is the row above
+  setT(F.arm, '' + gear.armor); setT(F.armS, tierN(myInv.armor) != null ? 'T' + tierN(myInv.armor) : '');   // max health is in the health card
   const pt = partsTotal(); if (F.mat._h !== !pt) { F.mat._h = !pt; F.mat.style.display = pt ? '' : 'none'; } setT(F.matB, '' + pt);
   setT(F.pack, packN + ' / 9');
   statsEl.style.display = GK.mode === 'play' ? 'block' : 'none';
@@ -4291,10 +4291,16 @@ function paintStatCol() {
     + row('Attack', s.attack, w ? itemName(w) : 'no weapon') + row('Health', s.health + ' / ' + s.maxHealth, a ? itemName(a) : 'no armour') + row('Knowledge', '<span class="knowv">' + fmtN(s.knowledge) + '</span>', 'innate + brains') + row('Gold', '<i class="gkcoin"></i> ' + myGold);
 }
 function flashBad(...ids) { for (const id of ids) for (const el of slotEls[id] || []) { el.classList.remove('bad'); void el.offsetWidth; el.classList.add('bad'); } }
+function cmpTxt(k) {   // UI-POLISH: "+4 attack vs Dagger" against whatever is equipped in that slot (empty for non-gear and for the equipped item itself)
+  const it = infoOf(k); if (!it || (it.type !== 'weapon' && it.type !== 'armor')) return '';
+  const cur = it.type === 'weapon' ? myInv.weapon : myInv.armor; if (cur == null || cur === k) return '';
+  const ci = infoOf(cur), w = it.type === 'weapon', d = (w ? it.attack : it.health) - (ci ? (w ? ci.attack : ci.health) : 0);
+  return '<span style="color:' + (d > 0 ? '#7be07b' : d < 0 ? '#ff8a7a' : '#b9b4a6') + '">' + (d > 0 ? '+' + d : d < 0 ? '\u2212' + (-d) : 'same') + ' ' + (w ? 'attack' : 'health') + ' vs ' + (ci ? ci.name : 'nothing') + '</span>';
+}
 function tipFor(k) {
   const it = infoOf(k); if (!it) return '<b>' + String(k).replace(/</g, '&lt;') + '</b>';
-  const kind = it.type === 'weapon' ? 'Weapon' : it.type === 'armor' ? 'Armour' : 'Consumable';
-  return '<b style="color:' + (TIER_COL[it.tier] || GOLD) + '">' + it.name + '</b><span style="color:#aaa59d">' + kind + ' · ' + statTxt(k) + (it.family === 'brain' ? '<br>Eat it for +' + fmtN(it.gain) + ' knowledge' : '') + '</span>';
+  const kind = it.type === 'weapon' ? 'Weapon' : it.type === 'armor' ? 'Armour' : it.type ? it.type[0].toUpperCase() + it.type.slice(1) : 'Item', cm = cmpTxt(k);
+  return '<b style="color:' + (TIER_COL[it.tier] || GOLD) + '">' + it.name + '</b><span style="color:#b9b4a6">' + kind + ' · ' + statTxt(k) + (cm ? '<br>' + cm : '') + (it.family === 'brain' ? '<br>Eat it for +' + fmtN(it.gain) + ' knowledge' : it.desc ? '<br><i>' + String(it.desc).replace(/</g, '&lt;') + '</i>' : '') + '</span>';
 }
 function paintGhost() {
   if (!ghostEl) return; ghostEl.textContent = '';
@@ -4361,7 +4367,7 @@ function buildInv() {
     const id = slotOf(e), k = id && !held ? invGet(myInv, id) : null;
     if (k == null) { hideTip(); return; }
     tipEl.innerHTML = tipFor(k).replace(/<span/, '<br><span'); tipEl.style.display = 'block';
-    tipEl.style.left = Math.min(e.clientX + 16, innerWidth - 190) + 'px'; tipEl.style.top = Math.min(e.clientY + 14, innerHeight - 60) + 'px';
+    tipEl.style.left = Math.max(4, Math.min(e.clientX + 16, innerWidth - tipEl.offsetWidth - 8)) + 'px'; tipEl.style.top = Math.max(4, Math.min(e.clientY + 14, innerHeight - tipEl.offsetHeight - 8)) + 'px';
   });
   dropBtn.onclick = () => { if (held) dropSlot(held); else { hintEl.style.color = '#ff8a7a'; hintEl.textContent = 'Pick up an item first, then press Drop (or right-click it)'; setTimeout(() => { hintEl.style.color = '#8d8880'; hintEl.textContent = 'Right-click an item to drop it  ·  Tab / I / Esc to close'; }, 2200); } };
   closeBtn.onclick = () => closeInv();
@@ -4382,9 +4388,9 @@ function closeInv(noLock) {
 function applyMatch(m) {
   if (!m) return;
   const hud = $('cnt') && $('cnt').parentNode; if (!hud) return;
-  if (!lobbyEl) { lobbyEl = document.createElement('div'); lobbyEl.style.cssText = 'font-size:clamp(11px,1.3vw,14px);color:#9aa0ad;margin-top:2px'; hud.appendChild(lobbyEl); }
+  if (!lobbyEl) { lobbyEl = document.createElement('div'); lobbyEl.className = 'gkLobby'; lobbyEl.style.cssText = 'font-size:clamp(11px,1.3vw,14px);color:#9aa0ad;margin-top:2px'; hud.appendChild(lobbyEl); }
   const lo = m.minWins | 0, hi = m.maxWins | 0, v = n => n + (n === 1 ? ' victory' : ' victories');
-  lobbyEl.textContent = 'Lobby: ' + (m.size | 0) + ' goblins · ' + (lo === hi ? v(lo) : lo + '-' + hi + ' victories');
+  lobbyEl.textContent = (lo === hi ? v(lo) : lo + '-' + hi + ' victories');
 }
 GK.showStats = () => { if (statsEl) statsEl.style.display = GK.mode === 'play' ? 'block' : 'none'; syncHotbar(); };
 GK.getInv = () => JSON.parse(JSON.stringify(myInv));
@@ -4521,7 +4527,7 @@ function paintShop() {
     const row = document.createElement('div'); row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:6px 10px;border-radius:10px;background:rgba(0,0,0,.35);border:1px solid rgba(255,215,94,.2)' + (it.sold ? ';opacity:.45' : '');
     const ic = document.createElement('div'); ic.style.cssText = 'width:48px;height:48px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:rgba(0,0,0,.4);flex:none'; ic.appendChild(mkIcon(it.key, 40));
     const tx = document.createElement('div'); tx.style.cssText = 'flex:1;min-width:0';
-    tx.innerHTML = '<div style="font-weight:700;font-size:15px;color:' + (TIER_COL[d.tier] || '#f2efe6') + '">' + d.name + '</div><div style="font-size:12px;color:#aaa59d">' + statTxt(it.key) + '</div>';
+    tx.innerHTML = '<div style="font-weight:700;font-size:15px;color:' + (TIER_COL[d.tier] || '#f2efe6') + '">' + d.name + '</div><div style="font-size:12px;color:#b9b4a6">' + statTxt(it.key) + '</div>' + (cmpTxt(it.key) ? '<div style="font-size:12px">' + cmpTxt(it.key) + '</div>' : '');
     const pr = document.createElement('div'); pr.style.cssText = 'font-weight:700;font-size:15px;min-width:64px;text-align:right;color:' + (myGold >= it.price ? GOLD : '#ff8a7a'); pr.innerHTML = coin + ' ' + it.price;
     const bt = document.createElement('button'); const can = !it.sold && myGold >= it.price && !full;
     bt.textContent = it.sold ? 'SOLD' : myGold < it.price ? 'NO GOLD' : full ? 'PACK FULL' : 'BUY'; bt.disabled = !can; bt.dataset.idx = idx;
@@ -6902,7 +6908,7 @@ window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw,
       if (e === card) continue;
       const cs = getComputedStyle(e); if (cs.position !== 'fixed' || cs.display === 'none' || +cs.opacity === 0) continue;
       const r = e.getBoundingClientRect();
-      if (r.width < 40 || r.height < 20 || r.left > 60 || r.bottom < innerHeight * 0.55 || r.top < innerHeight * 0.3) continue;
+      if (r.width < 40 || r.height < 20 || r.left > innerWidth * 0.15 || r.bottom < innerHeight * 0.55 || r.top < innerHeight * 0.3) continue;
       top = Math.min(top, r.top);
     }
     card.style.bottom = (innerHeight - top + 10) + 'px';
@@ -6922,6 +6928,7 @@ window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw,
 
   let goAt = 0, prevOpenVault = false;
   setInterval(() => {
+    if (cur) place();   // UI-POLISH: follow the stat cards (they appear and grow after the tip is shown)
     if (!st.on || GK.mode !== 'play' || GK.locked) { if (cur && GK.mode !== 'play') { cur = null; clearTimeout(hideT); card.style.display = 'none'; } return; }
     if (!goAt) goAt = performance.now();
     const ri = GK.roundInfo(), env = GK.tipEnv(), mine = env.mine, now = performance.now();
