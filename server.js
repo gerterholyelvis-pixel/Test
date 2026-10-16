@@ -606,9 +606,10 @@ function reach(m, from) {   // hops to every room reachable through open doors
   for (let h = 0; h < q.length; h++) for (const e of ADJ[q[h]] || []) if (dist[e.to] === undefined && m.open.includes(e.door)) { dist[e.to] = dist[q[h]] + 1; q.push(e.to); }
   return dist;
 }
+const tag = (w, door) => { const a = [w[0], w[1]]; a.door = door; return a; };   // a doorway waypoint remembers its door: follow() gives up when that door has closed meanwhile
 function routeTo(m, p, key, pt) {   // set p.brain.route: waypoints through the open doors to a point in room `key`; false when unreachable
   const path = bfsPath(m, p.room, key); if (!path) return false;
-  const r = []; for (const e of path) r.push(e.w1, e.w2);
+  const r = []; for (const e of path) r.push(tag(e.w1, e.door), tag(e.w2, e.door));
   r.push(pt || pointIn(key, 1.5)); p.brain.route = r; p.brain.cross = path.length > 0; return true;
 }
 const betterW = (cur, key) => key && info(key) && info(key).type === 'weapon' && info(key).attack > (cur ? info(cur).attack : -1);
@@ -631,7 +632,12 @@ function fillBots(m) {   // up to CAP goblins: bots get the normal goblin odds, 
   }
   m.dirty = true;
 }
-function newBrain(p, speed) { return { speed, route: [], cross: false, last: Date.now(), reactAt: 0, pauseUntil: 0, idleUntil: 0, tgt: null, seen: { [p.room]: 1 }, done: {}, skip: new Set(), seenRound: 0, votedRound: 0, voteAt: 0, mode: '', stuck: 0 }; }
+function newBrain(p, speed) {
+  const flee = 0.15 + Math.random() * 0.25;   // AI: personality, rolled once per bot. aggr: engagement range and nerve; flee: HP fraction at which it runs (15-40 %); greed: loot and merchant priority; patience: how late it votes, how long it waits at a doorway
+  return { speed, route: [], cross: false, last: Date.now(), reactAt: 0, pauseUntil: 0, idleUntil: 0, tgt: null, seen: { [p.room]: 1 }, done: {}, skip: new Set(), seenRound: 0, votedRound: 0, voteAt: 0, mode: '', stuck: 0,
+    aggr: rnd(0.3, 1), flee, caution: (flee - 0.15) / 0.25, greed: Math.random(), patience: Math.random(),
+    mem: {}, scan: null, scanAt: 0, scanDir: Math.random() < 0.5 ? -1 : 1, strafe: Math.random() < 0.5 ? -1 : 1, strafeAt: 0, orbitR: 1.5, rangeD: rnd(5, 8), backUntil: 0, jump: null, jumpAt: 0, kills: 0, lastHurt: 0, lootAt: 0, lootOff: 0, waitUntil: 0, blindUntil: 0, avoidUntil: 0, sdAt: 0, reAt: 0 };
+}
 
 // ---- mystery enemies: hostile NPCs in their mystery room, spawned at GO. They are in m.players with npc:kind but never count for "goblins left", the win or the match size.
 const NPC = {   // hp, dmg (per hit), cd ms, speed m/s, reaction ms [lo, hi], weapon, loot: [number of items, min tier 0-5], look = goblin model index for the client
@@ -678,54 +684,168 @@ function focusOf(m) {   // target id -> how many bots are attacking it right now
 }
 const noticed = (p, q, now) => !p.bot || !q.roomAt || now - q.roomAt >= BOT_NOTICE || (p.hitBy === q.id && now - (p.hurtAt || 0) < 2500);   // a bot ignores someone who just walked in, unless that someone hit it
 // FAIR-END
-function nearestEnemy(m, p, maxd, now) {
-  let best = null, bs = maxd + 99;
+// AI-BEGIN (human-like bots: perception, player-like movement, personality, target judgement; see docs/reports/bots-2.md). Bots only; mystery enemies (p.npc) keep the plain brain.
+const SPRINT = 7.5, WALK = 4.6, COS_FOV = Math.cos(75 * Math.PI / 180), SEE_FAR = 12, SEE_NEAR = 2.5, SEE_HIT_MS = 3000, SEE_MEM_MS = 4000;   // vision: 150 degree cone to 12 m, 2.5 m all round, 3 s after a hit, 4 s of memory
+const BOT_EMOTE_P = DBG && process.env.GK_BOT_EMOTE_P !== undefined ? +process.env.GK_BOT_EMOTE_P : 0.3;   // chance of an emote after a kill (GK_DEBUG only override, for the tests)
+const sprintOf = p => SPRINT * G.SPEED[p.goblin | 0], walkOf = p => WALK * G.SPEED[p.goblin | 0];   // the human speeds of this goblin class
+const hpFrac = q => q.stats.health / Math.max(1, q.stats.maxHealth);
+const power = q => Math.sqrt(Math.max(1, q.stats.health) * Math.max(1, q.stats.attack));   // how dangerous a goblin looks: health bar x weapon
+const angNorm = a => { a %= 2 * Math.PI; return a > Math.PI ? a - 2 * Math.PI : a < -Math.PI ? a + 2 * Math.PI : a; };
+const yawTo = (p, x, z) => Math.atan2(-(x - p.x), -(z - p.z));
+const humanIn = (m, room) => { for (const q of m.players.values()) if (isHum(q) && !q.dead && q.room === room) return true; return false; };
+function mv(m, p, x, z, yaw, now) {   // the one place a brain moves: applyMove plus the cosmetic jump arc (height in cm)
+  const b = p.brain; let jy = 0;
+  if (b.jump) { const f = (now - b.jump.t0) / b.jump.dur; if (f >= 1) b.jump = null; else jy = Math.round(b.jump.h * 4 * f * (1 - f)); }
+  return applyMove(m, null, p, x, z, yaw, now, jy);
+}
+function startJump(p, now) { const b = p.brain; if (b.jump || now < b.jumpAt) return; b.jump = { t0: now, dur: rnd(480, 620), h: rnd(55, 90) }; b.jumpAt = now + rnd(30000, 60000); }   // at most 1-2 a minute
+function inView(p, q) {   // 2.5 m all round, or inside the 150 degree cone in front of the yaw within 12 m
+  const dx = q.x - p.x, dz = q.z - p.z, d = Math.hypot(dx, dz);
+  return d <= SEE_NEAR || (d <= SEE_FAR && (dx * -Math.sin(p.yaw) + dz * -Math.cos(p.yaw)) / d >= COS_FOV);
+}
+function canSee(p, q, now) { return inView(p, q) || (p.hitBy === q.id && now - (p.hurtAt || 0) < SEE_HIT_MS && now >= (p.brain.blindUntil || 0)); }   // a hit from behind is only understood after the turn-around delay
+function perceive(m, p, now) {   // the goblins this bot notices right now (same room, FAIR notice delay, in view); remembers where it saw them
+  const b = p.brain, out = [];
   for (const q of m.players.values()) {
-    if (q === p || q.dead || !q.entered || q.room !== p.room || (p.npc && q.npc)) continue;
-    if (now && !noticed(p, q, now)) continue;   // FAIR
-    const d = Math.hypot(q.x - p.x, q.z - p.z); if (d >= maxd) continue;
-    let sc = d;
-    if (p.bot && m.focus) {   // spread the bots over the targets: a goblin that 2+ others already attack is less attractive, humans are not singled out
-      const others = (m.focus[q.id] || 0) - (p.brain && p.brain.tgt === q ? 1 : 0);
-      if (others >= 2) sc += GANG_PEN * (others - 1);
-      if (isHum(q)) sc += HUMAN_PEN;
-    }
+    if (q === p || q.dead || !q.entered || q.room !== p.room || !noticed(p, q, now) || !canSee(p, q, now)) continue;
+    const e = b.mem[q.id] || (b.mem[q.id] = {}); e.x = q.x; e.z = q.z; e.t = now; e.room = q.room; out.push(q);
+  }
+  return out;
+}
+function pickTarget(m, p, now, vis) {   // aggression sets the range and the nerve to take on a stronger goblin; weaker and wounded targets are preferred
+  const b = p.brain, engage = 4.5 + b.aggr * 3.5, willing = 1.8 + b.aggr * 6, me = power(p), waiting = now < b.waitUntil;
+  let best = null, bs = 1e9;
+  for (const q of vis) {
+    const d = Math.hypot(q.x - p.x, q.z - p.z), hit = p.hitBy === q.id && now - (p.hurtAt || 0) < SEE_HIT_MS, cur = b.tgt === q, rel = power(q) / me;
+    if (!hit && d > SEE_NEAR && (d >= engage + (cur ? 1.5 : 0) || waiting || rel > willing)) continue;
+    let sc = d - (cur ? 1 : 0);
+    const others = (m.focus ? m.focus[q.id] || 0 : 0) - (cur ? 1 : 0);
+    if (others >= 2) sc += GANG_PEN * (others - 1);
+    if (isHum(q)) sc += HUMAN_PEN;
+    sc += 2.2 * Math.log2(Math.max(0.25, Math.min(8, rel))) * (1.4 - b.aggr) - (1 - hpFrac(q)) * 3;
     if (sc < bs) { bs = sc; best = q; }
+  }
+  return best;
+}
+function idleLook(m, p, now) {   // standing around: every 1-3 s turn 60-180 degrees over about half a second, so something behind us gets noticed
+  const b = p.brain, s = b.scan;
+  if (s) { const f = (now - s.t0) / 500; if (f >= 1) { b.scan = null; mv(m, p, p.x, p.z, s.y1, now); } else mv(m, p, p.x, p.z, s.y0 + (s.y1 - s.y0) * f, now); return; }
+  if (!b.scanAt) b.scanAt = now + rnd(300, 1500);
+  if (now >= b.scanAt) {
+    if (Math.random() < 0.2) b.scanDir = -b.scanDir;
+    const y0 = angNorm(p.yaw); b.scan = { t0: now, y0, y1: y0 + b.scanDir * rnd(60, 180) * Math.PI / 180 }; b.scanAt = now + rnd(1000, 3000);
+  } else if (b.jump) mv(m, p, p.x, p.z, p.yaw, now);
+}
+function startFlee(m, p, from, nearest, now) {   // run for an open doorway (the nearest one, or the one farthest from `from`) and stay out of this room for a while
+  const b = p.brain, es = (ADJ[p.room] || []).filter(e => m.open.includes(e.door));
+  if (es.length) {
+    es.sort(nearest ? (a, c) => Math.hypot(a.w1[0] - p.x, a.w1[1] - p.z) - Math.hypot(c.w1[0] - p.x, c.w1[1] - p.z) : (a, c) => Math.hypot(c.w1[0] - from.x, c.w1[1] - from.z) - Math.hypot(a.w1[0] - from.x, a.w1[1] - from.z));
+    const e = es[0]; b.route = [tag(e.w1, e.door), tag(e.w2, e.door), [e.w2[0] + (e.w2[0] - e.w1[0]) * 1.2, e.w2[1] + (e.w2[1] - e.w1[1]) * 1.2]]; b.cross = true;
+  } else { b.route = [clampIn(p.room, p.x + (p.x - from.x) * 9, p.z + (p.z - from.z) * 9, 0.8)]; b.cross = false; }
+  b.mode = 'flee'; b.avoidRoom = p.room; b.avoidUntil = now + rnd(10000, 20000) * (0.6 + b.caution * 0.8); b.tgt = null; b.eng = null; b.search = null; b.waitUntil = 0; b.scan = null;
+}
+function onHurt(m, p, now) {   // a new hit landed on this bot
+  const b = p.brain; b.lastHurt = p.hurtAt;
+  let a = null; for (const q of m.players.values()) if (q.id === p.hitBy) { a = q; break; }
+  if (a && !a.dead && a.room === p.room && !inView(p, a)) { b.blindUntil = now + rnd(250, 500); b.turnTo = a.id; b.reactAt = Math.min(b.reactAt, b.blindUntil); } else b.blindUntil = 0;   // hit from outside the view: turn toward the attacker after 250-500 ms
+  b.hitT = (b.hitT || []).filter(t => now - t < 5000); b.hitT.push(now);
+  if (b.hitT.length >= 2 && now - b.lootAt < 2500) {   // hit twice while looting: stop looting, then fight or run according to caution
+    b.lootOff = now + 10000; b.route = [];
+    if (a && !a.dead && Math.random() < b.caution && power(a) > power(p) * 0.8) startFlee(m, p, a, true, now);
+  }
+}
+function onKill(m, p, now) {   // a short pause, now and then a hop and an emote (broadcast like socEmote, a bot has no socket)
+  const b = p.brain; b.tgt = null; b.eng = null; b.search = null; b.pauseUntil = Math.max(b.pauseUntil, now + rnd(500, 1200));
+  if (Math.random() < 0.5) startJump(p, now);
+  if (Math.random() < BOT_EMOTE_P && now - (p.emoteAt || 0) >= EMOTE_MS) { p.emoteAt = now; bcast(m, { emote: { id: p.id, n: Math.floor(Math.random() * EMOTES) } }); }
+}
+function botVote(m, p, now) {   // once per round at a personal moment (patient bots vote later); impatient ones may change their own vote in the last seconds, never over a human in the room
+  const b = p.brain;
+  if (b.seenRound !== m.round) { b.seenRound = m.round; b.voteAt = now + (rnd(0.05, 0.35) + b.patience * rnd(0.15, 0.5)) * Math.max(1000, m.endsAt - now); b.reAt = Math.random() < (1 - b.patience) * 0.45 ? m.endsAt - rnd(1200, 4800) : 0; }
+  else if (b.votedRound !== m.round) { if (now >= b.voteAt) { b.votedRound = m.round; if (m.sel[p.room] == null && !humanIn(m, p.room)) voteDoor(m, p, now); } }
+  else if (b.reAt && now >= b.reAt) { b.reAt = 0; if (m.sel[p.room] != null && m.selBy && m.selBy[p.room] === p.id && !humanIn(m, p.room)) voteDoor(m, p, now, m.sel[p.room]); }
+}
+function botFight(m, p, t, now, dt) {   // melee: orbit the target at 1.2-1.8 m, flip the strafe every 0.6-1.5 s, step back after some swings; ranged: keep 5-8 m and sidestep. Always facing the target. One validated move per tick.
+  const b = p.brain, cb = G.combat(p.inv.weapon), ranged = !!(cb.ranged || boltWeapon(p)), dx = t.x - p.x, dz = t.z - p.z, d = Math.hypot(dx, dz) || 0.001, rx = dx / d, rz = dz / d;
+  const hold = m.focusIds && m.focusIds[t.id] ? m.focusIds[t.id].indexOf(p.id) >= MAX_GANG : false;   // FAIR: the 3rd+ bot on the same goblin circles at HOLD_D instead of piling on
+  b.scan = null;
+  if (now >= b.strafeAt) { b.strafe = Math.random() < 0.85 ? -b.strafe : b.strafe; b.strafeAt = now + (ranged ? rnd(500, 1100) : rnd(600, 1500)); b.orbitR = rnd(1.2, 1.8); if (Math.random() < 0.2) b.rangeD = rnd(5, 8); }
+  const R = hold ? HOLD_D : ranged ? b.rangeD : b.orbitR, walk = walkOf(p), step = walk * dt, err = d - R, backing = !ranged && !hold && now < b.backUntil;
+  let cr, ct = 0;   // metres toward the target and sideways this tick
+  if (backing) cr = -step;
+  else if (err > (ranged ? 3 : 1.5)) cr = Math.min(err, sprintOf(p) * dt);   // far away: sprint at it
+  else { cr = Math.abs(err) < 0.25 ? 0 : Math.max(-step, Math.min(step, err * 0.9)); ct = Math.sqrt(Math.max(0, step * step - cr * cr)) * (ranged ? 0.7 : hold ? 0.5 : 0.85) * b.strafe; }
+  const px = p.x + rx * cr - rz * ct, pz = p.z + rz * cr + rx * ct, [nx, nz] = clampIn(p.room, px, pz, 0.5);
+  if (Math.abs(nx - px) + Math.abs(nz - pz) > 0.15) b.strafe = -b.strafe;   // a wall in the way: orbit the other way
+  if (!mv(m, p, nx, nz, yawTo({ x: nx, z: nz }, t.x, t.z) + (Math.random() - 0.5) * 0.18, now)) { BS.bad++; b.strafe = -b.strafe; return; }
+  if (!hold && !backing && Math.hypot(t.x - nx, t.z - nz) <= (ranged ? 10 : 2.0) && Math.random() < 0.85) {
+    if (Math.random() < BOT_MISS) mv(m, p, nx, nz, yawTo(p, t.x, t.z) + (Math.random() < 0.5 ? -1 : 1) * (1.5 + Math.random() * 0.5), now);   // FAIR: a swing aimed wide on purpose
+    attack(m, null, p, now);
+    if (p.atkAt === now && !ranged && Math.random() < 0.33) b.backUntil = now + rnd(1, 2) / walk * 1000;
+  }
+}
+function npcFight(m, p, t, now, dt) {   // mystery enemies: close in, face, swing; archers keep their distance
+  const b = p.brain, cb = G.combat(p.inv.weapon), ranged = cb.ranged || boltWeapon(p), d = Math.hypot(t.x - p.x, t.z - p.z), want = ranged ? (p.npc === 'archer' ? 7 : 5) : 1.4;
+  b.route = [];
+  if (d > want + 0.4) { const [tx, tz] = clampIn(p.room, t.x, t.z, 0.5); stepTo(m, p, tx, tz, dt, now); }
+  else if (ranged && d < want - 2.5) { const [tx, tz] = clampIn(p.room, p.x + (p.x - t.x) * 3, p.z + (p.z - t.z) * 3, 0.8); stepTo(m, p, tx, tz, dt, now); }
+  else face(m, p, t.x, t.z, now, true);
+  if (d <= (ranged ? 10 : 2.0) && Math.random() < 0.85) {
+    if (Math.random() < NPC_MISS) mv(m, p, p.x, p.z, yawTo(p, t.x, t.z) + (Math.random() < 0.5 ? -1 : 1) * (1.5 + Math.random() * 0.5), now); else face(m, p, t.x, t.z, now, true);
+    attack(m, null, p, now);
+  }
+}
+// AI-END
+function nearestEnemy(m, p, maxd) {   // mystery enemies only (omniscient, the same room); bots use perceive() + pickTarget()
+  let best = null, bd = maxd;
+  for (const q of m.players.values()) {
+    if (q === p || q.dead || !q.entered || q.room !== p.room || q.npc) continue;
+    const d = Math.hypot(q.x - p.x, q.z - p.z); if (d < bd) { bd = d; best = q; }
   }
   return best;
 }
 function face(m, p, x, z, now, jitter) {   // turn toward a point (with aim jitter) without moving
   const yaw = Math.atan2(-(x - p.x), -(z - p.z)) + (jitter ? (Math.random() - 0.5) * 0.22 : 0);
-  applyMove(m, null, p, p.x, p.z, yaw, now);
+  mv(m, p, p.x, p.z, yaw, now);
 }
 function stepTo(m, p, tx, tz, dt, now, free) {   // one validated step toward (tx, tz); returns true when there. `free`: a doorway crossing (no wall margin)
   const b = p.brain, dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz);
   if (d < 0.08) return true;
   const st = Math.min(d, b.speed * dt); let nx = p.x + dx / d * st, nz = p.z + dz / d * st;
   if (!free) [nx, nz] = clampIn(p.room, nx, nz, 0.5);
-  if (!applyMove(m, null, p, nx, nz, Math.atan2(-dx, -dz), now)) { BS.bad++; if (++b.stuck > 3) { b.route = []; b.stuck = 0; b.idleUntil = now + 300; } return false; }
+  b.scan = null;
+  if (!mv(m, p, nx, nz, Math.atan2(-dx, -dz), now)) { BS.bad++; if (++b.stuck > 3) { b.route = []; b.stuck = 0; b.idleUntil = now + 300; } return false; }
   b.stuck = 0; return d <= st + 0.05;
 }
 function follow(m, p, dt, now) {   // walk the current route (waypoints are pre-validated points: doorway fronts, doorway exits, room points)
   const b = p.brain; if (!b.route.length) return;
-  const wp = b.route[0]; if (stepTo(m, p, wp[0], wp[1], dt, now, true)) b.route.shift();
+  const wp = b.route[0];
+  if (wp.door !== undefined && !m.open.includes(wp.door)) { b.route = []; b.idleUntil = now + rnd(200, 600); return; }   // the door closed while we were on our way: plan again
+  if (stepTo(m, p, wp[0], wp[1], dt, now, true)) b.route.shift();
 }
-function voteDoor(m, p, now) {
-  const b = p.brain, doors = ROOM_DOORS[p.room] || [], ws = [];
+function voteDoor(m, p, now, except) {   // weighted pick of a door of this room; `except`: a door the bot is changing its mind about
+  const b = p.brain, doors = ROOM_DOORS[p.room] || [], ws = [], hurt = p.stats.health < p.stats.maxHealth * 0.5, rich = p.gold >= 60;
   let tot = 0;
   for (const d of doors) {
     const o = DOOR_ROOMS[d][0] === p.room ? DOOR_ROOMS[d][1] : DOOR_ROOMS[d][0]; let w;
-    if (o === '4') w = m.round > 3 ? 7 : 0.4;
-    else if (o[0] === 'c') w = !b.seen[o] ? (m.round <= 3 ? 3.5 : 1.5) : 0.6;
-    else w = 1 + (m.round > 3 && DIST_V[o] < DIST_V[p.room] ? 3 : 0);
+    if (d === except) w = 0;
+    else if (o === '4') w = (m.round > 3 ? 7 : 0.4) * (hurt ? 0.5 : 1);   // late rounds: the vault (not when wounded)
+    else if (o[0] === 'c') {
+      const id = +o.slice(1), L = m.layout[id], my = m.mystery[id];
+      w = !b.seen[o] ? (m.round <= 3 ? 3.5 : 1.5) : 0.6;
+      if (L === 'merchant') w *= rich ? 3 + 2 * b.greed : 0.5;   // rich bots (gold >= 60) go shopping
+      else if (L === 'chest') w *= p.claimed && p.claimed.has(id) ? 0.3 : hurt ? 2.5 : 1;   // wounded bots want a quiet chest room
+      else if (L === 'mystery' && my && my.kind === 'enemy') w *= hurt ? 0.25 : 1;
+    } else w = 1 + (m.round > 3 && DIST_V[o] < DIST_V[p.room] ? 3 : 0);
     ws.push(w); tot += w;
   }
-  if (!doors.length) return;
-  let r = Math.random() * tot, pick = doors[0]; for (let i = 0; i < doors.length; i++) if ((r -= ws[i]) < 0) { pick = doors[i]; break; }
+  if (!doors.length || tot <= 0) return;
+  let r = Math.random() * tot, pick = null; for (let i = 0; i < doors.length; i++) if (ws[i] > 0 && (r -= ws[i]) < 0) { pick = doors[i]; break; }
+  if (pick == null) pick = doors.find(d => d !== except && ws[doors.indexOf(d)] > 0); if (pick == null) return;
   if (m.sel[p.room] !== pick) { m.sel[p.room] = pick; (m.selBy || (m.selBy = {}))[p.room] = p.id; broadcastRound(m); }
 }
 function lootNearby(m, p, dt, now) {   // walk to useful loot piles in this room and take/eat what helps; returns true while busy with it
-  const b = p.brain; let best = null, bd = 18;
+  const b = p.brain; let best = null, bd = 8 + 12 * b.greed;   // AI: greedy bots walk further for loot
   for (const dr of m.drops) {
     if (b.skip.has(dr.id) || roomKeyOf(dr.x, dr.z) !== p.room) continue;
     if (!dr.items.some(k => G.isBrain(k) || betterW(p.inv.weapon, k) || betterA(p.inv.armor, k))) { b.skip.add(dr.id); continue; }
@@ -759,16 +879,17 @@ function pickDest(m, p, now) {   // idle: where to go next (claimable rooms, the
     let s = Math.random() * 2 - dist[key] * 0.35, mm = /^c(\d+)$/.exec(key);
     if (mm) {
       const id = +mm[1], L = m.layout[id], my = m.mystery[id];
-      if (L === 'chest' && !(p.claimed && p.claimed.has(id))) s += 6;
+      if (L === 'chest' && !(p.claimed && p.claimed.has(id))) s += 5 + b.greed + (p.stats.health < p.stats.maxHealth * 0.5 ? 2 : 0);   // AI: wounded bots like quiet chest rooms
       else if (L === 'mystery' && my && ['weapon', 'armor', 'gold'].includes(my.kind) && !(p.claimed && p.claimed.has(id))) s += 5;
-      else if (L === 'merchant' && !b.done[key] && p.gold >= 20) s += 4;
+      else if (L === 'merchant' && !b.done[key] && p.gold >= 20) s += 2 + 4 * b.greed + (p.gold >= 60 ? 2 : 0);   // AI: greed, and rich bots shop
       else if (L === 'merchant' || (L === 'mystery' && my && my.kind === 'stations')) s += !b.done[key] && botNeedsStation(p) ? 3 : -1;   // LOOT: junk to recycle
       else if (L === 'mystery' && my && my.kind === 'enemy') s += m.round > 2 && p.stats.health > p.stats.maxHealth * 0.7 ? 0.5 : -3;
       else s -= 1;
     } else if (key === '4') s += (rule('crown') ? 9 : 0) + (m.round > 3 ? 4 : -1) + (relicFree(m) && p.inv.backpack.indexOf(null) >= 0 ? 14 : 0);   // LOOT: bots want the vault relic
     else s += (b.seen[key] ? 0 : 1);
-    if (m.round >= 3 && hunt[key]) s += m.sudden ? 0.6 : 2.5;   // in sudden death everyone converges on the vault (and its relic), not on whoever is in the next room
-    if (m.sudden && key === '4') s += 7;
+    if (m.round >= 3 && hunt[key]) s += (m.sudden ? 0.6 : 2.5) * (0.4 + b.aggr);   // AI: aggressive bots hunt   // in sudden death everyone converges on the vault (and its relic), not on whoever is in the next room
+    if (m.sudden && key === '4' && now >= b.sdAt) s += 7;   // AI: patient bots head for the vault later
+    if (key === b.avoidRoom && now < b.avoidUntil) s -= 9;   // AI: not back into the room it ran from, yet
     if (key === p.room) s -= b.done[key] || !/^c/.test(key) ? 1 : 0;
     if (s > bs) { bs = s; best = key; }
   }
@@ -776,58 +897,69 @@ function pickDest(m, p, now) {   // idle: where to go next (claimable rooms, the
   b.route = [pointIn(p.room, 1.5)]; b.cross = false; b.idleUntil = now + rnd(1200, 4200);
 }
 function botThink(m, p, now, dt) {
-  const b = p.brain, fighter = graceOver(m, now);   // bots AND mystery enemies: no attacks in round 1 or for BOT_GRACE after GO
+  const b = p.brain, fighter = graceOver(m, now), bot = p.bot;   // bots AND mystery enemies: no attacks in round 1 or for BOT_GRACE after GO
   b.seen[p.room] = 1;
-  if (p.bot) {   // door vote (once per round, at a random moment of the round, never over a human in the same room)
-    if (b.seenRound !== m.round) { b.seenRound = m.round; b.voteAt = now + rnd(0.1, 0.8) * Math.max(1000, m.endsAt - now); }
-    else if (b.votedRound !== m.round && now >= b.voteAt) {
-      b.votedRound = m.round;
-      let human = false; for (const q of m.players.values()) if (isHum(q) && !q.dead && q.room === p.room) { human = true; break; }
-      if (!human && m.sel[p.room] == null) voteDoor(m, p, now);
-    }
+  if (bot) {   // AI: bookkeeping that bots do like players (votes, being hit, kills, rooms)
+    botVote(m, p, now); b.speed = walkOf(p);
+    if (b.room !== p.room) { if (b.room !== undefined && Math.random() < 0.12) startJump(p, now); b.room = p.room; }   // a hop in the doorway now and then
+    if (p.hurtAt && p.hurtAt !== b.lastHurt) onHurt(m, p, now);
+    if ((p.kills | 0) !== b.kills) { b.kills = p.kills | 0; onKill(m, p, now); }
+    if (m.sudden && !b.sdAtSet) { b.sdAtSet = true; b.sdAt = now + (0.1 + 0.9 * b.patience) * rnd(1000, 9000); }   // sudden death: everyone wants the vault, at staggered times
+    else if (b.sdAtSet && b.sdAt && now >= b.sdAt) { b.sdAt = 0; b.idleUntil = Math.min(b.idleUntil, now); }
+    if (b.chkAt !== p.roomAt) { b.chkAt = p.roomAt; b.reactAt = 0; b.entering = true; }
   }
-  if (now < b.pauseUntil) return;
+  if (now < b.pauseUntil) { if (b.jump) mv(m, p, p.x, p.z, p.yaw, now); return; }
   { const lu = lureFor(m, p, now); if (lu) { b.route = []; b.tgt = null; b.mode = ''; const [lx, lz] = clampIn(p.room, lu.x, lu.z, 0.5); if (Math.hypot(lx - p.x, lz - p.z) > 0.9) stepTo(m, p, lx, lz, dt, now); return; } }   // LOOT: a thrown plushie distracts
+  if (b.turnTo && now >= b.blindUntil) {   // AI: turn toward whoever hit us from outside the view
+    for (const q of m.players.values()) if (q.id === b.turnTo && !q.dead && q.room === p.room) { mv(m, p, p.x, p.z, yawTo(p, q.x, q.z), now); break; }
+    b.turnTo = 0;
+  }
   // reaction: re-decide the target every 200-400 ms (human-like delay)
   if (now >= b.reactAt) {
     b.reactAt = now + (b.react ? rnd(b.react[0], b.react[1]) : rnd(200, 400));
-    const tg = fighter ? nearestEnemy(m, p, 6, now) : null;
-    if (p.npc) { if (tg && tg.room === p.room) { if (!b.seenAt) b.seenAt = now; } else b.seenAt = 0; b.tgt = tg && b.seenAt && now - b.seenAt >= NPC_AGGRO ? tg : null; }   // enemies wait until someone has stood in their room for NPC_AGGRO
-    else b.tgt = tg;
-    if (!p.npc && Math.random() < 0.04) { b.pauseUntil = now + rnd(300, 800); return; }   // occasional hesitation
+    if (p.npc) {
+      const tg = fighter ? nearestEnemy(m, p, 6) : null;
+      if (tg && tg.room === p.room) { if (!b.seenAt) b.seenAt = now; } else b.seenAt = 0; b.tgt = tg && b.seenAt && now - b.seenAt >= NPC_AGGRO ? tg : null;   // enemies wait until someone has stood in their room for NPC_AGGRO
+    } else {
+      const vis = fighter ? perceive(m, p, now) : null, prev = b.tgt;   // AI: only what the bot can see
+      if (b.entering) { b.entering = false; if (vis && vis.length >= 2) b.waitUntil = now + b.patience * 2000; }   // two or more enemies in the room we just entered: wait at the doorway first
+      const tg = vis ? pickTarget(m, p, now, vis) : null; b.tgt = tg;
+      if (tg) {
+        b.search = null; const e = b.eng;
+        if (!e || e.id !== tg.id) b.eng = { id: tg.id, t0: now, my: hpFrac(p), his: hpFrac(tg) };
+        else if (now - e.t0 > 1800 && e.my - hpFrac(p) > 0.15 && e.my - hpFrac(p) > (e.his - hpFrac(tg)) * 1.4 && power(tg) > power(p) * 1.1 && Math.random() < 0.3 + b.caution * 0.7) startFlee(m, p, tg, true, now);   // losing to someone stronger: retreat through the nearest door
+      } else {
+        b.eng = null;
+        if (prev && !prev.dead && prev.room === p.room && b.mem[prev.id] && now - b.mem[prev.id].t < SEE_MEM_MS) b.search = b.mem[prev.id];   // dropped out of view: go and check the spot
+      }
+      if (Math.random() < 0.04) { b.pauseUntil = now + rnd(300, 800); return; }   // occasional hesitation
+    }
   }
   const t = b.tgt && !b.tgt.dead && b.tgt.room === p.room ? b.tgt : null;
-  if (p.bot && t && p.stats.health < p.stats.maxHealth * 0.25 && b.mode !== 'flee') {   // flee toward a door
-    const es = (ADJ[p.room] || []).filter(e => m.open.includes(e.door));
-    if (es.length) { es.sort((a, c) => Math.hypot(c.w1[0] - t.x, c.w1[1] - t.z) - Math.hypot(a.w1[0] - t.x, a.w1[1] - t.z)); const e = es[0]; b.route = [e.w1, e.w2, [e.w2[0] + (e.w2[0] - e.w1[0]) * 1.2, e.w2[1] + (e.w2[1] - e.w1[1]) * 1.2]]; b.cross = true; b.mode = 'flee'; }
-    else { const r = RB[p.room]; b.route = [clampIn(p.room, p.x + (p.x - t.x) * 9, p.z + (p.z - t.z) * 9, 0.8)]; b.cross = false; b.mode = 'flee'; }
-  }
-  if (b.mode === 'flee') { if (!b.route.length) b.mode = ''; else { follow(m, p, dt, now); return; } }
-  if (t) {   // fight: close in, face, swing (attack() enforces cooldown, range and cone like for players)
-    const cb = G.combat(p.inv.weapon), ranged = cb.ranged || boltWeapon(p), d = Math.hypot(t.x - p.x, t.z - p.z);
-    const rank = p.bot && m.focusIds && m.focusIds[t.id] ? m.focusIds[t.id].indexOf(p.id) : 0, hold = rank >= MAX_GANG;   // FAIR: the 3rd+ bot on the same goblin circles instead of piling on
-    const want = hold ? HOLD_D : ranged ? (p.npc === 'archer' ? 7 : 5) : 1.4;
-    b.route = [];
-    if (d > want + 0.4) { const [tx, tz] = clampIn(p.room, t.x, t.z, 0.5); stepTo(m, p, tx, tz, dt, now); }
-    else if ((ranged || hold) && d < want - (hold ? 0.8 : 2.5)) { const [tx, tz] = clampIn(p.room, p.x + (p.x - t.x) * 3, p.z + (p.z - t.z) * 3, 0.8); stepTo(m, p, tx, tz, dt, now); }
-    else face(m, p, t.x, t.z, now, true);
-    if (!hold && d <= (ranged ? 10 : 2.0) && Math.random() < 0.85) {   // FAIR: some swings are aimed wide on purpose (a miss the target can see and punish)
-      if (Math.random() < (p.npc ? NPC_MISS : BOT_MISS)) applyMove(m, null, p, p.x, p.z, Math.atan2(-(t.x - p.x), -(t.z - p.z)) + (Math.random() < 0.5 ? -1 : 1) * (1.5 + Math.random() * 0.5), now);
-      else face(m, p, t.x, t.z, now, true);
-      attack(m, null, p, now);
-    }
-    return;
-  }
+  if (bot && t && b.mode !== 'flee' && p.stats.health < p.stats.maxHealth * b.flee) startFlee(m, p, t, false, now);   // flee toward the farthest door at the personal HP threshold
+  if (b.mode === 'flee') { if (!b.route.length) b.mode = ''; else { if (bot) b.speed = sprintOf(p); follow(m, p, dt, now); return; } }
+  if (t) { if (bot) botFight(m, p, t, now, dt); else npcFight(m, p, t, now, dt); return; }
   if (p.npc) {   // stay in the room: drift back home
     if (Math.hypot(p.x - p.home[0], p.z - p.home[1]) > 0.6) stepTo(m, p, p.home[0], p.home[1], dt, now);
     return;
   }
-  if (rule('crown') && p.bot && p.room === '4') { if (Math.hypot(p.x, p.z) > 1.0) stepTo(m, p, 0, 0, dt, now); return; }   // RULES crown: bots go and stand on the dais, and fight whoever is on it
-  if (b.route.length) { follow(m, p, dt, now); return; }
-  if (lootNearby(m, p, dt, now)) return;
-  if (p.bot && relicGoal(m, p, dt, now)) return;   // LOOT
-  roomGoals(m, p);
-  if (now >= b.idleUntil) pickDest(m, p, now);
+  if (b.search) {   // AI: walk to where the target was last seen
+    const s = b.search;
+    if (now - s.t >= SEE_MEM_MS || s.room !== p.room) b.search = null;
+    else if (Math.hypot(s.x - p.x, s.z - p.z) < 1.0) { b.search = null; b.scanAt = now; }
+    else { const [tx, tz] = clampIn(p.room, s.x, s.z, 0.5); stepTo(m, p, tx, tz, dt, now); return; }
+  }
+  if (now < b.waitUntil) { idleLook(m, p, now); return; }   // AI: holding at the doorway
+  if (rule('crown') && p.room === '4') { if (Math.hypot(p.x, p.z) > 1.0) stepTo(m, p, 0, 0, dt, now); return; }   // RULES crown: bots go and stand on the dais, and fight whoever is on it
+  if (b.route.length) {
+    if (b.cross) b.speed = sprintOf(p);   // AI: sprint between rooms
+    follow(m, p, dt, now); if (!b.route.length) b.idleUntil = Math.max(b.idleUntil, now + rnd(500, 2200)); return;   // arrived: look around a moment
+  }
+  const looting = now >= b.lootOff;
+  if (looting && lootNearby(m, p, dt, now)) { b.lootAt = now; return; }
+  if (relicGoal(m, p, dt, now)) { b.lootAt = now; return; }   // LOOT
+  if (looting) { const dn = b.done[p.room]; roomGoals(m, p); if (!dn && b.done[p.room]) b.lootAt = now; }
+  if (now >= b.idleUntil) pickDest(m, p, now); else idleLook(m, p, now);
 }
 function botTick(m, now) {   // ~10 Hz per match
   if (m.phase !== 'play') return;
@@ -900,9 +1032,11 @@ function botLab(m, ws, p, cmd) {   // GK_DEBUG only, for tests. 'station': make 
     const c = WORLD.CHEST[0]; bot.brain.route = []; bot.brain.done = {}; bot.brain.idleUntil = 0; bot.brain.mode = ''; place(bot, c.cx, c.cz); m.dirty = true; BS.rec = 0; BS.cra = 0;
   } else if (cmd && Array.isArray(cmd.near) && bot) {   // {near:[x,z]} one bot; {near:[x,z], all:1} every living bot in a small grid, or on a ring of radius `ring` around the point
     const bots = cmd.all ? [...m.players.values()].filter(q => q.bot && !q.dead) : [bot], r = +cmd.ring > 0 ? +cmd.ring : 0;
-    bots.forEach((q, i) => { const a = 2 * Math.PI * i / bots.length; place(q, cmd.near[0] + (r ? Math.cos(a) * r : (i % 3) * 0.8), cmd.near[1] + (r ? Math.sin(a) * r : Math.floor(i / 3) * 0.8)); q.brain.route = []; q.brain.idleUntil = Date.now() + 60000; q.brain.mode = ''; q.roomAt = 0; }); m.dirty = true;   // roomAt 0: they count as long-time residents
+    bots.forEach((q, i) => { const a = 2 * Math.PI * i / bots.length; place(q, cmd.near[0] + (r ? Math.cos(a) * r : (i % 3) * 0.8), cmd.near[1] + (r ? Math.sin(a) * r : Math.floor(i / 3) * 0.8)); q.brain.route = []; q.brain.idleUntil = Date.now() + 60000; q.brain.mode = ''; q.roomAt = 0; q.brain.tgt = null; q.brain.search = null; q.brain.scan = null; q.brain.waitUntil = 0; q.brain.pauseUntil = 0;
+      if (typeof cmd.yaw === 'number') q.yaw = cmd.yaw; else if (r) q.yaw = yawTo(q, cmd.near[0], cmd.near[1]);   // ring bots face the middle unless {yaw} says otherwise
+      q.brain.scanAt = typeof cmd.scanAfter === 'number' ? Date.now() + cmd.scanAfter : 0; q.sd = true; if (cmd.wpn === 'none' || (typeof cmd.wpn === 'string' && G.ITEMS[cmd.wpn])) { q.inv.weapon = cmd.wpn === 'none' ? null : cmd.wpn; recalc(q); } }); m.dirty = true;   // wpn: give the bot that weapon ('none': unarmed, 1 damage, keeps a test human alive). roomAt 0: they count as long-time residents. scanAfter: ms before the idle bot first looks around
   }
-  sendTo(ws, { botlab: { rec: BS.rec || 0, cra: BS.cra || 0, pos: bot ? [bot.x, bot.z] : null, junk: bot ? bot.inv.backpack.filter(k => k === 'w:stick').length : 0, room: bot ? bot.room : null, wpn: bot ? bot.inv.weapon : null } });
+  sendTo(ws, { botlab: { rec: BS.rec || 0, cra: BS.cra || 0, pos: bot ? [bot.x, bot.z] : null, junk: bot ? bot.inv.backpack.filter(k => k === 'w:stick').length : 0, room: bot ? bot.room : null, wpn: bot ? bot.inv.weapon : null, yaw: bot ? bot.yaw : null, ai: bot ? { aggr: bot.brain.aggr, flee: bot.brain.flee, greed: bot.brain.greed, patience: bot.brain.patience } : null } });
 }
 // LOOT-END
 
