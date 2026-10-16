@@ -278,6 +278,16 @@ table.keys td:last-child{font-size:var(--t2);line-height:1.15;color:#d8d2bf}
 .rs-items{display:flex;flex-wrap:wrap;gap:var(--s1);justify-content:center;min-height:30px}
 .rs-item{width:76px;padding:6px 2px 5px;background:linear-gradient(180deg,#1b1813,#0e0c09);border:1px solid #4a4030;text-align:center;font-size:var(--t1);line-height:1.15;display:flex;flex-direction:column;align-items:center;gap:3px;color:#cfc9b6}
 @media (max-width:760px){.rs.win{justify-content:center;padding-left:4vw;background:rgba(5,4,8,.55)}.rs-card{background:rgba(12,10,8,.88)}.rs-btns{flex-direction:column}}
+
+/* queue wheel screen: plaque with a brass rule, seat pips */
+#rside{padding-left:clamp(14px,2vw,26px);border-left:2px solid transparent;border-image:linear-gradient(180deg,transparent,var(--gold) 20%,var(--gold3) 80%,transparent) 1}
+.rk{font-size:var(--t1)}.rstat{font-size:var(--t2)}#qfind{font-size:var(--t3)}#qtime{font-size:var(--t2)}#reveal p{font-size:var(--t2)}#reveal .odds{font-size:var(--t1)}
+#qbox{text-align:left}
+#qpips{display:flex;gap:10px;margin:var(--s2) 0 var(--s1)}
+#qpips i{width:13px;height:13px;border:1.5px solid var(--gold3);transform:rotate(45deg);background:#14110c;transition:background .25s,box-shadow .25s,border-color .25s}
+#qpips i.on{background:var(--gold);border-color:var(--gold2);box-shadow:0 0 10px var(--glow)}
+#qpips i.rdy{background:var(--teal);border-color:#aef6e6;box-shadow:0 0 10px rgba(56,214,180,.6)}
+@media (max-width:760px){#roll{flex-direction:column;gap:2vh}#wheelBox{--S:min(58vh,86vw)}#rside{width:min(440px,90vw);border-left:0;border-image:none;padding-left:0;text-align:center}#qpips{justify-content:center}}
 </style>
 <script type="importmap">{"imports":{"three":"/three/three.module.js","three/addons/":"/three/addons/"}}</script>
 </head>
@@ -398,7 +408,7 @@ table.keys td:last-child{font-size:var(--t2);line-height:1.15;color:#d8d2bf}
    <p id="vflav"></p>
    <div class="odds" id="vodds"></div>
   </div>
-  <div id="qbox"><div id="qfind">Finding goblins</div><div id="qtime">0:00</div><button class="mbtn small" id="qcancel">Cancel</button></div>
+  <div id="qbox"><div id="qfind">Finding goblins</div><div id="qpips"></div><div id="qtime">0:00</div><button class="mbtn small" id="qcancel">Cancel</button></div>
  </div>
 </div>
 

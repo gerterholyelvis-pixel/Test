@@ -532,6 +532,10 @@ GK.menuDebug = { addDemoSave() {
 $('retry').onclick = () => location.reload();
 // MATCH-BEGIN (the wheel screen is the queue: "Finding goblins N/8", elapsed time, Cancel; the match start moves you into the rooms, see game.js MATCH block)
 let qT0 = 0, qTimer = 0, qDone = false;
+function pips(n, size, cls) {   // one diamond per seat: gold while the match fills, teal as goblins report ready
+  const box = $('qpips'); if (!box) return; if (box.children.length !== size) { box.textContent = ''; for (let i = 0; i < size; i++) box.appendChild(document.createElement('i')); }
+  [...box.children].forEach((d, i) => { d.className = i < n ? cls : ''; });
+}
 function qFmt(ms) { const s = Math.max(0, Math.floor(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
 function queueStart() {
   qT0 = performance.now(); qDone = false; $('qbox').classList.add('on'); $('qfind').textContent = 'Finding goblins'; $('qtime').textContent = '0:00';
@@ -551,9 +555,9 @@ GK.menu = {
   },
   _wheel: wh,
   /* MATCH-BEGIN */
-  queue(n, size, since) { if (qDone) return; if (since > 0) qT0 = performance.now() - since; $('qfind').textContent = 'Finding goblins ' + n + '/' + size; },
-  queueDone() { qDone = true; $('qfind').textContent = 'Waiting for goblins…'; $('qtime').textContent = ''; $('qcancel').style.display = 'none'; },
-  ready(n, size) { if (qDone) $('qtime').textContent = n + '/' + size + ' ready'; },
+  queue(n, size, since) { if (qDone) return; if (since > 0) qT0 = performance.now() - since; $('qfind').textContent = 'Finding goblins ' + n + '/' + size; pips(n, size, 'on'); },
+  queueDone() { qDone = true; $('qfind').textContent = 'Waiting for goblins…'; $('qtime').textContent = ''; $('qcancel').style.display = 'none'; pips(0, 8, 'rdy'); },
+  ready(n, size) { if (qDone) { $('qtime').textContent = n + '/' + size + ' ready'; pips(n, size, 'rdy'); } },
   whenRevealed(cb, maxMs, holdMs = 1500) { if (!wheelGo || wh.state === 'idle') return cb(); const t0 = performance.now(), t = setInterval(() => { const now = performance.now(), late = now - t0 > maxMs; if ((wh.shown && now - (wh.shownAt || now) >= holdMs) || late) { clearInterval(t); cb(); } }, 100); },   // the goblin you rolled stays on screen for holdMs before we report ready (the server waits up to its READY_MS)   // wait until the wheel has landed and shown the goblin (but not past maxMs: the server starts the countdown 8 s after the match forms)
   hideWheel,
   /* MATCH-END */
