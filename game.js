@@ -4188,7 +4188,7 @@ GK.fun = (() => {
   function suddenBanner() {   // after round 8 (server rule): all doors open, no healing
     S.sudden = true; css();
     const b = el('gkSudden', 'position:fixed;left:50%;top:34%;transform:translate(-50%,-50%);z-index:60;pointer-events:none;text-align:center;font-family:system-ui,sans-serif;font-weight:900;color:#ff4a3a;text-shadow:0 0 22px #a00,0 3px 10px #000');
-    b.innerHTML = '<div style="font-size:clamp(34px,7vw,76px);letter-spacing:.14em">SUDDEN DEATH</div><div style="font-size:clamp(14px,2.4vw,24px);letter-spacing:.1em;color:#ffd75e;margin-top:6px">All doors are open. No more healing.</div>';
+    b.innerHTML = '<div style="font-size:clamp(34px,7vw,76px);letter-spacing:.14em">SUDDEN DEATH</div><div style="font-size:clamp(14px,2.4vw,24px);letter-spacing:.1em;color:#ffd75e;margin-top:6px">All doors are open. Healing only in THE VAULT.</div>';
     b.animate([{ opacity: 0, transform: 'translate(-50%,-50%) scale(.7)' }, { opacity: 1, transform: 'translate(-50%,-50%) scale(1.06)', offset: 0.1 }, { opacity: 1, transform: 'translate(-50%,-50%) scale(1)', offset: 0.8 }, { opacity: 0, transform: 'translate(-50%,-50%) scale(1)' }], { duration: 4500, fill: 'forwards' });
     const t = el('gkSudTag', 'position:fixed;left:50%;top:84px;transform:translateX(-50%);z-index:29;pointer-events:none;padding:2px 12px;border-radius:8px;background:rgba(40,6,6,.72);border:1px solid #ff4a3a;color:#ff6a5a;font:800 12px system-ui,sans-serif;letter-spacing:.14em');
     t.textContent = 'SUDDEN DEATH';
@@ -6339,7 +6339,7 @@ function frame(now) {
   if (mine && spawned && GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked) {
     const f = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
     const s = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
-    const sp = (keys.has('ShiftLeft') || keys.has('ShiftRight') ? 7.5 : 4.6) * (0.85 + 0.15 * SCALE[mine.goblin]);
+    const sp = (keys.has('ShiftLeft') || keys.has('ShiftRight') ? 7.5 : 4.6) * ((itemsData().SPEED || [])[mine.goblin] || (0.85 + 0.15 * SCALE[mine.goblin]));   // BALANCE: class speed table (items.js SPEED, shared with the server): small fastest, big slowest
     let mx = -Math.sin(P.yaw) * f + Math.cos(P.yaw) * s, mz = -Math.cos(P.yaw) * f - Math.sin(P.yaw) * s;
     const len = Math.hypot(mx, mz) || 1; mx = mx / len * sp * dt * (f || s ? 1 : 0); mz = mz / len * sp * dt * (f || s ? 1 : 0);
     const ox = P.x, oz = P.z;
@@ -6626,7 +6626,7 @@ window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw,
     brain: 'Eat a goblin brain for 5% of its knowledge. Knowledge unlocks crafting.',
     lowhp: 'Death loses EVERYTHING you carry. Run through a door if you must.',
     vaultOpen: 'THE VAULT holds a relic. Everyone else wants it too.',
-    sudden: 'Sudden death: every door is open and nobody heals. Last goblin standing wins.',
+    sudden: 'Sudden death: every door is open and only THE VAULT heals. Last goblin standing wins.',
   };
   let st = { on: true, seen: {} };
   try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && typeof s === 'object') st = { on: s.on !== false, seen: s.seen && typeof s.seen === 'object' ? s.seen : {} }; } catch (e) {}

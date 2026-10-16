@@ -1,6 +1,6 @@
 # Experimental rules
 
-Four opt-in rules, all **off by default**. The server turns them on with the `GK_RULES` environment
+Four rule toggles. Since the playtest pass `staffbolt` and `bribe` are **on by default** and `crown` / `doorclose` are off (see balance.md); `GK_RULES=none` restores the old baseline, `-rule` removes one. The server turns them on with the `GK_RULES` environment
 variable (comma list); clients have no override. The server advertises active rules in the welcome and
 round messages (`rules: [...]`), and the client then shows an read-only **Experimental rules** section in
 Settings. With `GK_RULES` unset nothing changes: no `rules` field, all new messages ignored.

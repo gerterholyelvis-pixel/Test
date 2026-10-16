@@ -59,7 +59,7 @@ Screenshots are in `docs/screens/`.
   - "Killed by" on the death card
   - bots spread their targets and go for the vault in sudden death
   - outer room interiors dressed per type
-- **Try the undecided rules before deciding** (all OFF by default; see `docs/reports/rules-experimental.md`):
+- **Rules** (`docs/reports/rules-experimental.md`, `docs/reports/balance.md`): `staffbolt` and `bribe` are ON by default since the playtest pass; `crown` and `doorclose` stay off. `GK_RULES=crown` adds one, `GK_RULES=-bribe` removes one, `GK_RULES=none` is the old baseline:
   `GK_RULES=crown,doorclose,staffbolt,bribe npm start`
   - `crown`: hold the vault dais for 20 s to win
   - `doorclose`: doors stay open 2 rounds
@@ -68,7 +68,7 @@ Screenshots are in `docs/screens/`.
 
 ## Defaults I set that need the OWNER's decision (marked in FEATURES.md)
 1. **Win condition.** Default: last goblin standing. Sudden death after round 8 (all doors open, no regen). After round 10, most kills wins, then most HP. Alternative proposal: a "Crown win", where you hold the vault dais for 20 s (DESIGN-core-loop §2).
-2. **Wizard staff does 0 damage** (from your stats rule), so wizards can't fight back. Should staffs cast a weak magic bolt?
+2. **Wizard staff bolt is now ON by default** (9 damage, 1.0 s, 12 m) so wizards can fight; the melee bonk still does 1. Turn it off with `GK_RULES=-staffbolt` if you want the 0-damage staff back.
 3. Closing doors after 2 rounds, a Jam Spike item, gold bribes on door panels (DESIGN-core-loop §1, §3).
 4. Starting gold is a placeholder of 100. Also open: how stash items enter a run, and crafting recipes for tiers 1-5.
 5. Rooms render slightly cream instead of pure white since the graphics upgrade. Keep it, or go back to white?
