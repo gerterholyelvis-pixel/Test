@@ -990,9 +990,49 @@ const PARTB = {
   crystal() { const b = new Build('part:crystal'), m = M('gem', 0x7ff4ff, { ei: 0.9 }); const sh = lathe([0, 0, 0.06, 0, 0.06, 0.22, 0, 0.36], 6); for (const [x, z, h, rx, rz] of [[0, 0, 1.2, 0, 0], [0.1, 0.02, 0.8, 0, -0.35], [-0.09, 0.03, 0.7, 0.2, 0.3], [0.02, -0.09, 0.6, -0.4, 0.1]]) b.add(m, sh, x, 0, z, rx, 0, rz, 1, h, 1); b.glowCol = 0x7ff4ff; return b.finish(0.46, 'transcendent'); },
 };
 const PART_KEYS = ['wood', 'metal', 'leather', 'cloth', 'bone', 'gem', 'string', 'crystal'];
+// ITEMS2-MODELS-BEGIN: small models for the utility items (x:) and charms (c:), used for the baked icons. One builder per key name; each is a handful of primitives.
+const UTILB = (() => {
+  const P = (c, o = {}) => M('plain', c, o), ST = c => M('steel', c, {}), IR = c => M('iron', c, {}), WD = c => M('wood', c, {}), CL = (c, t) => M('cloth', c, t ? { tex: t } : {}), LE = c => M('leather', c, {}), GM = (c, ei = 0.5) => M('gem', c, { ei }), GD = () => M('gold', 0xffc933, {});
+  const glass = c => M('gem', c, { ei: 0.18 });
+  const bottle = (b, col, neck = 0.03, h = 0.22, round = false) => {   // a stoppered bottle: glass body, cork
+    b.add(glass(col), lathe(round ? [0, 0, 0.06, 0, 0.1, 0.05, 0.11, 0.11, 0.09, 0.17, 0.04, 0.21, neck, 0.25, neck, h + 0.1, 0, h + 0.1] : [0, 0, 0.07, 0, 0.09, 0.03, 0.09, 0.12, 0.05, 0.18, neck, 0.22, neck, h + 0.1, 0, h + 0.1], 16));
+    b.add(WD(0x9a7040), CYL(neck * 1.15, neck * 1.05, 0.05, 10), 0, h + 0.09, 0);
+  };
+  const chain = (b, y, c) => b.add(c || GD(), TOR(0.05, 0.008, 5, 14), 0, y, 0);
+  const U = {
+    bandage(b) { b.add(CL(0xe9ddc2), CYL(0.11, 0.11, 0.13, 18), 0, 0, 0); b.add(CL(0xc9b88f), CYL(0.05, 0.05, 0.135, 12), 0, 0, 0); b.add(CL(0xf2e8cc), rbox(0.24, 0.012, 0.075), 0.17, 0.0, 0.05, 0, 0.4, 0); b.add(P(0xb3262d), BOXG(0.012, 0.004, 0.05), 0, 0.131, 0.0); return b.finish(0.2, 'common'); },
+    mushroom(b) { b.add(CL(0xefe4c8), CYL(0.04, 0.03, 0.1, 12), 0, 0, 0); b.add(P(0xc9553d, { rough: 0.5 }), SP(0.1, 20, 12), 0, 0.12, 0, 0, 0, 0, 1, 0.62, 1); for (const [x, z] of [[0.04, 0.05], [-0.05, 0.03], [0.0, -0.07], [0.07, -0.03]]) b.add(P(0xf6efe0), SP(0.016, 8, 6), x, 0.17, z); return b.finish(0.2, 'common'); },
+    tonic(b) { bottle(b, 0x7fd8ff); b.add(P(0x6fe0ff, { emissive: 0x2a9ad8, ei: 0.6 }), CYL(0.065, 0.075, 0.1, 14), 0, 0.02, 0); return b.finish(0.28, 'uncommon'); },
+    smoke(b) { b.add(P(0x5d636b, { rough: 0.55, metal: 0.3 }), SP(0.11, 18, 12), 0, 0.1, 0); b.add(IR(0x3c4046), CYL(0.04, 0.035, 0.06, 10), 0, 0.19, 0); b.add(P(0x8a6a3a), sweep([[0, 0.25, 0], [0.03, 0.3, 0], [0.07, 0.31, 0]], 0.006, 6, 8)); b.add(IR(0x4a4f58), TOR(0.11, 0.008, 5, 20), 0, 0.1, 0, PI / 2, 0, 0); return b.finish(0.26, 'uncommon'); },
+    bomb(b) { b.add(P(0x24272d, { rough: 0.35, metal: 0.5 }), SP(0.12, 20, 14), 0, 0.1, 0); b.add(IR(0x4a4f58), CYL(0.045, 0.04, 0.05, 10), 0, 0.2, 0); b.add(P(0xa07a44), sweep([[0, 0.24, 0], [0.03, 0.31, 0], [0.09, 0.33, 0]], 0.007, 6, 10)); b.add(GM(0xff9a2a, 1.4), SP(0.022, 8, 6), 0.095, 0.335, 0); return b.finish(0.3, 'rare'); },
+    wedge(b) { b.add(WD(0xa8793f), ext(polyShape([[-0.18, 0], [0.18, 0], [0.18, 0.12]]), 0.14, 0.01, 0.008, 2), 0, 0, -0.07); b.add(WD(0x6a4a28), BOXG(0.36, 0.008, 0.02), 0, 0.001, 0.071); return b.finish(0.14, 'uncommon'); },
+    wax(b) { b.add(P(0xb3262d, { rough: 0.35 }), lathe([0, 0, 0.12, 0, 0.14, 0.012, 0.125, 0.04, 0.07, 0.05, 0, 0.05], 20)); b.add(P(0x8a1a20, { rough: 0.35 }), TOR(0.065, 0.008, 5, 18), 0, 0.052, 0, PI / 2, 0, 0); b.add(P(0x8a1a20, { rough: 0.35 }), SP(0.02, 8, 6), 0, 0.058, 0); return b.finish(0.12, 'common'); },
+    lockpick(b) { const s = ST(0xc8d0d8); b.add(s, sweep([[-0.06, 0, 0], [0, 0.28, 0], [0.03, 0.34, 0], [0.07, 0.33, 0]], 0.012, 6, 14)); b.add(s, sweep([[0.07, 0, 0], [0.03, 0.26, 0], [0.0, 0.3, 0]], 0.01, 6, 10)); b.add(LE(0x4a3020), CYL(0.025, 0.025, 0.1, 8), -0.075, -0.02, 0, 0, 0, 0.12); b.add(LE(0x4a3020), CYL(0.022, 0.022, 0.09, 8), 0.075, -0.02, 0, 0, 0, -0.1); return b.finish(0.34, 'mythic'); },
+    trap(b) { const iron = IR(0x6a7078); b.add(iron, BOXG(0.34, 0.03, 0.16), 0, 0, 0); for (const s of [-1, 1]) { b.add(iron, TOR(0.12, 0.014, 5, 16), 0, 0.05, s * 0.0, PI / 2 - s * 0.35, 0, 0); for (let i = 0; i < 6; i++) { const a = (i / 5) * PI, x = Math.cos(a) * 0.12, y = Math.sin(a) * 0.12; b.add(ST(0xd0d6dc), CONE(0.014, 0.05, 4), x, 0.05 + Math.sin(PI / 2 - s * 0.35) * 0 + y * 0.9, s * y * 0.35, 0, 0, 0); } } b.add(IR(0x4a4f58), CYL(0.03, 0.03, 0.02, 10), 0, 0.03, 0); return b.finish(0.16, 'uncommon'); },
+    flare(b) { b.add(P(0xc22a1f, { rough: 0.5 }), CYL(0.035, 0.035, 0.3, 12), 0, 0, 0); b.add(P(0xf0d060), CYL(0.037, 0.037, 0.03, 12), 0, 0.2, 0); b.add(P(0x3a2a20), CYL(0.03, 0.03, 0.03, 10), 0, 0.3, 0); b.add(GM(0xff7a30, 1.6), SP(0.03, 8, 6), 0, 0.345, 0); b.glowCol = 0xff6a3a; return b.finish(0.36, 'uncommon'); },
+    lens(b) { b.add(GD(), TOR(0.1, 0.012, 6, 24), 0, 0.15, 0); b.add(glass(0xaee8ff), SP(0.1, 20, 10), 0, 0.15, 0, 0, 0, 0, 1, 1, 0.1); b.add(WD(0x6a4a28), CYL(0.016, 0.02, 0.17, 8), 0, -0.04, 0); b.add(GD(), CYL(0.022, 0.022, 0.02, 8), 0, 0.04, 0); return b.finish(0.34, 'rare'); },
+    pry(b) { const s = IR(0x7a2a24); b.add(s, sweep([[0, 0, 0], [0, 0.34, 0], [0.01, 0.4, 0], [0.07, 0.43, 0], [0.12, 0.4, 0]], 0.016, 8, 20)); b.add(s, CONE(0.03, 0.06, 6), 0, -0.05, 0, PI, 0, 0); b.add(ST(0xc8d0d8), BOXG(0.04, 0.012, 0.02), 0.13, 0.39, 0); return b.finish(0.4, 'rare'); },
+    ward(b) { b.add(P(0x6a707a, { rough: 0.8 }), ext(polyShape([[-0.1, -0.13], [0.1, -0.13], [0.13, 0.0], [0.1, 0.13], [-0.1, 0.13], [-0.13, 0.0]]), 0.04, 0.012, 0.01, 2)); const g = GM(0x7fe8ff, 1.5); b.add(g, BOXG(0.02, 0.12, 0.012), 0, 0, 0.032); b.add(g, BOXG(0.09, 0.02, 0.012), 0, 0.02, 0.032); b.add(g, BOXG(0.02, 0.07, 0.012), 0.03, -0.04, 0.032, 0, 0, 0.5); b.glowCol = 0x7fe8ff; return b.finish(0.26, 'rare'); },
+    jar(b) { b.add(glass(0xbfe4d8), lathe([0, 0, 0.1, 0, 0.12, 0.03, 0.12, 0.22, 0.1, 0.25, 0.07, 0.26, 0, 0.26], 18)); b.add(M('flesh', 0xf6a2bb), blob(0.075, 0.05, 3, 1.2, 0.85, 1, 6, 22, 16, true), 0, 0.13, 0); b.add(WD(0x7a5a38), CYL(0.075, 0.075, 0.04, 14), 0, 0.26, 0); b.add(GD(), TOR(0.077, 0.006, 5, 16), 0, 0.27, 0, PI / 2, 0, 0); return b.finish(0.3, 'rare'); },
+    bait(b) { b.add(CL(0x7a5230), blob(0.13, 0.03, 5, 1, 0.95, 1, 4, 22, 16), 0, 0.12, 0); b.add(CL(0x7a5230), CYL(0.06, 0.04, 0.07, 10), 0, 0.22, 0); b.add(LE(0x3a2818), TOR(0.045, 0.01, 5, 12), 0, 0.235, 0, PI / 2, 0, 0); const coin = lathe([0, 0, 0.04, 0, 0.045, 0.006, 0.04, 0.012, 0, 0.012], 12); b.add(GD(), coin, 0.15, 0, 0.05, 0, 0.3, 0); b.add(GD(), coin, 0.12, 0.012, 0.12, 0.2, 0, 0.1); b.add(GD(), coin, -0.15, 0, 0.08); return b.finish(0.22, 'uncommon'); },
+    dazzle(b) { b.add(P(0xf2efe0, { rough: 0.9 }), blob(0.11, 0.03, 8, 1, 0.9, 1, 4, 22, 16), 0, 0.1, 0); b.add(CL(0xcbb890), CYL(0.05, 0.035, 0.06, 10), 0, 0.19, 0); b.add(LE(0x4a3020), TOR(0.04, 0.008, 5, 12), 0, 0.205, 0, PI / 2, 0, 0); b.add(GM(0xfff4b0, 1.5), SP(0.02, 8, 6), 0.12, 0.2, 0.04); b.add(GM(0xfff4b0, 1.5), SP(0.014, 8, 6), -0.1, 0.24, -0.03); b.glowCol = 0xfff4b0; return b.finish(0.26, 'uncommon'); },
+    haggle(b) { b.add(LE(0xb08a52), rbox(0.2, 0.3, 0.02, 0.01), 0, 0, 0); b.add(GD(), TOR(0.028, 0.008, 5, 14), 0, 0.17, 0); b.add(LE(0x3a2818), sweep([[0.0, 0.19, 0], [0.05, 0.27, 0], [0.12, 0.29, 0]], 0.005, 5, 8)); b.add(GD(), lathe([0, 0, 0.06, 0, 0.065, 0.005, 0.06, 0.01, 0, 0.01], 14), 0, -0.02, 0.011, PI / 2, 0, 0); return b.finish(0.32, 'uncommon'); },
+    rage(b) { bottle(b, 0xd03a2a, 0.035, 0.2, true); b.add(P(0xff4a2a, { emissive: 0xb01a10, ei: 0.7 }), SP(0.09, 14, 10), 0, 0.07, 0, 0, 0, 0, 1, 0.8, 1); b.add(P(0xe9dfc2), SP(0.03, 8, 6), 0, 0.1, 0.1); return b.finish(0.28, 'rare'); },
+    feather(b) { b.add(P(0xf4f4ff, { rough: 0.8 }), SP(0.06, 14, 10), 0, 0.2, 0, 0, 0, 0, 1, 3.4, 0.16); b.add(P(0xcfd8f0), CYL(0.006, 0.004, 0.42, 6), 0, -0.1, 0); b.add(P(0x9fb4e8), SP(0.05, 10, 8), 0.0, 0.3, 0.004, 0, 0, 0, 0.7, 1.5, 0.12); return b.finish(0.42, 'uncommon'); },
+    bell(b) { b.add(GD(), lathe([0, 0.19, 0.03, 0.19, 0.06, 0.17, 0.09, 0.08, 0.12, 0.01, 0.13, 0, 0.115, -0.01, 0, -0.01], 20)); b.add(IR(0x4a3a20), SP(0.025, 8, 6), 0, -0.02, 0); b.add(GD(), TOR(0.03, 0.008, 5, 12), 0, 0.21, 0); b.add(LE(0x4a3020), CYL(0.02, 0.02, 0.05, 8), 0, -0.07, 0); return b.finish(0.26, 'uncommon'); },
+    heart(b) { const g = GM(0xe23a4a, 0.9); b.add(g, SP(0.06, 14, 10), -0.045, 0.04, 0, 0, 0, 0, 1, 1, 0.7); b.add(g, SP(0.06, 14, 10), 0.045, 0.04, 0, 0, 0, 0, 1, 1, 0.7); b.add(g, CONE(0.1, 0.12, 4), 0, -0.1, 0, PI, PI / 4, 0, 1, 1, 0.55); chain(b, 0.13); return b.finish(0.28, 'uncommon'); },
+    swift(b) { b.add(GD(), lathe([0, 0, 0.05, 0, 0.06, 0.05, 0.035, 0.14, 0, 0.15], 14)); b.add(GD(), SP(0.04, 10, 8), 0, 0.19, 0); for (const s of [-1, 1]) b.add(P(0xfff0b0, { metal: 0.6, rough: 0.3 }), SP(0.05, 10, 8), s * 0.08, 0.17, -0.01, 0, 0, s * 0.6, 0.35, 1.8, 0.2); b.add(GM(0x4aa8ff, 1.0), SP(0.012, 6, 5), 0, 0.2, 0.038); chain(b, 0.25); return b.finish(0.3, 'uncommon'); },
+    magnet(b) { b.add(P(0xc0392b, { rough: 0.4, metal: 0.3 }), new THREE.TorusGeometry(0.1, 0.032, 8, 20, PI), 0, 0.05, 0); for (const s of [-1, 1]) { b.add(ST(0xe0e6ec), CYL(0.034, 0.034, 0.06, 10), s * 0.1, -0.04, 0, PI, 0, 0); } b.add(GD(), SP(0.02, 8, 6), 0, 0.17, 0); return b.finish(0.26, 'rare'); },
+    scholar(b) { b.add(CL(0xe8d8a8), CYL(0.05, 0.05, 0.22, 12), 0, 0, 0, 0, 0, PI / 2); b.add(WD(0x6a4a28), CYL(0.056, 0.056, 0.02, 12), -0.12, 0, 0, 0, 0, PI / 2); b.add(WD(0x6a4a28), CYL(0.056, 0.056, 0.02, 12), 0.12, 0, 0, 0, 0, PI / 2); b.add(P(0x2a3a8a), TOR(0.052, 0.01, 5, 14), 0, 0, 0, 0, PI / 2, 0); b.add(GM(0x7a5aff, 1.0), SP(0.018, 8, 6), 0.0, 0.0, 0.058); return b.finish(0.14, 'rare'); },
+    tongue(b) { b.add(ST(0xdfe6ee), SP(0.06, 14, 10), 0, 0.05, 0, 0, 0, 0, 0.9, 2.0, 0.28); b.add(P(0x8a9098, { metal: 0.8, rough: 0.35 }), BOXG(0.008, 0.16, 0.02), 0, 0.05, 0.02); chain(b, 0.17, ST(0xdfe6ee)); return b.finish(0.3, 'rare'); },
+    fang(b) { b.add(P(0xf0e8d0, { rough: 0.5 }), sweep([[0, 0, 0], [0.025, 0.1, 0], [0.085, 0.19, 0]], t => 0.04 * (1 - t) + 0.004, 8, 14)); b.add(GD(), TOR(0.026, 0.007, 5, 12), -0.005, -0.02, 0); b.add(GD(), CYL(0.044, 0.04, 0.035, 10), 0, -0.01, 0); return b.finish(0.26, 'uncommon'); },
+  };
+  return new Proxy(U, { get: (t, k) => t[k] ? () => { const b = new Build((k in { heart: 1, swift: 1, magnet: 1, scholar: 1, tongue: 1, fang: 1 } ? 'c:' : 'x:') + k); return t[k](b); } : undefined });
+})();
+// ITEMS2-MODELS-END
 function canon(key) {
   if (typeof key !== 'string') return null;
-  if (key === 'x:plushie' || key.startsWith('x:')) return null;   // LOOT / UTILITY: no baked 3D model for the plushie and the utility items, icons.js draws them
+  if (key.startsWith('x:') || key.startsWith('c:')) return UTILB[key.slice(2)] ? key : null;   // UTILITY / ITEMS2: models for the utility items and charms (UTILB above); the plushie has none
   if (key.startsWith('m:brain')) return 'm:brain';
   if (key === 'gold' || key === 'm:gold' || key === 'part:gold') return 'gold';
   const k = key.replace(/^(m:|part:)/, ''); if (PART_KEYS.includes(k)) return 'part:' + k;
@@ -1003,6 +1043,7 @@ function canon(key) {
 
 // ---------- building and caching one prototype per item key ----------
 function buildItem(key) {
+  if (key.startsWith('x:') || key.startsWith('c:')) return UTILB[key.slice(2)]();
   if (key === 'm:brain') return brainModel();
   if (key === 'gold') return goldModel();
   if (key.startsWith('part:')) return PARTB[key.slice(5)]();

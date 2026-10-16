@@ -212,20 +212,20 @@ setInterval(() => { // one global timer steps every match
 const G = require('./items.js'), ITEMS = G.ITEMS, C = G.COMBAT;
 const info = k => (typeof k === 'string' && k.length < 40 && G.info(k)) || null; // any item key incl. goblin brains
 const isItem = k => !!info(k);
-const SLOT_IDS = new Set([...Array.from({ length: 9 }, (_, i) => 'b' + i), ...Array.from({ length: 3 }, (_, i) => 'q' + i), 'weapon', 'armor']);
-const getSlot = (inv, id) => id === 'weapon' ? inv.weapon : id === 'armor' ? inv.armor : (id[0] === 'b' ? inv.backpack : inv.quick)[+id.slice(1)];
-const setSlot = (inv, id, v) => { if (id === 'weapon') inv.weapon = v; else if (id === 'armor') inv.armor = v; else (id[0] === 'b' ? inv.backpack : inv.quick)[+id.slice(1)] = v; };
-const fits = (id, key) => key == null || (id === 'weapon' ? info(key).type === 'weapon' : id === 'armor' ? info(key).type === 'armor' : true);
-const allItems = inv => [inv.weapon, inv.armor, ...inv.backpack, ...inv.quick].filter(Boolean);
+const SLOT_IDS = new Set([...Array.from({ length: 9 }, (_, i) => 'b' + i), ...Array.from({ length: 3 }, (_, i) => 'q' + i), 'weapon', 'armor', 'charm']);
+const getSlot = (inv, id) => id === 'weapon' ? inv.weapon : id === 'armor' ? inv.armor : id === 'charm' ? inv.charm : id === 'charm' ? inv.charm : (id[0] === 'b' ? inv.backpack : inv.quick)[+id.slice(1)];
+const setSlot = (inv, id, v) => { if (id === 'weapon') inv.weapon = v; else if (id === 'armor') inv.armor = v; else if (id === 'charm') inv.charm = v; else if (id === 'charm') inv.charm = v; else (id[0] === 'b' ? inv.backpack : inv.quick)[+id.slice(1)] = v; };
+const fits = (id, key) => key == null || (id === 'weapon' ? info(key).type === 'weapon' : id === 'armor' ? info(key).type === 'armor' : id === 'charm' ? info(key).type === 'charm' : true);
+const allItems = inv => [inv.weapon, inv.armor, inv.charm, ...inv.backpack, ...inv.quick].filter(Boolean);
 function recalc(p) { // derived stats from the equipped items
   const w = p.inv.weapon && info(p.inv.weapon), a = p.inv.armor && info(p.inv.armor);
-  const maxHealth = p.npc ? (a ? a.health : 10) : G.goblinHp(p.goblin, a ? a.health : 10);   // GOBTYPES: plus the type's health bonus
+  const maxHealth = p.npc ? (a ? a.health : 10) : G.goblinHp(p.goblin, a ? a.health : 10) + (p.npc ? 0 : (G.charmEff(p.inv.charm, 'hp') || 0));   // GOBTYPES: plus the type's health bonus
   p.stats = { knowledge: p.stats ? p.stats.knowledge : G.KNOWLEDGE[p.goblin], attack: w ? w.attack : 0, health: Math.min(p.stats ? p.stats.health : maxHealth, maxHealth), maxHealth };
   p.gear = { weapon: w ? w.name : 'None', armor: a ? a.name : 'None' };
 }
 function equip(p, goblin) { // give a player a goblin type with its starting gear and otherwise empty inventory
   const s = G.START[goblin];
-  p.goblin = goblin; p.inv = { backpack: Array(G.SLOTS.backpack).fill(null), quick: Array(G.SLOTS.quick).fill(null), weapon: s.weapon, armor: s.armor };
+  p.goblin = goblin; p.inv = { backpack: Array(G.SLOTS.backpack).fill(null), quick: Array(G.SLOTS.quick).fill(null), weapon: s.weapon, armor: s.armor, charm: null };
   p.stats = null; recalc(p); p.gold = G.START_GOLD; p.parts = {}; for (const pt of G.PARTS) p.parts[pt.key] = 0;
   p.perks = []; p.swUsed = false;   // KNOWLEDGE: perks last until death
   const pk = G.goblinStart(goblin); if (pk) { p.gold += pk.gold; for (const k in pk.parts) p.parts[k] = (p.parts[k] || 0) + pk.parts[k]; }   // GOBTYPES: the miner's prospector pouch
@@ -285,9 +285,10 @@ function buy(m, p, roomId, idx) { // returns null on success or a failure reason
   const shop = m.shops[roomId], it = shop && shop[idx];
   if (!it) return 'room';
   if (it.sold) return 'sold';
-  if (p.gold < it.price) return 'gold';
+  const price = p.haggle ? Math.ceil(it.price / 2 / 5) * 5 : it.price;   // USE2: Haggler's Tag
+  if (p.gold < price) return 'gold';
   if (p.inv.backpack.indexOf(null) < 0) return 'space';
-  giveItem(p, it.key); p.gold -= it.price; it.sold = true;
+  giveItem(p, it.key); p.gold -= price; it.sold = true; if (p.haggle) { p.haggle = false; sendTo(p.ws, { haggled: it.price - price }); }
   sendGold(p); bcast(m, { shops: m.shops });
   return null;
 }
@@ -306,7 +307,7 @@ function claim(m, p) { // E in a chest room or a weapon/armour/gold mystery room
   if (p.claimed.has(id)) return 'taken';
   if (key && !giveItem(p, key)) return 'space';
   p.claimed.add(id);
-  if (gold) { p.gold += gold; sendGold(p); }
+  if (gold) { gold = Math.round(gold * goldMul(p)); p.gold += gold; sendGold(p); }
   sendTo(p.ws, { claimed: { room: id, key, gold } }); m.dirty = true;
   return null;
 }
@@ -392,7 +393,7 @@ function paceBounty(p, t) {   // the killer takes half of the victim's gold plus
   if (p.npc || t.npc) return 0;
   const g = Math.min(t.gold || 0, 400), amt = Math.round((g / 2 + PACE.bountyKill * Math.max(0, (t.kills || 0))) / 5) * 5;
   if (amt <= 0) return 0;
-  t.gold = Math.max(0, (t.gold || 0) - Math.round(g / 2)); p.gold = (p.gold || 0) + amt; sendGold(p); return amt;
+  const pay = Math.round(amt * goldMul(p)); t.gold = Math.max(0, (t.gold || 0) - Math.round(g / 2)); p.gold = (p.gold || 0) + pay; sendGold(p); return pay;
 }
 function paceNoDoor(m, fresh) {   // a round that would open nothing at all (nobody picked) opens one outer door of a room that holds somebody, so a round is never dead time
   if (fresh.length || m.sudden || rule('doorclose')) return fresh;
@@ -402,7 +403,7 @@ function paceNoDoor(m, fresh) {   // a round that would open nothing at all (nob
 }
 function paceRound(m) {   // right after m.round++: round income for everyone still alive, and the showdown (every door opens) once only three goblins are left
   if (m.ended || m.round < 2) return;
-  for (const q of m.players.values()) if (!q.npc && q.entered && !q.dead) { q.gold = (q.gold || 0) + PACE.income; sendGold(q); }
+  for (const q of m.players.values()) if (!q.npc && q.entered && !q.dead) { q.gold = (q.gold || 0) + Math.round(PACE.income * goldMul(q)); sendGold(q); }
   if (!m.sudden && !m.showdown && m.round >= 3 && (m.enteredEver || 0) >= 4 && matchInfo(m).alive <= PACE.showdownAt) m.showdown = true;
   if (m.showdown && !m.sudden) { m.open = Array.from({ length: nDoors }, (_, i) => i); m.openLeft = {}; m.fizzled = []; }
 }
@@ -451,6 +452,8 @@ function attack(m, ws, p, now, rt) {   // {atk:1, rt}: rate limit by weapon, nea
   let cb = G.combat(p.inv.weapon); if (p.npc) cb = { ...cb, dmg: p.npcDmg, cd: p.npcCd };
   const bolt = boltWeapon(p); if (bolt && !cb.bolt) cb = { ...cb, cd: BOLT.cd };   // WEAPONS3: a tuned wand/staff keeps its own cd and bolt damage
     // staffbolt: staves and scepters throw a slow bolt instead of a melee bonk   // mystery enemies have their own damage and cooldown
+  if (now < (p.dazeUntil || 0)) return;   // USE2: dazzled
+  if (!p.npc) { const dm = dmgMul(p, now); if (dm !== 1) cb = { ...cb, dmg: Math.round(cb.dmg * dm) }; }   // USE2: Wolf Fang, Rage Brew
   if (now - (p.atkAt || 0) < cb.cd * 0.9) return;   // 10% jitter allowance
   p.atkAt = now; bcast(m, { swing: p.id });
   if (bolt) return fireBolt(m, p, now, cb.bolt);
@@ -496,6 +499,7 @@ function ruleOpen(m, fresh) {   // doorclose: the doors stay open for DOOR_LIFE 
   m.openLeft = next; return keep;
 }
 function hitTarget(m, ws, p, tws, t, dmg, now, wname, opts) {   // damage, hit broadcast, kill bookkeeping (melee and bolts share it)
+  if (t.ward && dmg > 0) { const live = t.ward.until > now; t.ward = null; if (live) { bcast(m, { ward: { id: t.id } }); return; } }   // USE2: a Ward Rune soaks the hit
   { const behind = (p.x - t.x) * -Math.sin(t.yaw || 0) + (p.z - t.z) * -Math.cos(t.yaw || 0) < -0.3 * Math.hypot(p.x - t.x, p.z - t.z);   // GOBTYPES: type perks (dodge, backstab, rage, thick hide)
     const r = G.goblinHit({ goblin: p.goblin, hp: p.stats ? p.stats.health : 0, max: p.stats ? p.stats.maxHealth : 0, npc: p.npc }, { goblin: t.goblin, npc: t.npc }, dmg, { melee: !!(opts && opts.melee), behind });
     if (r.dodged) { bcast(m, { dodge: { from: p.id, to: t.id } }); return; } dmg = r.dmg; }
@@ -510,7 +514,7 @@ function hitTarget(m, ws, p, tws, t, dmg, now, wname, opts) {   // damage, hit b
 function boltWeapon(p) { const w = p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; if (w && G.combat(p.inv.weapon).bolt) return true; if (!rule('staffbolt')) return false; return !!w && (w.family === 'staff' || w.family === 'scepter'); }
 function fireBolt(m, p, now, dmg) {   // staffbolt: a slow projectile straight ahead, 12 m range, never leaves the room it was fired in
   m.bolts = m.bolts || []; m.boltN = (m.boltN || 0) + 1;
-  const b = { id: m.boltN, by: p, x: p.x, z: p.z, vx: -Math.sin(p.yaw) * BOLT.speed, vz: -Math.cos(p.yaw) * BOLT.speed, dist: 0, room: p.room, t: now, dmg: dmg || BOLT.dmg };
+  const b = { id: m.boltN, by: p, x: p.x, z: p.z, vx: -Math.sin(p.yaw) * BOLT.speed, vz: -Math.cos(p.yaw) * BOLT.speed, dist: 0, room: p.room, t: now, dmg: Math.round((dmg || BOLT.dmg) * dmgMul(p, now)) };
   m.bolts.push(b); bcast(m, { bolt: { id: b.id, by: p.id, x: +p.x.toFixed(2), z: +p.z.toFixed(2), vx: +b.vx.toFixed(2), vz: +b.vz.toFixed(2), range: BOLT.range } });
 }
 function boltTick(m, now) {
@@ -532,8 +536,9 @@ function bribe(m, p) {   // bribe: pay gold at your room's panel for +1 weight o
   if (m.sel[p.room] == null) return 'pick';
   m.bribes = m.bribes || {};
   if ((m.bribes[p.room] || 0) >= BRIBE.max) return 'max';
-  if (p.gold < BRIBE.cost) return 'gold';
-  p.gold -= BRIBE.cost; m.bribes[p.room] = (m.bribes[p.room] || 0) + 1; sendGold(p); broadcastRound(m);
+  const cost = Math.round(BRIBE.cost * (G.charmEff(p.inv.charm, 'bribe') || 1));   // USE2: Silver Tongue
+  if (p.gold < cost) return 'gold';
+  p.gold -= cost; m.bribes[p.room] = (m.bribes[p.room] || 0) + 1; sendGold(p); broadcastRound(m);
   return null;
 }
 function crownTick(m, now) {   // crown: stand on the vault dais for CROWN_MS without being hurt and you win the match
@@ -570,7 +575,7 @@ function ruleTick(m, now) {   // called from the 50 ms match loop
 }
 // RULES-LOGIC-END
 function eatBrain(p, key) { // applies a brain's knowledge gain, returns the gain
-  const gain = G.brainGain(key);
+  const gain = Math.round(G.brainGain(key) * (G.charmEff(p.inv.charm, 'know') || 1) * 100) / 100;   // USE2: Scholar's Charm
   p.stats.knowledge = Math.round((p.stats.knowledge + gain) * 100) / 100; p.brains = (p.brains || 0) + 1;
   const heal = G.hasPerk(p.perks, 'gourmet') && !(p.match && p.match.sudden) ? Math.min(G.KNOW.gourmet, p.stats.maxHealth - p.stats.health) : 0; if (heal > 0) p.stats.health += heal;   // KNOWLEDGE: Brain Gourmet
   sendTo(p.ws, { ate: { gain, knowledge: p.stats.knowledge, ...(heal > 0 ? { heal } : null) } }); p.match.dirty = true;
@@ -586,6 +591,7 @@ function loot(m, p, a) { // {loot:[dropId, index, 'take'|'eat', expectedKey?]}; 
   const di = m.drops.findIndex(x => x.id === a[0]), dr = m.drops[di];
   if (!dr) return 'item';
   if (Math.hypot(p.x - dr.x, p.z - dr.z) > 3) return 'range';
+  if (dr.bait != null) return baitTake(m, p, dr, a[2]);   // USE2: Mimic Bait
   const key = dr.items[a[1]];
   if (key == null || (a.length === 4 && a[3] !== key)) return 'item';
   if (a[2] === 'eat') { if (!G.isBrain(key)) return 'item'; }
@@ -609,7 +615,7 @@ const jumpV = p => r1(p.spd || 0) + 100 * (p.jy | 0);   // snapshot speed slot c
 // NET-BEGIN (movement validation, 20 Hz snapshots, position history for lag compensation; see docs/reports/netcode.md)
 const T0 = Date.now(), srvT = () => Date.now() - T0;   // server clock in ms, sent with every snapshot and pong
 const RSCALE = process.env.GK_DEBUG && +process.env.GK_REGEN_SCALE > 0 ? +process.env.GK_REGEN_SCALE : 1;   // GK_DEBUG only: speeds regeneration up for the tests
-const MAXV = 7.5 * Math.max(...G.SPEED) * G.MAX_ARMOR_SPEED * 1.1, BUDGET = 1.0, SLACK = 0.3, MOVE_SLACK = 0.3;   // BALANCE: the fastest class multiplier comes from items.js SPEED (shared with the client)   // fastest goblin sprint (game.js) x 1.1; the distance a client may bank while idle; SLACK: bounds tolerance in m; MOVE_SLACK: extra distance per move (SECURITY: was 1.25 / 1.2 / 0.3 per move)
+const MAXV = 7.5 * Math.max(...G.SPEED) * G.MAX_ARMOR_SPEED * Math.max(1, ...G.CHARM_KEYS.map(k => G.charmEff(k, 'spd') || 1)) * 1.1, BUDGET = 1.0, SLACK = 0.3, MOVE_SLACK = 0.3;   // BALANCE: the fastest class multiplier comes from items.js SPEED (shared with the client)   // fastest goblin sprint (game.js) x 1.1; the distance a client may bank while idle; SLACK: bounds tolerance in m; MOVE_SLACK: extra distance per move (SECURITY: was 1.25 / 1.2 / 0.3 per move)
 const HIST_MS = 1000, REWIND_MAX = 200;
 const r1 = v => Math.round(v * 10) / 10, r2 = v => Math.round(v * 100) / 100, r3 = v => Math.round(v * 1000) / 1000;
 const PROP_R = 0.33;   // SOLID: the walker radius the server checks against prop footprints (game.js RAD is 0.45; the gap keeps a slide along an edge from being corrected)
@@ -639,7 +645,7 @@ function place(p, x, z) {   // hard set (spawn, debug teleport): resets speed bu
 function applyMove(m, ws, p, x, z, yaw, now, jy) {   // {m:[x,z,yaw]}: accept, or keep the old position and answer {fix:[x,z]}
   x = clamp(x); z = clamp(z); yaw = Math.max(-1e3, Math.min(1e3, yaw));
   const dt = p.mvAt ? Math.min(0.5, (now - p.mvAt) / 1000) : 0.066; p.mvAt = now; const prevRoom = p.room;
-  p.budget = Math.min(BUDGET, (p.budget == null ? BUDGET : p.budget) + dt * MAXV * (now < (p.tonicUntil || 0) + 500 ? G.ITEMS['x:tonic'].n : 1));   // UTILITY: a speed tonic raises the movement allowance
+  p.budget = Math.min(BUDGET, (p.budget == null ? BUDGET : p.budget) + dt * MAXV * (now < (p.tonicUntil || 0) + 500 ? G.ITEMS['x:tonic'].n : 1) * (G.charmEff(p.inv.charm, 'spd') || 1));   // UTILITY: a speed tonic raises the movement allowance
   const dist = Math.hypot(x - p.x, z - p.z);
   if (dist > 0.0005 && (dist > p.budget + MOVE_SLACK || !pathOk(m, p.x, p.z, x, z))) {
     if (now - (p.fixAt || 0) > 150) { p.fixAt = now; sendTo(ws, { fix: [r2(p.x), r2(p.z)] }); if (secFix(p, ws, now)) return false; }
@@ -743,6 +749,7 @@ function equipBest(m, p) {   // put the best weapon/armour from the backpack and
   if (w) move(p, slots().find(s => s[1] === w)[0], 'weapon');
   const a = BN.best(slots().map(s => s[1]), info, armorVal, p.inv.armor ? armorVal(info(p.inv.armor)) : 0);
   if (a) move(p, slots().find(s => s[1] === a)[0], 'armor');
+  if (!p.inv.charm) { const c = slots().find(s => s[1] && info(s[1]) && info(s[1]).type === 'charm'); if (c) move(p, c[0], 'charm'); }   // USE2: bots wear a charm
   m.dirty = true;
 }
 function botHeal(m, p, now) {   // drink the right healing consumable (any item with a `heal` value) when hurt; bots only, one per 1.2 s
@@ -757,7 +764,7 @@ function fillBots(m) {   // up to CAP goblins: bots get the normal goblin odds, 
   const taken = new Set([...m.players.values()].map(p => (p.name || '').toLowerCase())), names = BOT_NAMES.filter(b => !taken.has(b.toLowerCase())).sort(() => Math.random() - 0.5); let w = 0, n = 0; for (const p of m.players.values()) { w += p.wins; n++; }
   while (m.players.size < CAP && free.length) {
     const box = free.pop(), [cx, cz] = WORLD.rc(box), [x, z] = WORLD.randomPoint(box), key = { readyState: 0, bot: true };
-    const p = { id: nextId++, wins: n ? Math.round(w / n) : 0, ws: null, key, bot: true, name: names.pop() || 'Grub' + nextId, match: m, box, yaw: Math.atan2(-(cx - x), -(cz - z)), ready: true };
+    const p = { id: nextId++, wins: n ? Math.round(w / n) : 0, ws: null, key, bot: true, name: names.pop() || 'Grub' + nextId, match: m, box, home: box, yaw: Math.atan2(-(cx - x), -(cz - z)), ready: true };
     equip(p, rollGoblin()); place(p, x, z); p.brain = newBrain(p, (3.6 + Math.random() * 1.0) * G.SPEED[p.goblin]); m.players.set(key, p);   // BALANCE: bots walk at their class speed like humans
   }
   m.dirty = true;
@@ -796,6 +803,7 @@ function npcLoot(kind) {
     out.push(k);
   }
   if (Math.random() < 0.4) out.push(G.pickUtil());   // UTILITY: a mystery-room enemy sometimes carries a utility item
+  if (Math.random() < 0.15) out.push(G.pickCharm());   // USE2: or a charm
   return out;
 }
 function dieNpc(m, p) {   // loot by type, counts as a kill for the attacker (done in attack()), not as a death
@@ -839,6 +847,7 @@ function inView(p, q) {   // 2.5 m all round, or inside the 150 degree cone in f
 function canSee(p, q, now) { return inView(p, q) || (p.hitBy === q.id && now - (p.hurtAt || 0) < SEE_HIT_MS && now >= (p.brain.blindUntil || 0)); }   // a hit from behind is only understood after the turn-around delay
 function perceive(m, p, now) {   // the goblins this bot notices right now (same room, FAIR notice delay, in view); remembers where it saw them
   const b = p.brain, out = [];
+  if (now < (p.dazeUntil || 0)) return out;   // USE2: dazzled bots see nothing
   for (const q of m.players.values()) {
     if (q === p || q.dead || !q.entered || q.room !== p.room || !noticed(p, q, now) || !canSee(p, q, now)) continue;
     const e = b.mem[q.id] || (b.mem[q.id] = {}); e.x = q.x; e.z = q.z; e.t = now; e.room = q.room; out.push(q);
@@ -957,7 +966,7 @@ function stepTo(m, p, tx, tz, dt, now, free) {   // one validated step toward (t
   let dx = tx - p.x, dz = tz - p.z; const d = Math.hypot(dx, dz);
   if (d < 0.08) { BN.untrack(nav); return true; }
   if (nav.esc && now < nav.esc.until) { dx = nav.esc.x * d; dz = nav.esc.z * d; } else nav.esc = null;   // NAV: a short leg sideways out of a jam
-  const st = Math.min(d, b.speed * dt); let nx = p.x + dx / d * st, nz = p.z + dz / d * st;
+  const st = Math.min(d, b.speed * dt * (now < (p.snareUntil || 0) ? 0.35 : 1)); let nx = p.x + dx / d * st, nz = p.z + dz / d * st;
   if (!free) [nx, nz] = clampIn(p.room, nx, nz, 0.5);
   if (obs.length) { const r = BN.steer(nav, p.x, p.z, nx, nz, Math.hypot(nx - p.x, nz - p.z) || st, obs, BN.BOT_R, now); if (r) { nx = r[0]; nz = r[1]; } else { nx = p.x; nz = p.z; } }
   if (free) [nx, nz] = doorClamp(m, p.room, nx, nz);   // a prop detour or an escape leg must not drag a doorway walker along the wall into the masonry
@@ -998,7 +1007,7 @@ function lootNearby(m, p, dt, now) {   // walk to useful loot piles in this room
   const b = p.brain; let best = null, bd = 8 + 12 * b.greed;   // AI: greedy bots walk further for loot
   for (const dr of m.drops) {
     if (b.skip.has(dr.id) || roomKeyOf(dr.x, dr.z) !== p.room) continue;
-    if (!dr.items.some(k => G.isBrain(k) || BN.healValue(info(k)) > 0 || betterW(p.inv.weapon, k) || betterA(p.inv.armor, k))) { b.skip.add(dr.id); continue; }
+    if (!dr.items.some(k => G.isBrain(k) || BN.healValue(info(k)) > 0 || betterW(p.inv.weapon, k) || betterA(p.inv.armor, k) || useful2(k))) { b.skip.add(dr.id); continue; }
     const d = Math.hypot(dr.x - p.x, dr.z - p.z); if (d < bd) { bd = d; best = dr; }
   }
   if (!best) return false;
@@ -1006,7 +1015,7 @@ function lootNearby(m, p, dt, now) {   // walk to useful loot piles in this room
   for (let i = best.items.length - 1; i >= 0; i--) {
     const k = best.items[i];
     if (G.isBrain(k)) loot(m, p, [best.id, i, 'eat']);
-    else if (BN.healValue(info(k)) > 0 || betterW(p.inv.weapon, k) || betterA(p.inv.armor, k)) loot(m, p, [best.id, i, 'take']);
+    else if (BN.healValue(info(k)) > 0 || betterW(p.inv.weapon, k) || betterA(p.inv.armor, k) || useful2(k)) loot(m, p, [best.id, i, 'take']);
   }
   b.skip.add(best.id); equipBest(m, p); return true;
 }
@@ -1128,7 +1137,7 @@ const USE_CD = 500, TOSS_FLY = 600, BOMB_FUSE = 1000, MAX_CLOUDS = 6;
 const inSmoke = (m, q, now) => { for (const s of m.smokes || []) if (s.room === q.room && now >= s.from && now <= s.until && Math.hypot(q.x - s.x, q.z - s.z) <= s.r) return true; return false; };
 function useOpen(m, open) {   // a round ends: wedged doors stay open for the next round, seals and lockpicks are spent
   const keep = (m.wedged || []).filter(d => !open.includes(d));
-  m.wedged = []; m.sealed = {}; m.picked = {};
+  m.wedged = []; m.sealed = {}; m.picked = {}; m.pried = []; m.pried = [];
   return keep.length ? open.concat(keep) : open;
 }
 function toss(m, p, kind, now) {   // thrown items land 6 m ahead of the thrower, inside his room; the server decides, everyone gets the arc
@@ -1174,7 +1183,7 @@ function useItem(m, p, slot, now) {   // returns null or a failure reason
     case 'pick':
       if (!grid) return 'room'; if (!VAULT.includes(m.sel[p.room])) return 'pick'; m.picked = m.picked || {}; if (m.picked[p.room]) return 'busy';
       m.picked[p.room] = p.id; broadcastRound(m); break;
-    default: return 'item';
+    default: { const r = use2(m, p, it, now); if (typeof r === 'string') return r; if (!r) return 'item'; extra = r; }   // USE2
   }
   setSlot(p.inv, slot, null); p.useAt = now; recalc(p); sendInv(p); m.dirty = true;
   sendTo(p.ws, { used: { key, slot, ...extra } });
@@ -1186,6 +1195,7 @@ function explode(m, b, now) {
   for (const [tws, t] of hit) if (!t.dead) hitTarget(m, b.by.ws, b.by, tws, t, Math.max(1, Math.round(b.n * (1 - 0.5 * Math.hypot(t.x - b.x, t.z - b.z) / b.r))), now, 'Powder Bomb');
 }
 function useTick(m, now) {   // from the 50 ms match loop
+  use2Tick(m, now);   // USE2
   if (m.bombs && m.bombs.length) { const due = m.bombs.filter(b => now >= b.at); if (due.length) { m.bombs = m.bombs.filter(b => now < b.at); for (const b of due) explode(m, b, now); } }
   if (m.smokes && m.smokes.length && m.smokes[0].until < now - 1000) m.smokes = m.smokes.filter(s => s.until > now);
   for (const p of m.players.values()) {   // mushroom regeneration: 1 s beats, ended by a hit
@@ -1203,6 +1213,120 @@ function useTick(m, now) {   // from the 50 ms match loop
 }
 const BOT_USE_SLOTS = [...Array.from({ length: 9 }, (_, i) => 'b' + i), 'q0', 'q1', 'q2'];
 // USE-END
+// USE2-BEGIN (docs/reports/more-items.md: Bear Trap, Signal Flare, Panel Lens, Crowbar, Ward Rune, Brain Jar, Mimic Bait, Dazzle Powder, Haggler's Tag, Rage Brew, Homing Feather, Alarm Bell; the charm slot is read through charmEff). use2() is the `default:` branch of useItem(): a failure reason (string), or the extra fields of {used}.
+const charmEff = (p, f) => (p && p.inv ? G.charmEff(p.inv.charm, f) : undefined);
+const goldMul = p => charmEff(p, 'gold') || 1;
+const dmgMul = (p, now) => Math.min(1.5, (charmEff(p, 'dmg') || 1) * (now < (p.rageUntil || 0) ? G.ITEMS['x:rage'].n : 1));   // never more than +50% from items
+const USE2_BOT = new Set(['x:ward', 'x:rage', 'x:jar', 'x:trap', 'x:dazzle']);
+const useful2 = k => { const it = G.ITEMS[k]; return !!it && (it.type === 'charm' || USE2_BOT.has(k)); };   // what a bot picks up and uses
+const MAX_PLACED = 2, BAIT_LIFE = 90000;
+const baitKey = () => { let k = G.randomWeaponKey(); for (let i = 0; i < 20 && G.ITEMS[k].tierN < 1; i++) k = G.randomWeaponKey(); return k; };   // what the fake pile pretends to hold
+function sweep(list, m, now, ev, owner) {   // drop spent / expired placed things, telling everyone (or just the owner)
+  if (!list || !list.length) return list || [];
+  const keep = [];
+  for (const o of list) { if (o.until > now && !o.by.dead && o.by.match === m) keep.push(o); else { const msg = { [ev]: { id: o.id, hit: o.hit ? 1 : 0 } }; if (owner) sendTo(o.by.ws, msg); else bcast(m, msg); } }
+  return keep.length === list.length ? list : keep;
+}
+function use2(m, p, it, now) {
+  const hx = r2(p.x), hz = r2(p.z), id = (m.placeId = (m.placeId || 0) + 1);
+  switch (it.use) {
+    case 'trap':
+      m.traps = sweep(m.traps, m, now, 'trapEnd'); if (m.traps.filter(o => o.by === p).length >= MAX_PLACED) return 'busy';
+      m.traps.push({ id, x: p.x, z: p.z, room: p.room, by: p, armAt: now + it.arm, until: now + it.life });
+      bcast(m, { trap: { id, x: hx, z: hz, room: p.room, by: p.id, arm: it.arm } }); return { arm: it.arm };
+    case 'flare': bcast(m, { flare: { id, x: hx, z: hz, room: p.room, ms: it.ms, by: p.id } }); return { ms: it.ms };
+    case 'lens': return { ms: it.ms };
+    case 'pry': {
+      if (m.sudden) return 'sudden';
+      let best = null, bd = it.r;
+      for (const e of ADJ[p.room] || []) { if (m.open.includes(e.door) || VAULT.includes(e.door)) continue; const d = Math.hypot(e.w1[0] - p.x, e.w1[1] - p.z); if (d <= bd) { bd = d; best = e; } }
+      if (!best) return 'door';
+      m.open = m.open.concat(best.door); (m.pried = m.pried || []).push({ door: best.door, until: now + it.ms }); broadcastRound(m); return { door: best.door, ms: it.ms };
+    }
+    case 'ward': if (p.ward && p.ward.until > now) return 'busy'; p.ward = { until: now + it.ms }; return { ms: it.ms };
+    case 'know': {
+      const gain = Math.round(it.n * (charmEff(p, 'know') || 1) * 100) / 100; p.stats.knowledge = Math.round((p.stats.knowledge + gain) * 100) / 100;
+      sendTo(p.ws, { ate: { gain, knowledge: p.stats.knowledge } }); return {};
+    }
+    case 'bait': {
+      if (m.drops.filter(d => d.bait === p.id).length >= MAX_PLACED) return 'busy';
+      const dr = { id: m.nextDrop++, x: hx, z: hz, items: [baitKey()] };
+      Object.defineProperty(dr, 'bait', { value: p.id, enumerable: false }); Object.defineProperty(dr, 'until', { value: now + BAIT_LIFE, enumerable: false, writable: true });   // not enumerable: never sent to clients
+      m.drops.push(dr); if (m.drops.length > 60) m.drops.shift(); bcast(m, { drops: m.drops }); return {};
+    }
+    case 'dazzle':
+      for (const q of m.players.values()) if (q !== p && !q.dead && q.entered && q.room === p.room && Math.hypot(q.x - p.x, q.z - p.z) <= it.r) q.dazeUntil = now + it.ms;
+      bcast(m, { flash: { id: p.id, x: hx, z: hz, room: p.room, r: it.r, ms: it.ms } }); return {};
+    case 'haggle': if (p.haggle) return 'busy'; p.haggle = true; return {};
+    case 'rage': if (now < (p.rageUntil || 0)) return 'busy'; p.rageUntil = now + it.ms; return { ms: it.ms };
+    case 'recall': if (m.sudden) return 'sudden'; if (p.recall) return 'busy'; p.recall = { at: now + it.ms, since: now }; return { ms: it.ms };
+    case 'bell':
+      m.bells = sweep(m.bells, m, now, 'bellEnd', true); if (m.bells.filter(o => o.by === p).length >= MAX_PLACED) return 'busy';
+      m.bells.push({ id, x: p.x, z: p.z, room: p.room, by: p, until: now + it.ms }); sendTo(p.ws, { bell: { id, x: hx, z: hz, room: p.room } }); return {};
+    default: return null;
+  }
+}
+function baitTake(m, p, dr, mode) {   // {loot} on a Mimic Bait pile: its owner gets the bait back, anybody else is bitten
+  if (mode !== 'take') return 'item';
+  const di = m.drops.indexOf(dr);
+  if (dr.bait === p.id) { if (p.inv.backpack.indexOf(null) < 0) return 'space'; m.drops.splice(di, 1); giveItem(p, 'x:bait'); bcast(m, { drops: m.drops }); return null; }
+  m.drops.splice(di, 1); bcast(m, { drops: m.drops });
+  let owner = null; for (const q of m.players.values()) if (q.id === dr.bait) owner = q;
+  const n = G.ITEMS['x:bait'].n, tws = [...m.players].find(([, q]) => q === p)[0];
+  bcast(m, { mimic: { x: dr.x, z: dr.z, room: p.room } }); sendTo(p.ws, { bite: { dmg: n } });
+  if (owner && !owner.dead) hitTarget(m, owner.ws, owner, tws, p, n, Date.now(), 'Mimic');
+  return null;
+}
+function botUse2(m, p, now) {   // bots use the sensible ones: jar at once, ward / dazzle / trap when hurt, rage when a target is close
+  const slot = k => BOT_USE_SLOTS.find(sl => getSlot(p.inv, sl) === k), hurtNow = now - (p.hurtAt || 0) < 1500; let s;
+  if ((s = slot('x:jar'))) return useItem(m, p, s, now);
+  if (hurtNow && (s = slot('x:ward'))) return useItem(m, p, s, now);
+  const t = p.brain && p.brain.tgt;
+  if (t && !t.dead && t.room === p.room && Math.hypot(t.x - p.x, t.z - p.z) < 4 && (s = slot('x:rage'))) return useItem(m, p, s, now);
+  if (hurtNow) {
+    let foe = null; for (const q of m.players.values()) if (q.id === p.hitBy && !q.dead && q.room === p.room && Math.hypot(q.x - p.x, q.z - p.z) < 3.5) foe = q;
+    if (foe && (s = slot('x:dazzle'))) return useItem(m, p, s, now);
+    if (p.stats.health < p.stats.maxHealth * 0.6 && (s = slot('x:trap'))) return useItem(m, p, s, now);
+  }
+}
+function use2Tick(m, now) {   // from useTick (50 ms)
+  if (m.traps && m.traps.length) {
+    const I = G.ITEMS['x:trap'];
+    for (const tr of m.traps) {
+      if (now < tr.armAt || tr.until <= now) continue;
+      for (const [tws, t] of m.players) {
+        if (t === tr.by || t.dead || !t.entered || t.room !== tr.room || Math.hypot(t.x - tr.x, t.z - tr.z) > 0.9) continue;
+        tr.hit = true; tr.until = 0; t.snareUntil = now + I.ms; if (t.ws) sendTo(t.ws, { snared: { ms: I.ms, n: 0.35 } });
+        hitTarget(m, tr.by.ws, tr.by, tws, t, I.n, now, 'Bear Trap'); break;
+      }
+    }
+    m.traps = sweep(m.traps, m, now, 'trapEnd');
+  }
+  if (m.bells && m.bells.length) {
+    const I = G.ITEMS['x:bell'];
+    for (const b of m.bells) for (const t of m.players.values()) {
+      if (t === b.by || t.dead || !t.entered || t.npc || t.room !== b.room || Math.hypot(t.x - b.x, t.z - b.z) > I.r) continue;
+      sendTo(b.by.ws, { bellRing: { id: b.id, room: b.room, by: t.id, ms: I.reveal } }); b.hit = true; b.until = 0; break;
+    }
+    m.bells = sweep(m.bells, m, now, 'bellEnd', true);
+  }
+  if (m.pried && m.pried.length && m.pried.some(d => d.until <= now)) {   // a pried-open door slams shut again
+    const gone = m.pried.filter(d => d.until <= now).map(d => d.door); m.pried = m.pried.filter(d => d.until > now);
+    m.open = m.open.filter(d => !gone.includes(d)); broadcastRound(m);
+  }
+  if (m.drops && m.drops.some(d => d.until && d.until <= now)) { m.drops = m.drops.filter(d => !(d.until && d.until <= now)); bcast(m, { drops: m.drops }); }
+  for (const p of m.players.values()) {
+    const r = p.recall; if (!r) continue;
+    if (p.dead || m.sudden) { p.recall = null; continue; }
+    if ((p.hurtAt || 0) > r.since) { p.recall = null; sendTo(p.ws, { recallEnd: { ok: 0 } }); continue; }
+    if (now >= r.at) {
+      p.recall = null; const home = RB[p.home] ? p.home : 0, [x, z] = WORLD.randomPoint(home), pr = p.room;
+      place(p, x, z); noteRoom(m, p, pr); p.sd = true; m.dirty = true; sendTo(p.ws, { fix: [r2(p.x), r2(p.z)] }); sendTo(p.ws, { recallEnd: { ok: 1 } });
+    }
+  }
+  if (now - (m.use2BotAt || 0) >= 1000) { m.use2BotAt = now; for (const p of m.players.values()) if (p.bot && !p.dead && p.entered) botUse2(m, p, now); }
+}
+// USE2-END
 // LOOT-BEGIN (vault relic, merchant price scaling, throwable plushie, bots at stations; see docs/reports/loot.md)
 const RELIC_POS = (() => { const [vx, vz] = WORLD.rc(WORLD.VAULT); return { x: vx + 2.4, z: vz }; })();   // the pedestal on the dais edge (the game.js LOOT block uses the same offset)
 const priceAt = (base, round) => Math.max(5, Math.round(base * (1 + 0.1 * Math.max(0, round - 2)) / 5) * 5);   // +10 % per round after round 2, rounded to 5 gold
@@ -1276,7 +1400,7 @@ function botLab(m, ws, p, cmd) {   // GK_DEBUG only, for tests. 'station': make 
       if (typeof cmd.yaw === 'number') q.yaw = cmd.yaw; else if (r) q.yaw = yawTo(q, cmd.near[0], cmd.near[1]);   // ring bots face the middle unless {yaw} says otherwise
       q.brain.scanAt = typeof cmd.scanAfter === 'number' ? Date.now() + cmd.scanAfter : 0; q.sd = true; if (cmd.wpn === 'none' || (typeof cmd.wpn === 'string' && G.ITEMS[cmd.wpn])) { q.inv.weapon = cmd.wpn === 'none' ? null : cmd.wpn; recalc(q); } }); m.dirty = true;   // wpn: give the bot that weapon ('none': unarmed, 1 damage, keeps a test human alive). roomAt 0: they count as long-time residents. scanAfter: ms before the idle bot first looks around
   }
-  sendTo(ws, { botlab: { rec: BS.rec || 0, cra: BS.cra || 0, pos: bot ? [bot.x, bot.z] : null, junk: bot ? bot.inv.backpack.filter(k => k === 'w:stick').length : 0, room: bot ? bot.room : null, wpn: bot ? bot.inv.weapon : null, armor: bot ? bot.inv.armor : null, nav: BS.nav || 0, yaw: bot ? bot.yaw : null, ai: bot ? { aggr: bot.brain.aggr, flee: bot.brain.flee, greed: bot.brain.greed, patience: bot.brain.patience } : null } });
+  sendTo(ws, { botlab: { rec: BS.rec || 0, cra: BS.cra || 0, pos: bot ? [bot.x, bot.z] : null, junk: bot ? bot.inv.backpack.filter(k => k === 'w:stick').length : 0, room: bot ? bot.room : null, charm: bot ? bot.inv.charm : null, know: bot ? bot.stats.knowledge : null, pack: bot ? bot.inv.backpack.filter(Boolean) : null, wpn: bot ? bot.inv.weapon : null, armor: bot ? bot.inv.armor : null, nav: BS.nav || 0, yaw: bot ? bot.yaw : null, ai: bot ? { aggr: bot.brain.aggr, flee: bot.brain.flee, greed: bot.brain.greed, patience: bot.brain.patience } : null } });
 }
 // LOOT-END
 
@@ -1291,7 +1415,7 @@ function startMatch(m) {   // close the queue match, give everyone their own out
   let i = 0;
   for (const p of m.players.values()) {
     const box = rooms[i++ % rooms.length], [cx, cz] = WORLD.rc(box), [x, z] = WORLD.randomPoint(box);
-    Object.assign(p, { box, yaw: Math.atan2(-(cx - x), -(cz - z)), ready: false }); place(p, x, z);   // place() also resets the netcode speed budget and history
+    Object.assign(p, { home: box, box, yaw: Math.atan2(-(cx - x), -(cz - z)), ready: false }); place(p, x, z);   // place() also resets the netcode speed budget and history
   }
   { const seen = new Set(); for (const p of m.players.values()) { let n = p.name || 'Goblin'; if (seen.has(n.toLowerCase())) { const free = BOT_NAMES.filter(b => !seen.has(b.toLowerCase())); n = free.length ? free[Math.floor(Math.random() * free.length)] : n + ' ' + p.id; } p.name = n; seen.add(n.toLowerCase()); } }   // unique names inside a match
   fillWithBots(m);

@@ -3789,17 +3789,17 @@ const itemName = k => { const it = infoOf(k); return it ? it.name : String(k); }
 const TIER_COL = { common: '#9aa0a8', uncommon: '#4fc35b', rare: '#4a9bff', mythic: '#b06bff', legendary: '#ffb02e', transcendent: '#7ff4ff', class: '#ffd75e' };
 const tierN = k => { const it = infoOf(k); return it && it.tierN != null ? it.tierN : null; };   // null for brains
 const tierTxt = k => tierN(k) != null ? 'Tier ' + tierN(k) : '';
-const statTxt = k => { const it = infoOf(k); if (!it) return ''; return [tierTxt(k), it.type === 'weapon' ? 'Attack ' + it.attack : it.type === 'armor' ? 'Health ' + it.health + (it.speed ? (it.speed > 1 ? ' · Speed +' : ' · Speed -') + Math.round(Math.abs(it.speed - 1) * 100) + '%' : '') + (it.thorns ? ' · Thorns ' + it.thorns : '') : it.gain != null ? '+' + fmtN(it.gain) + ' knowledge' : it.use ? it.desc : ''].filter(Boolean).join(' · '); };
+const statTxt = k => { const it = infoOf(k); if (!it) return ''; return [tierTxt(k), it.type === 'weapon' ? 'Attack ' + it.attack : it.type === 'armor' ? 'Health ' + it.health + (it.speed ? (it.speed > 1 ? ' · Speed +' : ' · Speed -') + Math.round(Math.abs(it.speed - 1) * 100) + '%' : '') + (it.thorns ? ' · Thorns ' + it.thorns : '') : it.gain != null ? '+' + fmtN(it.gain) + ' knowledge' : it.use || it.type === 'charm' ? it.desc : ''].filter(Boolean).join(' · '); };
 const fmtN = n => Number.isInteger(+n) ? String(n) : String(+(+n).toFixed(1));   // keys -> names (plain names from an older server pass through)
-const emptyInv = () => ({ backpack: Array(9).fill(null), quick: Array(3).fill(null), weapon: null, armor: null });
+const emptyInv = () => ({ backpack: Array(9).fill(null), quick: Array(3).fill(null), weapon: null, armor: null, charm: null });
 function startInv(goblin) { const inv = emptyInv(), s = itemsData().START[goblin]; if (s) { inv.weapon = s.weapon || null; inv.armor = s.armor || null; } return inv; }
-const SLOT_RE = /^(b[0-8]|q[0-2]|weapon|armor)$/;
-function invGet(inv, id) { return id === 'weapon' || id === 'armor' ? inv[id] : (id[0] === 'b' ? inv.backpack : inv.quick)[+id.slice(1)]; }
-function invSet(inv, id, v) { if (id === 'weapon' || id === 'armor') inv[id] = v; else (id[0] === 'b' ? inv.backpack : inv.quick)[+id.slice(1)] = v; }
+const SLOT_RE = /^(b[0-8]|q[0-2]|weapon|armor|charm)$/;
+function invGet(inv, id) { return id === 'weapon' || id === 'armor' || id === 'charm' ? inv[id] : (id[0] === 'b' ? inv.backpack : inv.quick)[+id.slice(1)]; }
+function invSet(inv, id, v) { if (id === 'weapon' || id === 'armor' || id === 'charm') inv[id] = v; else (id[0] === 'b' ? inv.backpack : inv.quick)[+id.slice(1)] = v; }
 function slotAccepts(id, key) {
   if (key == null) return true;
   const it = infoOf(key); if (!it) return false;
-  return id === 'weapon' ? it.type === 'weapon' : id === 'armor' ? it.type === 'armor' : true;
+  return id === 'weapon' ? it.type === 'weapon' : id === 'armor' ? it.type === 'armor' : id === 'charm' ? it.type === 'charm' : true;
 }
 function canMove(inv, from, to) { return SLOT_RE.test(from) && SLOT_RE.test(to) && from !== to && invGet(inv, from) != null && slotAccepts(to, invGet(inv, from)) && slotAccepts(from, invGet(inv, to)); }
 function invMove(inv, from, to) {   // swaps when the target is occupied; returns false (and changes nothing) if rejected
@@ -3808,10 +3808,10 @@ function invMove(inv, from, to) {   // swaps when the target is occupied; return
 }
 function invDrop(inv, id) { if (typeof id !== 'string' || !SLOT_RE.test(id)) return null; const k = invGet(inv, id); if (k == null) return null; invSet(inv, id, null); return k; }
 function invStats(inv, goblin, know) {   // attack comes from the weapon, health from the armour, knowledge is innate (+ brains eaten)
-  const w = infoOf(inv.weapon), a = infoOf(inv.armor), hp = a ? (itemsData().goblinHp ? itemsData().goblinHp(goblin, a.health) : a.health) : 0;   // GOBTYPES: plus the type's health bonus
+  const w = infoOf(inv.weapon), a = infoOf(inv.armor); let hp = a ? (itemsData().goblinHp ? itemsData().goblinHp(goblin, a.health) : a.health) : 0; const hpc = (itemsData().charmEff && itemsData().charmEff(inv.charm, 'hp')) || 0; hp += hpc;   // GOBTYPES: plus the type's health bonus
   return { knowledge: know != null ? know : (itemsData().KNOWLEDGE || [])[goblin] != null ? itemsData().KNOWLEDGE[goblin] : STATS[goblin].knowledge, attack: w ? w.attack : 0, health: hp, maxHealth: hp };
 }
-function invAll(inv) { return [inv.weapon, inv.armor, ...inv.backpack, ...inv.quick].filter(k => k != null); }
+function invAll(inv) { return [inv.weapon, inv.armor, inv.charm, ...inv.backpack, ...inv.quick].filter(k => k != null); }
 
 // ---------- networking (real server, or a local simulation for the offline demo) ----------
 function makeNet(opts) {   // opts.goblin: play this goblin type (a saved character) instead of rolling one
@@ -3909,11 +3909,34 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     }
   }, 100);
   // COMBAT-END
+  // ITEMS2-DEMO-BEGIN: the offline demo can use items too (a reduced copy of server.js useItem(): heals, tonic, jar, thrown items, traps, flares, bells, notes)
+  let simToss = 0;
+  const demoKit = p => { ['x:bandage', 'x:smoke', 'x:trap'].forEach((k, i) => { p.inv.quick[i] = k; }); ['x:flare', 'x:lens', 'x:ward', 'x:dazzle', 'x:rage', 'x:bait', 'x:jar', 'c:heart', 'x:bell'].forEach((k, i) => { p.inv.backpack[i] = k; }); };
+  function simUse(slot) {
+    const say = o => net.onmessage && net.onmessage(o), key = /^(b[0-8]|q[0-2])$/.test(slot) ? invGet(meP.inv, slot) : null, it = key && itemsData().ITEMS[key];
+    if (!it || !it.use) return say({ useFail: 'item' }); if (!rs.started) return say({ useFail: 'now' });
+    let extra = {}; const fx = -Math.sin(meP.yaw), fz = -Math.cos(meP.yaw), rk = roomKeyAt(meP.x, meP.z), id = ++simToss, here = { x: +meP.x.toFixed(2), z: +meP.z.toFixed(2), room: rk };
+    switch (it.use) {
+      case 'heal': { const mx = maxHpOf(meP); if (hpOf(meP) >= mx) return say({ useFail: 'full' }); const b0 = meP.hp; meP.hp = Math.min(mx, b0 + it.n); extra = { hp: meP.hp - b0 }; emit(); break; }
+      case 'speed': extra = { ms: it.ms, n: it.n }; break;
+      case 'know': meP.know = Math.round((meP.know + it.n) * 100) / 100; say({ ate: { gain: it.n, knowledge: meP.know } }); break;
+      case 'smoke': case 'bomb': { const tx = +(meP.x + fx * 6).toFixed(2), tz = +(meP.z + fz * 6).toFixed(2); say({ toss: { id, kind: it.use, by: meP.id, from: [here.x, here.z], to: [tx, tz], ms: 600, room: rk } }); if (it.use === 'bomb') setTimeout(() => say({ boom: { id, x: tx, z: tz, r: it.r, room: rk } }), 1600); break; }
+      case 'trap': say({ trap: { id, ...here, by: meP.id, arm: it.arm } }); break;
+      case 'bell': say({ bell: { id, ...here } }); break;
+      case 'flare': say({ flare: { id, ...here, ms: it.ms, by: meP.id } }); extra = { ms: it.ms }; break;
+      case 'dazzle': say({ flash: { id: meP.id, ...here, r: it.r, ms: it.ms } }); break;
+      case 'lens': case 'ward': case 'rage': extra = { ms: it.ms }; break;
+      default: break;
+    }
+    invSet(meP.inv, slot, null); sendInv(); say({ used: { key, slot, ...extra } });
+  }
+  // ITEMS2-DEMO-END
   const net = {
     onmessage: null,
     send(m) {
       if (typeof m.ping === 'number') net.onmessage && net.onmessage({ pong: m.ping, t: Math.round(performance.now()) });
       if (m.atk === 1) simAtk();
+      if (typeof m.use === 'string' && meP) simUse(m.use);   // ITEMS2
       if (m.enter === 1 && !rs.started) { rs.started = true; rs.goAt = performance.now(); rs.endsAt = performance.now() + rs.dur; botPlan(); emitRound(); }
       if (Number.isInteger(m.sel) && meP) { const k = roomKeyAt(meP.x, meP.z); if ((ROOM_DOORS[k] || []).includes(m.sel) && rs.sel[k] !== m.sel) { rs.sel[k] = m.sel; emitRound(); } }
       if (m.m && meP) { [meP.x, meP.z, meP.yaw] = m.m; meP.box = roomAt(meP.x, meP.z); } if (m.reroll) { claimedSim.clear(); net.onmessage && net.onmessage({ claimedReset: 1 }); const o = list.indexOf(meP); seq++; meP = mk(false); meP.id = list[o].id; list[o] = meP; sendInv(); sendGold(); sendParts(); emit(); }
@@ -3994,7 +4017,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
       meP.inv.backpack[i] = keys[Math.floor(Math.random() * keys.length)]; sendInv(); emit(); return meP.inv.backpack[i];
     },
   };
-  meP = mk(false); list = [meP, mk(true), mk(true), mk(true), mk(true)];
+  meP = mk(false); list = [meP, mk(true), mk(true), mk(true), mk(true)]; demoKit(meP);
   setTimeout(() => { net.onmessage && net.onmessage({ you: meP.id, ...(() => { const layout = GKITEMS.randomLayout(); layoutSim = layout; mysterySim = layout.map(t => t === 'mystery' ? GKITEMS.randomMystery() : null); shopsSim = layout.map(t => t === 'merchant' ? GKITEMS.randomShop() : null); return { layout, mystery: mysterySim, shops: clone(shopsSim) }; })(), chests: Array.from({ length: CHEST_ROOMS.length }, () => Math.floor(Math.random() * WEAPONS.length)), chestKeys: (chestKeysSim = Array.from({ length: CHEST_ROOMS.length }, () => GKITEMS.randomWeaponKey())), ...rmsg() }); sendInv(); sendGold(); sendParts(); sendMatch(); emit(); }, 50);
   botPlan();
   setInterval(() => {
@@ -4322,7 +4345,7 @@ GK.showDeathScreen = showDeathScreen;
   function iconMyst(g, font) { g.font = font; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineWidth = 3; g.strokeStyle = '#1a0a2a'; g.strokeText('?', 0, 1); g.fillStyle = '#c58cff'; g.fillText('?', 0, 1); }
   function tickMark(g, r) { g.lineWidth = 2.2; g.strokeStyle = '#5dff8a'; g.lineCap = 'round'; g.beginPath(); g.moveTo(-r * .6, 0); g.lineTo(-r * .1, r * .55); g.lineTo(r * .7, -r * .5); g.stroke(); g.lineCap = 'butt'; }
   const actorDot = (a, id) => {   // fog of war: only goblins in my room or behind one of my open doors
-    if (id === me || a.npc || vis[keyIdx(a.x, a.z)] !== 1) return;
+    if (id === me || a.npc || (vis[keyIdx(a.x, a.z)] !== 1 && !(window.GKUSE2 && GKUSE2.reveal()))) return;   // ITEMS2: a flare or bell shows everybody
     cg.beginPath(); cg.arc(a.x, a.z, (cbig ? 4.5 : 3) * cip, 0, 6.2832); cg.fill(); cg.stroke();
   };
   const actorSig = (a, id) => { if (id === me || a.npc) return; sigH = (sigH * 31 + Math.round(a.x * 2)) | 0; sigH = (sigH * 31 + Math.round(a.z * 2)) | 0; };
@@ -4347,6 +4370,24 @@ GK.showDeathScreen = showDeathScreen;
       const v = dirOf(DINFO[id], KEYS[i]), cx = i < 9 ? WD.rc(i)[0] : CHEST_ROOMS[i - 9].cx, cz = i < 9 ? WD.rc(i)[1] : CHEST_ROOMS[i - 9].cz, L = i < 9 ? 3.2 : 1.8, hx = v[0] * L, hz = v[1] * L;
       g.beginPath(); g.moveTo(cx - hx * .4, cz - hz * .4); g.lineTo(cx + hx, cz + hz); g.stroke();
       g.beginPath(); g.moveTo(cx + hx * 1.25, cz + hz * 1.25); g.lineTo(cx + hx * .7 - v[1] * L * .45, cz + hz * .7 + v[0] * L * .45); g.lineTo(cx + hx * .7 + v[1] * L * .45, cz + hz * .7 - v[0] * L * .45); g.closePath(); g.fill();
+    }
+    if (window.GKUSE2 && GKUSE2.lens()) {   // ITEMS2: Panel Lens: every room's current pick
+      g.strokeStyle = '#ffd24a'; g.fillStyle = '#ffd24a'; g.lineWidth = 2.2 * ip;
+      for (let i = 0; i < NR; i++) {
+        const id = RS.sel[KEYS[i]]; if (id === undefined || !DINFO[id]) continue;
+        const v = dirOf(DINFO[id], KEYS[i]), cx = i < 9 ? WD.rc(i)[0] : CHEST_ROOMS[i - 9].cx, cz = i < 9 ? WD.rc(i)[1] : CHEST_ROOMS[i - 9].cz, L = i < 9 ? 3.2 : 1.8, hx = v[0] * L, hz = v[1] * L;
+        g.beginPath(); g.moveTo(cx - hx * .4, cz - hz * .4); g.lineTo(cx + hx, cz + hz); g.stroke();
+        g.beginPath(); g.moveTo(cx + hx * 1.25, cz + hz * 1.25); g.lineTo(cx + hx * .7 - v[1] * L * .45, cz + hz * .7 + v[0] * L * .45); g.lineTo(cx + hx * .7 + v[1] * L * .45, cz + hz * .7 - v[0] * L * .45); g.closePath(); g.fill();
+      }
+    }
+    if (window.GKUSE2 && GKUSE2.lens()) {   // ITEMS2: Panel Lens: every room's current pick
+      g.strokeStyle = '#ffd24a'; g.fillStyle = '#ffd24a'; g.lineWidth = 2.2 * ip;
+      for (let i = 0; i < NR; i++) {
+        const id = RS.sel[KEYS[i]]; if (id === undefined || !DINFO[id]) continue;
+        const v = dirOf(DINFO[id], KEYS[i]), cx = i < 9 ? WD.rc(i)[0] : CHEST_ROOMS[i - 9].cx, cz = i < 9 ? WD.rc(i)[1] : CHEST_ROOMS[i - 9].cz, L = i < 9 ? 3.2 : 1.8, hx = v[0] * L, hz = v[1] * L;
+        g.beginPath(); g.moveTo(cx - hx * .4, cz - hz * .4); g.lineTo(cx + hx, cz + hz); g.stroke();
+        g.beginPath(); g.moveTo(cx + hx * 1.25, cz + hz * 1.25); g.lineTo(cx + hx * .7 - v[1] * L * .45, cz + hz * .7 + v[0] * L * .45); g.lineTo(cx + hx * .7 + v[1] * L * .45, cz + hz * .7 - v[0] * L * .45); g.closePath(); g.fill();
+      }
     }
     const mySel = my < NR ? RS.sel[KEYS[my]] : undefined;   // doors: green open, red closed, gold-brown vault, blue ring = my room's pick
     for (let id = 0; id < ND; id++) {
@@ -4569,7 +4610,7 @@ function paintSlot(el, id) {
     el.appendChild(mkIcon(k, size));
     const tn = tierN(k); if (tn != null) { const b = document.createElement('span'); b.textContent = 'T' + tn; b.style.cssText = 'position:absolute;right:3px;bottom:2px;padding:0 4px;border-radius:4px;font:800 10px/14px system-ui,sans-serif;color:#0c0a06;pointer-events:none;background:' + (TIER_COL[(infoOf(k) || {}).tier] || '#9aa0a8'); el.appendChild(b); }
     else if (infoOf(k) && infoOf(k).family === 'brain') { const b = document.createElement('span'); b.textContent = '+' + fmtN(infoOf(k).gain); b.style.cssText = 'position:absolute;right:3px;bottom:2px;padding:0 4px;border-radius:4px;font:800 10px/14px system-ui,sans-serif;color:#0c0a06;pointer-events:none;background:#f08aa8'; el.appendChild(b); }
-  } else if (id === 'weapon' || id === 'armor') { const c = mkIcon(id === 'weapon' ? 'w:sword' : 'a:vest', size); c.className = 'sil'; el.appendChild(c); }
+  } else if (id === 'weapon' || id === 'armor' || id === 'charm') { const c = mkIcon(id === 'weapon' ? 'w:sword' : id === 'charm' ? 'c:heart' : 'a:vest', size); c.className = 'sil'; el.appendChild(c); }
   el.classList.toggle('held', held === id && k != null);
   el.classList.toggle('sel', id[0] === 'q' && +id[1] === qSel && el.dataset.hot === '1');
 }
@@ -4590,7 +4631,7 @@ function paintAll() { for (const id in slotEls) for (const el of slotEls[id]) pa
 function setSel(i) { qSel = (i + 3) % 3; paintAll(); }
 function setInv(d) {
   if (!d || !Array.isArray(d.backpack)) return;
-  myInv = { backpack: Array.from({ length: 9 }, (_, i) => d.backpack[i] == null ? null : d.backpack[i]), quick: Array.from({ length: 3 }, (_, i) => (d.quick || [])[i] == null ? null : d.quick[i]), weapon: d.weapon || null, armor: d.armor || null };
+  myInv = { backpack: Array.from({ length: 9 }, (_, i) => d.backpack[i] == null ? null : d.backpack[i]), quick: Array.from({ length: 3 }, (_, i) => (d.quick || [])[i] == null ? null : d.quick[i]), weapon: d.weapon || null, armor: d.armor || null, charm: d.charm || null };
   invReady = true; if (held && invGet(myInv, held) == null) held = null;
   if (hotEl) paintAll();
   const mine = actors.get(me); if (mine) showStats(null, mine.goblin);
@@ -4645,7 +4686,8 @@ function buildInv() {
   const eq = document.createElement('div'); eq.style.cssText = 'display:flex;flex-direction:column;gap:10px;align-items:center';
   const wl = document.createElement('div'); wl.className = 'lab'; wl.textContent = 'WEAPON'; wl.style.margin = '0 0 -4px';
   const al = document.createElement('div'); al.className = 'lab'; al.textContent = 'ARMOUR'; al.style.margin = '4px 0 -4px';
-  eq.append(wl, mkSlot('weapon', 70), al, mkSlot('armor', 70));
+  const cl = document.createElement('div'); cl.className = 'lab'; cl.textContent = 'CHARM'; cl.style.margin = '4px 0 -4px';   // ITEMS2: the passive slot
+  eq.append(wl, mkSlot('weapon', 70), al, mkSlot('armor', 70), cl, mkSlot('charm', 70));
   const grid = document.createElement('div'); grid.style.cssText = 'display:grid;grid-template-columns:repeat(3,62px);gap:7px';
   for (let i = 0; i < 9; i++) grid.appendChild(mkSlot('b' + i, 62));
   statColEl = document.createElement('div'); statColEl.style.cssText = 'min-width:150px;font-size:14px;line-height:1.6';
@@ -4658,8 +4700,8 @@ function buildInv() {
   hintEl = document.createElement('div'); hintEl.style.cssText = 'flex:1;font-size:12px;color:#8d8880;letter-spacing:.04em'; hintEl.textContent = 'Right-click an item to drop it  ·  Tab / I / Esc to close';
   dropBtn = document.createElement('button'); dropBtn.textContent = 'DROP'; dropBtn.style.cssText = 'border:1px solid rgba(255,90,74,.6);background:rgba(120,20,14,.35);color:#ff8a7a';
   const closeBtn = document.createElement('button'); closeBtn.textContent = 'CLOSE'; closeBtn.style.cssText = 'border:0;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font-weight:800';
-  const eatBtn = document.createElement('button'); eatBtn.textContent = 'EAT'; eatBtn.id = 'invEat'; eatBtn.style.cssText = 'border:1px solid #8be28b;background:rgba(40,120,50,.35);color:#b8f5b8';
-  eatBtn.onclick = () => { const k = held && invGet(myInv, held); if (k && infoOf(k) && infoOf(k).family === 'brain') eatSlot(held); else { hintEl.style.color = '#ff8a7a'; hintEl.textContent = 'Pick up a brain first, then press Eat (or double-click it)'; setTimeout(() => { hintEl.style.color = '#8d8880'; hintEl.textContent = 'Right-click an item to drop it  ·  Tab / I / Esc to close'; }, 2200); } };
+  const eatBtn = document.createElement('button'); eatBtn.textContent = 'EAT / USE'; eatBtn.id = 'invEat'; eatBtn.style.cssText = 'border:1px solid #8be28b;background:rgba(40,120,50,.35);color:#b8f5b8';
+  eatBtn.onclick = () => { const k = held && invGet(myInv, held); if (k && infoOf(k) && (infoOf(k).family === 'brain' || infoOf(k).use || infoOf(k).type === 'charm')) eatSlot(held); else { hintEl.style.color = '#ff8a7a'; hintEl.textContent = 'Pick up a brain or a utility item first, then press Eat / Use (or double-click it)'; setTimeout(() => { hintEl.style.color = '#8d8880'; hintEl.textContent = 'Right-click an item to drop it  ·  Tab / I / Esc to close'; }, 2200); } };
   foot.append(hintEl, eatBtn, dropBtn, closeBtn);
   invEl.addEventListener('dblclick', e => { const el = e.target.closest && e.target.closest('.gks'); if (el && el.dataset.id) { held = null; eatSlot(el.dataset.id); } });
   panel.append(main, qwrap, foot); invEl.appendChild(panel);
@@ -5214,6 +5256,9 @@ function lootFailFx(why) { if (panelKind === 'loot') say(lootPn, { range: 'Too f
 GK.openLoot = () => { const d = nearestPile(); if (d) openStation('loot', d.id); return !!d; };
 // ---- eating ----
 function eatSlot(id) {
+  const k0 = invGet(myInv, id), i0 = k0 != null && infoOf(k0);   // ITEMS2: double-click uses a utility item, or wears a charm
+  if (i0 && i0.use) { held = null; net.send({ use: id }); paintAll(); return true; }
+  if (i0 && i0.type === 'charm' && id !== 'charm') { moveInv(id, 'charm'); return true; }
   const k = invGet(myInv, id); if (k == null || !(infoOf(k) && infoOf(k).family === 'brain')) return false;
   invSet(myInv, id, null); if (held === id) held = null; net.send({ eat: id }); paintAll(); return true;
 }
@@ -7430,11 +7475,13 @@ const GKUSE = window.GKUSE = (() => {
       const k = invGet(myInv, 'q' + i), it = k && infoOf(k); if (!it || !it.use) return false;
       lastKey = k; net.send({ use: 'q' + i }); return true;
     },
-    speedMul() { return performance.now() < tonicEnd ? UT('x:tonic').n || 1.25 : 1; },
+    note, lastKey: () => lastKey,
+    speedMul() { return (performance.now() < tonicEnd ? UT('x:tonic').n || 1.25 : 1) * (window.GKUSE2 ? GKUSE2.speedMul() : 1); },
     onMsg(d) {
+      if (window.GKUSE2) GKUSE2.onMsg(d);   // ITEMS2
       if (d.toss) onToss(d.toss);
       if (d.boom) onBoom(d.boom);
-      if (d.used) {
+      if (d.used && !(window.GKUSE2 && GKUSE2.owns(d.used.key))) {
         const u = d.used, it = UT(u.key); snd('useSoft', { pitch: it.use === 'speed' ? 1.3 : it.use === 'pick' ? 1.5 : 1 });
         if (it.use === 'heal') note('+' + u.hp + ' HP', '#8be28b');
         else if (it.use === 'regen') note('Regenerating', '#8be28b');
@@ -7446,12 +7493,97 @@ const GKUSE = window.GKUSE = (() => {
       if (d.sealBlock) { toastMsg('This panel is sealed', false, 1100); snd('deny'); }
       if (d.useFail) {
         const pickMsg = lastKey === 'x:lockpick' ? 'Pick a Vault door on the panel first' : 'Pick a door on the panel first';
-        toastMsg(d.useFail === 'pick' ? pickMsg : FAIL[d.useFail] || 'Cannot use that', false, 1400); snd('deny');
+        toastMsg(d.useFail === 'pick' ? pickMsg : d.useFail === 'door' && lastKey === 'x:pry' ? 'No closed door close by (not the Vault)' : FAIL[d.useFail] || 'Cannot use that', false, 1400); snd('deny');
       }
     },
   };
 })();
 // UTILITY-END
+// ITEMS2-BEGIN (client side of the twelve more utility items and the charm slot; docs/reports/more-items.md): placed bear traps and alarm bells, the flare glow, the dazzle whiteout, short notes, minimap reveals. No lights.
+const GKUSE2 = window.GKUSE2 = (() => {
+  const OWN = new Set(['trap', 'flare', 'lens', 'pry', 'ward', 'jar', 'bait', 'dazzle', 'haggle', 'rage', 'feather', 'bell'].map(k => 'x:' + k));
+  const UT = k => (itemsData().ITEMS || {})[k] || {};
+  let flareEnd = 0, lensEnd = 0, revealEnd = 0, snareEnd = 0, snareN = 1, wardEnd = 0;
+  const placed = new Map(), glows = [];
+  const glowTex = canvasTex(64, 64, (g, w, h) => { const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,230,180,1)'); gr.addColorStop(0.3, 'rgba(255,150,70,.55)'); gr.addColorStop(1, 'rgba(255,100,40,0)'); g.fillStyle = gr; g.fillRect(0, 0, w, h); });
+  const redraw = () => { try { GK.minimap && GK.minimap.redraw(); } catch (e) {} };
+  const later = (ms, f) => setTimeout(f, ms);
+  const note = (t, c) => GKUSE.note(t, c);
+  function model(key, width, fallbackCol) {   // the item model scaled to a world prop `width` metres wide, standing on the floor (a plain disc when itemart is missing)
+    const m = window.GKART && GKART.model(key), g = new THREE.Group();
+    if (m) {
+      m.traverse(o => { if (o.userData.glow) o.visible = false; });
+      const bb = new THREE.Box3().setFromObject(m), sz = bb.getSize(new THREE.Vector3()), s = width / Math.max(sz.x, sz.z, 0.01);
+      m.scale.setScalar(s); m.position.y = -bb.min.y * s; g.add(m); return g;
+    }
+    const f = new THREE.Mesh(new THREE.CylinderGeometry(width / 2, width / 2, 0.04, 14), new THREE.MeshStandardMaterial({ color: fallbackCol, roughness: 0.6 })); f.position.y = 0.02; g.add(f); return g;
+  }
+  function putTrap(t) {   // everyone sees a placed trap; it lies flat on the floor
+    const m = model('x:trap', 0.55, 0x555a62); m.position.set(t.x, 0.01, t.z); m.rotation.y = (t.id * 1.7) % 6.28; scene.add(m); placed.set('t' + t.id, m);
+  }
+  function putBell(t) {   // only its owner sees an alarm bell
+    const m = model('x:bell', 0.3, 0xc9a13a); m.position.set(t.x, 0.01, t.z); scene.add(m); placed.set('b' + t.id, m);
+  }
+  const drop = id => { const m = placed.get(id); if (m) { scene.remove(m); placed.delete(id); } };
+  function putFlare(f) {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false })); s.position.set(f.x, 2.6, f.z); s.scale.setScalar(2.4); scene.add(s);
+    glows.push({ s, t0: performance.now(), ms: f.ms, x: f.x, z: f.z });
+  }
+  function whiteout(ms) {   // dazzle: the screen goes white for a moment, then clears
+    const d = document.createElement('div'); d.style.cssText = 'position:fixed;inset:0;z-index:80;pointer-events:none;background:#fffbe8';
+    document.body.appendChild(d); const an = d.animate([{ opacity: 0.9 }, { opacity: 0.8, offset: 0.35 }, { opacity: 0 }], ms); an.onfinish = () => d.remove();
+  }
+  const loop = now => {
+    for (let i = glows.length - 1; i >= 0; i--) {
+      const g = glows[i], k = (now - g.t0) / g.ms, a = k < 0.08 ? k / 0.08 : k > 0.85 ? Math.max(0, (1 - k) / 0.15) : 1;
+      g.s.material.opacity = 0.85 * a * (0.85 + 0.15 * Math.sin(now / 90)); g.s.position.y = 2.6 + Math.sin(now / 600) * 0.12;
+      if (k >= 1) { scene.remove(g.s); g.s.material.dispose(); glows.splice(i, 1); }
+    }
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
+  const at = (x, z) => ({ x, z });
+  return {
+    owns: k => OWN.has(k),
+    reveal: () => { const n = performance.now(); return n < flareEnd || n < revealEnd; },   // minimap: every goblin shows
+    lens: () => performance.now() < lensEnd,   // minimap: this round's picks show
+    speedMul() { const n = performance.now(), ch = myInv && myInv.charm && itemsData().charmEff ? itemsData().charmEff(myInv.charm, 'spd') || 1 : 1; return ch * (n < snareEnd ? snareN : 1); },
+    onMsg(d) {
+      if (d.used && OWN.has(d.used.key)) {
+        const u = d.used, it = UT(u.key), n = performance.now();
+        try { GK.feel.itemUsed(it, 'use'); } catch (e) {}
+        if (it.use === 'flare') { flareEnd = n + (u.ms || 8000); redraw(); later((u.ms || 8000) + 50, redraw); note('Flare lit: every goblin shows', '#ffb070'); }
+        else if (it.use === 'lens') { lensEnd = n + (u.ms || 12000); redraw(); later((u.ms || 12000) + 50, redraw); note('Picks revealed on the map', '#bfe6ff'); }
+        else if (it.use === 'pry') note('Door pried open', '#ffd76a');
+        else if (it.use === 'ward') { wardEnd = n + (u.ms || 30000); note('Ward up', '#7fe8ff'); }
+        else if (it.use === 'bait') note('Bait set', '#ffd76a');
+        else if (it.use === 'haggle') note('Next purchase half price', '#ffd76a');
+        else if (it.use === 'rage') note('Rage', '#ff7a5a');
+        else if (it.use === 'recall') note('Recalling... do not get hit', '#ffd76a');
+        else if (it.use === 'trap') note('Trap set', '#ffd76a');
+        else if (it.use === 'bell') note('Bell set', '#ffd76a');
+      }
+      if (d.trap) putTrap(d.trap);
+      if (d.trapEnd) { const m = placed.get('t' + d.trapEnd.id); if (m && d.trapEnd.hit) snd('snap', { x: m.position.x, z: m.position.z, vol: 0.9 }); drop('t' + d.trapEnd.id); }
+      if (d.bell) putBell(d.bell);
+      if (d.bellRing) { drop('b' + d.bellRing.id); revealEnd = performance.now() + (d.bellRing.ms || 5000); redraw(); later((d.bellRing.ms || 5000) + 50, redraw); try { GK.feel.itemUsed(UT('x:bell'), 'use'); } catch (e) {} note('Your bell rings', '#ffd76a'); }
+      if (d.bellEnd) drop('b' + d.bellEnd.id);
+      if (d.flare) putFlare(d.flare);
+      if (d.flash) {
+        const f = d.flash; snd('zap', { x: f.x, z: f.z, vol: 0.7 });
+        if (f.id !== me && roomKeyAt(P.x, P.z) === f.room && Math.hypot(P.x - f.x, P.z - f.z) <= f.r) whiteout(Math.max(900, f.ms * 0.8));
+      }
+      if (d.ward && d.ward.id === me) { wardEnd = 0; note('Ward broken', '#7fe8ff'); snd('wardBreak'); }
+      else if (d.ward) { const a = actors.get(d.ward.id); snd('wardBreak', a ? { x: a.x, z: a.z, vol: 0.6 } : { vol: 0.4 }); }
+      if (d.snared) { snareEnd = performance.now() + (d.snared.ms || 2500); snareN = d.snared.n || 0.35; note('Caught in a trap', '#ff8a7a'); }
+      if (d.mimic) snd('snap', { x: d.mimic.x, z: d.mimic.z, vol: 0.9 });
+      if (d.bite) note('It was a mimic! -' + d.bite.dmg, '#ff8a7a');
+      if (d.haggled) note('Haggled: saved ' + d.haggled + ' gold', '#ffd76a');
+      if (d.recallEnd) note(d.recallEnd.ok ? 'Back home' : 'The spell broke', d.recallEnd.ok ? '#ffd76a' : '#ff8a7a');
+    },
+  };
+})();
+// ITEMS2-END
 if (window.GKART) requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => GKART.bake(renderer), 600)));   // ITEMART: bake the inventory icons in small batches once the first frame is up
 window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw, pitch) { P.x = x; P.z = z; P.yaw = yaw; P.pitch = pitch || 0; spawned = true; }, toggleOverview() { inside = !inside; }, build: buildGoblin };
 })();

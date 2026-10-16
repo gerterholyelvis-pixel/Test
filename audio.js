@@ -113,10 +113,12 @@
     return /plate|steel|iron|shield|helm/.test(f) ? 'plate' : /mail|chain|scale|ring/.test(f) ? 'mail' : /leather|hide|fur|studded/.test(f) ? 'leather' : /cloth|robe|silk|rag|sack/.test(f) ? 'cloth' : 'leather';
   }
   // item = an items.js entry ({type, family}); action = 'use' | 'equip' | 'pickup' -> a sound name for GKAUDIO.play
+  const USE2_SND = { trap: 'snap', flare: 'flare', lens: 'glassUp', pry: 'crowbar', ward: 'ward', jar: 'jar', bait: 'useSoft', dazzle: 'zap', haggle: 'coins', rage: 'rage', feather: 'feather', bell: 'bell' };   // ITEMS2: item family -> sound
   function itemSound(item, action) {
     if (!item) return 'pickup';
     const f = String(item.family || '').toLowerCase();
     if (action === 'equip') return 'equip';
+    if (action === 'use' && item.type === 'consumable' && USE2_SND[f]) return USE2_SND[f];   // ITEMS2
     if (action === 'use') return item.type === 'consumable' ? (/potion|elixir|tonic|draught|vial|flask|brew/.test(f) ? 'drink' : f === 'plushie' ? 'squeak' : 'eat') : 'equip';
     return 'pickup';
   }
@@ -247,6 +249,21 @@
     boom(out, t) {   // UTILITY: the powder bomb, a short dull blast (not as long as the vault door)
       tone(out, 'sine', 120, t, 0.42, 0.7, { f1: 38, a: 0.003 }); noise(out, t, 0.35, 0.6, 'lowpass', 1800, 160, 0.8, { a: 0.002 }); noise(out, t, 0.08, 0.4, 'highpass', 2500, 1500, 0.7, { a: 0.001 });
     },
+    // ITEMS2-BEGIN: sounds of the twelve more utility items (docs/reports/more-items.md); itemSound() below maps the item family to one of these
+    snap(out, t) {   // bear trap / mimic: a metal clap and a crunch
+      tone(out, 'square', 240, t, 0.07, 0.3, { f1: 90, a: 0.001 }); noise(out, t, 0.06, 0.5, 'highpass', 3000, 1800, 0.7, { a: 0.001 }); ping(out, t, 520, 0.22, 0.3); tone(out, 'sine', 80, t + 0.03, 0.18, 0.5, { f1: 40, a: 0.003 });
+    },
+    flare(out, t) { noise(out, t, 0.9, 0.26, 'bandpass', 900, 3200, 0.9, { a: 0.04 }); noise(out, t + 0.05, 0.5, 0.18, 'highpass', 4500, 3000, 0.6, { a: 0.02 }); },
+    glassUp(out, t) { ping(out, t, 1320, 0.22, 0.5); ping(out, t + 0.09, 1760, 0.16, 0.5); },   // panel lens
+    crowbar(out, t) { tone(out, 'sawtooth', 180, t, 0.4, 0.12, { f1: 120, a: 0.06 }); noise(out, t, 0.35, 0.16, 'bandpass', 800, 400, 3, { a: 0.1 }); noise(out, t + 0.4, 0.05, 0.4, 'lowpass', 1800, 300, 0.8, { a: 0.001 }); tone(out, 'sine', 90, t + 0.4, 0.2, 0.5, { f1: 45, a: 0.003 }); },
+    ward(out, t) { ping(out, t, 660, 0.2, 0.7); ping(out, t + 0.1, 880, 0.18, 0.7); ping(out, t + 0.2, 1320, 0.14, 0.9); },
+    wardBreak(out, t) { ping(out, t, 1568, 0.3, 0.35); ping(out, t + 0.04, 1180, 0.2, 0.3); noise(out, t, 0.12, 0.25, 'highpass', 5000, 3000, 0.6, { a: 0.001 }); },
+    jar(out, t) { tone(out, 'sine', 300, t, 0.08, 0.35, { f1: 900, a: 0.002 }); noise(out, t + 0.06, 0.25, 0.18, 'lowpass', 900, 250, 0.9, { a: 0.02 }); },
+    zap(out, t) { noise(out, t, 0.25, 0.4, 'highpass', 6000, 2500, 0.6, { a: 0.001 }); tone(out, 'sine', 2400, t, 0.3, 0.2, { f1: 500, a: 0.001 }); },
+    rage(out, t) { tone(out, 'sawtooth', 110, t, 0.5, 0.28, { f1: 55, a: 0.05 }); tone(out, 'square', 114, t, 0.5, 0.08, { f1: 52, a: 0.05, det: 30 }); noise(out, t, 0.4, 0.2, 'bandpass', 600, 300, 1.2, { a: 0.05 }); },
+    feather(out, t) { noise(out, t, 0.6, 0.12, 'bandpass', 1200, 4200, 1.4, { a: 0.2 }); tone(out, 'sine', 700, t, 0.5, 0.12, { f1: 1500, a: 0.2 }); },
+    bell(out, t) { ping(out, t, 880, 0.35, 1.3); ping(out, t + 0.02, 1318, 0.18, 1.0); },
+    // ITEMS2-END
     deny(out, t) { tone(out, 'square', 150, t, 0.1, 0.16, { f1: 120, a: 0.003 }); tone(out, 'square', 130, t + 0.12, 0.14, 0.16, { f1: 90, a: 0.003 }); },
     // SOCIAL-BEGIN goblin emotes (keys 4-7): short, silly, vocal
     emoteTaunt(out, t, o) {   // chest thumps and a gravelly "HAH!"
