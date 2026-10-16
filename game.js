@@ -4162,7 +4162,7 @@ GK.fun = (() => {
   addEventListener('keyup', e => { if (e.code === 'Backquote') showBoard(false); });
   addEventListener('blur', () => showBoard(false));
   addEventListener('mousemove', e => { if (S.spec && (e.buttons & 1)) S.ang -= e.movementX * 0.006; });
-  return { onMsg, deathButton, camera, hideDecoy, state: S, debugKill: () => net.send({ kill: 1 }) };   // debugKill only works against GK_DEBUG=1 servers
+  return { myName: () => S.myName, onMsg, deathButton, camera, hideDecoy, state: S, debugKill: () => net.send({ kill: 1 }) };   // debugKill only works against GK_DEBUG=1 servers
 })();
 // FUN-END
 
@@ -4395,7 +4395,7 @@ function showVictory(info) {
   const ms = performance.now() - run.t0, secs = Math.floor(ms / 1000), n = GK.roundInfo ? GK.roundInfo().n : 0;
   const items = ((info && info.items) || []).filter(k => k != null);
   const from = GK.charId;
-  let c = null; try { c = window.GKSAVE.recordWin({ charId: from, goblin: type, items, parts: (info && info.parts) || {} }); if (c && c.id != null) GK.charId = c.id; } catch (e) { c = null; }
+  let c = null; try { c = window.GKSAVE.recordWin({ charId: from, goblin: type, items, parts: (info && info.parts) || {}, name: GK.fun && GK.fun.myName && GK.fun.myName() }); if (c && c.id != null) GK.charId = c.id; } catch (e) { c = null; }
   const wins = c && c.wins != null ? c.wins : (GK.wins | 0) + 1;
   closeInv(true); closeShop(true); GK.mode = 'win'; inside = false; keys.clear(); hideHotbar();
   try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
