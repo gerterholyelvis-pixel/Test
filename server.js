@@ -7,6 +7,12 @@ const envInt = (k, d) => /^\d+$/.test(process.env[k] || '') && +process.env[k] >
 const MAX_PER_IP = envInt('GK_MAX_PER_IP', SEC_DEBUG ? 1000 : 8), MAX_MATCHES = envInt('GK_MAX_MATCHES', 200), MATCH_LIFE_MS = SEC_DEBUG ? envInt('GK_MATCH_LIFE_MS', 20 * 60000) : 20 * 60000;   // tests get a high per-IP default (all clients are 127.0.0.1) unless GK_MAX_PER_IP is set
 const ORIGINS = (process.env.GK_ORIGINS || '').split(',').map(s => s.trim().toLowerCase().replace(/\/$/, '')).filter(Boolean);
 let SECRET = process.env.GK_SECRET;
+if (!SECRET && !process.env.GK_DEBUG) {   // local play: keep one generated secret in .gk-secret (git-ignored) so saved characters survive restarts
+  const f = path.join(__dirname, '.gk-secret');
+  try { SECRET = fs.readFileSync(f, 'utf8').trim(); } catch (e) {}
+  if (!SECRET) { SECRET = crypto.randomBytes(32).toString('hex'); try { fs.writeFileSync(f, SECRET, { mode: 0o600 }); } catch (e) {} }
+  console.warn('GK_SECRET is not set: using the local secret in .gk-secret (set GK_SECRET in production).');
+}
 if (!SECRET) { SECRET = crypto.randomBytes(32).toString('hex'); console.warn('WARNING: GK_SECRET is not set. Using a random secret: saved-character tokens will not survive a restart (set GK_SECRET in production).'); }
 const b64u = b => Buffer.from(b).toString('base64url');
 const sign = s => crypto.createHmac('sha256', SECRET).update(s).digest('base64url');
