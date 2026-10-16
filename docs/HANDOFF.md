@@ -1,25 +1,68 @@
-# Handoff for the next Claude (Goblin King)
+# Goblin King: handoff (updated 2026-10-16 by the Opus parent)
 
-Repo: gerterholyelvis-pixel/test, branch main. Read `docs/FEATURES.md` first (rules the owner has decided), then `docs/reports/*.md` (what each piece does, what was not tested). Screenshots: `docs/screens/`.
+Repo: gerterholyelvis-pixel/test, branch main. Read in this order:
+1. `docs/FEATURES.md` (rules)
+2. `docs/ART.md` (art bible)
+3. `docs/DESIGN-core-loop.md` (design direction)
+4. `docs/PLAN-netcode-perf-fun.md`
+5. `docs/reports/*.md` (one per feature: what changed, what was tested, what wasn't)
 
-## What it is
-Browser multiplayer game "Goblin King". Client: plain JS + three.js (`game.js`, `menu.js`, `index.html`, `icons.js`, `save.js`), shared data `items.js`, server `server.js` (Node + ws, per-match games). Run: `npm install && npm start`, open http://localhost:3000. Test hooks: `GK_DEBUG=1` on the server, `window.GK_OFFLINE = true` for a no-server demo (also `?offline=1`).
-Published offline demo (older version): https://claude.ai/artifact/5D9suDN6Ny9o1zy8TRGQhy. `build-artifact.js` (in the old scratchpad) builds it; re-create if needed (importmap + three@0.158.0 modules from jsdelivr, inline items/save/icons/game/menu, set GK_OFFLINE).
+Screenshots are in `docs/screens/`.
 
-## Unfinished right now
-- **Vault resize** (owner: "middle room must be bigger", "we will call it THE VAULT"): a background agent was mid-way making the middle room 18x18 with a non-uniform grid and a shared `world.js` (client + server geometry). Work in progress is committed on main but NOT finished or tested: check `git log`, run `node --check` on all files, load the game, walk through every door, check maps/panels/chest rooms/spawn/server room keys. Spec: corner rooms 12x12, edge rooms 18x12 or 12x18, vault 18x18, 12 chest/mystery/merchant rooms (8x8) behind the outer walls, signs "THE VAULT", gold medallion and pillars inside, no new PointLights (light count must stay constant).
-- Another Claude session (the owner's) also pushes to main (mouse look, "press E to interact", HUD). Always `git fetch` and rebase before pushing.
+## Run it
+`npm install && npm start`, then open http://localhost:3000.
+- Press **Start**. You queue on the goblin wheel. After 15 s, empty slots fill with server bots, so you get a full 8-goblin match even alone.
+- Offline demo: `?offline=1`.
+- Tests: `npm test` (13 files, about 12 s).
+- Debug env vars, only with `GK_DEBUG=1`: `GK_MATCH_SIZE`, `GK_QUEUE_MS`, `GK_ROUND_MS`, `GK_COUNTDOWN_MS`, `GK_READY_MS`, `GK_REGEN_SCALE`.
 
-## Decisions made by the owner (all in docs/FEATURES.md)
-Goblins 30/30/30/9/1%; stats from gear (attack = weapon, health = armour); rounds 30 s then 45 s with door control panels; vault doors need 2 rooms to pick them or the turn is wasted; 12 outer rooms randomly chest/mystery/merchant per match (edge rooms never merchant); mystery contents and enemy goblin odds (these add up to 110, used as weights); merchant sells 5 items; recycler and crafting bench usable by everyone; 20 weapons + 20 armours with drop chances; tiers 0 common, 1 uncommon, 2 rare, 3 mythic, 4 legendary, 5 transcendent; inventory 9 backpack + weapon + armour + 3 quick; death loses everything and drops a goblin brain (eat for 5% of its knowledge); win keeps items and saves the character with victories (start-screen Characters and Inventory tabs); matchmaking by similar victories.
+## What exists now (all on main)
+- **World:** THE VAULT (18x18) and the shared `world.js` geometry used by client and server. Room art has story corners, readable graffiti, wear and floor storytelling.
+- **Graphics:**
+  - IBL, GTAO and bloom.
+  - Quality presets Low/Medium/High/Ultra, auto-picked on first run.
+  - Room culling and mesh merging.
+  - The light count is fixed at 9 PointLight + 1 Hemisphere (owner rule).
+- **Art:** sculpted goblins (5 types) with armour overlays and animation; custom 3D models for all items, with baked inventory icons (`itemart.js`).
+- **Play:**
+  - Pointer-lock mouse look 1:1, cursor hidden.
+  - First-person weapon viewmodel with a per-family attack animation.
+  - Melee and bows, health with regen, damage numbers.
+  - E-interact prompts, chest/mystery claim.
+  - Procedural audio (`audio.js`).
+  - Fullscreen (F).
+- **Multiplayer:**
+  - Matchmaking queue of 8, synchronized load-in, 3-2-1 countdown.
+  - Netcode: snapshots, interpolation, ping, server-validated movement, lag-compensated melee.
+  - Server bots that vote, loot, shop and fight; mystery-room enemies.
+  - Kill feed, scoreboard (hold `` ` ``), spectate after death, match summary.
+- **Unique features:**
+  - Door panels show who picked (panel politics).
+  - Wall maps show last round's picks.
+  - Knowledge glow and brain aura on goblins.
+  - King crown marker.
 
-## Open questions to ask the owner
-1. What is the win condition? (a debug hook exists; nothing triggers a win)
-2. Starting gold is a placeholder of 100.
-3. How do stash items get brought into a run?
-4. Crafting recipes for tiers 1-5 (only the six tier 0 recipes exist).
-5. Mystery enemies do not move or fight yet; there is no combat at all yet.
+## Defaults I set that need the OWNER's decision (marked in FEATURES.md)
+1. **Win condition.** Default: last goblin standing. Sudden death after round 8 (all doors open, no regen). After round 10, most kills wins, then most HP. Alternative proposal: a "Crown win", where you hold the vault dais for 20 s (DESIGN-core-loop §2).
+2. **Wizard staff does 0 damage** (from your stats rule), so wizards can't fight back. Should staffs cast a weak magic bolt?
+3. Closing doors after 2 rounds, a Jam Spike item, gold bribes on door panels (DESIGN-core-loop §1, §3).
+4. Starting gold is a placeholder of 100. Also open: how stash items enter a run, and crafting recipes for tiers 1-5.
+5. Rooms render slightly cream instead of pure white since the graphics upgrade. Keep it, or go back to white?
 
-## Working style the owner wants
-Use agents/subagents for big work, put outputs (reports, screenshots) in the repo and just reference them in chat, keep chat replies short, commit and push to main (a stop hook asks for it).
-Known gotchas: software-GL screenshots are slow (one job at a time); do not `pkill -f` a pattern that matches your own shell command.
+## Known issues / next up
+- See `docs/reports/qa-2.md`. Being fixed now on the worker branch:
+  - the wheel reveal is cut by the countdown
+  - bow, crossbow, spear and axe viewmodels
+  - mystery enemies attack instantly on entry
+- Not tested: real audio output, real 60 fps feel on a gaming GPU, 1920x1080 HUD on all screens, a real 8-human match.
+- Backlog:
+  - reconnect grace (15 s)
+  - emotes
+  - stash-to-run
+  - higher crafting tiers
+  - the vault dais objective (if approved)
+
+## How this was built (for the next agent)
+- The Opus parent briefs, merges and reviews. Sonnet agents implement in git worktrees inside clearly delimited blocks (`// FX-`, `COMBAT-`, `NET-`, `MATCH-`, `VIEWMODEL-`, `ROOMART-`, `GOBLINART-`, `FUN-`, `UNIQUE-`, `FEEL-`, `FULLSCREEN-BEGIN/END`) to keep merges clean.
+- Merge with `git merge --no-ff`, run `npm test`, smoke-test in a browser, then push.
+- Never rebase merge commits. Never add lights.
