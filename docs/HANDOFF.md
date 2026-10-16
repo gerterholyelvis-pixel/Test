@@ -90,3 +90,12 @@ Screenshots are in `docs/screens/`.
 - The Opus parent briefs, merges and reviews. Sonnet agents implement in git worktrees inside clearly delimited blocks (`// FX-`, `COMBAT-`, `NET-`, `MATCH-`, `VIEWMODEL-`, `ROOMART-`, `GOBLINART-`, `FUN-`, `UNIQUE-`, `FEEL-`, `FULLSCREEN-BEGIN/END`) to keep merges clean.
 - Merge with `git merge --no-ff`, run `npm test`, smoke-test in a browser, then push.
 - Never rebase merge commits. Never add lights.
+
+## Playtest pass (2026-10-16, Fable session, on main)
+Four phases, one commit each, `npm test` = 19 files green. Reports: `docs/reports/security.md`, `balance.md`, `feel-2.md`.
+1. **Security** (merged from the Opus worker, plus additions): the server rolls goblins and counts victories (signed `ctoken`), origin check, per-IP / total / match caps, cached static files with a hash-based CSP, speed-hack kick, heartbeat, wrapped handlers, name filter. Set `GK_SECRET` and `GK_ORIGINS` in production.
+2. **Feel + balance:** attack input buffer and hold-to-attack, directional damage arc, crosshair hit marker, door-hop culling cap (Low/Medium 2 hops). Class speed table `GKITEMS.SPEED` (Small fastest, Big slowest). Bots: at most 2 on one goblin, 0.7 s notice delay, 30 % deliberate misses.
+3. **Strategy:** `staffbolt` (9 dmg / 1 s) and `bribe` ON by default; sudden death heals only inside THE VAULT. Doors already close every round, so `doorclose` and `crown` stay off (owner calls).
+4. **QA:** `tests/security.test.js` (14), `tests/balance.test.js` (6); `tests/sim-fairness.js` for the sudden-death check.
+Not verified by hand: real mouse feel of the buffer/hold, the damage arc at every bearing, a real 8-human match, audio.
+Note for parallel sessions: this checkout is shared; check `git log` before editing and never `git add -A` (a merge from another session overwrote uncommitted work once during this pass).
