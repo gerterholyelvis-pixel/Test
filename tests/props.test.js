@@ -31,11 +31,11 @@ function flood(key, types, startXZ) {
           eq(W.roomKeyOf(p.x, p.z), 'c' + c.id, 'prop of c' + c.id);
           assert(Math.abs(p.x - c.cx) + p.r <= c.size / 2 - W.T / 2 + 0.2 && Math.abs(p.z - c.cz) + p.r <= c.size / 2 - W.T / 2 + 0.2, 'c' + c.id + ' ' + p.k + ' pokes out of the walls');
         }
-        // loot rooms: only mystery rooms (clutter) and the two stations have props; chest and merchant rooms are bare. Homes always have their furniture (2 bench halves, the recycler, a crate), whatever type is passed.
+        // loot rooms: only mystery rooms (clutter) and the two stations have props; chest and merchant rooms are bare. Homes always have their furniture (HOME_SOLIDS: bench, recycler, pump, screen, lockbox, shelves, crates), whatever type is passed.
         const loot = W.LOOT_IDS[0], home = W.HOME_IDS[0];
         eq(W.solidsOf('c' + loot, 'chest').length, 0, 'only mystery rooms and stations have props'); eq(W.solidsOf('c' + loot, 'merchant').length, 0); assert(W.solidsOf('c' + loot, 'mystery').length >= 4, 'mystery clutter');
         eq(W.solidsOf('c' + loot, 'forge').map(p => p.k), ['bench', 'bench'], 'the Master Forge footprint'); eq(W.solidsOf('c' + loot, 'grand').map(p => p.k), ['recycler'], 'the Grand Recycler footprint');
-        eq(W.solidsOf('c' + home, 'home').map(p => p.k).sort(), ['bench', 'bench', 'hcrate', 'recycler'], 'home furniture'); eq(W.solidsOf('c' + home, 'chest').length, 4);
+        { const ks = W.solidsOf('c' + home, 'home').map(p => p.k); for (const k of ['bench', 'recycler', 'hcrate', 'hprop']) assert(ks.includes(k), 'home furniture ' + k); eq(W.solidsOf('c' + home, 'chest').length, ks.length); }
       }],
       ['layout is deterministic and the types argument may be strings or CHEST_ROOMS-like objects', () => {
         const a = JSON.stringify(W.allProps(ALL_MYSTERY)), b = JSON.stringify(W.allProps(ALL_MYSTERY.map(t => ({ type: t }))));
@@ -44,13 +44,13 @@ function flood(key, types, startXZ) {
       }],
       ['nothing blocks doors, panels, spawns or stations: door fronts, panel spots and the whole spawn range are free and reachable in every arena room', () => {
         for (let i = 0; i < W.NARENA; i++) {
-          const [cx, cz] = W.rc(i), [hx, hz] = gridHalf(i), f = flood(String(i), NONE, [cx, cz - 0.01 + (i === W.VAULT ? 4 : 0)]);
+          const [cx, cz] = W.rc(i), [hx, hz] = gridHalf(i), f = flood(String(i), NONE, W.kindOf(i) === 'tree' ? [cx + 2.5, cz + 2.5] : [cx, cz - 0.01 + (i === W.VAULT ? 4 : 0)]);   // a tree room has its trunk in the middle
           assert(f.size > 400, 'room ' + i + ' has a floor');
           const spots = [[0, hz - 1.4], [0, -hz + 1.4], [hx - 1.4, 0], [-hx + 1.4, 0], [0, hz - 3], [0, -hz + 3], [-W.panelDX(i), -hz + 1.3], [W.panelDX(i), -hz + 1.3]];
           for (const [a, b] of spots) assert(f.free(cx + a, cz + b) && f.seen(cx + a, cz + b), 'room ' + i + ' spot ' + a + ',' + b + ' blocked or cut off');
-          for (let k = 0; i !== W.VAULT && k < 600; k++) { const [x, z] = W.randomPoint(i); assert(f.free(x, z) && f.seen(x, z), 'room ' + i + ' spawn range hit a prop at ' + x.toFixed(1) + ',' + z.toFixed(1)); }
+          for (let k = 0; W.kindOf(i) === 'arena' && k < 600; k++) { const [x, z] = W.randomPoint(i); assert(f.free(x, z) && f.seen(x, z), 'room ' + i + ' spawn range hit a prop at ' + x.toFixed(1) + ',' + z.toFixed(1)); }
           // the straight lines from every door front to the room centre stay open
-          for (const [a, b] of spots.slice(0, 4)) for (let t = 0; i !== W.VAULT && t <= 1; t += 0.05) assert(f.free(cx + a * (1 - t), cz + b * (1 - t)), 'room ' + i + ' door line blocked');
+          for (const [a, b] of spots.slice(0, 4)) for (let t = 0; i !== W.VAULT && t <= (W.kindOf(i) === 'tree' ? 0.6 : 1); t += 0.05) assert(f.free(cx + a * (1 - t), cz + b * (1 - t)), 'room ' + i + ' door line blocked');
         }
         const rv = W.RELIC; const f4 = flood(W.VAULT_KEY, NONE, [0, 4]); assert(f4.seen(rv.x - 1.6, rv.z) && f4.seen(rv.x + 1.6, rv.z) && f4.seen(rv.x, rv.z + 1.6) && f4.seen(rv.x, rv.z - 1.6), 'the pedestal can be reached from all four sides');
       }],

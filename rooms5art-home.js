@@ -4,6 +4,7 @@
 //   home.group  -> THREE.Group, origin = room centre, floor y = 0, door on the side named by opts.doorSide ('S' = +z, 'N' = -z, 'E' = +x, 'W' = -x)
 //   home.anchors-> { bench, recycler, pump, screen, lockbox, spawn, door, lamp, map }  (THREE.Vector3 relative to room centre, already rotated; each has .yaw = facing of the prop front)
 //   home.solids -> [{ x, z, hx, hz }] footprint boxes of the big props, room-relative (for collision / bot nav)
+//   home.setOwner(name, colour?) : colour is a hex number or css string for the nameplate text (the owner's colour)
 //   home.setPumpLevel(0..1), home.setPumpAlert(bool), home.setUpgrade(name, level), home.setScreenPower(bool), home.setOwner(name), home.ringAlarm(), home.setSentryTarget(x, z | null)
 //   home.update(timeSeconds) call once per frame while the room is visible (bubbles, smoke, flicker, bell swing)
 //   home.dispose()
@@ -159,10 +160,18 @@ export function buildHomeRoom(THREE, helpers = {}, opts = {}) {
 
   // nameplate (canvas) kept dynamic so the owner's name can change
   const nameCv = document.createElement('canvas'); nameCv.width = 512; nameCv.height = 64; const nameTex = new THREE.CanvasTexture(nameCv); nameTex.colorSpace = THREE.SRGBColorSpace; nameTex.anisotropy = 4;
-  const setOwner = name => { const g = nameCv.getContext('2d'); g.clearRect(0, 0, 512, 64); g.fillStyle = '#d8c9a4'; g.font = 'bold 44px Georgia, serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.shadowColor = 'rgba(0,0,0,0.8)'; g.shadowBlur = 3; g.fillText(String(name || 'HOME').toUpperCase().slice(0, 18) + "'S", 256, 34); nameTex.needsUpdate = true; };
-  setOwner(opts.owner);
-  const nameMat = new THREE.MeshStandardMaterial({ map: nameTex, transparent: true, roughness: 0.9, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+  const setOwner = (name, colour) => { const g = nameCv.getContext('2d'); g.clearRect(0, 0, 512, 64); g.fillStyle = colour == null ? '#d8c9a4' : typeof colour === 'number' ? '#' + colour.toString(16).padStart(6, '0') : colour;   // optional owner colour (hex number or css string)
+    g.font = 'bold 44px Georgia, serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.shadowColor = 'rgba(0,0,0,0.8)'; g.shadowBlur = 3; g.fillText(String(name || 'HOME').toUpperCase().slice(0, 18) + "'S", 256, 34); nameTex.needsUpdate = true; };
+  setOwner(opts.owner, opts.colour);
+  let outside = null; const nameMat = new THREE.MeshStandardMaterial({ map: nameTex, transparent: true, roughness: 0.9, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
   const nameMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 0.225), nameMat); nameMesh.position.set(0, DH + 0.5, doorZ - 0.045); nameMesh.rotation.y = PI; group.add(nameMesh);
+  // the same nameplate on a timber board on the outside of the doorway wall (seen from the cell): opts.outZ = z of the wall's outer face, opts.outY = board height
+  if (opts.outside !== false) {
+    const oz = opts.outZ == null ? HALF + 0.33 : opts.outZ, oy = opts.outY == null ? DH + 1.3 : opts.outY;
+    const board = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.52, 0.1), new THREE.MeshStandardMaterial({ color: 0x4e3520, roughness: 0.9 })); board.position.set(0, oy, oz + 0.05); group.add(board);
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(3.3, 0.4125), nameMat); sign.position.set(0, oy, oz + 0.105); group.add(sign);
+    outside = { board, sign };
+  }
 
   // door bars (Door Lock L1 / L2): timber bar, then iron bars, braces and a big padlock
   const barsMetal = [], barsWood = [], upg = { lock: new THREE.Group(), alarm: new THREE.Group(), sentry: new THREE.Group(), lockbox: new THREE.Group() };
@@ -514,7 +523,7 @@ export function buildHomeRoom(THREE, helpers = {}, opts = {}) {
       // sentry idle sweep or aim
       if (upg.sentry.visible) { const goal = sentryTarget != null ? sentryTarget : Math.sin(t * 0.35) * 0.7; sentryYaw.rotation.y += (goal - sentryYaw.rotation.y) * 0.1; }
     },
-    dispose() { group.traverse(o => { if (o.geometry) o.geometry.dispose(); }); [glassMat, liqMat, scrMat, nameMat, glowMat, scrTex, nameTex].forEach(x => x.dispose()); },
+    dispose() { group.traverse(o => { if (o.geometry) o.geometry.dispose(); }); [glassMat, liqMat, scrMat, nameMat, glowMat, scrTex, nameTex].forEach(x => x.dispose()); if (outside) { outside.board.geometry.dispose(); outside.board.material.dispose(); outside.sign.geometry.dispose(); } },
   };
   let ring = 0, sentryTarget = null;
   return api;

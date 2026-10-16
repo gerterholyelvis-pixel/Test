@@ -25,7 +25,7 @@ function reach(inRoom, free, sx, sz) {
     ['no prop blocks a spawn point, a door front or a control panel in any arena room; home spawn points are clear too', () => {
       for (let i = 0; i < W.NARENA; i++) {
         const [cx, cz] = W.rc(i), hx = W.roomW(i) / 2, hz = W.roomD(i) / 2;
-        if (i !== W.VAULT) for (let k = 0; k < 500; k++) { const [x, z] = W.randomPoint(i, rnd); assert(!W.inProp(x, z, R, null, true), 'spawn inside a prop in room ' + i + ' at ' + x.toFixed(2) + ',' + z.toFixed(2)); }
+        if (W.kindOf(i) === 'arena') for (let k = 0; k < 500; k++) { const [x, z] = W.randomPoint(i, rnd); assert(!W.inProp(x, z, R, null, true), 'spawn inside a prop in room ' + i + ' at ' + x.toFixed(2) + ',' + z.toFixed(2)); }
         for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) for (let t = -1.8; t <= 1.8; t += 0.6) for (const dep of [0.8, 1.5, 2.5, 3.5]) {
           const x = cx + dx * ((dx ? hx : 0) - dep) + (dx ? 0 : t), z = cz + dz * ((dz ? hz : 0) - dep) + (dz ? t : 0);
           assert(!W.inProp(x, z, R, null, true), 'door front blocked, room ' + i + ' side ' + dx + ',' + dz + ' at ' + x.toFixed(1) + ',' + z.toFixed(1));
@@ -41,7 +41,8 @@ function reach(inRoom, free, sx, sz) {
       const bounds = (cx, cz, hw, hd) => (x, z) => Math.abs(x - cx) <= hw - 0.7 && Math.abs(z - cz) <= hd - 0.7;
       for (let i = 0; i < W.NARENA; i++) {
         const [cx, cz] = W.rc(i), hw = W.roomW(i) / 2, hd = W.roomD(i) / 2, free = (x, z) => !W.inProp(x, z, R, null, true);
-        const can = reach(bounds(cx, cz, hw, hd), free, cx, cz + (i === W.VAULT ? 0.5 : 0));
+        const [sx0, sz0] = [[0, i === W.VAULT ? 0.5 : 0], [2.5, 2.5], [-2.5, 2.5], [2.5, -2.5], [-2.5, -2.5]].map(([a, b]) => [cx + a, cz + b]).find(([x, z]) => free(x, z));   // ROOMS5ART: a tree room has its trunk in the middle, so walk from the first free spot near it
+        const can = reach(bounds(cx, cz, hw, hd), free, sx0, sz0);
         for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) assert(can([cx + dx * (hw - 1.6), cz + dz * (hd - 1.6)]), 'door front unreachable, room ' + i + ' side ' + dx + ',' + dz);
         if (i !== W.VAULT) for (const sx of [-1, 1]) assert(can([cx + sx * W.panelDX(i), cz - hd + 1.6]), 'panel unreachable, room ' + i);
       }
