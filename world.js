@@ -101,7 +101,8 @@
   // attached room local frame (+z toward its doorway, origin = room centre) -> world
   const attLocal = (c, lx, lz) => { const ry = Math.atan2(-c.dx, -c.dz), cs = Math.cos(ry), sn = Math.sin(ry); return [c.cx + lx * cs + lz * sn, c.cz - lx * sn + lz * cs]; };
   // HOME_LAYOUT: where the home furniture stands in the home's local frame (game.js builds the placeholder workbench / recycler there; task C replaces the art). [x, z, rotY]
-  const HOME_LAYOUT = { bench: [-2.25, -(HS / 2 - T / 2) + 0.75, 0], recycler: [2.35, -(HS / 2 - T / 2) + 0.85, 0], crate: [-(HS / 2 - T / 2) + 0.75, HS / 2 - T / 2 - 1.4] };
+  const HOME_LAYOUT = { bench: [-2.25, -(HS / 2 - T / 2) + 0.75, 0], recycler: [2.35, -(HS / 2 - T / 2) + 0.85, 0], crate: [-(HS / 2 - T / 2) + 0.75, HS / 2 - T / 2 - 1.4],
+    pump: [HS / 2 - T / 2 - 0.9, -1.6], screen: [-(HS / 2 - T / 2) + 0.55, -1.6], box: [-(HS / 2 - T / 2) + 0.6, 0.3], sentry: [HS / 2 - T / 2 - 0.7, 1.6] };   // ELIXIR: pump (glass tank), Elixir Screen, lockbox and sentry mount in the home's local frame (server and client both read these; the home art agent may move them)
   const LOOT_LAYOUT = { forge: [0, -(CS / 2 - T / 2) + 0.75, 0], grand: [0, -(CS / 2 - T / 2) + 0.85, 0] };   // Master Forge bench / Grand Recycler (placeholders until task C/E)
   // ===== SOLID PROPS: crates, barrels, urns and the relic pedestal are obstacles for walking (client prediction AND server validation), bolts and melee line of sight.
   // Every footprint is a circle {k, x, z, r} in world metres (r is the prop's own radius; a walker adds his radius). The layout depends only on the room key, so client and server agree;
@@ -167,6 +168,7 @@
         for (const ox of [-0.58, 0.58]) { const [x, z] = attLocal(c, B[0] + ox, B[1]); out.push({ k: 'bench', x, z, r: 0.62 }); }
         { const [x, z] = attLocal(c, R[0], R[1]); out.push({ k: 'recycler', x, z, r: 0.82 }); }
         { const [x, z] = attLocal(c, K[0], K[1]); out.push({ k: 'hcrate', x, z, r: 0.5 }); }
+        for (const [kk, a, r] of [['hpump', HOME_LAYOUT.pump, 0.5], ['hscreen', HOME_LAYOUT.screen, 0.38], ['hbox', HOME_LAYOUT.box, 0.4]]) { const [x, z] = attLocal(c, a[0], a[1]); out.push({ k: kk, x, z, r }); }   // ELIXIR
       } else if (c && (type === 'forge' || type === 'grand')) {   // the station footprint
         const S = LOOT_LAYOUT[type];
         if (type === 'forge') for (const ox of [-0.58, 0.58]) { const [x, z] = attLocal(c, S[0] + ox, S[1]); out.push({ k: 'bench', x, z, r: 0.62 }); }

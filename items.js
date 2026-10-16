@@ -77,6 +77,8 @@
 
   // LOOT: the mystery-room goblin plushie is a one-use throwable (quick slot key = throw). Never dropped by chance, only found in plushie mystery rooms. The server decides where it lands; bots and mystery enemies within 8 m run to it for 3 s.
   ITEMS['x:plushie'] = { key: 'x:plushie', type: 'consumable', name: 'Goblin Plushie', family: 'plushie', chance: 0, tier: 'common', tierN: 0, price: 15, desc: 'Press its quick key to throw it. It squeaks, and bots within 8 m run to it for 3 s. One use.' };
+  // ELIXIR: the Healing Draught is brewed from elixir at a workbench (8 elixir, never dropped, not sold); it uses the normal 'heal' path. The Elixir Flask 'x:flask:<n>' is the pile a dead goblin leaves: taking it adds n to the carried elixir (server loot()), it never sits in a bag.
+  ITEMS['x:draught'] = { key: 'x:draught', type: 'consumable', name: 'Healing Draught', family: 'draught', chance: 0, tier: 'uncommon', tierN: 1, price: 30, use: 'heal', n: 30, desc: 'Brewed from elixir. Heals 30 HP at once. Useless in sudden death.', scrap: { cloth: 1, bone: 1 } };
   // UTILITY ITEMS (docs/reports/utility-items.md): eight one-use consumables. Press the quick-slot key to use one (server: useItem() in server.js). `use` names the effect; n/ms/r are its numbers.
   // `shop` is the merchant weight, `scrap` is what the recycler returns, `craft` = [tier, cost] puts it on the crafting bench (tier N needs 20 * N knowledge, the same numbers as KNOWLEDGE_TIERS).
   const UTIL = [
@@ -210,7 +212,9 @@
   const isBrain = key => typeof key === 'string' && key.startsWith('m:brain:');
   const brainKnowledge = key => isBrain(key) ? Math.max(0, parseFloat(key.slice(8)) || 0) : 0;
   const brainGain = key => Math.round(brainKnowledge(key) * 0.05 * 100) / 100;   // knowledge you gain by eating it
+  const isFlask = key => typeof key === 'string' && /^x:flask:\d{1,3}$/.test(key), flaskN = key => isFlask(key) ? +key.slice(8) : 0;
   function info(key) {
+    if (isFlask(key)) return { key, type: 'consumable', name: 'Elixir Flask (' + flaskN(key) + ')', family: 'flask', tier: 'rare', tierN: 2, chance: 0, n: flaskN(key), desc: 'Elixir from a fallen goblin. Take it to add ' + flaskN(key) + ' to what you carry.' };
     if (isBrain(key)) { const k = brainKnowledge(key); return { key, type: 'consumable', name: 'Goblin Brain', family: 'brain', tier: 'uncommon', chance: 0, knowledge: k, gain: brainGain(key), desc: 'Eat for +' + brainGain(key) + ' knowledge (5% of ' + k + ')' }; }
     return ITEMS[key] || null;
   }
@@ -389,6 +393,6 @@
     ['w:slayer', 5, { metal: 18, gold: 8, gem: 4, crystal: 3 }], ['a:aegis', 5, { metal: 20, gold: 8, gem: 4, crystal: 3 }]])
     if (ITEMS[key] && !RECIPES.some(r => r.out === key)) RECIPES.push({ id: 'r:' + key, out: key, tier, cost, needs: KNOWLEDGE_TIERS[tier - 1] });
   // KNOWLEDGE-END
-  root.GKITEMS = { KNOW, BRANCHES, PERKS, PERK, hasPerk, perkSpent, knowPoints, knowTier, learnFail, recipeCost, recycleFor, healMult, reforgeCost, UTIL_KEYS, pickUtil, armorSpeed, MAX_ARMOR_SPEED, randomShop, START_GOLD, randomMystery, randomLayout, STATIONS, recycleEff, canCraft, benchSpec, benchCraft, partCost, addKnowledge, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, WEAPON_TUNE, START, KNOWLEDGE, SPEED, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info, armorThorns, armorScore, GOBLINS, GOB_PERKS, HIT_R, rollGoblin, goblinHp, hitRadius, goblinReach, goblinHit, goblinRegen, goblinStart, CHARM_KEYS, pickCharm, charmEff };
+  root.GKITEMS = { KNOW, BRANCHES, PERKS, PERK, hasPerk, perkSpent, knowPoints, knowTier, learnFail, recipeCost, recycleFor, healMult, reforgeCost, UTIL_KEYS, pickUtil, armorSpeed, MAX_ARMOR_SPEED, randomShop, START_GOLD, randomMystery, randomLayout, STATIONS, recycleEff, canCraft, benchSpec, benchCraft, partCost, addKnowledge, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, WEAPON_TUNE, START, KNOWLEDGE, SPEED, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info, armorThorns, armorScore, GOBLINS, GOB_PERKS, HIT_R, rollGoblin, goblinHp, hitRadius, goblinReach, goblinHit, goblinRegen, goblinStart, CHARM_KEYS, pickCharm, charmEff, isFlask, flaskN };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.GKITEMS;
 })(typeof window !== 'undefined' ? window : globalThis);
