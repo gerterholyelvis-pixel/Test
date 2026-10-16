@@ -87,7 +87,7 @@ const roomOnly = id => DOORS.find(d => d[0] === id);
         const other = DOORS.find(d => d[1] === '0' && d[2] === '3')[0]; c.send({ sel: other });
         const n = c.state.round.n; await waitRound(c, n + 1); await sleep(80);
         assert(c.state.open.includes(east) && c.state.open.includes(other), 'wedged door stayed open next to the new pick: ' + c.state.open);
-        await waitRound(c, n + 2); await sleep(80); assert(!c.state.open.includes(east), 'only one extra round');
+        c.send({ sel: other }); await waitRound(c, n + 2); await sleep(80); assert(!c.state.open.includes(east), 'only one extra round');
         await c.close();
       }],
       ['sealing wax locks the room pick until the round ends', async () => {
