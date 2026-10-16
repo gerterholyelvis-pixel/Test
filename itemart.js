@@ -724,6 +724,7 @@ function drawCalls(key) { const p = proto(key); let n = 0; if (p) p.traverse(o =
 const ICON = (typeof window !== "undefined" && window.GK_ICON_PX) || 160, RTS = ICON * 2, tune = { key: 1.3, fill: 0.4, rim: 0.9, hemi: 0.25, env: 0.6, expo: 0.95 };
 const icons = new Map();
 let bakeJob = null;
+let ENC_LUT = null; const ENC_S = 512, ENC_N = 12 * 512;   // PERF3: encode lookup table (0..12 in 1/512 steps, linear interpolation; the curve is flat at 1.0 beyond about 6)
 const allKeys = () => { const I = window.GKITEMS, ks = I ? Object.keys(I.ITEMS) : []; return ks.concat(['m:brain', 'gold'], PART_KEYS.map(k => 'part:' + k)); };
 const enc = v => { v = Math.max(0, v * tune.expo); v = (v * (2.51 * v + 0.03)) / (v * (2.43 * v + 0.59) + 0.14); v = Math.min(1, Math.max(0, v)); return v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055; };
 function bake(renderer, opts = {}) {
@@ -756,10 +757,12 @@ function bake(renderer, opts = {}) {
     lights.forEach(l => l.visible = true); scene.environment = env0; for (const [o, mt] of saved) o.material = mt;
     scene.remove(g3);
     const id = tctx.createImageData(RTS, RTS), d = id.data;
+    if (!ENC_LUT) { ENC_LUT = new Float32Array(ENC_N + 2); for (let k = 0; k < ENC_LUT.length; k++) ENC_LUT[k] = enc(k / ENC_S) * 255; }   // PERF3: tone map + sRGB once per level, not three Math.pow per pixel (about 10 ms of main thread per icon)
+    const encF = v => { const f = v * ENC_S; if (!(f < ENC_N)) return ENC_LUT[ENC_N]; const k = f | 0, r = f - k; return ENC_LUT[k] + (ENC_LUT[k + 1] - ENC_LUT[k]) * r; };
     for (let y = 0; y < RTS; y++) for (let x = 0; x < RTS; x++) {
       const si = ((RTS - 1 - y) * RTS + x) * 4, di = (y * RTS + x) * 4, a = bufM[si] / 255;
       if (a < 0.004) { d[di + 3] = 0; continue; }
-      d[di] = enc(bufC[si] / a) * 255; d[di + 1] = enc(bufC[si + 1] / a) * 255; d[di + 2] = enc(bufC[si + 2] / a) * 255; d[di + 3] = a * 255;
+      const ia = 1 / a; d[di] = encF(bufC[si] * ia); d[di + 1] = encF(bufC[si + 1] * ia); d[di + 2] = encF(bufC[si + 2] * ia); d[di + 3] = a * 255;
     }
     tctx.putImageData(id, 0, 0);
     const out = document.createElement('canvas'); out.width = out.height = ICON; const o2 = out.getContext('2d'); o2.imageSmoothingQuality = 'high';
