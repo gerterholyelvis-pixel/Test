@@ -727,6 +727,7 @@ wss.on('connection', (ws, req) => {
     tokens--;
     let d; try { d = JSON.parse(raw.toString()); } catch { return; }
     if (p.dead && d && typeof d.ping === 'number' && Number.isFinite(d.ping)) return sendTo(ws, { pong: d.ping, t: srvT() });
+    if (p.dead && d && d.botstat && process.env.GK_DEBUG) return sendTo(ws, { botstat: { n: BS.n, sum: BS.sum, max: BS.max, calls: BS.calls, bad: BS.bad } });   // debug stats still answer a dead human (bots can kill the test client)
     if (p.dead || !d || typeof d !== 'object') return;
     const dbg = !!process.env.GK_DEBUG;
     /* MATCH-BEGIN */ if (d.cancel === 1) { if (m.phase === 'queue') { leave(m, ws); ws.close(); } return; }
