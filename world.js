@@ -46,9 +46,11 @@
     for (let b = 0; b < nz; b++) for (let a = 0; a < nx; a++) out.push([(a - (nx - 1) / 2) * PANEL_STEP, (b - (nz - 1) / 2) * PANEL_STEP]);
     return out;
   };
+  // x offset of the wall map (-dx) and the door control panel (+dx) on a room's north wall: 4.5 m, 6.5 m in the 18 m wide rooms (they clear the vault door's keypads)
+  const panelDX = i => roomW(i) > W ? 6.5 : 4.5;
   // a random spawn point inside room i (its own width/depth), keeping a 3 m margin to the walls
   const randomPoint = (i, rnd = Math.random) => { const [cx, cz] = rc(i); return [cx + (rnd() - 0.5) * (roomW(i) - 6), cz + (rnd() - 0.5) * (roomD(i) - 6)]; };
-  const api = { W, V, H, T, CS, COLW, ROWD, COLX, ROWZ, HALF, LIM, VAULT, colOf, rowOf, roomW, roomD, rc, gi, roomAt, inGrid, CHEST, chestKey, roomKeyOf, panelOffsets, randomPoint };
+  const api = { W, V, H, T, CS, COLW, ROWD, COLX, ROWZ, HALF, LIM, VAULT, colOf, rowOf, roomW, roomD, rc, gi, roomAt, inGrid, CHEST, chestKey, roomKeyOf, panelOffsets, panelDX, randomPoint };
   root.GKWORLD = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

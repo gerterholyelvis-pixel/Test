@@ -610,7 +610,7 @@ for (let i = 0; i < 9; i++) {
     scene.add(m);
   }
   // 9 point lights in total (one per room); the vault is bigger, so its lamp is stronger and a little higher to light the whole hall
-  const big = i === WORLD.VAULT, lamp = new THREE.PointLight(big ? 0xfff0dc : 0xfff6ea, big ? 15 : 9, 0, 1.2); lamp.position.set(cx, H - (big ? 1.2 : 0.7), cz); scene.add(lamp);
+  const big = i === WORLD.VAULT, lamp = new THREE.PointLight(big ? 0xfff0dc : 0xfff6ea, big ? 14 : 9, 0, 1.2); lamp.position.set(cx, H - (big ? 1.2 : 0.7), cz); scene.add(lamp);
 }
 scene.add(new THREE.HemisphereLight(0xffffff, 0xeeebe4, 2.1));
 for (let i = 0; i < 9; i++) {
@@ -647,9 +647,7 @@ if (GK.layout) layoutHooks[layoutHooks.length - 1](GK.layout);
   const LW = 5.2, LH = LW / 4, LY = 4.3;
   for (const [wx, wz, rot] of [[0, -1, 0], [0, 1, Math.PI], [-1, 0, Math.PI / 2], [1, 0, -Math.PI / 2]]) {   // four walls, plate faces the room centre
     const g = new THREE.Group(); g.position.set(vx + wx * vh, 0, vz + wz * vh); g.rotation.y = rot; scene.add(g);   // local +z points into the room
-    if (wz === -1) { /* north wall: the control panel sits on the right, so its plate is only on the left */ }
     for (const sx of [-1, 1]) {
-      if (wz === -1 && sx === 1) continue;
       const px = sx * 6.0;
       bx(g, LW + 0.34, LH + 0.34, 0.08, px, LY, 0.04, brass, 1);
       const pl = new THREE.Mesh(new THREE.PlaneGeometry(LW, LH), letterM); pl.position.set(px, LY, 0.09); g.add(pl);
@@ -2312,8 +2310,8 @@ if (GK.layout && GK.CHEST_ROOMS) { /* the rooms agent calls buildMysteryContents
     g.fillStyle = '#d81818'; rr(g, lx - 58, ly - 30, 116, 60, 9); g.fill();
     g.strokeStyle = '#ffd0d0'; g.lineWidth = 2; g.stroke();
     g.fillStyle = '#fff'; g.fillText('YOU ARE', lx, ly - 12); g.fillText('HERE', lx, ly + 14); g.restore();
-    // the two wall panels on this room's north wall: map at x-4.5 m, door controls at x+4.5 m (pin tips on the wall line)
-    wallTab(g, lx - 4.5 * MS, y + 3, '#1b6fe0', 'MAP'); wallTab(g, lx + 4.5 * MS, y + 3, '#f08a1c', 'CTRL');
+    // the two wall panels on this room's north wall: map at x-dx, door controls at x+dx (dx = 4.5 m, 6.5 m in the wide rooms) (pin tips on the wall line)
+    wallTab(g, lx - WORLD.panelDX(i) * MS, y + 3, '#1b6fe0', 'MAP'); wallTab(g, lx + WORLD.panelDX(i) * MS, y + 3, '#f08a1c', 'CTRL');
   }
   const glowTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'), r = g.createRadialGradient(64, 64, 8, 64, 64, 64);
     r.addColorStop(0, 'rgba(120,190,255,0.9)'); r.addColorStop(0.5, 'rgba(70,140,255,0.35)'); r.addColorStop(1, 'rgba(40,100,255,0)'); g.fillStyle = r; g.fillRect(0, 0, 128, 128);
@@ -2322,7 +2320,7 @@ if (GK.layout && GK.CHEST_ROOMS) { /* the rooms agent calls buildMysteryContents
   const glowGeo = new THREE.PlaneGeometry(4.6, 3.6), backGeo = new THREE.BoxGeometry(2.6, 1.9, 0.06), screenGeo = new THREE.PlaneGeometry(2.5, 2.5 * MH / MW);
   const barH = new THREE.BoxGeometry(2.6, 0.05, 0.09), barV = new THREE.BoxGeometry(0.05, 1.8, 0.09);
   for (const i of spawnRooms) {
-    const [cx, cz] = rc(i), px = cx - 4.5, py = 2.6, pz = cz - roomD(i) / 2 + T / 2; // pz = wall face
+    const [cx, cz] = rc(i), px = cx - WORLD.panelDX(i), py = 2.6, pz = cz - roomD(i) / 2 + T / 2; // pz = wall face
     const grp = new THREE.Group();
     const add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); grp.add(m); return m; };
     const glow = add(glowGeo, new THREE.MeshBasicMaterial({ map: glowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.55, toneMapped: false }), px, py, pz + 0.012);
@@ -2483,7 +2481,7 @@ function cpBuild(key, parent, w, h, x, y, z, rotY) {   // framed emissive screen
 }
 function panelsDirty() { for (const p of cpList) p.dirty = true; }
 for (let i = 0; i < 9; i++) {   // grid rooms: north wall, mirrored against the facility map (x = centre + 4.5)
-  const [cx, cz] = rc(i); cpBuild(String(i), scene, 2.6, 1.9, cx + 4.5, 2.6, cz - roomD(i) / 2 + T / 2, 0);
+  const [cx, cz] = rc(i); cpBuild(String(i), scene, 2.6, 1.9, cx + WORLD.panelDX(i), 2.6, cz - roomD(i) / 2 + T / 2, 0);
 }
 for (const cr of CHEST_ROOMS) {   // chest rooms: 2 m panel on the room's left wall (the far wall is taken by banners and torches)
   const g = new THREE.Group(); g.position.set(cr.cx, 0, cr.cz); g.rotation.y = Math.atan2(-cr.dx, -cr.dz); scene.add(g);
