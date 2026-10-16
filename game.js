@@ -5411,8 +5411,11 @@ const ROOMART = (() => {
   const goldVM = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 1, envMapIntensity: 1.4, emissive: 0x3a2000, emissiveIntensity: 0.6 });
   const MOOD = { chest: 0xffb02e, mystery: 0xa04dff, merchant: 0x22e0cc };
   const moodM = {}; for (const k in MOOD) moodM[k] = new THREE.MeshStandardMaterial({ color: 0x15110c, emissive: MOOD[k], emissiveIntensity: 2.3, roughness: 0.55 });
-  const AW = 1024, AH = 1792;
-  const CELLS = { gob: [0, 0, 512, 256], crown: [512, 0, 256, 256], tally: [768, 0, 256, 256], arrow: [0, 256, 256, 256], mine: [256, 256, 256, 256], king: [512, 256, 512, 256], haz: [0, 512, 1024, 128], kingme: [0, 640, 512, 256], face: [512, 640, 256, 256], scr: [768, 640, 256, 256], grime: [0, 896, 512, 128], scuff: [512, 896, 256, 128], crack: [768, 896, 256, 128], warrR: [0, 1024, 512, 256], warrL: [512, 1024, 512, 256], path: [0, 1280, 256, 256], drag: [256, 1280, 256, 256], claw: [0, 1536, 256, 256], scorch: [256, 1536, 256, 256], sawdust: [512, 1536, 512, 128] };
+  const AW = 1024, AH = 2048;
+  const CELLS = { gob: [0, 0, 512, 256], crown: [512, 0, 256, 256], tally: [768, 0, 256, 256], arrow: [0, 256, 256, 256], mine: [256, 256, 256, 256], king: [512, 256, 512, 256], haz: [0, 512, 1024, 128], kingme: [0, 640, 512, 256], face: [512, 640, 256, 256], scr: [768, 640, 256, 256], grime: [0, 896, 512, 128], scuff: [512, 896, 256, 128], crack: [768, 896, 256, 128], warrR: [0, 1024, 512, 256], warrL: [512, 1024, 512, 256], path: [0, 1280, 256, 256], drag: [256, 1280, 256, 256], claw: [0, 1536, 256, 256], scorch: [256, 1536, 256, 256], sawdust: [512, 1536, 512, 128], rm0: [0, 1792, 128, 128], rm1: [128, 1792, 128, 128], rm2: [256, 1792, 128, 128], rm3: [384, 1792, 128, 128], rm5: [512, 1792, 128, 128], rm6: [640, 1792, 128, 128], rm7: [768, 1792, 128, 128], rm8: [896, 1792, 128, 128] };
+  // ROOMID: every grid room gets its own paint colour (wainscot band, floor inlay, pipe collars, a stencilled room number): the same white facility, but you can tell where you are
+  const ROOM_ACC = { 0: 0x6f9a86, 1: 0x6f8fb4, 2: 0xc27c5e, 3: 0xa7799b, 5: 0xcba44a, 6: 0x5f9ea0, 7: 0xbb6f7a, 8: 0x8ea352 };
+  const accOf = key => ROOM_ACC[key] == null ? null : new THREE.Color(ROOM_ACC[key]);
   const SIZES = { gob: [1.5, 0.75], crown: [0.75, 0.75], tally: [0.7, 0.7], arrow: [0.95, 0.95], mine: [0.8, 0.8], king: [1.5, 0.75], warr: [1.6, 0.8], kingme: [2.0, 1.0], face: [0.9, 0.9], scr: [0.9, 0.9], warrR: [1.6, 0.8], warrL: [1.6, 0.8] };
   const GW = { gob: 4.0, crown: 2.0, tally: 2.0, mine: 2.2, king: 4.2, kingme: 4.5, face: 2.6, scr: 2.4, warr: 3.4 };   // wall graffiti widths in metres (readable from across the room)
   const uvr = k => { const [x, y, w, h] = CELLS[k]; return [(x + 2) / AW, 1 - (y + h - 2) / AH, (x + w - 2) / AW, 1 - (y + 2) / AH]; };
@@ -5542,6 +5545,13 @@ const ROOMART = (() => {
       for (let i = 0; i < 900; i++) { g.fillStyle = rnd() < 0.5 ? 'rgba(60,45,15,0.28)' : 'rgba(255,240,200,0.12)'; g.fillRect(rnd() * cw, rnd() * ch, 1 + rnd() * 4, 1 + rnd() * 3); }
       g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillRect(0, 0, cw, 5); g.fillRect(0, ch - 5, cw, 5);
     }, false);
+    for (const key in ROOM_ACC) cell('rm' + key, (cw, ch) => {   // ROOMID: stencilled room number in the room's own paint colour, stencil bridges cut through the digit
+      const col = '#' + ROOM_ACC[key].toString(16).padStart(6, '0');
+      g.fillStyle = col; g.fillRect(14, 12, cw - 28, 6); g.fillRect(14, ch - 18, cw - 28, 6);
+      g.font = '900 24px Impact,"Arial Black",sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('R O O M', cw / 2, 33);
+      g.font = '900 84px Impact,"Arial Black",sans-serif'; g.fillText(String(+key + 1), cw / 2, 80);
+      g.globalCompositeOperation = 'destination-out'; g.fillRect(0, 71, cw, 3); g.fillRect(0, 90, cw, 3); g.globalCompositeOperation = 'source-over';
+    });
   });
   atlas.wrapS = atlas.wrapT = THREE.ClampToEdgeWrapping;
   const emberM = new THREE.MeshStandardMaterial({ color: 0x1a0d06, emissive: 0xff5a14, emissiveIntensity: 2.6, roughness: 0.9 });   // cold-campfire embers: emissive only, never a light
@@ -5691,7 +5701,8 @@ const ROOMART = (() => {
     const rnd = mul(hashStr('roomart:' + r.key)), S = new Acc(r.R), G = new Acc(r.R), C = new Acc(r.R), D = new Acc(r.R), E = new Acc(r.R), A = { S, G, C, M: E };
     const big = r.vault, hx = r.hx, hz = r.hz;
     // 1. skirting cap, floor trim lines, safety corner squares
-    const capC = cv(0xcfd3d8, rnd, 0.03), lineC = cv(0x46515d, rnd, 0.04), lineC2 = cv(0xa8b0b8, rnd, 0.03);
+    const acc = r.kind === 'grid' && !big ? accOf(r.key) : null;   // ROOMID paint colour (null: vault, chest rooms)
+    const capC = cv(0xcfd3d8, rnd, 0.03), lineC0 = cv(0x46515d, rnd, 0.04), lineC20 = cv(0xa8b0b8, rnd, 0.03), lineC = acc ? acc.clone().multiplyScalar(0.55) : lineC0, lineC2 = acc ? acc.clone().lerp(WHITE, 0.25) : lineC20;
     for (let w = 0; w < 4; w++) {
       for (const [a, b] of segs(r, w, 0.02)) wbox(S, r, w, a, b, 0.2, 0.285, 0, 0.09, capC);
       for (const [a, b] of segs(r, w, 0.46, 0.2)) { wbox(S, r, w, a, b, 0, 0.012, 0.42, 0.48, lineC); wbox(S, r, w, a, b, 0, 0.011, 0.5, 0.515, lineC2); }
@@ -5811,6 +5822,33 @@ const ROOMART = (() => {
       }
     }
     for (let i = 0, n = 1 + ((r2() * 2) | 0); i < n; i++) waterStain(A, (r2() < 0.5 ? -1 : 1) * (hx - 1.1 - r2() * 1.4), (r2() < 0.5 ? -1 : 1) * (hz - 1.1 - r2() * 1.4), r2);
+    // 9. ROOMID: painted wainscot band, steel conduit run with the room's colour collars, a corner riser and a stencilled room number (own seeded stream, merged into the same meshes)
+    if (acc) {
+      const r3 = mul(hashStr('roomart5:' + r.key)), band = acc.clone().multiplyScalar(0.94), rail = acc.clone().lerp(WHITE, 0.45), shade = acc.clone().multiplyScalar(0.7),
+        steel = cv(0x59616b, r3, 0.05), steel2 = cv(0x8a929c, r3, 0.05), dark = new THREE.Color(0x2b3037), PY = 4.9;
+      for (let w = 0; w < 4; w++) {
+        for (const [a, b] of segs(r, w, 0.02, 0.05)) {   // painted band, 4 mm proud of the wall so the seams and decals still read over it
+          wbox(S, r, w, a, b, 0.285, 1.04, 0.002, 0.006, band); wbox(S, r, w, a, b, 1.04, 1.085, 0.002, 0.007, rail); wbox(S, r, w, a, b, 0.285, 0.32, 0.002, 0.007, shade);
+        }
+        for (const [a, b] of segs(r, w, 0.1, 1.5)) {   // conduit: a thick steel pipe and a thin one above it, bracketed every ~2.3 m, a colour collar at each bracket
+          const L = b - a, [mx, mz] = wp(r, w, (a + b) / 2, 0.13), [m2x, m2z] = wp(r, w, (a + b) / 2, 0.1);
+          put(S, CYLG, mx, PY, mz, 0, YAW[w], PI / 2, 0.075, L, 0.075, steel); put(S, CYLG, m2x, PY + 0.2, m2z, 0, YAW[w], PI / 2, 0.038, L, 0.038, steel2);
+          const n = Math.max(1, Math.round(L / 2.3));
+          for (let k = 0; k < n; k++) {
+            const t = a + (k + 0.5) * L / n, [bx, bz] = wp(r, w, t, 0.05), [cx, cz] = wp(r, w, t, 0.13);
+            put(S, BOXG, bx, PY + 0.1, bz, 0, YAW[w], 0, 0.05, 0.42, 0.1, dark);
+            put(S, CYLG, cx, PY, cz, 0, YAW[w], PI / 2, 0.086, 0.07, 0.086, acc);
+          }
+        }
+      }
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) put(S, SPHG, sx * (hx - 0.13), PY, sz * (hz - 0.13), 0, 0, 0, 0.1, 0.1, 0.1, steel);   // elbows
+      { const sx = r3() < 0.5 ? -1 : 1, sz = r3() < 0.5 ? -1 : 1, x = sx * (hx - 0.13), z = sz * (hz - 0.13);   // one riser down to the floor, flanged
+        put(S, CYLG, x, (PY + 0.32) / 2, z, 0, 0, 0, 0.065, PY - 0.32, 0.065, steel); put(S, CYLG, x, 0.33, z, 0, 0, 0, 0.1, 0.05, 0.1, dark); put(S, CYLG, x, 1.6, z, 0, 0, 0, 0.082, 0.07, 0.082, acc); put(S, CYLG, x, 3.3, z, 0, 0, 0, 0.082, 0.07, 0.082, acc); }
+      for (let k = 0; k < 6; k++) {   // stencilled room number high on one of the side or back walls, clear of the doors and of the graffiti zone
+        const w = 1 + ((r3() * 3) | 0), t = pickSeg(segs(r, w, 1.3, 1.9), r3); if (t == null) continue;
+        const [x, z] = wp(r, w, t, 0.014), nv = nv0(w); D.quad(new V3(x, 3.75, z), nv, up, 0.85, 0.85, uvr('rm' + r.key), WHITE); break;
+      }
+    }
     if (r.kind === 'chest') { moodAccents(r, E, S, C, rnd); outerDress(r, A, D, mul(hashStr('roomart4:' + r.key))); }
     const out = [], add = (acc, mat, isCeil, name) => { if (!acc.cnt) return; const m = new THREE.Mesh(acc.geometry(), mat); m.name = name; m.matrixAutoUpdate = false; m.updateMatrix(); scene.add(m); out.push(m); if (isCeil) ceilings.push(m); };
     add(S, solidM, false, 'roomartSolid'); add(G, goldVM, false, 'roomartGold'); add(C, solidM, true, 'roomartCeil'); add(D, decalM, false, 'roomartDecal'); add(E, r.kind === 'chest' ? (moodM[r.type] || solidM) : emberM, false, 'roomartMood');
