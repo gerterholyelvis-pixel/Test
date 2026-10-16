@@ -49,15 +49,20 @@
   function shirt(g, a, b) { poly2(g, [[-0.18, 0.1], [0.18, 0.1], [0.38, 0.28], [0.3, 0.42], [0.22, 0.36], [0.22, 0.9], [-0.22, 0.9], [-0.22, 0.36], [-0.3, 0.42], [-0.38, 0.28]], a, b); }
   function draw(ctx, key, x, y, size) {
     const baked = window.GKART && GKART.icon(key);   // ITEMART: icon rendered from the 3D model (itemart.js) once baked
-    if (baked) { ctx.save(); ctx.imageSmoothingQuality = 'high'; ctx.drawImage(baked, x, y, size, size); ctx.restore(); return; }
+    if (baked) { ctx.save(); ctx.imageSmoothingQuality = 'high'; ctx.drawImage(baked, x, y, size, size); ctx.restore(); upBadge(ctx, window.GKITEMS && GKITEMS.ITEMS[key], x, y, size); return; }
     const it = window.GKITEMS && (window.GKITEMS.info ? window.GKITEMS.info(key) : window.GKITEMS.ITEMS[key]), tier = (it && TIER[it.tier]) || TIER.common;
     steel = tier[0];
     ctx.save(); ctx.translate(x + size / 2, y + size * 0.04); ctx.scale(size * 0.92, size * 0.92); ctx.lineJoin = 'round';
     if (tier[1]) { const gr = ctx.createRadialGradient(0, 0.5, 0, 0, 0.5, 0.62); gr.addColorStop(0, tier[1] + '77'); gr.addColorStop(1, tier[1] + '00'); ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(0, 0.5, 0.62, 0, 6.2832); ctx.fill(); }
     ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = size * 0.04;
-    const fam = it && it.family, fn = DRAW[key] || DRAW_FAMILY[fam] || DRAW['w:' + fam] || DRAW['a:' + fam] || (g => { g.fillStyle = '#888'; g.fillRect(-0.2, 0.3, 0.4, 0.4); });
+    const fam = it && it.family, fn = DRAW[key] || (it && it.base && DRAW[it.base]) || DRAW_FAMILY[fam] || DRAW['w:' + fam] || DRAW['a:' + fam] || (g => { g.fillStyle = '#888'; g.fillRect(-0.2, 0.3, 0.4, 0.4); });
     try { fn(ctx); } catch (e) {}
-    ctx.restore(); steel = '#b8c2cc';
+    ctx.restore(); steel = '#b8c2cc'; upBadge(ctx, it, x, y, size);
+  }
+  function upBadge(ctx, it, x, y, size) {   // KNOWLEDGE: a small gold plus marks a reforged item
+    if (!it || !it.up) return; const r = size * 0.13, cx = x + size - r * 1.25, cy = y + r * 1.25;
+    ctx.save(); ctx.fillStyle = '#ffd75e'; ctx.strokeStyle = '#2a1c04'; ctx.lineWidth = Math.max(1, size * 0.025); ctx.beginPath(); ctx.arc(cx, cy, r, 0, 6.2832); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#2a1c04'; const w = r * 1.1, h = r * 0.32; ctx.fillRect(cx - w / 2, cy - h / 2, w, h); ctx.fillRect(cx - h / 2, cy - w / 2, h, w); ctx.restore();
   }
   const live = [];   // ITEMART: canvases handed out before their icon was baked; they repaint when it arrives
   function paint(c, key, size) { const g = c.getContext('2d'), d = c.width / size; g.setTransform(d, 0, 0, d, 0, 0); g.clearRect(0, 0, size, size); draw(g, key, 0, 0, size); }

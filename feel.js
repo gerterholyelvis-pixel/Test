@@ -64,7 +64,7 @@
   function promptFor(A) {
     if (A.cpAim) return 'Select door';
     const h = A.hover();
-    if (h && h.room >= 0) return h.kind === 'r' ? 'Use recycler' : h.kind === 'w' ? 'Use crafting bench' : 'Trade with merchant';
+    if (h && h.room >= 0) return h.kind === 'r' ? 'Use recycler' : h.kind === 'w' ? 'Use crafting bench' : h.kind === 'k' ? 'Study the knowledge tree' : 'Trade with merchant';
     if (A.nearestPile()) return 'Loot bag';
     const key = A.roomKeyAt(A.P.x, A.P.z);
     if (key && key[0] === 'c') {

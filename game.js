@@ -2318,6 +2318,7 @@ if (GK.layout && GK.CHEST_ROOMS) { /* the rooms agent calls buildMysteryContents
     const ph = 0.6;
     g.drawImage(base, 0, 0);
     if (GK.mapIntel) GK.mapIntel(g, mx, my, MS);   // UNIQUE: faint arrows for last round's door picks
+    if (GK.knowMap) GK.knowMap(g, mx, my, p.room);   // KNOWLEDGE: Lore perks draw on the map
     g.save(); g.fillStyle = 'rgba(255,40,40,' + (0.16 + 0.16 * ph) + ')'; g.fillRect(x, y, w, h);
     g.shadowColor = '#ff2a2a'; g.shadowBlur = 14 + 14 * ph; g.strokeStyle = '#ff3030'; g.lineWidth = 7; g.strokeRect(x + 3, y + 3, w - 6, h - 6); g.restore();
     // label
@@ -2354,6 +2355,7 @@ if (GK.layout && GK.CHEST_ROOMS) { /* the rooms agent calls buildMysteryContents
   }
   layoutHooks.push(() => { drawBase(); for (const p of panels) { drawMap(p); p.tex.needsUpdate = true; } });   // the room types are random per match: redraw the base and every wall map once
   GK.redrawMaps = () => { drawBase(); for (const p of panels) { drawMap(p); p.tex.needsUpdate = true; } };
+  GK.redrawMap = room => { for (const p of panels) if (String(p.room) === String(room)) { drawMap(p); p.tex.needsUpdate = true; } };   // KNOWLEDGE: one room's map only (cheap live intel)
 }
 // MAP-END
 // PANEL-BEGIN (door control panels and round logic on the client: owned by the rounds agent)
@@ -3696,9 +3698,9 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
   let dropsSim = [], nextDrop = 1, mysterySim = null;
   const sendDrops = () => net.onmessage && net.onmessage({ drops: clone(dropsSim) });
   const roomIdAt = () => CHEST_ROOMS.findIndex(C => Math.abs(meP.x - C.cx) <= 4 && Math.abs(meP.z - C.cz) <= 4);
-  const eatSim = key => { const gain = itemsData().brainGain(key); meP.know = Math.round((meP.know + gain) * 100) / 100; net.onmessage && net.onmessage({ ate: { gain, knowledge: meP.know } }); };
+  const eatSim = key => { const G = itemsData(), gain = G.brainGain(key); meP.know = Math.round((meP.know + gain) * 100) / 100; meP.brains = (meP.brains || 0) + 1; const max = maxHpOf(meP), heal = G.hasPerk && G.hasPerk(meP.perks, 'gourmet') ? Math.min(G.KNOW.gourmet, max - hpOf(meP)) : 0; if (heal > 0) meP.hp += heal; net.onmessage && net.onmessage({ ate: { gain, knowledge: meP.know, ...(heal > 0 ? { heal } : null) } }); };
   const sendMatch = () => { const w = list.map(p => p.wins); net.onmessage && net.onmessage({ match: { size: 5, alive: list.length, minWins: Math.min(...w), maxWins: Math.max(...w) } }); };
-  const entry = ({ id, goblin, box, x, z, yaw, seq, inv, wins, know, hp, kills }) => { const s = invStats(inv, goblin, know); if (hp != null) s.health = Math.min(hp, s.maxHealth); return { id, goblin, box, x, z, yaw, seq, kills: kills || 0, stats: s, gear: { weapon: inv.weapon && infoOf(inv.weapon) ? infoOf(inv.weapon).name : null, armor: inv.armor && infoOf(inv.armor) ? infoOf(inv.armor).name : null }, wins }; };
+  const entry = ({ id, goblin, box, x, z, yaw, seq, inv, wins, know, hp, kills, brains }) => { const s = invStats(inv, goblin, know); if (hp != null) s.health = Math.min(hp, s.maxHealth); return { id, goblin, box, x, z, yaw, seq, kills: kills || 0, brains: brains || 0, stats: s, gear: { weapon: inv.weapon && infoOf(inv.weapon) ? infoOf(inv.weapon).name : null, armor: inv.armor && infoOf(inv.armor) ? infoOf(inv.armor).name : null }, wins }; };
   const emit = () => net.onmessage && net.onmessage({ players: list.map(entry) });
   // NET: the offline mock speaks the same protocol as server.js: slow {players} on changes, {s:[...]} snapshots of the bots that moved every 50 ms, {pong}
   const lastSent = new Map();
@@ -3790,18 +3792,27 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
       if (typeof m.recycle === 'string' && meP) {
         const id = roomIdAt(), L = id >= 0 && layoutSim ? layoutSim[id] : null, my = id >= 0 && mysterySim ? mysterySim[id] : null;
         const has = L === 'merchant' || (L === 'mystery' && my && my.kind === 'stations' && my.stations.includes('recycler'));
-        const key = /^(b[0-8]|q[0-2])$/.test(m.recycle) ? invGet(meP.inv, m.recycle) : null, y = key && itemsData().recycleYield(key);
+        const key = /^(b[0-8]|q[0-2])$/.test(m.recycle) ? invGet(meP.inv, m.recycle) : null, y = key && (itemsData().recycleFor ? itemsData().recycleFor(key, meP.perks) : itemsData().recycleYield(key));
         if (!has) net.onmessage && net.onmessage({ recycleFail: 'room' });
         else if (!y) net.onmessage && net.onmessage({ recycleFail: 'item' });
         else { invSet(meP.inv, m.recycle, null); for (const k in y) meP.parts[k] = (meP.parts[k] || 0) + y[k]; sendInv(); sendParts(); net.onmessage && net.onmessage({ recycled: { key, parts: y } }); emit(); }
       }
       if (typeof m.craft === 'string' && meP) {
         const id = roomIdAt(), L = id >= 0 && layoutSim ? layoutSim[id] : null, my = id >= 0 && mysterySim ? mysterySim[id] : null;
-        const has = L === 'merchant' || (L === 'mystery' && my && my.kind === 'stations' && my.stations.includes('workbench'));
-        const r = (itemsData().RECIPES || []).find(x => x.id === m.craft);
-        const why = !has ? 'room' : !r ? 'recipe' : meP.know < (r.needs || 0) ? 'knowledge' : Object.keys(r.cost).some(k => (meP.parts[k] || 0) < r.cost[k]) ? 'parts' : meP.inv.backpack.indexOf(null) < 0 ? 'space' : null;
+        const has = L === 'merchant' || (L === 'mystery' && my && my.kind === 'stations' && (my.stations.includes('workbench') || my.stations.includes('knowledge')));   // KNOWLEDGE: the tree is a bench too
+        const r = (itemsData().RECIPES || []).find(x => x.id === m.craft), cost = r && itemsData().recipeCost ? itemsData().recipeCost(r, meP.perks) : r && r.cost;
+        const why = !has ? 'room' : !r ? 'recipe' : meP.know < (r.needs || 0) ? 'knowledge' : Object.keys(cost).some(k => (meP.parts[k] || 0) < cost[k]) ? 'parts' : meP.inv.backpack.indexOf(null) < 0 ? 'space' : null;
         if (why) net.onmessage && net.onmessage({ craftFail: why });
-        else { for (const k in r.cost) meP.parts[k] -= r.cost[k]; meP.inv.backpack[meP.inv.backpack.indexOf(null)] = r.out; sendInv(); sendParts(); net.onmessage && net.onmessage({ crafted: { key: r.out, recipe: r.id } }); emit(); }
+        else { for (const k in cost) meP.parts[k] -= cost[k]; meP.inv.backpack[meP.inv.backpack.indexOf(null)] = r.out; sendInv(); sendParts(); net.onmessage && net.onmessage({ crafted: { key: r.out, recipe: r.id } }); emit(); }
+      }
+      if ((typeof m.learn === 'string' || typeof m.reforge === 'string') && meP) {   // KNOWLEDGE: same checks as server.js learn() / reforge()
+        const G = itemsData(), id = roomIdAt(), L = id >= 0 && layoutSim ? layoutSim[id] : null, my = id >= 0 && mysterySim ? mysterySim[id] : null;
+        const has = L === 'merchant' || (L === 'mystery' && my && my.kind === 'stations' && (my.stations.includes('workbench') || my.stations.includes('knowledge')));
+        meP.perks = meP.perks || [];
+        if (typeof m.learn === 'string') { const why = !has ? 'room' : G.learnFail(m.learn, meP.know, meP.brains, meP.perks); if (why) net.onmessage && net.onmessage({ learnFail: why }); else { meP.perks.push(m.learn); net.onmessage && net.onmessage({ perks: meP.perks.slice(), learned: m.learn }); } }
+        else { const slot = m.reforge, key = /^(b[0-8]|q[0-2]|weapon|armor)$/.test(slot) ? invGet(meP.inv, slot) : null, cost = key && G.reforgeCost(key);
+          const why = !has ? 'room' : !G.hasPerk(meP.perks, 'reforge') ? 'perk' : !cost ? 'item' : Object.keys(cost).some(k => (meP.parts[k] || 0) < cost[k]) ? 'parts' : null;
+          if (why) net.onmessage && net.onmessage({ reforgeFail: why }); else { for (const k in cost) meP.parts[k] -= cost[k]; invSet(meP.inv, slot, key + '+'); sendInv(); sendParts(); net.onmessage && net.onmessage({ reforged: { slot, key: key + '+' } }); emit(); } }
       }
       if (Array.isArray(m.loot) && meP) {   // [dropId, index, 'take'|'eat', expectedKey]
         const [did, idx, mode, exp] = m.loot, di = dropsSim.findIndex(x => x.id === did), dr = dropsSim[di], key = dr && dr.items[idx];
@@ -3951,6 +3962,7 @@ const handleMsg0 = d => {
   if (d.crafted) craftedFx(d.crafted);
   if (d.craftFail) stationFail('craft', d.craftFail);
   if (d.ate) ateFx(d.ate);
+  KNOWUI.onMsg(d);   // KNOWLEDGE: perks, learning, reforging, map intel
   if (d.lootFail) lootFailFx(d.lootFail);
   if (GK.fun) GK.fun.onMsg(d);   // FUN: kill feed, board, match summary
   if (window.GKLOOT) GKLOOT.onMsg(d);   // LOOT: vault relic, thrown plushie
@@ -4434,7 +4446,7 @@ function paintStatCol() {
   const mine = actors.get(me), type = mine ? mine.goblin : 0, s = invStats(myInv, type, knowOv), w = myInv.weapon, a = myInv.armor;
   const row = (k, v, sub) => '<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:#aaa59d">' + k + '</span><b>' + v + '</b></div>' + (sub ? '<div style="font-size:11px;color:#8d8880;margin:-2px 0 6px;text-align:right">' + sub + '</div>' : '');
   statColEl.innerHTML = '<div class="lab" style="text-align:left">' + NAMES[type].toUpperCase() + '</div>'
-    + row('Attack', s.attack, w ? itemName(w) : 'no weapon') + row('Health', s.health + ' / ' + s.maxHealth, a ? itemName(a) : 'no armour') + row('Knowledge', '<span class="knowv">' + fmtN(s.knowledge) + '</span>', 'innate + brains') + row('Gold', '<i class="gkcoin"></i> ' + myGold);
+    + row('Attack', s.attack, w ? itemName(w) : 'no weapon') + row('Health', s.health + ' / ' + s.maxHealth, a ? itemName(a) : 'no armour') + row('Knowledge', '<span class="knowv">' + fmtN(s.knowledge) + '</span>', KNOWUI.statNote()) + row('Gold', '<i class="gkcoin"></i> ' + myGold);
 }
 function flashBad(...ids) { for (const id of ids) for (const el of slotEls[id] || []) { el.classList.remove('bad'); void el.offsetWidth; el.classList.add('bad'); } }
 function cmpTxt(k) {   // UI-POLISH: "+4 attack vs Dagger" against whatever is equipped in that slot (empty for non-gear and for the equipped item itself)
@@ -4701,22 +4713,22 @@ function setHover(id, kind) {
   if (id === hoverRoom && (kind || '') === hoverKind) return; hoverRoom = id; hoverKind = kind || '';
   const dot = $('dot'); if (dot) { dot.style.transition = 'transform .12s'; dot.style.transform = id >= 0 ? 'scale(3)' : ''; dot.style.opacity = id >= 0 ? 1 : ''; }
   if (!hoverTip) { hoverTip = document.createElement('div'); hoverTip.style.cssText = 'position:fixed;left:50%;top:calc(50% + 24px);transform:translateX(-50%);z-index:25;pointer-events:none;padding:4px 12px;border-radius:8px;background:rgba(10,8,6,.8);border:1px solid rgba(255,215,94,.55);color:' + GOLD + ';font:700 13px system-ui,sans-serif;letter-spacing:.08em;display:none;white-space:nowrap'; document.body.appendChild(hoverTip); }
-  hoverTip.innerHTML = 'Press <b style="padding:1px 6px;border-radius:4px;background:#ffd75e;color:#1a1405">E</b> to ' + (hoverKind === 'r' ? 'recycle' : hoverKind === 'w' ? 'craft' : 'trade'); hoverTip.style.display = /* FEEL: shown by feel.js */ false ? 'block' : 'none';
+  hoverTip.innerHTML = 'Press <b style="padding:1px 6px;border-radius:4px;background:#ffd75e;color:#1a1405">E</b> to ' + (hoverKind === 'r' ? 'recycle' : hoverKind === 'w' ? 'craft' : hoverKind === 'k' ? 'study' : 'trade'); hoverTip.style.display = /* FEEL: shown by feel.js */ false ? 'block' : 'none';
 }
 function merchantHoverTick() {
-  const T = PERF2_ON ? perf2HoverTargets() : [...(GK.merchantTargets || []), ...(GK.stationTargets || []).filter(o => o && o.userData && (o.userData.station === 'recycler' || o.userData.station === 'workbench'))];   // PERF2: list cached (was rebuilt with a spread and a closure every frame)
+  const T = PERF2_ON ? perf2HoverTargets() : [...(GK.merchantTargets || []), ...(GK.stationTargets || []).filter(o => o && o.userData && (o.userData.station === 'recycler' || o.userData.station === 'workbench' || o.userData.station === 'knowledge'))];   // PERF2: list cached (was rebuilt with a spread and a closure every frame)
   lootPromptTick();
   if (GK.mode !== 'play' || invOpen || shopOpen || !inside || !spawned || !T.length) { if (hoverRoom >= 0) setHover(-1); return; }
   if (PERF2_ON && !perf2HoverNear(T)) { setHover(-1); return; }   // PERF2: nothing within 20 m, so the ray cannot reach (it is 7 m long): skip the raycast over every merchant, recycler and workbench model
   cam.updateMatrixWorld(); ray.setFromCamera({ x: 0, y: 0 }, cam); ray.far = 7;
   const hit = ray.intersectObjects(T, true)[0]; let id = -1, kind = '';
-  if (hit) { for (let o = hit.object; o; o = o.parent) { const u = o.userData; if (!u || u.roomId == null) continue; id = u.roomId; kind = u.station === 'recycler' ? 'r' : u.station === 'workbench' ? 'w' : 'm'; break; } }
+  if (hit) { for (let o = hit.object; o; o = o.parent) { const u = o.userData; if (!u || u.roomId == null) continue; id = u.roomId; kind = u.station === 'recycler' ? 'r' : u.station === 'workbench' ? 'w' : u.station === 'knowledge' ? 'k' : 'm'; break; } }
   setHover(id, kind);
 }
 GK.hover = () => ({ room: hoverRoom, kind: hoverKind });
 function stationInteract() {   // E while looking at a merchant, recycler or workbench opens it; true if it did
   if (hoverRoom < 0 || invOpen || shopOpen || GK.mode !== 'play') return false;
-  if (hoverKind === 'r') openStation('recycle', hoverRoom); else if (hoverKind === 'w') openStation('craft', hoverRoom); else openShop(hoverRoom);
+  if (hoverKind === 'r') openStation('recycle', hoverRoom); else if (hoverKind === 'w' || hoverKind === 'k') openStation('craft', hoverRoom);   // KNOWLEDGE: the tree and the bench open the same screen else openShop(hoverRoom);
   return true;
 }
 // ---------- materials (parts), recycler, workbench, loot piles, eating ----------
@@ -4806,18 +4818,18 @@ function buildRec() {
     const s = e.target.closest && e.target.closest('.gks[data-rec]'); if (!s) return;
     const id = s.dataset.id, k = invGet(myInv, id);
     if (k == null) return;
-    if (!(itemsData().recycleYield && itemsData().recycleYield(k))) { flashBad(id); say(recPn, 'Weapons, armour and utility items can be recycled'); return; }
+    if (!KNOWUI.recYield(k)) { flashBad(id); say(recPn, 'Weapons, armour and utility items can be recycled'); return; }
     recSel = id; paintRec();
   });
 }
 function paintRec() {
   if (!recPn) return;
   for (const id of ['b0', 'b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'q0', 'q1', 'q2']) for (const el of slotEls[id]) if (el.dataset.rec) {
-    const k = invGet(myInv, id), ok = k != null && !!(itemsData().recycleYield && itemsData().recycleYield(k));
+    const k = invGet(myInv, id), ok = k != null && !!KNOWUI.recYield(k);
     paintSlot(el, id); el.style.opacity = k == null || ok ? 1 : 0.3; el.style.outline = recSel === id ? '2px solid ' + GOLD : 'none'; el.title = k != null && !ok ? 'cannot recycle' : '';
   }
   if (recSel && invGet(myInv, recSel) == null) recSel = null;
-  const k = recSel ? invGet(myInv, recSel) : null, y = k && itemsData().recycleYield(k), pv = recPn.prev; pv.textContent = '';
+  const k = recSel ? invGet(myInv, recSel) : null, y = k && KNOWUI.recYield(k), pv = recPn.prev; pv.textContent = '';
   if (!k) { pv.innerHTML = '<div style="color:#8d8880;font-size:14px;line-height:1.5">Select a weapon or armour from your backpack or quick slots<br>to see which materials it yields.<br><span style="font-size:12px">(brains and worn gear cannot be recycled)</span></div>'; return; }
   const it = infoOf(k), head = document.createElement('div'); head.style.cssText = 'display:flex;align-items:center;gap:10px'; head.appendChild(mkIcon(k, 46));
   const t = document.createElement('div'); t.style.textAlign = 'left'; t.innerHTML = '<b style="color:' + (TIER_COL[it.tier] || '#fff') + ';font-size:16px">' + it.name + '</b><div style="font-size:12px;color:#aaa59d">' + statTxt(k) + '</div>'; head.appendChild(t);
@@ -4838,34 +4850,171 @@ function recycledFx(r) {
     a.onfinish = () => f.remove();
   });
 }
-// ---- workbench ----
-function buildCraft() {
-  craftPn = mkPanel('gkCraft', 'WORKBENCH', 600); craftPn.sub.textContent = 'CRAFT ITEMS FROM MATERIALS - FREE FOR EVERYONE';
-  craftPn.list = document.createElement('div'); craftPn.list.style.cssText = 'display:flex;flex-direction:column;gap:7px';
-  const mats = document.createElement('div'); mats.style.cssText = 'margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.1)'; mats.innerHTML = '<div class="lab">YOUR MATERIALS</div>'; mats.appendChild(mkPartsRow());
-  const hint = document.createElement('div'); hint.style.cssText = 'text-align:center;margin-top:10px;font-size:12px;color:#8d8880'; hint.textContent = 'More recipes unlock through the Knowledge Tree';
-  craftPn.body.append(craftPn.list, mats, hint);
-}
+// ---- workbench + knowledge tree (KNOWLEDGE-BEGIN, docs/KNOWLEDGE.md): one screen, opened with E at a workbench or at a knowledge tree. Left: the perk tree. Right: recipes by tier (and Reforge). ----
+function buildCraft() { KNOWUI.build(); }
 function myKnowledge() { const mine = actors.get(me); return invStats(myInv, mine ? mine.goblin : 0, knowOv).knowledge; }
-function paintCraft() {
-  if (!craftPn) return; const list = craftPn.list; list.textContent = '';
-  const full = myInv.backpack.indexOf(null) < 0, know = myKnowledge(), recipes = (itemsData().RECIPES || []);
-  for (const r of recipes) {
-    const it = infoOf(r.out) || { name: r.out }, locked = (r.needs || 0) > know;
-    const lacking = Object.keys(r.cost).filter(p => (myParts[p] | 0) < r.cost[p]);
-    const reason = locked ? 'Needs ' + r.needs + ' knowledge (Knowledge Tree tier ' + r.tier + ')' : lacking.length ? 'Not enough ' + lacking.map(partName).join(', ') : full ? 'Your backpack is full' : '';
-    const row = document.createElement('div'); row.dataset.recipe = r.id; row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:6px 10px;border-radius:10px;background:rgba(0,0,0,.35);border:1px solid rgba(255,215,94,.2)' + (locked ? ';opacity:.5' : '');
-    const ic = document.createElement('div'); ic.style.cssText = 'width:48px;height:48px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:rgba(0,0,0,.4);flex:none'; ic.appendChild(mkIcon(r.out, 40));
-    const tx = document.createElement('div'); tx.style.cssText = 'flex:1;min-width:0'; tx.innerHTML = '<div style="font-weight:700;font-size:15px;color:' + (TIER_COL[it.tier] || '#f2efe6') + '">' + it.name + '</div><div style="font-size:12px;color:#aaa59d">' + (locked ? '&#128274; ' + reason : statTxt(r.out)) + '</div>';
-    const cost = document.createElement('div'); cost.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:210px';
-    for (const p in r.cost) { const ok = (myParts[p] | 0) >= r.cost[p], c = document.createElement('div'); c.title = partName(p); c.style.cssText = 'display:flex;align-items:center;gap:2px;font:800 13px system-ui,sans-serif;color:' + (ok ? '#8be28b' : '#ff6a5a'); c.appendChild(partIcon(p, 20)); c.append(' ' + (myParts[p] | 0) + '/' + r.cost[p]); cost.appendChild(c); }
-    const bt = document.createElement('button'); const can = !reason; bt.textContent = locked ? 'LOCKED' : 'CRAFT'; bt.disabled = !can; bt.title = reason;
-    bt.style.cssText = 'width:84px;padding:8px 0;border-radius:8px;font:800 12px system-ui,sans-serif;letter-spacing:.1em;cursor:' + (can ? 'pointer' : 'not-allowed') + ';' + (can ? 'border:0;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405' : 'border:1px solid rgba(255,90,74,.6);background:rgba(120,20,14,.35);color:#ff8a7a');
-    bt.onclick = () => { if (can) net.send({ craft: r.id }); else say(craftPn, reason); };
-    row.append(ic, tx, cost, bt); list.appendChild(row);
+function paintCraft() { if (craftPn) KNOWUI.paint(); }
+const KNOWUI = (() => {
+  const U = {}, ROM = ['0', 'I', 'II', 'III', 'IV', 'V'], BR_COL = { craft: '#ffb84a', lore: '#7fd0ff', guts: '#ff8a7a' };
+  let perks = [], relic = null, chestKeys = null, lastJ = '', lastRoom = null, hcAt = 0;
+  const D = () => itemsData(), esc = s => String(s).replace(/</g, '&lt;');
+  const brains = () => { const a = actors.get(me); return a ? a.brains | 0 : 0; };
+  const div = css => { const e = document.createElement('div'); e.style.cssText = css; return e; };
+  U.perks = () => perks.slice(); U.has = id => perks.includes(id);
+  U.points = () => D().knowPoints ? D().knowPoints(myKnowledge(), brains(), perks) : 0;
+  U.recYield = k => { const G = D(); return G.recycleFor ? G.recycleFor(k, perks) : G.recycleYield ? G.recycleYield(k) : null; };
+  U.cost = r => D().recipeCost ? D().recipeCost(r, perks) : r.cost;
+  U.statNote = () => { const n = U.points(); return n ? n + ' point' + (n > 1 ? 's' : '') + ' to spend' : 'innate + brains'; };
+  const learnWhy = { room: 'Learn at a workbench or a knowledge tree', points: 'Not enough knowledge points', order: 'Learn the perk above it first', have: 'You know that already', perk: 'Unknown perk' };
+  const forgeWhy = { room: 'Reforge at a workbench or a knowledge tree', perk: 'Learn Reforge first', item: 'That cannot be reforged', parts: 'Not enough materials' };
+  U.onMsg = d => {
+    if (d.matchStart) { perks = []; relic = null; }   // a new match: nothing learned yet (death loses everything)
+    if (d.chestKeys) chestKeys = d.chestKeys;
+    if (d.relic !== undefined) relic = d.relic;
+    if (Array.isArray(d.perks)) {
+      perks = d.perks.filter(x => typeof x === 'string'); lastJ = ''; lastRoom = null;
+      if (GK.redrawMaps) GK.redrawMaps(); if (panelKind === 'craft') paintCraft(); const mine = actors.get(me); if (mine) showStats(null, mine.goblin);
+    }
+    if (d.learned) learnedFx(d.learned);
+    if (d.learnFail && craftPn) say(craftPn, learnWhy[d.learnFail] || 'Cannot learn that');
+    if (d.reforged) { if (craftPn) say(craftPn, 'Reforged into ' + itemName(d.reforged.key), true); if (panelKind === 'craft') paintCraft(); try { GK.workbenchFeedback && GK.workbenchFeedback(shopRoom); } catch (e) {} }
+    if (d.reforgeFail && craftPn) say(craftPn, forgeWhy[d.reforgeFail] || 'Cannot reforge that');
+    if (d.secondWind) toastMsg('Second Wind! You cling on at 1 HP', true, 2600);
+    if (d.ate && d.ate.heal) toastMsg('The brain heals you +' + d.ate.heal + ' HP', true);
+    if (d.ate && panelKind === 'craft') paintCraft();
+  };
+  function learnedFx(id) {
+    const pk = D().PERK && D().PERK[id]; if (!craftPn || !pk) return;
+    say(craftPn, 'Learned ' + pk.name, true);
+    const n = craftPn.tree && craftPn.tree.querySelector('[data-perk="' + id + '"]'); if (n) n.animate([{ boxShadow: '0 0 0 0 rgba(255,215,94,.9)', transform: 'scale(1.05)' }, { boxShadow: '0 0 24px 4px rgba(255,215,94,0)', transform: 'none' }], 700);
+    try { GK.workbenchFeedback && GK.workbenchFeedback(shopRoom); } catch (e) {}
   }
-  if (!recipes.length) list.innerHTML = '<div style="text-align:center;color:#8d8880;padding:20px">No recipes known.</div>';
-}
+  U.build = () => {
+    craftPn = mkPanel('gkCraft', 'WORKBENCH', 980); craftPn.sub.textContent = 'KNOWLEDGE TREE AND CRAFTING - FREE FOR EVERYONE';
+    craftPn.head = div('display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;margin:0 0 12px');
+    const main = div('display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start');
+    craftPn.tree = div('flex:1 1 360px;min-width:min(300px,100%)');
+    const right = div('flex:1 1 400px;min-width:min(300px,100%)'); right.innerHTML = '<div class="lab">RECIPES</div>';
+    craftPn.list = div('display:flex;flex-direction:column;gap:6px;max-height:min(54vh,540px);overflow:auto;padding-right:4px'); right.appendChild(craftPn.list);
+    main.append(craftPn.tree, right);
+    const mats = div('margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.1)'); mats.innerHTML = '<div class="lab">YOUR MATERIALS</div>'; mats.appendChild(mkPartsRow());
+    craftPn.body.append(craftPn.head, main, mats);
+    craftPn.tree.addEventListener('click', e => {
+      const n = e.target.closest && e.target.closest('[data-perk]'); if (!n) return;
+      const why = D().learnFail(n.dataset.perk, myKnowledge(), brains(), perks);
+      if (why) { say(craftPn, learnWhy[why] || 'Cannot learn that'); n.animate([{ transform: 'translateX(-4px)' }, { transform: 'translateX(4px)' }, { transform: 'none' }], 220); } else net.send({ learn: n.dataset.perk });
+    });
+  };
+  const stat = (lab, val, col) => '<div style="display:flex;flex-direction:column;align-items:center;min-width:92px;padding:4px 12px;border-radius:10px;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.08)"><span style="font:700 10px system-ui;letter-spacing:.16em;color:#b9b4ae">' + lab + '</span><span style="font:800 20px system-ui;color:' + col + ';font-variant-numeric:tabular-nums">' + val + '</span></div>';
+  function paintTree() {
+    const G = D(), know = myKnowledge(), pts = U.points(), tier = G.knowTier ? G.knowTier(know) : 0;
+    craftPn.head.innerHTML = stat('KNOWLEDGE', fmtN(know), '#8ff0e0') + stat('RECIPE TIER', ROM[tier], '#ffd75e') + stat('POINTS', pts, pts ? '#8be28b' : '#8d8880')
+      + '<div style="font-size:12px;color:#9a958c;max-width:250px;line-height:1.4">1 point per ' + ((G.KNOW && G.KNOW.step) || 20) + ' knowledge and 1 per brain you eat. Perks last until you die.</div>';
+    const T = craftPn.tree; T.innerHTML = '<div class="lab">KNOWLEDGE TREE</div>';
+    const grid = div('display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px'); T.appendChild(grid);
+    for (const b of G.BRANCHES || []) {
+      const col = div('display:flex;flex-direction:column;align-items:stretch'), c = BR_COL[b.id] || '#ffd75e';
+      col.innerHTML = '<div style="text-align:center;font:800 12px system-ui;letter-spacing:.18em;color:' + c + ';margin-bottom:6px">' + b.name.toUpperCase() + '</div>';
+      const list = (G.PERKS || []).filter(p => p.branch === b.id).sort((x, y) => x.rank - y.rank);
+      list.forEach((pk, i) => {
+        if (i) { const ln = div('width:2px;height:10px;margin:0 auto;background:' + (U.has(list[i - 1].id) ? c : 'rgba(255,255,255,.15)')); col.appendChild(ln); }
+        const have = U.has(pk.id), why = have ? 'have' : G.learnFail(pk.id, know, brains(), perks), can = !why;
+        const n = div('padding:8px 9px;border-radius:10px;box-sizing:border-box;min-height:104px;display:flex;flex-direction:column;gap:3px;cursor:' + (can ? 'pointer' : 'default') + ';'
+          + (have ? 'background:linear-gradient(180deg,' + c + '33,rgba(0,0,0,.4));border:1px solid ' + c : can ? 'background:rgba(0,0,0,.35);border:1px dashed ' + c : 'background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.08);opacity:.62'));
+        n.dataset.perk = pk.id; n.title = pk.desc;
+        n.innerHTML = '<div style="display:flex;justify-content:space-between;gap:6px;align-items:baseline"><b style="font-size:13px;color:' + (have ? '#fff4d6' : '#f2efe6') + '">' + esc(pk.name) + '</b><span style="font:800 11px system-ui;color:' + c + ';white-space:nowrap">' + pk.cost + ' PT</span></div>'
+          + '<div style="font-size:11.5px;line-height:1.3;color:#b9b4a6;flex:1">' + esc(pk.desc) + '</div>'
+          + '<div style="font:800 10px system-ui;letter-spacing:.12em;color:' + (have ? c : can ? '#8be28b' : '#8d8880') + '">' + (have ? 'LEARNED' : can ? 'CLICK TO LEARN' : why === 'order' ? 'LEARN THE ONE ABOVE' : 'NEEDS ' + pk.cost + ' POINT' + (pk.cost > 1 ? 'S' : '')) + '</div>';
+        col.appendChild(n);
+      });
+      grid.appendChild(col);
+    }
+  }
+  const costChips = (cost, base) => { const w = div('display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:190px'); for (const p in cost) { const ok = (myParts[p] | 0) >= cost[p], c = div('display:flex;align-items:center;gap:2px;font:800 13px system-ui,sans-serif;color:' + (ok ? '#8be28b' : '#ff6a5a')); c.title = partName(p) + (base && base[p] > cost[p] ? ' (Thrifty Hands: ' + base[p] + ' -> ' + cost[p] + ')' : ''); c.appendChild(partIcon(p, 20)); c.append(' ' + (myParts[p] | 0) + '/' + cost[p]); w.appendChild(c); } return w; };
+  const btn = (txt, can) => { const b = document.createElement('button'); b.textContent = txt; b.disabled = !can; b.style.cssText = 'width:84px;flex:none;padding:8px 0;border-radius:8px;font:800 12px system-ui,sans-serif;letter-spacing:.1em;cursor:' + (can ? 'pointer' : 'not-allowed') + ';' + (can ? 'border:0;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405' : 'border:1px solid rgba(255,90,74,.6);background:rgba(120,20,14,.35);color:#ff8a7a'); return b; };
+  const row = (key, line, cost, base, label, can, reason, onGo, dim) => {
+    const it = infoOf(key) || { name: key }, r = div('display:flex;align-items:center;gap:10px;padding:5px 8px;border-radius:10px;background:rgba(0,0,0,.35);border:1px solid rgba(255,215,94,.18)' + (dim ? ';opacity:.5' : ''));
+    const ic = div('width:42px;height:42px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:rgba(0,0,0,.4);flex:none'); ic.appendChild(mkIcon(key, 36));
+    const tx = div('flex:1;min-width:0'); tx.innerHTML = '<div style="font-weight:700;font-size:14px;color:' + (TIER_COL[it.tier] || '#f2efe6') + '">' + esc(it.name) + '</div><div style="font-size:12px;color:#aaa59d">' + line + '</div>';
+    const b = btn(label, can); b.title = reason; b.onclick = () => { if (can) onGo(); else say(craftPn, reason); };
+    r.append(ic, tx, costChips(cost, base), b); return r;
+  };
+  const head = (txt, col, note) => { const h = div('display:flex;justify-content:space-between;align-items:baseline;margin:8px 2px 0;font:800 11px system-ui;letter-spacing:.16em;color:' + col); h.innerHTML = '<span>' + txt + '</span><span style="letter-spacing:.04em;font-weight:600;color:#8d8880">' + (note || '') + '</span>'; return h; };
+  function paintRecipes() {
+    const G = D(), list = craftPn.list, full = myInv.backpack.indexOf(null) < 0, know = myKnowledge(); list.textContent = '';
+    if (U.has('reforge') && G.reforgeCost) {   // Reforge: every carried weapon and armour that is not reforged yet
+      const ids = ['weapon', 'armor', 'b0', 'b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'q0', 'q1', 'q2'].filter(id => { const k = invGet(myInv, id); return k && G.reforgeCost(k); });
+      list.appendChild(head('REFORGE', '#ffb84a', ids.length ? '+20%, once per item' : 'no gear to reforge'));
+      for (const id of ids) {
+        const k = invGet(myInv, id), cost = G.reforgeCost(k), a = infoOf(k), b = infoOf(k + '+'), s = a.type === 'weapon' ? 'attack' : 'health', lacking = Object.keys(cost).filter(p => (myParts[p] | 0) < cost[p]);
+        const reason = lacking.length ? 'Not enough ' + lacking.map(partName).join(', ') : '';
+        list.appendChild(row(k, (s === 'attack' ? 'Attack ' : 'Health ') + a[s] + ' &rarr; <b style="color:#8be28b">' + b[s] + '</b>' + (id === 'weapon' || id === 'armor' ? ' · equipped' : ''), cost, null, 'REFORGE', !reason, reason, () => net.send({ reforge: id })));
+      }
+    }
+    const recipes = (G.RECIPES || []).slice().sort((x, y) => x.tier - y.tier); let tier = -1;
+    for (const r of recipes) {
+      const locked = (r.needs || 0) > know;
+      if (r.tier !== tier) { tier = r.tier; list.appendChild(head(tier ? 'TIER ' + ROM[tier] + ' · ' + r.needs + ' KNOWLEDGE' : 'TIER 0 · BASICS', locked ? '#8d8880' : '#8ff0e0', locked ? '&#128274; you have ' + fmtN(know) : tier ? 'unlocked' : 'for everyone')); }
+      const cost = U.cost(r), lacking = Object.keys(cost).filter(p => (myParts[p] | 0) < cost[p]);
+      const reason = locked ? 'Needs ' + r.needs + ' knowledge' : lacking.length ? 'Not enough ' + lacking.map(partName).join(', ') : full ? 'Your backpack is full' : '';
+      const el = row(r.out, statTxt(r.out), cost, r.cost, locked ? 'LOCKED' : 'CRAFT', !reason, reason, () => net.send({ craft: r.id }), locked); el.dataset.recipe = r.id; list.appendChild(el);
+    }
+    if (!recipes.length) list.innerHTML = '<div style="text-align:center;color:#8d8880;padding:20px">No recipes known.</div>';
+  }
+  U.paint = () => { const top = craftPn.list.scrollTop; paintTree(); paintRecipes(); craftPn.list.scrollTop = top; };
+  // ---- Lore perks on the facility maps: drawn by drawMap (MAP block) through GK.knowMap; live intel redraws only the map of the room I stand in
+  const rectOf = k => { if (k[0] === 'c') { const c = CHEST_ROOMS[+k.slice(1)]; return c ? [c.cx, c.cz, CS, CS] : null; } const i = +k; if (!(i >= 0 && i < 9)) return null; const [cx, cz] = rc(i); return [cx, cz, roomW(i), roomD(i)]; };
+  const pill = (g, x, y, l1, c1, l2) => {
+    g.font = '800 17px system-ui, sans-serif'; const w = Math.max(g.measureText(l1).width, l2 ? (g.font = '600 13px system-ui, sans-serif', g.measureText(l2).width) : 0) + 14, h = l2 ? 38 : 22;
+    g.fillStyle = 'rgba(4,8,14,.82)'; rr(g, x - w / 2, y - h / 2, w, h, 6); g.fill(); g.strokeStyle = c1; g.lineWidth = 1.5; g.stroke();
+    g.fillStyle = c1; g.font = '800 17px system-ui, sans-serif'; g.fillText(l1, x, y - (l2 ? 8 : 0)); if (l2) { g.fillStyle = '#c9d4e0'; g.font = '600 13px system-ui, sans-serif'; g.fillText(l2, x, y + 10); }
+  };
+  const roomLabel = c => {
+    const it = k => infoOf(k);
+    if (c.type === 'chest') { const i = chestKeys && it(chestKeys[c.id]); return i ? [i.tier.toUpperCase(), TIER_COL[i.tier] || '#fff', i.family] : null; }
+    const m = c.type === 'mystery' && c.mystery; if (!m) return null;
+    if (m.kind === 'weapon' || m.kind === 'armor') { const i = it(m.key); return i ? [i.tier.toUpperCase(), TIER_COL[i.tier] || '#fff', m.kind === 'armor' ? 'armour' : i.family] : null; }
+    if (m.kind === 'enemy') return [String(m.enemy || 'enemy').toUpperCase(), '#ff7a6a', 'enemy goblin'];
+    if (m.kind === 'stations') return ['STATIONS', '#6affd8', (m.stations || []).map(s => s === 'workbench' ? 'bench' : s === 'knowledge' ? 'tree' : s).join(' + ')];
+    if (m.kind === 'gold') return [m.amount + ' GOLD', '#ffd24a', 'gold chest'];
+    if (m.kind === 'plushie') return ['PLUSHIE', '#ff9fc4', 'a toy'];
+    return null;
+  };
+  GK.knowMap = (g, mx, my) => {
+    if (!perks.length) return;
+    g.save(); g.textAlign = 'center'; g.textBaseline = 'middle';
+    if (U.has('appraiser')) for (const c of CHEST_ROOMS) {   // Appraiser: what waits in every outer room
+      if (c.type === 'merchant' || (GK.claimedRooms && GK.claimedRooms.has(c.id))) continue;
+      const L = roomLabel(c); if (!L) continue; const s = mx(c.cx + CS / 2) - mx(c.cx - CS / 2);
+      pill(g, mx(c.cx), my(c.cz) + s * 0.3, L[0], L[1], L[2]);
+    }
+    if (U.has('eavesdrop')) {   // Eavesdropper: this round's picks, orange, beside the blue "last picks"
+      for (const k in RS.sel || {}) {
+        const d = DINFO[RS.sel[k]], r = d && rectOf(k); if (!r) continue; const dir = d.a === k ? d.da : d.db;
+        const ux = dir === 'EAST' ? 1 : dir === 'WEST' ? -1 : 0, uz = dir === 'SOUTH' ? 1 : dir === 'NORTH' ? -1 : 0, ex = mx(r[0] + ux * r[2] / 2) - ux * 34, ey = my(r[1] + uz * r[3] / 2) - uz * 34;
+        g.save(); g.translate(ex, ey); g.rotate(Math.atan2(uz, ux)); g.fillStyle = '#ff9a1a'; g.strokeStyle = '#1a0c00'; g.lineWidth = 2.5;
+        g.beginPath(); g.moveTo(15, 0); g.lineTo(-10, -12); g.lineTo(-4, 0); g.lineTo(-10, 12); g.closePath(); g.fill(); g.stroke(); g.restore();
+      }
+      g.textAlign = 'left'; g.fillStyle = '#ff9a1a'; g.font = '700 16px system-ui, sans-serif'; g.fillText('Orange arrows: picked this round', 722, 163); g.textAlign = 'center';
+    }
+    if (U.has('headcount')) {   // Head Count: goblins per room (me included), and the Vault relic
+      const n = {}; for (const [id, a] of actors) { const k = id === me ? roomKeyAt(P.x, P.z) : roomKeyAt(a.x, a.z); if (k != null) n[k] = (n[k] || 0) + 1; }
+      for (const k in n) { const r = rectOf(String(k)); if (!r) continue; const x = mx(r[0] - r[2] / 2) + 20, y = my(r[1] - r[3] / 2) + 20;
+        g.fillStyle = '#d81818'; g.beginPath(); g.arc(x, y, 14, 0, 6.2832); g.fill(); g.strokeStyle = '#ffd0d0'; g.lineWidth = 2; g.stroke(); g.fillStyle = '#fff'; g.font = '800 17px system-ui, sans-serif'; g.fillText(String(n[k]), x, y + 1); }
+      const ri = relic && infoOf(relic); if (ri) { const [cx, cz] = rc(4); pill(g, mx(cx), my(cz - roomD(4) / 2) + 22, 'RELIC: ' + ri.name, TIER_COL[ri.tier] || '#ffd24a'); }
+    }
+    g.restore();
+  };
+  setInterval(() => {   // live intel: only the map of the room I am in is redrawn (one canvas upload), when what it shows changed or every 2 s for Head Count
+    if (GK.mode !== 'play' || !(U.has('eavesdrop') || U.has('headcount')) || !GK.redrawMap) return;
+    const k = roomKeyAt(P.x, P.z), j = U.has('eavesdrop') ? JSON.stringify(RS.sel || {}) : '', t = performance.now();
+    if (k === lastRoom && j === lastJ && !(U.has('headcount') && t - hcAt > 2000)) return;
+    lastRoom = k; lastJ = j; hcAt = t; if (k != null && /^[0-8]$/.test(String(k))) GK.redrawMap(k);
+  }, 500);
+  GK.know = U;   // test hook
+  return U;
+})();
+// KNOWLEDGE-END
 function craftedFx(c) {
   if (!craftPn || panelKind !== 'craft') return;
   say(craftPn, 'Crafted ' + itemName(c.key) + ' - added to your backpack', true);
@@ -5386,7 +5535,7 @@ function perf2HoverTargets() {
   const mt = GK.merchantTargets, st = GK.stationTargets, nm = mt ? mt.length : 0, ns = st ? st.length : 0, h = perf2Hov, m0 = nm ? mt[0] : null, m1 = nm ? mt[nm - 1] : null, s0 = ns ? st[0] : null, s1 = ns ? st[ns - 1] : null;
   if (h.mt !== mt || h.st !== st || h.nm !== nm || h.ns !== ns || h.m0 !== m0 || h.m1 !== m1 || h.s0 !== s0 || h.s1 !== s1) {
     h.mt = mt; h.st = st; h.nm = nm; h.ns = ns; h.m0 = m0; h.m1 = m1; h.s0 = s0; h.s1 = s1;
-    h.T = [...(mt || []), ...(st || []).filter(o => o && o.userData && (o.userData.station === 'recycler' || o.userData.station === 'workbench'))];
+    h.T = [...(mt || []), ...(st || []).filter(o => o && o.userData && (o.userData.station === 'recycler' || o.userData.station === 'workbench' || o.userData.station === 'knowledge'))];
   }
   return h.T;
 }
@@ -7159,7 +7308,7 @@ window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw,
     go: 'Each round, every room picks ONE door on its panel. It opens when the timer hits 0.',
     vaultAim: 'Vault doors need TWO rooms to pick them, or the vote fizzles.',
     outer: 'Behind outer doors: chests, mystery rooms (risky!) and merchants.',
-    brain: 'Eat a goblin brain for 5% of its knowledge. Knowledge unlocks crafting.',
+    brain: 'Eat a goblin brain for 5% of its knowledge. Each brain is also a knowledge point for a perk at the workbench.',
     lowhp: 'Death loses EVERYTHING you carry. Run through a door if you must.',
     vaultOpen: 'THE VAULT holds a relic. Everyone else wants it too.',
     sudden: 'Sudden death: every door is open and only THE VAULT heals. Last goblin standing wins.',
@@ -7239,7 +7388,7 @@ window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw,
       [['▣', 30], ['?', 105], ['●', 180]].forEach(([c, x], i) => {
         g.strokeStyle = GOLDC; g.lineWidth = 3; g.strokeRect(x, 40, 60, 70); g.fillStyle = i === 1 ? '#ff7a4a' : GOLDC; g.font = 'bold 38px system-ui'; g.textAlign = 'center'; g.fillText(c, x + 30, 87);
         g.font = 'bold 11px system-ui'; g.fillStyle = '#efe9d8'; g.fillText(['CHEST', 'MYSTERY', 'MERCHANT'][i], x + 30, 128); }); g.textAlign = 'left'; } },
-    { t: 'Brains and knowledge', x: 'Eat a fallen goblin\'s brain to gain 5% of its knowledge. Knowledge unlocks crafting.', d(g) {
+    { t: 'Brains and knowledge', x: 'Eat a fallen goblin\'s brain to gain 5% of its knowledge. Knowledge unlocks recipe tiers, and every brain is a point to spend on a perk at the workbench or knowledge tree.', d(g) {
       g.fillStyle = PINK; g.beginPath(); g.ellipse(80, 78, 42, 32, 0, 0, 7); g.fill(); g.strokeStyle = '#a83a60'; g.lineWidth = 3;
       g.beginPath(); g.moveTo(80, 48); g.quadraticCurveTo(70, 78, 80, 108); g.moveTo(55, 70); g.quadraticCurveTo(70, 66, 80, 76); g.moveTo(105, 84); g.quadraticCurveTo(92, 82, 80, 90); g.stroke();
       g.strokeStyle = GOLDC; g.lineWidth = 3; g.beginPath(); g.moveTo(130, 78); g.lineTo(158, 78); g.lineTo(150, 70); g.moveTo(158, 78); g.lineTo(150, 86); g.stroke();
