@@ -17,13 +17,14 @@
     characters: () => load().characters,
     getCharacter: id => load().characters.find(c => c.id === id) || null,
     // A won run: the character is saved (or gets another victory) and everything it carried goes to the stash.
-    recordWin({ charId, goblin, items, parts }) {
+    recordWin({ charId, goblin, items, parts, name }) {   // name: the name the server gave this goblin in the match; a NEW character keeps it, so the feed, standings and victory card agree
       const s = load();
       let c = charId != null ? s.characters.find(x => x.id === charId) : null;
       if (!c) {
         const used = new Set(s.characters.map(x => x.name)), pool = NAMES[goblin] || NAMES[0];
-        let name = pool.find(n => !used.has(n)) || pool[Math.floor(Math.random() * pool.length)] + ' ' + (s.nextId);
-        c = { id: s.nextId++, goblin, name, wins: 0 }; s.characters.push(c);
+        const given = String(name || '').replace(/[^A-Za-z0-9 '-]/g, '').trim().slice(0, 14);
+        const nm = given && !used.has(given) ? given : (pool.find(n => !used.has(n)) || pool[Math.floor(Math.random() * pool.length)] + ' ' + (s.nextId));
+        c = { id: s.nextId++, goblin, name: nm, wins: 0 }; s.characters.push(c);
       }
       c.wins++; c.lastWin = Date.now();
       for (const it of items || []) { const k = typeof it === 'string' ? it : it && it.key, i = k && window.GKITEMS && GKITEMS.info && GKITEMS.info(k); if (i && (!c.best || score(i) > score(GKITEMS.info(c.best) || {}))) c.best = k; }   // the best thing this goblin ever brought home (shown on its card)

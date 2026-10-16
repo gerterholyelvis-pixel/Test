@@ -3877,8 +3877,9 @@ function showDeathScreen(info) {
   if (statsEl) statsEl.style.display = 'none';
   const rows = [['Goblin', NAMES[type]], ['Survived', Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0')], ['Round reached', n || 1], ['Distance travelled', Math.round(run.dist) + ' m'], ['Died in', where],
     ['Starting weapon', gear.weapon + ' (' + [tierTxt((itemsData().START[type] || {}).weapon), st.attack + ' dmg'].filter(Boolean).join(', ') + ')'], ['Starting armour', gear.armor + ' (' + [tierTxt((itemsData().START[type] || {}).armor), st.health + ' HP'].filter(Boolean).join(', ') + ')'], ['Dropped', [...((info && info.items) || []), ...(info && info.brain ? [info.brain] : [])].map(k => itemName(k) + (tierN(k) != null ? ' (T' + tierN(k) + ')' : '')).join(', ') || 'nothing']];
+  const kl = info && info.killer, killedBy = kl ? (kl.npc ? 'a ' : '') + kl.name + (kl.w ? ' (' + kl.w + ')' : '') : '';
   const dhero = [[rsTime(secs), 'Survived'], [n || 1, 'Round'], [(typeof CB !== 'undefined' && CB.kills) | 0, 'Kills']];
-  deathEl = rsShow('dead', rsCard({ big: 'You died', sub: 'Your run', hero: dhero, rows: rows.filter(r => r[0] !== 'Survived' && r[0] !== 'Round reached'), note: 'Everything you carried is lost.', btns: [['deathQueue', 'Requeue', true], ['deathMenu', 'Main menu']] }));
+  deathEl = rsShow('dead', rsCard({ big: 'You died', sub: 'Your run', hero: dhero, rows: (killedBy ? [['Killed by', killedBy]] : []).concat(rows.filter(r => r[0] !== 'Survived' && r[0] !== 'Round reached')), note: 'Everything you carried is lost.', btns: [['deathQueue', 'Requeue', true], ['deathMenu', 'Main menu']] }));
   $('deathQueue').onclick = () => { try { sessionStorage.setItem('gk.requeue', '1'); } catch (e) {} location.reload(); };   // fresh connection, new wheel roll
   $('deathMenu').onclick = () => location.reload();
   if (GK.fun) GK.fun.deathButton(info);   // FUN: SPECTATE
@@ -4162,7 +4163,7 @@ GK.fun = (() => {
   addEventListener('keyup', e => { if (e.code === 'Backquote') showBoard(false); });
   addEventListener('blur', () => showBoard(false));
   addEventListener('mousemove', e => { if (S.spec && (e.buttons & 1)) S.ang -= e.movementX * 0.006; });
-  return { onMsg, deathButton, camera, hideDecoy, state: S, debugKill: () => net.send({ kill: 1 }) };   // debugKill only works against GK_DEBUG=1 servers
+  return { myName: () => S.myName, onMsg, deathButton, camera, hideDecoy, state: S, debugKill: () => net.send({ kill: 1 }) };   // debugKill only works against GK_DEBUG=1 servers
 })();
 // FUN-END
 
@@ -4395,7 +4396,7 @@ function showVictory(info) {
   const ms = performance.now() - run.t0, secs = Math.floor(ms / 1000), n = GK.roundInfo ? GK.roundInfo().n : 0;
   const items = ((info && info.items) || []).filter(k => k != null);
   const from = GK.charId;
-  let c = null; try { c = window.GKSAVE.recordWin({ charId: from, goblin: type, items, parts: (info && info.parts) || {} }); if (c && c.id != null) GK.charId = c.id; } catch (e) { c = null; }
+  let c = null; try { c = window.GKSAVE.recordWin({ charId: from, goblin: type, items, parts: (info && info.parts) || {}, name: GK.fun && GK.fun.myName && GK.fun.myName() }); if (c && c.id != null) GK.charId = c.id; } catch (e) { c = null; }
   const wins = c && c.wins != null ? c.wins : (GK.wins | 0) + 1;
   closeInv(true); closeShop(true); GK.mode = 'win'; inside = false; keys.clear(); hideHotbar();
   try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
