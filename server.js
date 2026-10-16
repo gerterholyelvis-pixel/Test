@@ -446,7 +446,7 @@ function attack(m, ws, p, now, rt) {   // {atk:1, rt}: rate limit by weapon, nea
     if (d < bd) { bd = d; best = [tws, t]; }
   }
   if (!best) return;
-  const [tws, t] = best; hitTarget(m, ws, p, tws, t, cb.dmg, now);
+  const [tws, t] = best; hitTarget(m, ws, p, tws, t, cb.dmg, now, undefined, { melee: true });
   if (cb.bleed && t.stats.health > 0) t.bleed = { by: p, dmg: cb.bleed[0], left: cb.bleed[1], next: now + BLEED_MS, w: p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon] ? G.ITEMS[p.inv.weapon].name : '' };   // WEAPONS3: whips and tridents leave a bleed
 }
 // COMBAT-END
@@ -477,6 +477,8 @@ function hitTarget(m, ws, p, tws, t, dmg, now, wname, opts) {   // damage, hit b
   const hp = Math.max(0, t.stats.health - dmg);
   t.stats.health = hp; t.hurtAt = now; t.hitBy = p.id; m.dirty = true;   // hitBy: a bot notices whoever hurt it at once
   bcast(m, { hit: { from: p.id, to: t.id, dmg, hp, max: t.stats.maxHealth, dead: hp <= 0, ...(opts && opts.bleed ? { bleed: 1 } : null) } });
+  const th = opts && opts.melee && hp > 0 && !p.dead ? G.armorThorns(t.inv && t.inv.armor) : 0;   // ARMOUR-3: thorns hurt a melee attacker (never lethal, so no kill bookkeeping is needed)
+  if (th && p.stats.health > 1) { const ph = Math.max(1, p.stats.health - th); p.stats.health = ph; p.hurtAt = now; bcast(m, { hit: { from: t.id, to: p.id, dmg: th, hp: ph, max: p.stats.maxHealth, dead: false, thorns: 1 } }); }
   if (hp <= 0) { p.kills = (p.kills || 0) + 1; const bounty = paceBounty(p, t); t.killedBy = p.id; { const kw = p.npc ? null : p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; t.killer = { name: p.name || 'Goblin', npc: !!p.npc, w: wname || (kw ? kw.name : (p.npc ? '' : 'Fists')) }; } sendTo(ws, { kills: p.kills, ...(bounty ? { bounty } : null) }); sendFeed(m, p, t); die(tws, t); }
 }
 function boltWeapon(p) { const w = p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; if (w && G.combat(p.inv.weapon).bolt) return true; if (!rule('staffbolt')) return false; return !!w && (w.family === 'staff' || w.family === 'scepter'); }
@@ -706,12 +708,13 @@ function obstaclesFor(m, room) {   // solid props of a room as [{x, z, hw, hd} |
   return o.some(q => q.room !== undefined) ? o.filter(q => q.room === undefined || String(q.room) === room) : o;   // a flat list may tag each obstacle with its room
 }
 const betterW = (cur, key) => key && info(key) && info(key).type === 'weapon' && info(key).attack > (cur ? info(cur).attack : -1);
-const betterA = (cur, key) => key && info(key) && info(key).type === 'armor' && info(key).health > (cur ? info(cur).health : 0);
+const armorVal = it => it && it.type === 'armor' ? (it.key ? G.armorScore(it.key) : BN.armorValue(it)) : -1;   // ARMOUR-3: bots weigh health against speed and thorns (items.js armorScore)
+const betterA = (cur, key) => key && info(key) && info(key).type === 'armor' && armorVal(info(key)) > (cur ? armorVal(info(cur)) : 0);
 function equipBest(m, p) {   // put the best weapon/armour from the backpack and quick slots on, by stats only (the same inventory rules as the players: move())
   const slots = () => [...p.inv.backpack.map((k, i) => ['b' + i, k]), ...(p.inv.quick || []).map((k, i) => ['q' + i, k])];
   const w = BN.best(slots().map(s => s[1]), info, BN.weaponValue, p.inv.weapon ? BN.weaponValue(info(p.inv.weapon)) : -1);
   if (w) move(p, slots().find(s => s[1] === w)[0], 'weapon');
-  const a = BN.best(slots().map(s => s[1]), info, BN.armorValue, p.inv.armor ? BN.armorValue(info(p.inv.armor)) : 0);
+  const a = BN.best(slots().map(s => s[1]), info, armorVal, p.inv.armor ? armorVal(info(p.inv.armor)) : 0);
   if (a) move(p, slots().find(s => s[1] === a)[0], 'armor');
   m.dirty = true;
 }
@@ -985,7 +988,7 @@ function roomGoals(m, p) {   // once per visit: claim a chest/mystery prize, buy
   b.done[p.room] = 1; const id = +mm[1], L = m.layout[id];
   if (L === 'merchant') {
     const shop = m.shops[id]; let bi = -1, bg = 0;
-    shop.forEach((it, i) => { if (it.sold || it.price > p.gold) return; const g = G.ITEMS[it.key].type === 'weapon' ? (betterW(p.inv.weapon, it.key) ? G.ITEMS[it.key].attack - (p.inv.weapon ? info(p.inv.weapon).attack : 0) : 0) : (betterA(p.inv.armor, it.key) ? (G.ITEMS[it.key].health - (p.inv.armor ? info(p.inv.armor).health : 0)) / 2 : 0); if (g > bg) { bg = g; bi = i; } });
+    shop.forEach((it, i) => { if (it.sold || it.price > p.gold) return; const g = G.ITEMS[it.key].type === 'weapon' ? (betterW(p.inv.weapon, it.key) ? G.ITEMS[it.key].attack - (p.inv.weapon ? info(p.inv.weapon).attack : 0) : 0) : (betterA(p.inv.armor, it.key) ? (armorVal(G.ITEMS[it.key]) - (p.inv.armor ? armorVal(info(p.inv.armor)) : 0)) / 2 : 0); if (g > bg) { bg = g; bi = i; } });
     if (bi >= 0) buy(m, p, id, bi);
   } else claim(m, p);
   equipBest(m, p); botStations(m, p);   // LOOT: recycle junk, craft tier 0
@@ -1218,7 +1221,7 @@ function lureFor(m, p, now) {   // the landed plushie in this room within 8 m of
   return best;
 }
 const BOT_SLOTS = [...Array.from({ length: 9 }, (_, i) => 'b' + i), 'q0', 'q1', 'q2'];
-const isJunkW = (p, k) => { const it = G.ITEMS[k]; return !!it && it.type === 'weapon' && !!G.recycleYield(k) && !betterW(p.inv.weapon, k); };
+const isJunkW = (p, k) => { const it = G.ITEMS[k]; return !!it && (it.type === 'weapon' ? !betterW(p.inv.weapon, k) : it.type === 'armor' && !betterA(p.inv.armor, k)) && !!G.recycleYield(k); };   // ARMOUR-3: spare armour that is no upgrade is junk too
 const botNeedsStation = p => BOT_SLOTS.some(s => { const k = getSlot(p.inv, s); return k && isJunkW(p, k); });
 function botStations(m, p) {   // in a merchant room or a stations mystery room: recycle junk weapons, then craft the best tier 0 recipe the parts pay for
   if (hasStation(m, p, 'recycler')) for (const s of BOT_SLOTS) { const k = getSlot(p.inv, s); if (k && isJunkW(p, k) && !recycle(m, p, s)) BS.rec = (BS.rec || 0) + 1; }

@@ -650,6 +650,192 @@ const AS = {
   'a:royal': ['royal', {}, { main: ['cloth', 0xffffff, { tex: 'royal' }], trim: CLO(0xffffff, { tex: 'ermine' }) }],
 };
 delete AS['a:leafwrapX'];
+// ARMOUR3-BEGIN: models for the 18 armours added after the first 20 (families light, bone, fur, scrap, spiked, lamellar, bulwark, gilded, cloak, tabard, shell, thorn, runic, timber, stone, quill, shroud, ember).
+// Same display-stand frame and helpers as the AF builders above; each family is its own function so one can be polished without touching another.
+function registerArmour3() {
+  const fz = (p, y) => radAt(p || {})(y) * SZ;   // front z of the torso at height y
+  const ring = (b, mat, geo, y, rad, n, off, f) => {   // n copies of geo around the torso ellipse at height y; f(i, a) -> { s: [sx,sy,sz], rx, rz, dy, out } per piece
+    for (let i = 0; i < n; i++) { const a = (i + off) / n * TAU, sa = Math.sin(a), ca = Math.cos(a), q = f ? f(i, a) : {}, o = q.out || 0;   // tilt rx is about the piece's own x axis (euler order YXZ): + leans the top outward
+      b.addM(mat, geo, new THREE.Matrix4().compose(new THREE.Vector3(sa * rad * SX + sa * o, y + (q.dy || 0), ca * rad * SZ + ca * o), new THREE.Quaternion().setFromEuler(new THREE.Euler(q.rx || 0, Math.atan2(sa / SX, ca / SZ), q.rz || 0, 'YXZ')), new THREE.Vector3(...(q.s || [1, 1, 1])))); }
+  };
+  const latheA = (pts, seg, ps, pl) => { const a = []; for (let i = 0; i < pts.length; i += 2) a.push(new THREE.Vector2(pts[i], pts[i + 1])); return new THREE.LatheGeometry(a, seg, ps, pl); };   // lathe over an angle range (phi 0 = +z front, PI = back)
+  const mats = {
+    leather: (c, o) => M('leather', c, o || {}), iron: (c, o) => M('iron', c, o || { rough: 0.55 }), cloth: (c, o) => M('cloth', c, o || {}), plain: (c, o) => M('plain', c, o || {}),
+  };
+  const shoulderDome = (b, mat, s, k = 1, y = 1.02, x = 0.31) => b.add(mat, new THREE.SphereGeometry(1, 16, 9, 0, TAU, 0, PI * 0.55), s * x, y, 0, 0, 0, s * 0.35, 0.125 * k, 0.085 * k, 0.12 * k);
+  Object.assign(AF, {
+    light(b, c, p) {   // Swiftwrap: a short dyed wrap, one sash across the chest, belt and a trailing tail
+      const { MAIN, T } = c, prof = { hemY: 0.6, hemR: 0.27, waistR: 0.235, chestR: 0.27, shR: 0.245 }; stand(b, c);
+      b.add(MAIN, torsoGeo(prof, 0.03, 8), 0, 0, 0, 0, PI, 0, SX, 1, SZ);
+      for (const s of [-1, 1]) b.add(MAIN, TOR(0.075, 0.03, 6, 12), s * 0.31, 0.99, 0, 0, PI / 2 + s * 0.35, 0);
+      for (const zz of [1, -1]) b.add(T, sweep([[0.2, 1.05, zz * 0.2], [0, 0.85, zz * 0.225], [-0.19, 0.64, zz * 0.2]], t => 0.03 + 0.012 * Math.sin(PI * t), 7, 14));
+      belt(b, T, null, 0.6, 0.245, 0.03); b.add(T, rbox(0.1, 0.34, 0.014, 0.004), -0.1, 0.42, 0.205, 0.1, 0, 0.08); b.add(c.G, SP(0.028, 8, 6), 0.12, 0.6, fz(prof, 0.6) + 0.02);
+      chestSpine(b, 0.7, 0.96);
+    },
+    bone(b, c, p) {   // Bone Plate: ribs over a hide shirt, a vertebra spine, skull-bone pauldrons
+      const { MAIN, T } = c, prof = { hemY: 0.55, hemR: 0.29 }; stand(b, c);
+      b.add(MAIN, torsoGeo(prof, 0.03, 9), 0, 0, 0, 0, PI, 0, SX, 1, SZ); sleeve(b, MAIN, 1, 0.2, 0.09, 0.075); sleeve(b, MAIN, -1, 0.2, 0.09, 0.075);
+      for (let i = 0; i < 5; i++) for (const s of [-1, 1]) { const y = 0.9 - i * 0.065, r = radAt(prof)(y) + 0.012, pts = [0.08, 0.55, 1.15, 1.55].map(a => [s * Math.sin(a) * r * SX, y - Math.sin(a) * 0.02, Math.cos(a) * r * SZ]); b.add(T, sweep(pts, t => 0.017 - 0.006 * t, 6, 14), 0, 0, 0); }
+      for (let i = 0; i < 6; i++) b.add(T, SP(0.026, 8, 6), 0, 0.96 - i * 0.065, fz(prof, 0.9 - i * 0.065) + 0.012, 0, 0, 0, 1.1, 0.9, 0.9);
+      belt(b, MAIN, null, 0.57, 0.27, 0.026);
+      for (const s of [-1, 1]) { b.add(T, SP(1, 12, 8), s * 0.33, 1.03, 0, 0, 0, s * 0.3, 0.12, 0.08, 0.12); b.aim(T, CONE(0.03, 0.16, 6), s * 0.36, 1.06, 0, s * 0.45, 1, 0); b.aim(T, CONE(0.022, 0.1, 5), s * 0.31, 1.07, 0.06, 0, 1, 0.5); }
+      chestSpine(b, 0.72, 0.96);
+    },
+    fur(b, c, p) {   // Fur Mantle: shaggy hide, a heavy fur collar and a toothed pelt hem
+      const { MAIN, T } = c, prof = { hemY: 0.5, hemR: 0.3 }; stand(b, c);
+      b.add(MAIN, torsoGeo(prof, 0.02, 10), 0, 0, 0, 0, PI, 0, SX, 1, SZ);
+      const pel = T; ring(b, pel, CONE(0.04, 0.13, 5), 0.52, 0.3, 22, 0, () => ({ rx: PI, out: 0.015 }));
+      ring(b, pel, CONE(0.035, 0.12, 5), 0.62, 0.285, 22, 0.5, () => ({ rx: PI, s: [1, 0.9, 0.8], out: 0.012 }));
+      b.add(pel, TOR(0.2, 0.08, 8, 22), 0, 1.04, 0, PI / 2, 0, 0, 1.45, 1.0, 0.95);
+      for (const s of [-1, 1]) { b.add(pel, SP(1, 12, 9), s * 0.3, 1.02, 0, 0, 0, 0, 0.14, 0.09, 0.14); for (let i = 0; i < 4; i++) b.aim(pel, CONE(0.03, 0.1, 5), s * (0.3 + 0.05 * Math.cos(i * 1.6)), 1.04, Math.sin(i * 1.6) * 0.09, s * 0.7, -0.3, Math.sin(i * 1.6)); }
+      belt(b, M('leather', 0x2e1c10), c.G, 0.6, 0.27, 0.03); chestSpine(b);
+    },
+    scrap(b, c, p) {   // Scrap Plate: riveted patches of salvaged metal and one mismatched plank on a hide base
+      const { MAIN } = c, prof = { hemY: 0.5, hemR: 0.29 }, pr = radAt(prof), ir = mats.iron(0x7d8590), rust = mats.iron(0x8a6a4a, { rough: 0.8 }), rv = mats.iron(0xb0b8c0, { rough: 0.35 }); stand(b, c);
+      b.add(MAIN, torsoGeo(prof, 0.04, 8), 0, 0, 0, 0, PI, 0, SX, 1, SZ);
+      [[-0.2, 0.86, 0.19, 0.2, 0.2], [0.14, 0.9, 0.17, 0.15, -0.1], [-0.02, 0.68, 0.22, 0.24, 0.05], [0.2, 0.66, 0.15, 0.2, 0.12], [-0.22, 0.58, 0.17, 0.13, -0.15]].forEach(([x, y, w, h, rz], i) => {
+        const a = Math.asin(x / (pr(y) * SX)), z = Math.cos(a) * pr(y) * SZ + 0.012; b.add(i % 2 ? rust : ir, rbox(w, h, 0.022, 0.005), x, y, z, 0.05, a * 0.6, rz);
+        for (const [dx, dy] of [[-1, -1], [1, 1]]) b.add(rv, SP(0.011, 6, 5), x + dx * w * 0.36, y + dy * h * 0.34, z + 0.014);
+      });
+      b.add(ir, SP(1, 14, 8), -0.31, 1.02, 0, 0, 0, 0.3, 0.14, 0.09, 0.13); b.add(rust, rbox(0.15, 0.06, 0.15, 0.01), 0.31, 1.03, 0, 0, 0, -0.3);
+      for (const dz of [-0.04, 0.04]) b.add(rv, SP(0.012, 6, 5), 0.31, 1.07, dz);
+      belt(b, M('leather', 0x2e1c10), null, 0.54, 0.275, 0.028); chestSpine(b);
+    },
+    spiked(b, c, p) {   // Reaver Harness: the warlord harness in black hide with a row of chest spikes and tall shoulder horns
+      AF.harness(b, c, p); const { S } = c, prof = { hemY: 0.52 };
+      for (let i = 0; i < 7; i++) { const a = -0.9 + i * 0.3; b.aim(S, CONE(0.02, 0.1, 5), Math.sin(a) * 0.27 * SX, 0.74, Math.cos(a) * 0.27 * SZ + 0.03, Math.sin(a) * 0.4, 0.2, 1); }
+      for (const s of [-1, 1]) b.aim(S, CONE(0.03, 0.26, 6), s * 0.26, 1.1, -0.04, s * 0.3, 1, -0.4);
+    },
+    lamellar(b, c, p) {   // Lamellar Vest: rows of small laced plates, each row a little wider than the one above
+      const { MAIN, T } = c, prof = { hemY: 0.5, hemR: 0.3 }, pl = rbox(0.075, 0.1, 0.014, 0.004), pl2 = mats.leather(0x8a5a3a); stand(b, c);
+      b.add(T, torsoGeo(prof, 0.01, 8), 0, 0, 0, 0, PI, 0, SX, 1, SZ);
+      for (let r = 0; r < 7; r++) { const y = 0.96 - r * 0.07, rad = radAt(prof)(y) + 0.012, n = Math.max(14, Math.round(rad * SX * TAU / 0.085)); ring(b, r % 2 ? pl2 : MAIN, pl, y, rad, n, (r % 2) * 0.5, () => ({ rx: -0.12 })); }
+      b.add(T, TOR(0.255, 0.012, 5, 30), 0, 0.97, 0, PI / 2, 0, 0, SX, SZ, 1); belt(b, T, c.G, 0.5, 0.31, 0.022);
+      for (const s of [-1, 1]) for (let i = 0; i < 3; i++) b.add(i % 2 ? pl2 : MAIN, rbox(0.14, 0.06, 0.12, 0.006), s * (0.3 + i * 0.035), 1.04 - i * 0.05, 0, 0, 0, s * (0.35 + i * 0.12));
+      b.add(MAIN, TOR(0.13, 0.04, 7, 18), 0, 1.07, 0, PI / 2, 0, 0, 1.25, 0.9, 1); chestSpine(b);
+    },
+    bulwark(b, c, p) {   // Tower Plate: slab plate, a tall front slab and one huge pauldron
+      const { MAIN, T, G } = c; stand(b, c);
+      b.add(MAIN, lathe([0.3, 0.46, 0.27, 0.64, 0.3, 0.88, 0.265, 1.0, 0.17, 1.065, 0.088, 1.1, 0.078, 1.06], 32), 0, 0, 0, 0, PI, 0, SX, 1, SZ);
+      const z = fz({}, 0.8); b.add(MAIN, rbox(0.4, 0.58, 0.07, 0.014), 0, 0.76, z + 0.025); b.add(G, rbox(0.07, 0.5, 0.02, 0.005), 0, 0.76, z + 0.07); b.add(G, rbox(0.3, 0.07, 0.02, 0.005), 0, 0.84, z + 0.07);
+      for (const [x, y] of [[-0.16, 0.98], [0.16, 0.98], [-0.16, 0.56], [0.16, 0.56]]) b.add(T, SP(0.02, 8, 6), x, y, z + 0.065);
+      b.add(MAIN, TOR(0.275, 0.034, 6, 32), 0, 0.55, 0, PI / 2, 0, 0, SX, SZ, 1); b.add(MAIN, TOR(0.255, 0.034, 6, 32), 0, 0.46, 0, PI / 2, 0, 0, SX, SZ, 1);
+      b.add(MAIN, new THREE.SphereGeometry(1, 18, 10, 0, TAU, 0, PI * 0.55), -0.34, 1.0, 0, 0, 0, 0.28, 0.2, 0.15, 0.22); b.add(G, TOR(0.2, 0.016, 5, 20), -0.34, 0.98, 0, PI / 2, 0, 0.28); shoulderDome(b, MAIN, 1, 0.9);
+      b.add(MAIN, lathe([0.13, 1.02, 0.15, 1.06, 0.12, 1.12, 0.095, 1.13], 22), 0, 0, 0, 0, 0, 0, 1.15, 1, 0.9); chestSpine(b, 0.62, 0.9);
+    },
+    gilded(b, c, p) {   // Vaultguard Brigandine (p.brig: cloth-covered, gold studs) and Gilded Plate (full polished plate), both with gold pauldrons
+      const { MAIN, G, S } = c, brig = p.brig, prof = { hemY: 0.5, hemR: 0.29 }, pr = radAt(prof); stand(b, c);
+      if (brig) { b.add(MAIN, torsoGeo(prof, 0.02, 9), 0, 0, 0, 0, PI, 0, SX, 1, SZ); sleeve(b, MAIN, 1, 0.26, 0.095, 0.08); sleeve(b, MAIN, -1, 0.26, 0.095, 0.08); studs(b, G, 4, 8, 0.6, 0.98, pr, 0.014); }
+      else {
+        b.add(S, lathe([0.28, 0.5, 0.25, 0.64, 0.3, 0.88, 0.265, 1.0, 0.17, 1.065, 0.088, 1.1, 0.078, 1.06], 32), 0, 0, 0, 0, PI, 0, SX, 1, SZ);
+        for (let i = 0; i < 3; i++) b.add(S, lathe([0.275 + i * 0.03, 0.5 - i * 0.07, 0.285 + i * 0.03, 0.52 - i * 0.07, 0.265 + i * 0.03, 0.58 - i * 0.07, 0.255, 0.6 - i * 0.07], 32), 0, 0, 0, 0, PI, 0, SX, 1, SZ);
+        b.add(G, sweep([[0, 0.6, fz({}, 0.6) + 0.01], [0, 0.8, fz({}, 0.8) + 0.02], [0, 0.97, fz({}, 0.95) + 0.012]], 0.016, 6, 10));
+      }
+      for (const s of [-1, 1]) { shoulderDome(b, G, s, 1.15, 1.02, 0.32); b.add(S, TOR(0.14, 0.012, 5, 20), s * 0.32, 1.0, 0, PI / 2, 0, s * 0.35); for (let i = 0; i < 3; i++) b.aim(G, CONE(0.014, 0.12, 4), s * (0.34 + i * 0.03), 1.08 + i * 0.03, 0, s * (0.5 + i * 0.35), 1, 0); }
+      belt(b, G, null, 0.5, 0.29, 0.03); b.add(G, TOR(0.13, 0.03, 6, 20), 0, 1.075, 0, PI / 2, 0, 0, 1.25, 0.9, 1); chestSpine(b);
+    },
+    cloak(b, c, p) {   // Hunter's Cloak: a short tunic under a big hooded cloak with a clasp
+      const { MAIN, T, G } = c, prof = { hemY: 0.56, hemR: 0.28 }; stand(b, c);
+      b.add(T, torsoGeo(prof, 0.02, 8), 0, 0, 0, 0, PI, 0, SX, 1, SZ);
+      b.add(MAIN, latheA([0.37, 0.3, 0.34, 0.5, 0.3, 0.75, 0.3, 0.96, 0.2, 1.05, 0.17, 1.08], 30, PI - 2.2, 4.4), 0, 0, -0.02, 0, 0, 0, SX * 1.03, 1, 0.92);   // back drape, open at the front
+      b.add(MAIN, lathe([0.17, 1.0, 0.2, 1.06, 0.15, 1.15, 0.07, 1.22, 0.02, 1.2], 22), 0, 0, -0.06, 0.25, 0, 0, 1.3, 1, 1.15);   // hood
+      b.add(MAIN, TOR(0.2, 0.05, 7, 22), 0, 1.04, 0, PI / 2, 0, 0, 1.3, 1, 0.95);
+      for (const s of [-1, 1]) b.add(c.G, SP(0.022, 8, 6), s * 0.075, 1.0, 0.2);
+      b.add(G, sweep([[-0.075, 1.0, 0.2], [0, 0.97, 0.215], [0.075, 1.0, 0.2]], 0.006, 4, 6)); belt(b, T, G, 0.6, 0.265, 0.026); chestSpine(b, 0.72, 0.95);
+    },
+    tabard(b, c, p) {   // Sentry Tabard: chainmail under a long surcoat with a heraldic stripe
+      AF.mail(b, c, { sleeve: 0.22, rag: 0.02 }); const { T, G } = c, z = fz({ hemY: 0.38, hemR: 0.315 }, 0.8), cl = mats.cloth(0x2f5a8a);
+      b.add(cl, rbox(0.34, 0.66, 0.02, 0.006), 0, 0.64, z + 0.04, 0.03); b.add(cl, rbox(0.34, 0.6, 0.02, 0.006), 0, 0.66, -z - 0.03, -0.03);
+      b.add(mats.cloth(0xe8dcc0), rbox(0.07, 0.5, 0.012, 0.004), 0, 0.68, z + 0.056, 0.03); b.add(mats.cloth(0xe8dcc0), rbox(0.2, 0.06, 0.012, 0.004), 0, 0.8, z + 0.056, 0.03);
+      belt(b, M('leather', 0x3a2418), G, 0.62, 0.27, 0.028);
+    },
+    shell(b, c, p) {   // Carapace: overlapping chitin plates, a domed shell on the back, ridged pauldrons
+      const { MAIN, T } = c, prof = { hemY: 0.5, hemR: 0.28 }; stand(b, c);
+      b.add(T, torsoGeo(prof, 0.01, 8), 0, 0, 0, 0, PI, 0, SX, 1, SZ);
+      for (let i = 0; i < 6; i++) { const y = 0.52 + i * 0.085, r = radAt(prof)(y); b.add(MAIN, lathe([r + 0.01, y - 0.01, r + 0.034, y + 0.02, r + 0.02, y + 0.09, r, y + 0.1], 28), 0, 0, 0, 0, PI, 0, SX, 1, SZ); }
+      b.add(MAIN, new THREE.SphereGeometry(1, 22, 12, 0, TAU, 0, PI * 0.5), 0, 0.62, -0.1, -PI / 2 - 0.2, 0, 0, 0.36, 0.3, 0.3);
+      for (const s of [-1, 1]) for (let i = 0; i < 3; i++) b.add(MAIN, SP(1, 12, 8), s * (0.3 + i * 0.045), 1.04 - i * 0.045, 0, 0, 0, s * 0.3, 0.115 - i * 0.01, 0.055, 0.1);
+      b.add(MAIN, TOR(0.13, 0.04, 7, 18), 0, 1.07, 0, PI / 2, 0, 0, 1.25, 0.9, 1); b.aim(T, CONE(0.03, 0.13, 6), 0, 1.0, -0.2, 0, 0.7, -1); chestSpine(b);
+    },
+    thorn(b, c, p) {   // Thornhide: a hide jerkin tangled in thorny bramble vines
+      const { MAIN, T } = c, prof = { hemY: 0.52, hemR: 0.285 }, r = rng(5), pr = radAt(prof); stand(b, c);
+      b.add(MAIN, torsoGeo(prof, 0.03, 9), 0, 0, 0, 0, PI, 0, SX, 1, SZ); sleeve(b, MAIN, 1, 0.22, 0.09, 0.075); sleeve(b, MAIN, -1, 0.22, 0.09, 0.075);
+      for (let k = 0; k < 3; k++) { const pts = [], ph = k * 2.1; for (let i = 0; i <= 12; i++) { const t = i / 12, y = 0.56 + t * 0.44, a = ph + t * 8, rr = pr(y) + 0.014; pts.push([Math.sin(a) * rr * SX, y, Math.cos(a) * rr * SZ]); }
+        b.add(T, sweep(pts, 0.011, 5, 36)); for (let i = 1; i < 12; i += 1) { const [x, y, z] = pts[i]; b.aim(mats.plain(0xd8cdb0), CONE(0.012, 0.055, 4), x, y, z, x / SX, 0.15 + r() * 0.3, z / SZ); } }
+      for (const s of [-1, 1]) for (let i = 0; i < 4; i++) { const a = i * 1.57 + 0.4; b.aim(mats.plain(0xd8cdb0), CONE(0.018, 0.09, 4), s * 0.31 + Math.cos(a) * 0.06, 1.05, Math.sin(a) * 0.06, Math.cos(a) * 0.5 + s * 0.4, 1, Math.sin(a) * 0.5); }
+      b.add(T, TOR(0.14, 0.032, 6, 18), 0, 1.07, 0, PI / 2, 0, 0, 1.3, 0.9, 1); belt(b, M('leather', 0x2e1c10), null, 0.55, 0.27, 0.026); chestSpine(b);
+    },
+    runic(b, c, p) {   // Runed Vestments: a long tunic with glowing sigil bands
+      const { MAIN, T } = c, prof = { hemY: 0.3, hemR: 0.35, waistR: 0.24, waistY: 0.62, chestR: 0.265 }, rn = M('plain', 0x66e8ff, { emissive: 0x2ad0f0, ei: 1.1, pulse: 0.4, speed: 2 }), r = rng(9); stand(b, c);
+      b.add(MAIN, torsoGeo(prof, 0.06, 10), 0, 0, 0, 0, PI, 0, SX, 1, SZ); sleeve(b, MAIN, 1, 0.3, 0.1, 0.085); sleeve(b, MAIN, -1, 0.3, 0.1, 0.085);
+      for (const [y, rr] of [[0.34, 0.345], [0.4, 0.34]]) b.add(rn, TOR(rr, 0.01, 5, 34), 0, y, 0, PI / 2, 0, 0, SX, SZ, 1);
+      b.add(rn, TOR(0.14, 0.012, 5, 18), 0, 1.07, 0, PI / 2, 0, 0, 1.25, 0.9, 1); belt(b, T, null, 0.62, 0.24, 0.03);
+      for (let i = 0; i < 5; i++) { const y = 0.68 + i * 0.075; for (const x of [-0.07, 0.07]) b.add(rn, BOXG(0.012, 0.045 + r() * 0.02, 0.006), x, y, fz(prof, y) + 0.01, 0, 0, (r() - 0.5) * 0.8); }
+      b.add(rn, TOR(0.05, 0.008, 5, 14), 0, 0.88, fz(prof, 0.88) + 0.012); chestSpine(b);
+    },
+    timber(b, c, p) {   // Ironbark Plate: vertical wooden staves bound with iron hoops and log pauldrons
+      const { MAIN, T, S } = c, prof = { hemY: 0.48, hemR: 0.3 }, st = rbox(0.085, 0.5, 0.03, 0.008), iron = mats.iron(0x4b5058); stand(b, c);
+      b.add(mats.leather(0x3a2a1a), torsoGeo(prof, 0.01, 8), 0, 0, 0, 0, PI, 0, SX, 1, SZ);
+      for (let i = 0; i < 2; i++) ring(b, MAIN, st, 0.5 + i * 0.4, radAt(prof)(0.7) + 0.012, 15, i * 0.5, () => ({ rx: -0.04 }));
+      for (const y of [0.58, 0.8, 0.98]) b.add(iron, TOR(radAt(prof)(y) + 0.03, 0.014, 5, 32), 0, y, 0, PI / 2, 0, 0, SX, SZ, 1);
+      for (const s of [-1, 1]) { b.add(MAIN, CYL(0.075, 0.075, 0.26, 12), s * 0.32, 0.97, 0, 0, 0, PI / 2 + s * 0.35); b.add(iron, TOR(0.078, 0.012, 5, 14), s * 0.2, 1.0, 0, 0, PI / 2 - s * 0.35, 0); b.add(T, SP(0.05, 8, 6), s * 0.41, 0.98 - 0.02, 0); }
+      b.add(MAIN, TOR(0.13, 0.04, 7, 18), 0, 1.07, 0, PI / 2, 0, 0, 1.25, 0.9, 1); belt(b, iron, null, 0.5, 0.29, 0.03); chestSpine(b);
+    },
+    stone(b, c, p) {   // Cairn Plate: rough slabs of rock strapped on, boulder pauldrons, a moss patch
+      const { MAIN, T } = c, prof = { hemY: 0.48, hemR: 0.3 }, ms = mats.plain(0x5f8a3f, { rough: 0.95 }), rr = rng(21); stand(b, c);
+      b.add(mats.leather(0x3a2a1a), torsoGeo(prof, 0.02, 8), 0, 0, 0, 0, PI, 0, SX, 1, SZ);
+      [[-0.14, 0.86, 0.17, 0.12, 0.17, 1], [0.15, 0.84, 0.16, 0.13, 0.16, 2], [0, 0.66, 0.2, 0.14, 0.2, 3], [-0.19, 0.58, 0.12, 0.1, 0.15, 4], [0.2, 0.6, 0.13, 0.11, 0.14, 5]].forEach(([x, y, sx, sy, sz, seed]) => {
+        const a = Math.asin(Math.max(-1, Math.min(1, x / (radAt(prof)(y) * SX)))); b.add(MAIN, blob(1, 0.2, seed, 1, 1, 1, 2.4, 16, 12), x, y, Math.cos(a) * radAt(prof)(y) * SZ + 0.02, 0, a * 0.7, 0, sx, sy, sz); });
+      b.add(ms, blob(1, 0.3, 7, 1, 0.5, 1, 3, 14, 10), -0.05, 0.93, fz(prof, 0.9) + 0.02, 0, 0, 0, 0.1, 0.045, 0.06);
+      for (const s of [-1, 1]) { b.add(MAIN, blob(1, 0.22, 11 + s, 1, 0.8, 1, 2.2, 18, 14), s * 0.34, 1.02, 0, 0, 0, 0, 0.17, 0.14, 0.16); b.add(T, TOR(0.13, 0.012, 5, 16), s * 0.3, 0.92, 0, PI / 2, 0, s * 0.3); }
+      b.add(mats.leather(0x3a2a1a), TOR(0.13, 0.04, 7, 18), 0, 1.07, 0, PI / 2, 0, 0, 1.25, 0.9, 1); belt(b, M('leather', 0x2e1c10), null, 0.5, 0.29, 0.03); chestSpine(b, 0.66, 0.92);
+    },
+    quill(b, c, p) {   // Quillhide Mail: a scaled hide coat bristling with long quills
+      const { MAIN, T } = c, prof = { hemY: 0.46, hemR: 0.31 }, qm = mats.plain(0xe8dcc0, { rough: 0.5 }), dk = mats.plain(0x2a1a12, { rough: 0.6 }), r = rng(13); stand(b, c);
+      b.add(MAIN, torsoGeo(prof, 0.03, 12), 0, 0, 0, 0, PI, 0, SX, 1, SZ); sleeve(b, MAIN, 1, 0.26, 0.1, 0.08); sleeve(b, MAIN, -1, 0.26, 0.1, 0.08);
+      for (let row = 0; row < 6; row++) { const y = 0.52 + row * 0.085, rad = radAt(prof)(y) + 0.01; ring(b, qm, CONE(0.014, 0.17, 4), y, rad, 12 + row, row * 0.4, () => ({ rx: 1.15, s: [1, 0.8 + r() * 0.5, 1] })); }
+      b.add(dk, TOR(0.14, 0.04, 7, 18), 0, 1.07, 0, PI / 2, 0, 0, 1.3, 0.9, 1); belt(b, dk, null, 0.5, 0.3, 0.028);
+      for (const s of [-1, 1]) for (let i = 0; i < 5; i++) { const a = i * 1.26; b.aim(qm, CONE(0.016, 0.2, 4), s * 0.3 + Math.cos(a) * 0.05, 1.04, Math.sin(a) * 0.07, s * 0.8, 0.9, Math.sin(a) * 0.6); }
+      chestSpine(b);
+    },
+    shroud(b, c, p) {   // Gravewalker Shroud: a long tattered hooded shroud with pale glowing hem threads
+      const { MAIN, T } = c, prof = { hemY: 0.12, hemR: 0.42, waistR: 0.26, waistY: 0.62, chestR: 0.275 }, gl = M('plain', 0xb8f0d8, { emissive: 0x58d8b0, ei: 0.9, pulse: 0.3, speed: 1.6 }); stand(b, c);
+      b.add(MAIN, torsoGeo(prof, 0.16, 7, 36), 0, 0, 0, 0, PI, 0, SX, 1, SZ);
+      for (const s of [-1, 1]) b.add(MAIN, lathe([0.07, 0, 0.1, 0.1, 0.16, 0.26, 0.19, 0.34], 20), s * 0.27, 1.0, 0, 0, 0, s * 2.5);
+      b.add(MAIN, lathe([0.19, 1.0, 0.22, 1.07, 0.16, 1.17, 0.07, 1.25, 0.02, 1.22], 22), 0, 0, -0.05, 0.3, 0, 0, 1.3, 1, 1.15); b.add(gl, TOR(0.2, 0.012, 5, 22), 0, 1.04, 0.02, PI / 2, 0, 0, 1.3, 1, 0.95);
+      b.add(gl, TOR(0.4, 0.007, 4, 40), 0, 0.25, 0, PI / 2, 0, 0, SX, SZ, 1); belt(b, T, null, 0.62, 0.255, 0.024); chestSpine(b, 0.74, 0.96);
+    },
+    ember(b, c, p) {   // Emberforge Plate: black plate with glowing cracks, horned pauldrons and a furnace gem in the chest
+      AF.plate(b, c, { pauld: 1.2, layers: 3, skirt: 2, cracks: 1, rivets: 1 }); const { S, G } = c, em = M('plain', 0xff8a2a, { emissive: 0xff5a10, ei: 1.6, pulse: 0.5, speed: 2.4 });
+      for (const s of [-1, 1]) { b.aim(S, CONE(0.04, 0.24, 6), s * 0.37, 1.08, 0, s * 0.7, 1, 0); b.aim(em, CONE(0.016, 0.12, 5), s * 0.42, 1.24, 0, s * 0.5, 1, 0); }
+      b.add(em, OCT, 0, 0.8, fz({}, 0.85) + 0.035, 0, 0, 0, 0.05, 0.07, 0.035); b.add(G, TOR(0.07, 0.012, 6, 16), 0, 0.8, fz({}, 0.85) + 0.025);
+    },
+  });
+  const L = (c, o) => ({ kind: 'leather', col: c, o }), CLX = (c, o) => ({ kind: 'cloth', col: c, o });
+  Object.assign(AS, {
+    'a:swiftwrap': ['light', {}, { main: ['cloth', 0x3f7f6a], trim: CLX(0xd8c890) }],
+    'a:bonemail': ['bone', {}, { main: ['hide', 0x6a5238], trim: { kind: 'plain', col: 0xe8dec0, o: { rough: 0.55 } } }],
+    'a:furmantle': ['fur', {}, { main: ['hide', 0x6b5238], trim: { kind: 'hide', col: 0xa08258 } }],
+    'a:scrapplate': ['scrap', {}, { main: ['leather', 0x4a3a2a] }],
+    'a:reaver': ['spiked', {}, { main: ['leather', 0x2a1c14, { rough: 0.6 }], trim: 'steel', steel: 0x8a9098 }],
+    'a:lamellar': ['lamellar', {}, { main: ['leather', 0x6e4a34], trim: L(0x2e1c10) }],
+    'a:tower': ['bulwark', {}, { main: ['iron', 0x6a727c, { rough: 0.5 }], trim: 'steel', goldCol: 0xb8923a }],
+    'a:vaultbrig': ['gilded', { brig: 1 }, { main: ['cloth', 0x7a1c2c], goldCol: 0xf2c14a, steel: 0xc9d2dc }],
+    'a:gilded': ['gilded', {}, { main: ['steel', 0xe6eaf0], goldCol: 0xf2c14a, steel: 0xdfe5ec }],
+    'a:cloak': ['cloak', {}, { main: ['cloth', 0x4a6a3a], trim: L(0x5a3a22) }],
+    'a:tabard': ['tabard', {}, { main: ['mail', 0xc9d0d8], trim: L(0x4a3426) }],
+    'a:carapace': ['shell', {}, { main: ['scale', 0x7a5a3a, { rough: 0.45 }], trim: { kind: 'leather', col: 0x3a2a1a } }],
+    'a:thornhide': ['thorn', {}, { main: ['hide', 0x5c6a3a], trim: { kind: 'bark', col: 0x4a5a2a } }],
+    'a:runed': ['runic', {}, { main: ['cloth', 0x3a3a6a], trim: L(0x2a1c3a) }],
+    'a:ironbark': ['timber', {}, { main: ['wood', 0x8a6a3e], trim: 'steel', steel: 0x6a727c }],
+    'a:cairn': ['stone', {}, { main: ['iron', 0x8a8a84, { rough: 0.9 }], trim: 'steel', steel: 0x8a9098 }],
+    'a:quillhide': ['quill', {}, { main: ['hide', 0x6a4a34] }],
+    'a:shroud': ['shroud', {}, { main: ['cloth', 0x2e2a3a], trim: L(0x1a1620) }],
+    'a:emberforge': ['ember', {}, { main: ['iron', 0x241a18, { rough: 0.28 }], goldCol: 0xff6a1a }],
+  });
+  Object.assign(REP, { light: 'a:swiftwrap', bone: 'a:bonemail', fur: 'a:furmantle', scrap: 'a:scrapplate', spiked: 'a:reaver', lamellar: 'a:lamellar', bulwark: 'a:tower', gilded: 'a:gilded', cloak: 'a:cloak', tabard: 'a:tabard', shell: 'a:carapace', thorn: 'a:thornhide', runic: 'a:runed', timber: 'a:ironbark', stone: 'a:cairn', quill: 'a:quillhide', shroud: 'a:shroud', ember: 'a:emberforge' });
+}
+// ARMOUR3-END
 // base-item aliases and unknown future items fall back to a representative of their family
 const REP = { club: 'w:club', dagger: 'w:dagger', sword: 'w:ironsword', bow: 'w:bow', axe: 'w:axe', spear: 'w:spear', mace: 'w:mace', crossbow: 'w:crossbow', flail: 'w:flail', halberd: 'w:halberd', hammer: 'w:warhammer', staff: 'w:staff', scepter: 'w:scepter', cloth: 'a:cloth', leather: 'a:vest', mail: 'a:chain', harness: 'a:harness', plate: 'a:cuirass', robe: 'a:robe', royal: 'a:royal' };
 
@@ -774,6 +960,7 @@ function registerWeapons3() {
 registerWeapons3();
 // ---------- WEAPONS 3 END ----------
 
+registerArmour3();   // ARMOUR3: needs REP above
 // ---------- brain, gold, parts ----------
 function brainModel() {
   const b = new Build('m:brain'), m = M('flesh', 0xf6a2bb);
