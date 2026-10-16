@@ -38,6 +38,8 @@
   function spikes(g, x, y, r, n) { g.fillStyle = steel; for (let i = 0; i < n; i++) { const a = i * 6.2832 / n; poly(g, [[x + Math.cos(a - 0.2) * r, y + Math.sin(a - 0.2) * r], [x + Math.cos(a) * r * 1.5, y + Math.sin(a) * r * 1.5], [x + Math.cos(a + 0.2) * r, y + Math.sin(a + 0.2) * r]]); } }
   function shirt(g, a, b) { poly2(g, [[-0.18, 0.1], [0.18, 0.1], [0.38, 0.28], [0.3, 0.42], [0.22, 0.36], [0.22, 0.9], [-0.22, 0.9], [-0.22, 0.36], [-0.3, 0.42], [-0.38, 0.28]], a, b); }
   function draw(ctx, key, x, y, size) {
+    const baked = window.GKART && GKART.icon(key);   // ITEMART: icon rendered from the 3D model (itemart.js) once baked
+    if (baked) { ctx.save(); ctx.imageSmoothingQuality = 'high'; ctx.drawImage(baked, x, y, size, size); ctx.restore(); return; }
     const it = window.GKITEMS && (window.GKITEMS.info ? window.GKITEMS.info(key) : window.GKITEMS.ITEMS[key]), tier = (it && TIER[it.tier]) || TIER.common;
     steel = tier[0];
     ctx.save(); ctx.translate(x + size / 2, y + size * 0.04); ctx.scale(size * 0.92, size * 0.92); ctx.lineJoin = 'round';
@@ -47,6 +49,16 @@
     try { fn(ctx); } catch (e) {}
     ctx.restore(); steel = '#b8c2cc';
   }
-  function canvas(key, size) { const c = document.createElement('canvas'); const d = Math.min(window.devicePixelRatio || 1, 2); c.width = c.height = Math.round(size * d); c.style.width = c.style.height = size + 'px'; const g = c.getContext('2d'); g.scale(d, d); draw(g, key, 0, 0, size); return c; }
+  const live = [];   // ITEMART: canvases handed out before their icon was baked; they repaint when it arrives
+  function paint(c, key, size) { const g = c.getContext('2d'), d = c.width / size; g.setTransform(d, 0, 0, d, 0, 0); g.clearRect(0, 0, size, size); draw(g, key, 0, 0, size); }
+  function canvas(key, size) {
+    const c = document.createElement('canvas'), d = Math.min(window.devicePixelRatio || 1, 2); c.width = c.height = Math.round(size * d); c.style.width = c.style.height = size + 'px'; paint(c, key, size);
+    if (!(window.GKART && GKART.icon(key))) { if (live.length > 600) live.splice(0, 300); live.push({ r: typeof WeakRef !== 'undefined' ? new WeakRef(c) : { deref: () => c }, key, size }); }
+    return c;
+  }
+  window.addEventListener('gkart-icons', e => {   // refresh the icons that are already showing
+    const done = new Set((e.detail && e.detail.keys) || []);
+    for (let i = live.length; i--;) { const o = live[i], c = o.r.deref(); if (!c) { live.splice(i, 1); continue; } const k = window.GKART && GKART.canon(o.key); if (k && done.has(k) && GKART.icon(o.key)) { paint(c, o.key, o.size); live.splice(i, 1); } }
+  });
   window.GKICONS = { draw, canvas };
 })();

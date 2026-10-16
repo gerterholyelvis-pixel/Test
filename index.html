@@ -272,6 +272,7 @@ table.keys{border-collapse:collapse;width:100%}
 <script type="module">
 import * as THREE from 'three';
 window.THREE = THREE;
+try { await import('/itemart.js'); } catch (e) { console.error('itemart failed, using the old item models', e); } // ITEMART: custom 3D item models + baked icons (window.GKART)
 await import('/game.js');
 await import('/menu.js');
 </script>

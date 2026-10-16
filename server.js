@@ -12,7 +12,7 @@ const srv = http.createServer((q, r) => {
     if (rel && !rel.includes('\0') && file.startsWith(base + path.sep) && file.endsWith('.js') && fs.existsSync(file) && fs.statSync(file).isFile()) { r.writeHead(200, { 'content-type': 'text/javascript' }); return r.end(fs.readFileSync(file)); }
     r.writeHead(404); return r.end();
   }
-  const js = q.url.match(/^\/(game|menu|items|world|save|icons|audio|feel)\.js/); // client scripts
+  const js = q.url.match(/^\/(game|menu|items|world|save|icons|audio|feel|itemart)\.js/); // client scripts
   if (js) { r.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }); return r.end(read(js[1] + '.js')); }
   r.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' }); r.end(read('index.html'));
 });
