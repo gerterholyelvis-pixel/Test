@@ -51,6 +51,9 @@
   // ---- state ----
   let lastMode = 'menu', lastInv = false, lastShop = false, lastN = 0, lastOpenLen = 0, lastSec = 99, lastGold = null, lastPanel = false;
   let stepAcc = 0, kick = 0, lost = false, unloading = false, doorP = new Map();
+  let flinch = 0, beatT = 0, lastW, lastA, sudT = 0, sudden = false;
+  const surfOf = key => key === '4' ? 'vault' : key && key[0] === 'c' ? 'rug' : 'stone';   // vault: echoing hall, chest rooms: rugs, the rest: stone
+  const famOf = k => { const I = window.GKITEMS && window.GKITEMS.ITEMS; return (k && I && I[k] && I[k].family) || null; };
   addEventListener('beforeunload', () => { unloading = true; });
 
   // ---- interaction prompt ----
@@ -119,7 +122,7 @@
       if (d.layout || d.claimedReset) { GK.claimedRooms.clear(); }
       if (d.claimed && Number.isInteger(d.claimed.room)) {
         GK.claimedRooms.add(d.claimed.room);
-        if (d.claimed.key) play('pickup');
+        play('chest'); if (d.claimed.key) setTimeout(() => play('pickup'), 380);
         try { GK.redrawMaps && GK.redrawMaps(); } catch (e) {}
       }
       if (d.claimFail) {
@@ -144,7 +147,20 @@
       if (mode !== 'play') { setPrompt(''); a && a.ambient(null); return; }
       const P = A.P, mine = A.actors.get(A.me), myKey = A.roomKeyAt(P.x, P.z);
       a && a.setListener(P.x, P.z, P.yaw);
-      a && A.spawned && a.ambient(myKey === '4' ? 'vault' : 'room');
+      sudT -= dt; if (sudT <= 0) { sudT = 1; sudden = !!document.getElementById('gkSudTag'); }
+      a && A.spawned && a.ambient(sudden ? 'sudden' : myKey === '4' ? 'vault' : myKey && myKey[0] === 'c' ? 'chest' : 'room');
+      // low health: a soft heartbeat that quickens as it gets worse (the sound is dropped first when busy)
+      if (mine && mine.hp > 0 && mine.maxHp > 0 && A.spawned) {
+        const fr = mine.hp / mine.maxHp;
+        if (fr < 0.3) { beatT -= dt; if (beatT <= 0) { beatT = 0.75 + fr * 2.2; play('heartbeat', { amt: 1 - fr * 2 }); } } else beatT = 0;
+      } else beatT = 0;
+      // equipping: a rustle or a blade being drawn, picked by item family (also covers items other systems add)
+      const inv0 = A.inv;
+      if (inv0) {
+        if (lastW !== undefined && inv0.weapon !== lastW && inv0.weapon) play('equip', { fam: famOf(inv0.weapon), vol: 0.7 });
+        if (lastA !== undefined && inv0.armor !== lastA && inv0.armor) play('equip', { armor: famOf(inv0.armor), vol: 0.7 });
+        lastW = inv0.weapon || null; lastA = inv0.armor || null;
+      }
       // inventory and station panels
       const inv = A.invOpen, shop = A.shopOpen;
       if (inv !== lastInv) { play(inv ? 'invOpen' : 'invClose'); lastInv = inv; }
@@ -154,13 +170,13 @@
       if (A.spawned && !inv && !shop && P.speed > 0.7) {
         stepAcc += P.speed * dt;
         const stride = 1.75;
-        if (stepAcc >= stride) { stepAcc -= stride; const sc = (GK.SCALE && mine && GK.SCALE[mine.goblin]) || 1; play('step', { vol: 0.8, pitch: 1.1 - 0.2 * (sc - 1), deep: myKey === '4' }); }
+        if (stepAcc >= stride) { stepAcc -= stride; const sc = (GK.SCALE && mine && GK.SCALE[mine.goblin]) || 1; play('step', { vol: sprint && P.speed > 4.2 ? 0.95 : 0.8, pitch: 1.1 - 0.2 * (sc - 1), surf: surfOf(myKey), sprint: sprint && P.speed > 4.2 }); }
       } else stepAcc = Math.min(stepAcc, 0.9);
       // other players' footsteps: panned and attenuated by distance, muffled through walls
       for (const [id, o] of A.actors) {
         if (id === A.me || !(o.speed > 0.8)) continue;
         o._fs = (o._fs || 0) + o.speed * dt;
-        if (o._fs >= 1.8) { o._fs -= 1.8; const sc = (GK.SCALE && GK.SCALE[o.goblin]) || 1; play('step', { x: o.x, z: o.z, pitch: 1.1 - 0.2 * (sc - 1), muffle: A.roomKeyAt(o.x, o.z) !== myKey, deep: A.roomKeyAt(o.x, o.z) === '4' }); }
+        if (o._fs >= 1.8) { o._fs -= 1.8; const sc = (GK.SCALE && GK.SCALE[o.goblin]) || 1; play('step', { x: o.x, z: o.z, pitch: 1.1 - 0.2 * (sc - 1), muffle: A.roomKeyAt(o.x, o.z) !== myKey, surf: surfOf(A.roomKeyAt(o.x, o.z)), sprint: o.speed > 4.2 }); }
       }
       // doors start moving
       for (const d of A.doors) {
@@ -184,8 +200,11 @@
       kick += ((sprint && P.speed > 4.2 && A.spawned ? 5 : 0) - kick) * Math.min(1, dt * 5);
       setPrompt(A.spawned && A.inside && !inv && !shop ? promptFor(A) : '', A.cpAim);
     },
+    hurt(dmg, max) { flinch = Math.max(flinch, Math.min(1, 0.35 + 1.4 * (dmg || 0) / (max || 100))); },   // called by game.js when I take a hit: a short head flinch
+    itemUsed(item, action) { play(window.GKAUDIO.itemSound(item, action || 'use'), { fam: item && item.family, armor: item && item.type === 'armor' ? item.family : undefined }); },   // hook for consumables and other new items
     camera(cam, dt, mine) {   // called after game.js positioned the camera: FOV kick and a whisper of side sway
       cam.fov += kick;
+      if (flinch > 0.002) { cam.rotation.x -= 0.03 * flinch; cam.rotation.z += 0.012 * flinch * Math.sin(flinch * 9); flinch *= Math.pow(0.0008, dt); }   // quick, small, settles in ~0.3 s
       if (GK.settings.bob !== false && mine && GK.feelApi) {
         const walk = Math.max(0, Math.min(1, GK.feelApi.P.speed / 3.5));
         cam.rotation.z = Math.sin(mine.phase * 0.5) * 0.004 * walk;

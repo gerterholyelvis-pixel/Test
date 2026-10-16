@@ -6037,7 +6037,7 @@ function combatSwing() {   // left click: swing animation on my own goblin now, 
   const mine = actors.get(me); if (!mine) return false;
   const cb = itemsData().combat ? itemsData().combat(invReady ? myInv.weapon : null) : { cd: 600 }, now = performance.now();
   if (now - CB.last < cb.cd) return false;
-  CB.last = now; CB.nextAt = now + cb.cd; /* FEEL2: cooldown end for buffer/hold */ mine.swing = 1e-4; vmSwing(mine, true); net.send({ atk: 1 }); snd('swing'); return true;
+  CB.last = now; CB.nextAt = now + cb.cd; /* FEEL2: cooldown end for buffer/hold */ mine.swing = 1e-4; vmSwing(mine, true); net.send({ atk: 1 }); snd('swing', { fam: mine.vmFam }); return true;
 }
 canvas.addEventListener('mousedown', e => { if (e.button === 0 && (lockOk() || lockRefused)) { /* FEEL2: hold + input buffer */ CB.held = true; if (!combatSwing() && CB.nextAt - performance.now() <= 180) CB.buf = true; } });   // the click that captures the mouse does not swing
 // FEEL2-BEGIN (attack input buffer + hold-to-attack, directional damage arc, crosshair hit marker; see docs/reports/feel-2.md)
@@ -6091,9 +6091,10 @@ function combatHurtFx(dmg, max) {   // red vignette + screen number when I am hu
   f.style.cssText = 'position:fixed;left:50%;top:58%;z-index:90;pointer-events:none;color:#ff4a3a;font:800 34px system-ui,sans-serif;text-shadow:0 2px 10px #000';
   document.body.appendChild(f); f.animate([{ opacity: 1, transform: 'translate(-50%,0)' }, { opacity: 0, transform: 'translate(-50%,-50px)' }], 900).onfinish = () => f.remove();
 }
+const vmArmKey = n => { if (!n) return null; const I = itemsData().ITEMS; for (const k in I) if (I[k].type === 'armor' && I[k].name === n) return k; return null; };   // FEEL3: armour name -> item key
 const snd = (n, o) => { try { window.GKAUDIO && GKAUDIO.play(n, o); } catch (e) {} };   // combat sounds (audio.js)
 function combatMsg(d) {   // server messages: swing, hit, kills, match (goblins left)
-  if (d.swing != null && d.swing !== me) { const a = actors.get(d.swing); if (a) { a.swing = 1e-4; vmSwing(a, false); snd('swing', { x: a.x, z: a.z, vol: 0.7 }); } }
+  if (d.swing != null && d.swing !== me) { const a = actors.get(d.swing); if (a) { a.swing = 1e-4; vmSwing(a, false); snd('swing', { x: a.x, z: a.z, vol: 0.7, fam: a.vmFam }); } }
   if (d.hit) {
     const h = d.hit, v = actors.get(h.to), f = actors.get(h.from); if (h.from === me) vmHit(h);
     if (v) {
@@ -6104,7 +6105,8 @@ function combatMsg(d) {   // server messages: swing, hit, kills, match (goblins 
       const burst = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff3a2a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.9 }));   // red hit flash on the victim (sprite only, no lights)
       burst.scale.set(1.3, 1.3, 1); burst.position.set(v.x, 1.0 * (SCALE[v.goblin] || 1), v.z); scene.add(burst); CB.floats.push({ sp: burst, t: 0, flash: true });
     }
-    if (h.to === me) { combatHurtFx(h.dmg, h.max); snd('hurt'); if (f) feel2Arc(f); /* FEEL2 */ } else if (v) snd('hit', h.from === me ? {} : { x: v.x, z: v.z });
+    { const fam = f && f.vmFam, ak = h.to === me ? (invReady ? myInv.armor : null) : (v && v.gArm !== undefined ? vmArmKey(v.gArm) : null), ait = ak && itemsData().ITEMS[ak], armor = ait && ait.family; /* FEEL3: weapon and armour families pick the hit sound */
+      if (h.to === me) { combatHurtFx(h.dmg, h.max); snd('hit', { fam, armor, vol: 0.7 }); snd('hurt'); try { GK.feel.hurt(h.dmg, h.max); } catch (e) {} if (f) feel2Arc(f); /* FEEL2 */ } else if (v) snd('hit', h.from === me ? { fam, armor } : { x: v.x, z: v.z, fam, armor }); }
   }
   if (d.kills != null) { CB.kills = d.kills; toastMsg('Goblin defeated!  Kills: ' + d.kills, true); }
   if (d.match) { CB.alive = d.match.alive | 0; CB.size = d.match.size | 0; }
@@ -6743,7 +6745,7 @@ function mqCountdown(c) {   // {at: server ms of GO, now: server ms when sent} -
     const rem = MQ.at - (Date.now() + MQ.offset);
     if (rem <= 0) {
       clearInterval(MQ.timer); GK.locked = false; MQ.went = true;
-      mqShow('GO!', true); snd('gong'); gfxAutoProbe(); run.t0 = performance.now(); run.n0 = GK.roundInfo ? GK.roundInfo().n : 0;
+      mqShow('GO!', true); snd('go'); gfxAutoProbe(); run.t0 = performance.now(); run.n0 = GK.roundInfo ? GK.roundInfo().n : 0;
       if (window.GK_OFFLINE) net.send({ enter: 1 });   // the offline simulation starts its round timer on this; the real server ignores it
       setTimeout(() => { if (MQ.el) MQ.el.style.display = 'none'; }, 900); return;
     }
@@ -6799,7 +6801,7 @@ GK.skipMenu = () => {   // for tests: straight into the rooms, with the title me
 // FEEL-BEGIN (read-only window into game state for feel.js: sounds, interaction prompts, disconnect overlay)
 GK.feelApi = { P, actors, doors, keys, CHEST_ROOMS, roomKeyAt, nearestPile, hover: () => ({ room: hoverRoom, kind: hoverKind }),
   get me() { return me; }, get invOpen() { return invOpen; }, get shopOpen() { return shopOpen; }, get panelKind() { return panelKind; },
-  get spawned() { return spawned; }, get inside() { return inside; }, get cpAim() { return cpAim; } };
+  get spawned() { return spawned; }, get inside() { return inside; }, get cpAim() { return cpAim; }, get inv() { return invReady ? myInv : null; } };
 // FEEL-END
 // LOOT-BEGIN (vault relic pedestal, merchant price note, throwable goblin plushie; no lights; see docs/reports/loot.md)
 const LOOT = window.GKLOOT = (() => {
