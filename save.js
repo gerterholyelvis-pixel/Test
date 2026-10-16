@@ -17,7 +17,7 @@
     characters: () => load().characters,
     getCharacter: id => load().characters.find(c => c.id === id) || null,
     // A won run: the character is saved (or gets another victory) and everything it carried goes to the stash.
-    recordWin({ charId, goblin, items, parts, name }) {   // name: the name the server gave this goblin in the match; a NEW character keeps it, so the feed, standings and victory card agree
+    recordWin({ charId, goblin, items, parts, name, token }) {   // token: the server's signed character token (proves goblin, victories and name on the next join)   // name: the name the server gave this goblin in the match; a NEW character keeps it, so the feed, standings and victory card agree
       const s = load();
       let c = charId != null ? s.characters.find(x => x.id === charId) : null;
       if (!c) {
@@ -27,6 +27,7 @@
         c = { id: s.nextId++, goblin, name: nm, wins: 0 }; s.characters.push(c);
       }
       c.wins++; c.lastWin = Date.now();
+      if (typeof token === 'string' && token) { c.token = token; c.goblin = goblin; }   // the server rolled this goblin; the local victory count is for display only
       for (const it of items || []) { const k = typeof it === 'string' ? it : it && it.key, i = k && window.GKITEMS && GKITEMS.info && GKITEMS.info(k); if (i && (!c.best || score(i) > score(GKITEMS.info(c.best) || {}))) c.best = k; }   // the best thing this goblin ever brought home (shown on its card)
       for (const it of items || []) if (it) s.stash.push(it);
       s.parts = s.parts || {}; for (const k in parts || {}) if (parts[k] > 0) s.parts[k] = (s.parts[k] || 0) + (parts[k] | 0);

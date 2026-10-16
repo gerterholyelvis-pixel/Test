@@ -1,22 +1,93 @@
 const http = require('http'), fs = require('fs'), path = require('path'), { WebSocketServer } = require('ws');
 const WORLD = require('./world.js'); // shared geometry (rooms, vault, chest rooms), the client uses the same file
-const THREE_DIR = path.join(__dirname, 'node_modules/three/build');
-const read = f => fs.readFileSync(path.join(__dirname, f));
-
-const srv = http.createServer((q, r) => {
-  const m = q.url.match(/^\/three\/(three\.(?:module|core)\.js)$/); // three.js is served from here, no CDN
-  if (m) { r.writeHead(200, { 'content-type': 'text/javascript' }); return r.end(fs.readFileSync(path.join(THREE_DIR, m[1]))); }
-  if (q.url.startsWith('/three/addons/')) { // three.js post-processing addons (importmap "three/addons/"), .js only, no path traversal
-    let rel = ''; try { rel = decodeURIComponent(q.url.slice(14).split('?')[0]); } catch (e) {}
-    const base = path.join(__dirname, 'node_modules/three/examples/jsm'), file = path.resolve(base, rel);
-    if (rel && !rel.includes('\0') && file.startsWith(base + path.sep) && file.endsWith('.js') && fs.existsSync(file) && fs.statSync(file).isFile()) { r.writeHead(200, { 'content-type': 'text/javascript' }); return r.end(fs.readFileSync(file)); }
-    r.writeHead(404); return r.end();
+// SECURITY-BEGIN (static serving from memory, headers, origin / per-IP / match limits, signed character tokens, speed-hack kicks; see docs/reports/security.md)
+const crypto = require('crypto');
+const SEC_DEBUG = !!process.env.GK_DEBUG;
+const envInt = (k, d) => /^\d+$/.test(process.env[k] || '') && +process.env[k] > 0 ? +process.env[k] : d;
+const MAX_PER_IP = envInt('GK_MAX_PER_IP', SEC_DEBUG ? 1000 : 8), MAX_MATCHES = envInt('GK_MAX_MATCHES', 200), MATCH_LIFE_MS = SEC_DEBUG ? envInt('GK_MATCH_LIFE_MS', 20 * 60000) : 20 * 60000;   // tests get a high per-IP default (all clients are 127.0.0.1) unless GK_MAX_PER_IP is set
+const ORIGINS = (process.env.GK_ORIGINS || '').split(',').map(s => s.trim().toLowerCase().replace(/\/$/, '')).filter(Boolean);
+let SECRET = process.env.GK_SECRET;
+if (!SECRET) { SECRET = crypto.randomBytes(32).toString('hex'); console.warn('WARNING: GK_SECRET is not set. Using a random secret: saved-character tokens will not survive a restart (set GK_SECRET in production).'); }
+const b64u = b => Buffer.from(b).toString('base64url');
+const sign = s => crypto.createHmac('sha256', SECRET).update(s).digest('base64url');
+function makeToken(c) {   // c: { c: charId, g: goblin, w: wins, n: name } -> "payload.signature" (HMAC-SHA256)
+  const body = b64u(JSON.stringify({ c: c.c, g: c.g, w: c.w, n: c.n })); return body + '.' + sign(body);
+}
+function readToken(t) {   // the payload when the signature and shape are valid, else null
+  if (typeof t !== 'string' || t.length > 400) return null;
+  const i = t.indexOf('.'); if (i < 1) return null;
+  const body = t.slice(0, i), sig = Buffer.from(t.slice(i + 1)), want = Buffer.from(sign(body));
+  if (sig.length !== want.length || !crypto.timingSafeEqual(sig, want)) return null;
+  try {
+    const o = JSON.parse(Buffer.from(body, 'base64url').toString());
+    if (!o || typeof o.c !== 'string' || !Number.isInteger(o.g) || o.g < 0 || o.g > 4 || !Number.isInteger(o.w) || o.w < 0 || o.w > 9999 || typeof o.n !== 'string') return null;
+    return o;
+  } catch (e) { return null; }
+}
+// static files: read once and cached in memory; a failed read is a 404, never a crash
+const ROOT_DIR = __dirname, THREE_DIR = path.join(__dirname, 'node_modules/three/build'), ADDON_DIR = path.join(__dirname, 'node_modules/three/examples/jsm');
+const cache = new Map();   // url key -> { body, type } or null (known missing)
+function cached(key, file, type) {
+  if (cache.has(key)) return cache.get(key);
+  let e = null; try { e = { body: fs.readFileSync(file), type }; } catch (err) { e = null; }
+  if (cache.size < 500) cache.set(key, e);
+  return e;
+}
+const CLIENT_JS = new Set(['game', 'menu', 'items', 'world', 'save', 'icons', 'audio', 'feel', 'itemart']);
+let CSP = '';
+function buildCsp() {   // the page has two inline scripts (importmap + module): allowed by hash, so no 'unsafe-inline' for scripts
+  const page = cached('/index.html', path.join(ROOT_DIR, 'index.html'), 'text/html; charset=utf-8'), hashes = [];
+  if (page) for (const mm of page.body.toString().matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g)) hashes.push("'sha256-" + crypto.createHash('sha256').update(mm[1].replace(/\r\n?/g, "\n")).digest('base64') + "'");
+  CSP = ["default-src 'self'", "script-src 'self' " + hashes.join(' '), "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", "font-src 'self' https://fonts.gstatic.com", "img-src 'self' data: blob:", "media-src 'self' blob: data:", "connect-src 'self' ws: wss:", "object-src 'none'", "base-uri 'none'", "frame-ancestors 'none'", "form-action 'none'"].join('; ');
+}
+function staticFor(url) {   // -> { body, type, cc } or null (404)
+  const p = url.split('?')[0].split('#')[0];
+  if (p === '/' || p === '/index.html') { const e = cached('/index.html', path.join(ROOT_DIR, 'index.html'), 'text/html; charset=utf-8'); return e && { ...e, cc: 'no-cache' }; }
+  const mm = p.match(/^\/([a-z]+)\.js$/);
+  if (mm && CLIENT_JS.has(mm[1])) { const e = cached(p, path.join(ROOT_DIR, mm[1] + '.js'), 'text/javascript; charset=utf-8'); return e && { ...e, cc: 'no-cache' }; }
+  if (/^\/three\/three\.(module|core)\.js$/.test(p)) { const e = cached(p, path.join(THREE_DIR, p.slice(7)), 'text/javascript; charset=utf-8'); return e && { ...e, cc: 'public, max-age=86400' }; }
+  if (p.startsWith('/three/addons/')) {   // .js only, no path traversal
+    let rel = ''; try { rel = decodeURIComponent(p.slice(14)); } catch (e) {}
+    const file = path.resolve(ADDON_DIR, rel);
+    if (rel && !rel.includes('\0') && file.startsWith(ADDON_DIR + path.sep) && file.endsWith('.js')) { const e = cached(p, file, 'text/javascript; charset=utf-8'); return e && { ...e, cc: 'public, max-age=86400' }; }
   }
-  const js = q.url.match(/^\/(game|menu|items|world|save|icons|audio|feel|itemart)\.js/); // client scripts
-  if (js) { r.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }); return r.end(read(js[1] + '.js')); }
-  r.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' }); r.end(read('index.html'));
+  return null;
+}
+const SEC_HEADERS = { 'x-content-type-options': 'nosniff', 'referrer-policy': 'same-origin' };
+const srv = http.createServer((q, r) => {
+  try {
+    const e = q.method === 'GET' || q.method === 'HEAD' ? staticFor(q.url || '/') : null;
+    if (!e) { r.writeHead(404, { ...SEC_HEADERS, 'content-type': 'text/plain' }); return r.end('Not found'); }
+    r.writeHead(200, { ...SEC_HEADERS, 'content-type': e.type, 'cache-control': e.cc, 'content-security-policy': CSP });
+    r.end(q.method === 'HEAD' ? undefined : e.body);
+  } catch (err) { try { r.writeHead(500); r.end(); } catch (e2) {} }
 });
-const wss = new WebSocketServer({ server: srv, maxPayload: 512 }); // oversize frames close the socket
+buildCsp();
+const ipCount = new Map();
+const ipOf = req => (process.env.GK_TRUST_PROXY ? String(req.headers['x-forwarded-for'] || '').split(',').pop().trim() : '') || req.socket.remoteAddress || '?';   // behind a proxy set GK_TRUST_PROXY=1 (uses the last X-Forwarded-For hop)
+function originOk(req) {   // browsers always send Origin; a client without one is not a browser (no CSRF risk) and is allowed
+  const o = req.headers.origin; if (!o) return true;
+  const low = String(o).toLowerCase().replace(/\/$/, '');
+  if (ORIGINS.length) return ORIGINS.includes(low);
+  let u; try { u = new URL(low); } catch (e) { return false; }
+  return u.host === String(req.headers.host || '').toLowerCase() || u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '[::1]';
+}
+function verifyClient(info, cb) {
+  const req = info.req;
+  if (!originOk(req)) return cb(false, 403, 'Forbidden origin');
+  if ((ipCount.get(ipOf(req)) || 0) >= MAX_PER_IP) return cb(false, 429, 'Too many connections');
+  cb(true);
+}
+const FIX_WINDOW_MS = 10000, FIX_MAX = 15;
+function secFix(p, ws, now) {   // count corrections in a sliding 10 s window; more than 15 -> kick. Bots and mystery enemies never come through applyMove.
+  if (p.bot || p.npc) return false;
+  const a = p.fixes || (p.fixes = []); a.push(now); while (a.length && now - a[0] > FIX_WINDOW_MS) a.shift();
+  if (a.length <= FIX_MAX) return false;
+  console.log('kick: player ' + p.id + ' (' + p.name + ') ' + a.length + ' movement corrections in ' + FIX_WINDOW_MS / 1000 + ' s');
+  p.kicked = true; sendTo(ws, { kicked: 'movement' }); try { ws.close(); } catch (e) {} return true;
+}
+// SECURITY-END
+const wss = new WebSocketServer({ server: srv, maxPayload: 512, verifyClient }); // oversize frames close the socket
 const LIM = WORLD.LIM + 1; // world half-extent: the room grid plus the 8 m chest rooms around it (+1 m slack)
 const clamp = v => Math.max(-LIM, Math.min(LIM, v));
 // ---- doors and rounds (door ids and room keys must match game.js) ----
@@ -79,7 +150,7 @@ function findMatch(wins) {
     if (m.players.size && d > tolerance(wins)) continue;
     if (!best || d < best.d || (d === best.d && m.players.size > best.m.players.size)) best = { m, d };
   }
-  return best ? best.m : newMatch();
+  return best ? best.m : matches.size >= MAX_MATCHES ? null : newMatch();   // SECURITY: null = servers are full
 }
 function leave(m, ws) { // remove a player from their match; empty matches disappear
   const gone = m.players.get(ws);
@@ -93,6 +164,10 @@ setInterval(() => { // one global timer steps every match
   const now = Date.now();
   for (const m of matches.values()) {
     /* MATCH-BEGIN */ if (matchTick(m, now)) continue; /* MATCH-END */
+    if (now - m.formedAt > MATCH_LIFE_MS) {   // SECURITY: hard match lifetime (20 min): decided by the round-10 rule; a match that is still open a minute later is closed
+      if (!m.ended && m.started) timeLimit(m);
+      else if (now - m.formedAt > MATCH_LIFE_MS + 60000) { for (const w of [...m.players.keys(), ...m.specs.keys()]) try { w.close(); } catch (e) {} matches.delete(m.id); continue; }
+    }
     socGrace(m, now);   // SOCIAL: disconnected players whose grace period ran out die now
     botTick(m, now);   // BOTS: brains of bots and mystery enemies (~10 Hz)
     ruleTick(m, now);   // RULES: experimental rules (no-op unless GK_RULES is set)
@@ -401,7 +476,7 @@ function win(ws, p) { // everything carried goes home with the winner, nothing i
   const m = p.match; if (p.dead || !m) return;
   const items = allItems(p.inv);
   p.dead = true; p.diedAt = Date.now(); endMatch(m, p); leave(m, ws);
-  sendTo(ws, { won: { items, gold: p.gold, parts: p.parts } });
+  sendTo(ws, { won: { items, gold: p.gold, parts: p.parts, ctoken: makeToken({ c: p.charId, g: p.goblin, w: Math.min(9999, p.wins + 1), n: p.name }) } });   // SECURITY: signed character token
 }
 
 // JUMP-BEGIN (server side: the jump is cosmetic; movement, walls and attack ranges stay 2D)
@@ -411,7 +486,7 @@ const jumpV = p => r1(p.spd || 0) + 100 * (p.jy | 0);   // snapshot speed slot c
 // NET-BEGIN (movement validation, 20 Hz snapshots, position history for lag compensation; see docs/reports/netcode.md)
 const T0 = Date.now(), srvT = () => Date.now() - T0;   // server clock in ms, sent with every snapshot and pong
 const RSCALE = process.env.GK_DEBUG && +process.env.GK_REGEN_SCALE > 0 ? +process.env.GK_REGEN_SCALE : 1;   // GK_DEBUG only: speeds regeneration up for the tests
-const MAXV = 7.5 * (0.85 + 0.15 * 1.3) * 1.25, BUDGET = 1.2, SLACK = 0.3;   // fastest goblin sprint (game.js) x 1.25; the distance a client may bank while idle; fixed slack in m
+const MAXV = 7.5 * (0.85 + 0.15 * 1.3) * 1.1, BUDGET = 1.0, SLACK = 0.3, MOVE_SLACK = 0.3;   // fastest goblin sprint (game.js) x 1.1; the distance a client may bank while idle; SLACK: bounds tolerance in m; MOVE_SLACK: extra distance per move (SECURITY: was 1.25 / 1.2 / 0.3 per move)
 const HIST_MS = 1000, REWIND_MAX = 200;
 const r1 = v => Math.round(v * 10) / 10, r2 = v => Math.round(v * 100) / 100, r3 = v => Math.round(v * 1000) / 1000;
 function inBounds(x, z) {   // inside a room of the grid, or inside one of the 12 chest rooms (not the void around them)
@@ -440,8 +515,8 @@ function applyMove(m, ws, p, x, z, yaw, now, jy) {   // {m:[x,z,yaw]}: accept, o
   const dt = p.mvAt ? Math.min(0.5, (now - p.mvAt) / 1000) : 0.066; p.mvAt = now; const prevRoom = p.room;
   p.budget = Math.min(BUDGET, (p.budget == null ? BUDGET : p.budget) + dt * MAXV);
   const dist = Math.hypot(x - p.x, z - p.z);
-  if (dist > 0.0005 && (dist > p.budget + SLACK || !pathOk(m, p.x, p.z, x, z))) {
-    if (now - (p.fixAt || 0) > 150) { p.fixAt = now; sendTo(ws, { fix: [r2(p.x), r2(p.z)] }); }
+  if (dist > 0.0005 && (dist > p.budget + MOVE_SLACK || !pathOk(m, p.x, p.z, x, z))) {
+    if (now - (p.fixAt || 0) > 150) { p.fixAt = now; sendTo(ws, { fix: [r2(p.x), r2(p.z)] }); if (secFix(p, ws, now)) return false; }
     if (yaw !== p.yaw) { p.yaw = yaw; p.sd = true; }
     return false;
   }
@@ -851,6 +926,7 @@ const socTokens = new Map();   // token -> player (only players of a started mat
 const socToken = p => { p.token = require('crypto').randomBytes(12).toString('hex'); socTokens.set(p.token, p); return p.token; };
 function socClose(m, ws, p) {   // socket closed: true when the close was handled here (stale socket, or grace period started); false = leave as usual
   if (p.ws !== ws) return true;   // a resumed player's old socket: nothing to do
+  if (p.kicked) return false;   // SECURITY: a kicked player leaves at once, no grace period
   if (p.dead || m.ended || m.phase === 'queue' || !m.players.has(ws)) return false;
   p.dc = Date.now(); p.ready = true; m.dirty = true;   // frozen in the world, still alive for bots and the win rule; a loading match does not wait for him
   return true;
@@ -881,18 +957,28 @@ function socEmote(m, ws, p, n, now) {   // {emote:n}: relayed to everyone else (
 setInterval(() => { for (const [t, p] of socTokens) if (p.dead || !p.match || !p.match.players.has(p.ws)) socTokens.delete(t); }, 60000).unref();
 // SOCIAL-END
 wss.on('connection', (ws, req) => {
+  { const ip = ipOf(req); ipCount.set(ip, (ipCount.get(ip) || 0) + 1); ws.once('close', () => { const n = (ipCount.get(ip) || 1) - 1; if (n > 0) ipCount.set(ip, n); else ipCount.delete(ip); }); }   // SECURITY: per-IP socket count
+  ws.on('error', () => {});
   let q; try { q = new URL(req.url, 'http://x').searchParams; } catch { q = new URLSearchParams(); }
   let p, m; const tk = q.get('token'), resumed = tk !== null ? socResume(ws, tk) : null;   // SOCIAL: ?token= resumes a player inside the grace period
   if (tk !== null && !resumed) { sendTo(ws, { resumeFail: 1 }); return ws.close(); }
   let goblin = 0;
   if (resumed) { p = resumed; m = p.match; } else {
-  const g = q.get('goblin'); goblin = g !== null && /^[0-4]$/.test(g) ? +g : rollGoblin();
-  const wq = q.get('wins'), wins = wq !== null && /^\d{1,9}$/.test(wq) ? Math.min(9999, +wq) : 0;
-  const id = nextId++, nq = (q.get('name') || '').replace(/[^A-Za-z0-9 '\-]/g, '').trim().slice(0, 14);
-  p = { id, wins, ws, name: nq || BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)], ...spawn() }; p.room = String(p.box); equip(p, goblin); place(p, p.x, p.z);
-  m = findMatch(wins); p.match = m; m.players.set(ws, p); m.dirty = true; socToken(p); }
+  // SECURITY-BEGIN: the server owns the goblin type and the victories. ?goblin= and ?wins= are honoured only under GK_DEBUG (tests); a saved character proves itself with a signed ?ctoken=
+  const g = q.get('goblin'), wq = q.get('wins'), ct = q.get('ctoken'), tok = ct ? readToken(ct) : null;
+  let wins = 0, charId = crypto.randomBytes(6).toString('hex'), tokName = null;
+  goblin = rollGoblin();
+  if (tok) { goblin = tok.g; wins = tok.w; charId = tok.c; tokName = tok.n; }
+  else if (SEC_DEBUG) { if (g !== null && /^[0-4]$/.test(g)) goblin = +g; if (wq !== null && /^\d{1,9}$/.test(wq)) wins = Math.min(9999, +wq); }
+  const unverified = ct !== null && !tok;   // a saved character came without a valid token: playing as a new goblin
+  m = findMatch(wins);
+  if (!m) { sendTo(ws, { busy: 1 }); return ws.close(); }
+  const id = nextId++, nq = (tokName != null ? tokName : q.get('name') || '').replace(/[^A-Za-z0-9 '\-]/g, '').trim().slice(0, 14);
+  p = { id, wins, charId, ws, name: nq || BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)], ...spawn() }; p.room = String(p.box); equip(p, goblin); place(p, p.x, p.z);
+  p.match = m; m.players.set(ws, p); m.dirty = true; socToken(p); p.unverified = unverified; }
+  // SECURITY-END
   ws.on('error', () => {});
-  if (resumed) socWelcome(m, ws, p); else { /* MATCH-BEGIN */ sendTo(ws, { queue: queueInfo(m), goblin, token: p.token }); broadcastQueue(m, ws); if (m.players.size >= CAP) startMatch(m); /* MATCH-END */ }
+  if (resumed) socWelcome(m, ws, p); else { /* MATCH-BEGIN */ sendTo(ws, { queue: queueInfo(m), goblin, wins: p.wins, token: p.token, ...(p.unverified ? { unverified: 1 } : null) }); broadcastQueue(m, ws); if (m.players.size >= CAP) startMatch(m); /* MATCH-END */ }
   let tokens = 40, last = Date.now(); // rate limit: ~30 msg/s sustained, burst 40
   ws.on('message', (raw, isBinary) => {
     const now = Date.now();

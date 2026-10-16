@@ -3512,7 +3512,9 @@ function invAll(inv) { return [inv.weapon, inv.armor, ...inv.backpack, ...inv.qu
 // ---------- networking (real server, or a local simulation for the offline demo) ----------
 function makeNet(opts) {   // opts.goblin: play this goblin type (a saved character) instead of rolling one
   if (!window.GK_OFFLINE) {
-    let ws = new WebSocket(funUrl((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + (opts && opts.goblin != null ? '/?goblin=' + (opts.goblin | 0) + '&wins=' + (Math.max(0, (opts.wins | 0))) : (opts && opts.wins ? '/?wins=' + (opts.wins | 0) : ''))));
+    // SECURITY: the server rolls the goblin and owns the victories. A saved character only sends its signed token (empty = an old character without one: the server rolls a new goblin and says so).
+    const joinUrl = () => { let tk = ''; try { const c = opts && opts.charId != null && window.GKSAVE ? GKSAVE.getCharacter(+opts.charId) : null; if (c) tk = c.token || ''; else if (opts && opts.charId != null) tk = ''; } catch (e) {} return funUrl((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + (opts && opts.charId != null ? '/?ctoken=' + encodeURIComponent(tk) : '')); };
+    let ws = new WebSocket(joinUrl()), busyRetry = false;
     let lastM = '', lastMT = 0;   // NET: my position goes out only when it changed (plus a 1 s keepalive); attacks carry the server time I was seeing
     const net = { send: m => {
       if (ws.readyState !== 1) return;
@@ -3522,7 +3524,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     }, onmessage: null };
     const ping = () => ws.readyState === 1 && ws.send(JSON.stringify({ ping: performance.now() }));
     setInterval(ping, 2000);   // NET: RTT and clock offset
-    const wire = w => { w.onopen = ping; w.onmessage = e => { let d; try { d = JSON.parse(e.data); } catch (err) { return; } net.onmessage && net.onmessage(d); }; w.onclose = () => { if (w !== ws) return; onClose(); }; };
+    const wire = w => { w.onopen = ping; w.onmessage = e => { let d; try { d = JSON.parse(e.data); } catch (err) { return; } if (d.busy) { busyRetry = true; toastMsg('Servers are full — retrying…', false, 3500); setTimeout(() => { busyRetry = false; lastM = ''; ws = new WebSocket(joinUrl()); wire(ws); }, 4000); return; } net.onmessage && net.onmessage(d); }; w.onclose = () => { if (w !== ws || busyRetry) return; onClose(); }; };   // SECURITY: {busy:1} = match cap reached, try again
     GK.social.attach({ state: () => ws.readyState, drop: () => ws.close(), reopen: tk => { lastM = ''; ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/?token=' + encodeURIComponent(tk)); wire(ws); } });   // SOCIAL: reconnect with the token
     const onClose = () => { if (GK.social.onClose()) return; const m = document.getElementById('me'); if (m) m.textContent = 'Disconnected - reload to rejoin'; /* FEEL-BEGIN */ if (GK.feel) GK.feel.onClose(); /* FEEL-END */ };
     wire(ws);
@@ -4448,7 +4450,7 @@ function showVictory(info) {
   const ms = performance.now() - run.t0, secs = Math.floor(ms / 1000), n = GK.roundInfo ? GK.roundInfo().n : 0;
   const items = ((info && info.items) || []).filter(k => k != null);
   const from = GK.charId;
-  let c = null; try { c = window.GKSAVE.recordWin({ charId: from, goblin: type, items, parts: (info && info.parts) || {}, name: GK.fun && GK.fun.myName && GK.fun.myName() }); if (c && c.id != null) GK.charId = c.id; } catch (e) { c = null; }
+  let c = null; try { c = window.GKSAVE.recordWin({ charId: from, goblin: type, items, parts: (info && info.parts) || {}, token: info && info.ctoken, name: GK.fun && GK.fun.myName && GK.fun.myName() }); if (c && c.id != null) GK.charId = c.id; } catch (e) { c = null; }
   const wins = c && c.wins != null ? c.wins : (GK.wins | 0) + 1;
   closeInv(true); closeShop(true); GK.mode = 'win'; inside = false; keys.clear(); hideHotbar();
   try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
@@ -4740,10 +4742,10 @@ function paintLoot() {
   list.appendChild(all);
 }
 let toastEl = null;
-function toastMsg(text, good) {   // short message in the middle of the screen
+function toastMsg(text, good, ms) {   // short message in the middle of the screen
   if (!toastEl) { toastEl = document.createElement('div'); toastEl.style.cssText = 'position:fixed;left:50%;top:38%;transform:translateX(-50%);padding:8px 16px;border-radius:8px;background:rgba(10,10,14,.75);font:600 16px system-ui,sans-serif;pointer-events:none;transition:opacity .4s;z-index:50'; document.body.appendChild(toastEl); }
   toastEl.textContent = text; toastEl.style.color = good ? '#ffd76a' : '#ff8a7a'; toastEl.style.opacity = '1';
-  clearTimeout(toastEl.t); toastEl.t = setTimeout(() => { toastEl.style.opacity = '0'; }, 1800);
+  clearTimeout(toastEl.t); toastEl.t = setTimeout(() => { toastEl.style.opacity = '0'; }, ms || 1800);
 }
 function lootFailFx(why) { if (panelKind === 'loot') say(lootPn, { range: 'Too far from the bag', space: 'Your backpack is full', item: 'Someone took that first' }[why] || 'Cannot loot that'); }
 GK.openLoot = () => { const d = nearestPile(); if (d) openStation('loot', d.id); return !!d; };
@@ -6453,6 +6455,7 @@ function mqCountdown(c) {   // {at: server ms of GO, now: server ms when sent} -
   MQ.timer = setInterval(step, 50); step();
 }
 GK.matchOnMsg = d => {   // called by handleMsg after it has processed a message
+  if (d.unverified) toastMsg('Character could not be verified — playing as a new goblin.', false, 6000);   // SECURITY
   if (d.queue) { mqResolve(d.goblin); if (GK.menu && GK.menu.queue) GK.menu.queue(d.queue.n, d.queue.size, d.queue.since); }
   if (d.matchStart) { mqResolve(((d.matchStart.players || []).find(p => p.id === d.matchStart.you) || {}).goblin); mqBegin(false); }
   if (d.countdown) mqCountdown(d.countdown);

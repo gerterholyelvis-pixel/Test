@@ -62,7 +62,7 @@ const equip = async (c, key) => { c.send({ give: key }); await c.until(x => x.st
         await c.until(x => x.state.round.n === 2, 4000, 'round 2'); assert(!c.state.open.includes(v), 'one room alone cannot open the vault'); assert(c.state.fizzled.includes(v)); await c.close();
       }],
       ['bribe on: 50 gold adds +1 weight, so one room can open the vault; failures are reported', async () => {
-        const c = await connect(bribe.port); eq(c.state.rules, ['bribe']); c.send({ tp: W.rc(1) });
+        const c = await connect(bribe.port); await sleep(150); eq(c.state.rules, ['bribe']);   /* phase flips to play on the next 50 ms tick after GO */ c.send({ tp: W.rc(1) });
         c.send({ bribe: 1 }); await c.until(x => x.state.bribeFail, 1500, 'no pick yet'); eq(c.state.bribeFail, 'pick'); delete c.state.bribeFail;
         const v = door('1', '4'); c.send({ sel: v }); await c.until(x => x.state.sel && x.state.sel['1'] === v, 1500, 'pick'); c.send({ bribe: 1 });
         await c.until(x => x.state.gold === 50 && x.state.bribes && x.state.bribes['1'] === 1, 1500, 'paid 50, weight 2'); await c.until(x => x.state.vaultVotes === 2, 1500, 'vault votes 2/2');
