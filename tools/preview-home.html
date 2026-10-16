@@ -1,0 +1,49 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Home room preview</title>
+<style>html,body{margin:0;height:100%;background:#0b0b0e;overflow:hidden;font:12px monospace;color:#ccc}#hud{position:fixed;left:8px;top:8px;background:#0008;padding:6px 8px;line-height:1.5}</style>
+<script type="importmap">{"imports":{"three":"/three/three.module.js","three/addons/":"/three/addons/"}}</script></head>
+<body><div id="hud">drag = look, wheel = zoom, WASD = move. ?cam=door|bench|recycler|pump|screen|bed|lock|top|wide|back &amp; level=0..1 &amp; upg=lock:2,alarm:1,sentry:1,lockbox:1 &amp; side=S|N|E|W &amp; hud=0 &amp; shot=name</div>
+<script type="module">
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { buildHomeRoom } from '/rooms5art-home.js';
+const q = new URLSearchParams(location.search);
+if (q.get('hud') === '0') document.getElementById('hud').remove();
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1); renderer.setSize(innerWidth, innerHeight); renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15; renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x0b0b0e);
+// same lighting as the game: hemisphere 0.9 + RoomEnvironment 0.4 + the one pooled PointLight that sits in this room (preview stand-in)
+scene.add(new THREE.HemisphereLight(0xffffff, 0xeeebe4, 0.9));
+const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromScene(new RoomEnvironment(), 0.035).texture; scene.environmentIntensity = 0.4;
+const lamp = new THREE.PointLight(0xfff6ea, 9, 0, 1.2); lamp.position.set(0.4, 3.1, -0.6); scene.add(lamp);
+const side = q.get('side') || 'S';
+const home = buildHomeRoom(THREE, {}, { doorSide: side, seed: +(q.get('seed') || 3), owner: q.get('owner') || 'Grimble' });
+scene.add(home.group); window.home = home;
+home.setPumpLevel(q.has('level') ? +q.get('level') : 0.65);
+(q.get('upg') || '').split(',').filter(Boolean).forEach(s => { const [n, l] = s.split(':'); home.setUpgrade(n, +l || 1); });
+const cam = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.05, 190);
+const R = { S: 0, E: Math.PI / 2, N: Math.PI, W: -Math.PI / 2 }[side];
+const rot = (x, y, z) => new THREE.Vector3(x, y, z).applyAxisAngle(new THREE.Vector3(0, 1, 0), R);
+const PRESETS = { door: [[0, 1.6, 4.3], [0, 1.4, -3]], bench: [[0, 1.7, 0.8], [-2, 1.2, -4.3]], recycler: [[0, 1.7, -1.2], [1, 1.1, -4]], pump: [[1.0, 1.7, -0.5], [4.2, 1.2, -1.9]], screen: [[2.0, 1.7, 2.2], [4.6, 1.5, 0.6]], bed: [[-0.5, 1.7, 0.6], [-4.2, 0.6, 3.2]], top: [[0, 9, 4.5], [0, 0, -0.5]], wide: [[-0.4, 2.2, 4.5], [0.6, 1.2, -2.5]], back: [[2.5, 1.9, -0.5], [-2.5, 1.3, 1.5]], lock: [[0.8, 1.8, 1.6], [4.2, 0.6, 3.5]], gate: [[0.3, 1.6, 0.8], [-0.5, 2.0, 5]] };
+const P = PRESETS[q.get('cam') || 'wide'];
+const pos = rot(...P[0]), look = rot(...P[1]).sub(pos);
+let yaw = Math.atan2(-look.x, -look.z), pitch = Math.atan2(look.y, Math.hypot(look.x, look.z));
+cam.rotation.order = 'YXZ'; cam.position.copy(pos);
+let drag = false; addEventListener('pointerdown', () => drag = true); addEventListener('pointerup', () => drag = false);
+addEventListener('pointermove', e => { if (drag) { yaw -= e.movementX * 0.004; pitch = Math.max(-1.4, Math.min(1.4, pitch - e.movementY * 0.004)); } });
+const keys = {}; addEventListener('keydown', e => keys[e.code] = 1); addEventListener('keyup', e => keys[e.code] = 0);
+addEventListener('wheel', e => { cam.fov = Math.max(30, Math.min(100, cam.fov + e.deltaY * 0.03)); cam.updateProjectionMatrix(); });
+addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); });
+let last = performance.now(), frames = 0; const t0 = last;
+function loop(now) {
+  const dt = Math.min(0.1, (now - last) / 1000); last = now; const t = (now - t0) / 1000;
+  const f = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0), s = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+  cam.position.x += (-Math.sin(yaw) * f + Math.cos(yaw) * s) * dt * 3; cam.position.z += (-Math.cos(yaw) * f - Math.sin(yaw) * s) * dt * 3;
+  cam.rotation.set(pitch, yaw, 0); home.update(q.has('t') ? +q.get('t') : t); renderer.render(scene, cam);
+  if (++frames === 40 && q.has('shot')) renderer.domElement.toBlob(b => fetch('/__save?name=' + q.get('shot'), { method: 'POST', body: b }).then(() => document.title = 'saved ' + q.get('shot')), 'image/jpeg', 0.9);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+window.drawInfo = () => ({ calls: renderer.info.render.calls, tris: renderer.info.render.triangles });
+</script></body></html>
