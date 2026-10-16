@@ -82,7 +82,7 @@ function show(name) {
   setTimeout(() => { const first = name === 'chars' && document.querySelector('#chars-list .cplay'); const el = first || $(f); el && el.focus({ preventScroll: true }); }, 30);
   if (name === 'main') $('b-start').focus();
   curPanel = name; document.querySelector('#menu .col').classList.toggle('sub', name !== 'main'); $('menu').classList.toggle('sub', name !== 'main');
-  document.querySelector('#menu .col').classList.toggle('wide', name === 'chars' || name === 'inv'); tip(null);
+  document.querySelector('#menu .col').classList.toggle('wide', name === 'chars' || name === 'inv'); document.querySelector('#menu .col').classList.toggle('xwide', name === 'settings' || name === 'controls'); tip(null);
 }
 let curPanel = 'main';
 $('b-settings').onclick = () => show('settings'); $('b-controls').onclick = () => show('controls');
@@ -107,6 +107,42 @@ function trophyCanvas(size) {
   g.lineWidth = 0.04; g.fillRect(.45, .64, .1, .16); g.fillRect(.28, .8, .44, .1); g.strokeRect(.28, .8, .44, .1);
   return c;
 }
+// 3D portrait of a goblin type: rendered once into an offscreen target with its own little studio rig (never touches the game scene), cached as a data URL
+const PORT = {}; let portScene = null, portCam = null, portRT = null;
+function portraitURL(type) {
+  if (PORT[type] !== undefined) return PORT[type];
+  PORT[type] = null;
+  try {
+    const r = GK.renderer, S = 256;
+    if (!portScene) {
+      portScene = new THREE.Scene(); portScene.add(new THREE.AmbientLight(0x8a7a66, 1.5));
+      const k = new THREE.DirectionalLight(0xffe2b0, 3.4); k.position.set(2.5, 3, 4); portScene.add(k);
+      const rim = new THREE.DirectionalLight(0x44e0c0, 2.2); rim.position.set(-3, 2, -2.5); portScene.add(rim);
+      if (GK.scene && GK.scene.environment) { portScene.environment = GK.scene.environment; if ('environmentIntensity' in portScene) portScene.environmentIntensity = 0.5; }
+      portCam = new THREE.PerspectiveCamera(26, 1, 0.1, 40); portRT = new THREE.WebGLRenderTarget(S, S, { samples: 4 }); portRT.texture.colorSpace = THREE.SRGBColorSpace;
+    }
+    const g = GK.build(type); g.traverse(o => { if (o.isSprite) o.visible = false; }); g.rotation.y = 0.4; portScene.add(g);
+    const box = new THREE.Box3().setFromObject(g), h = box.max.y - box.min.y, ty = box.max.y - h * 0.38, d = h * 1.55;
+    portCam.position.set(d * 0.18, ty + h * 0.04, d); portCam.lookAt(0, ty, 0); portCam.updateProjectionMatrix();
+    const cc = new THREE.Color(); r.getClearColor(cc); const ca = r.getClearAlpha(), prev = r.getRenderTarget();
+    r.setClearColor(0x000000, 0); r.setRenderTarget(portRT); r.clear(); r.render(portScene, portCam); r.setRenderTarget(prev); r.setClearColor(cc, ca);
+    const px = new Uint8Array(S * S * 4); r.readRenderTargetPixels(portRT, 0, 0, S, S, px);
+    const cv = document.createElement('canvas'); cv.width = cv.height = S; const g2 = cv.getContext('2d'), im = g2.createImageData(S, S);
+    for (let y = 0; y < S; y++) im.data.set(px.subarray((S - 1 - y) * S * 4, (S - y) * S * 4), y * S * 4);
+    g2.putImageData(im, 0, 0); PORT[type] = cv.toDataURL('image/png'); portScene.remove(g);
+  } catch (e) { console.warn('portrait failed', e); }
+  return PORT[type];
+}
+function portraitEl(type, size) {
+  const url = portraitURL(type), w = document.createElement('div'); w.className = 'cport'; w.style.width = w.style.height = size + 'px';
+  if (url) { const i = document.createElement('img'); i.src = url; i.alt = ''; w.appendChild(i); } else w.appendChild(headCanvas(type, size - 6));
+  return w;
+}
+function ago(t) {
+  if (!t) return 'No wins yet';
+  const m = Math.max(0, (Date.now() - t) / 60000);
+  return 'Last win ' + (m < 2 ? 'just now' : m < 90 ? Math.round(m) + ' min ago' : m < 60 * 36 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' days ago');
+}
 function fixedWins(c) { return Math.max(0, c.wins | 0); }
 function renderChars() {
   const box = $('chars-list'); box.textContent = '';
@@ -117,13 +153,15 @@ function renderChars() {
   box.style.display = '';
   for (const c of list) {
     const card = document.createElement('div'); card.className = 'ccard';
-    card.appendChild(headCanvas(c.goblin, 56));
+    card.appendChild(portraitEl(c.goblin, 84));
     const info = document.createElement('div'); info.className = 'cinfo';
     const n = document.createElement('div'); n.className = 'cname'; n.textContent = c.name; info.appendChild(n);
     const t = document.createElement('div'); t.className = 'ctype'; t.textContent = GK.NAMES[c.goblin] || 'Goblin'; info.appendChild(t);
-    const w = document.createElement('div'); w.className = 'cwins'; w.appendChild(trophyCanvas(20));
+    const w = document.createElement('div'); w.className = 'cwins'; w.appendChild(trophyCanvas(22));
     const l = document.createElement('span'); l.textContent = 'Victories'; const b = document.createElement('b'); b.textContent = fixedWins(c); w.append(l, b); info.appendChild(w);
+    const when = document.createElement('div'); when.className = 'cwhen'; when.textContent = ago(c.lastWin); info.appendChild(when);
     card.appendChild(info);
+    if (c.best && window.GKICONS) { const bi = itemInfo(c.best), bx = document.createElement('div'); bx.className = 'cbest'; bx.title = 'Best item: ' + bi.name; if (bi.tier) bx.dataset.t = bi.tier; bx.appendChild(GKICONS.canvas(bi.key || c.best, 36)); bx.onmouseenter = bx.onmousemove = e => tip(bi, e); bx.onmouseleave = () => tip(null); card.appendChild(bx); }
     const p = document.createElement('button'); p.className = 'cplay'; p.textContent = 'Play'; p.onclick = () => startGame({ goblin: c.goblin, wins: fixedWins(c), charId: c.id });
     card.appendChild(p); box.appendChild(card);
   }
@@ -132,12 +170,14 @@ const itipEl = $('itip');
 const TCOL = { common: '#b9b4a4', uncommon: '#6fdc6a', rare: '#5aa8ff', mythic: '#c06bff', legendary: '#ffb02e', transcendent: '#8ff6ff' };
 function tip(it, e) {
   if (!it) { itipEl.style.display = 'none'; return; }
-  itipEl.textContent = ''; const b = document.createElement('b'); b.textContent = it.name; const s = document.createElement('span');
+  itipEl.textContent = ''; itipEl.style.setProperty('--tc', TCOL[it.tier] || 'var(--gold3)'); const b = document.createElement('b'); b.textContent = it.name; const s = document.createElement('span');
   const tn = it.tierN != null ? it.tierN : null, tname = it.tier ? it.tier[0].toUpperCase() + it.tier.slice(1) : '';
   const st = it.attack != null ? 'Attack ' + it.attack : it.health != null ? 'Health ' + it.health : (it.desc || '');
   s.textContent = [tn != null ? 'Tier ' + tn + (tname ? ' \u00b7 ' + tname : '') : '', st].filter(Boolean).join(' \u00b7 ');
   if (it.tier && TCOL[it.tier]) b.style.color = TCOL[it.tier];
   itipEl.append(b, s);
+  if (it.desc && it.attack == null && it.health == null) { /* desc already in the stat line */ } else if (it.desc) { const d = document.createElement('em'); d.textContent = it.desc; itipEl.appendChild(d); }
+  if (it.price) { const p = document.createElement('i'); p.textContent = 'Worth ~' + it.price + ' gold'; itipEl.appendChild(p); }
   itipEl.style.display = 'block';
   const w = itipEl.offsetWidth, h = itipEl.offsetHeight;
   itipEl.style.left = Math.max(4, Math.min(innerWidth - w - 4, e.clientX + 14)) + 'px'; itipEl.style.top = Math.max(4, Math.min(innerHeight - h - 4, e.clientY + 14)) + 'px';
@@ -178,7 +218,7 @@ function renderInv() {
     if (i < st.length) {
       const it = itemInfo(st[i]); s.classList.add('full');
       if (it.tier && TCOL[it.tier]) { s.style.borderColor = TCOL[it.tier] + '66'; s.dataset.t = it.tier; }
-      s.appendChild(window.GKICONS ? GKICONS.canvas(it.key, 40) : document.createTextNode('?'));
+      s.appendChild(window.GKICONS ? GKICONS.canvas(it.key, 52) : document.createTextNode('?'));
       if (it.tierN != null) { const bd = document.createElement('i'); bd.className = 'tb'; bd.textContent = it.tierN; bd.style.color = TCOL[it.tier] || '#ddd'; s.appendChild(bd); }
       s.onmouseenter = s.onmousemove = e => tip(it, e); s.onmouseleave = () => tip(null);
     }
@@ -497,6 +537,10 @@ GK.menuDebug = { addDemoSave() {
 $('retry').onclick = () => location.reload();
 // MATCH-BEGIN (the wheel screen is the queue: "Finding goblins N/8", elapsed time, Cancel; the match start moves you into the rooms, see game.js MATCH block)
 let qT0 = 0, qTimer = 0, qDone = false;
+function pips(n, size, cls) {   // one diamond per seat: gold while the match fills, teal as goblins report ready
+  const box = $('qpips'); if (!box) return; if (box.children.length !== size) { box.textContent = ''; for (let i = 0; i < size; i++) box.appendChild(document.createElement('i')); }
+  [...box.children].forEach((d, i) => { d.className = i < n ? cls : ''; });
+}
 function qFmt(ms) { const s = Math.max(0, Math.floor(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
 function queueStart() {
   qT0 = performance.now(); qDone = false; $('qbox').classList.add('on'); $('qfind').textContent = 'Finding goblins'; $('qtime').textContent = '0:00';
@@ -516,9 +560,9 @@ GK.menu = {
   },
   _wheel: wh,
   /* MATCH-BEGIN */
-  queue(n, size, since) { if (qDone) return; if (since > 0) qT0 = performance.now() - since; $('qfind').textContent = 'Finding goblins ' + n + '/' + size; },
-  queueDone() { qDone = true; $('qfind').textContent = 'Waiting for goblins…'; $('qtime').textContent = ''; $('qcancel').style.display = 'none'; },
-  ready(n, size) { if (qDone) $('qtime').textContent = n + '/' + size + ' ready'; },
+  queue(n, size, since) { if (qDone) return; if (since > 0) qT0 = performance.now() - since; $('qfind').textContent = 'Finding goblins ' + n + '/' + size; pips(n, size, 'on'); },
+  queueDone() { qDone = true; $('qfind').textContent = 'Waiting for goblins…'; $('qtime').textContent = ''; $('qcancel').style.display = 'none'; pips(0, 8, 'rdy'); },
+  ready(n, size) { if (qDone) { $('qtime').textContent = n + '/' + size + ' ready'; pips(n, size, 'rdy'); } },
   whenRevealed(cb, maxMs, holdMs = 1500) { if (!wheelGo || wh.state === 'idle') return cb(); const t0 = performance.now(), t = setInterval(() => { const now = performance.now(), late = now - t0 > maxMs; if ((wh.shown && now - (wh.shownAt || now) >= holdMs) || late) { clearInterval(t); cb(); } }, 100); },   // the goblin you rolled stays on screen for holdMs before we report ready (the server waits up to its READY_MS)   // wait until the wheel has landed and shown the goblin (but not past maxMs: the server starts the countdown 8 s after the match forms)
   hideWheel,
   /* MATCH-END */

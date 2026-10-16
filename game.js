@@ -3851,6 +3851,19 @@ GK.applyDrops = applyDrops; GK.showDied = showDied;
 // ---- death screen: run stats, then back to the main menu or straight into the queue again ----
 const run = { t0: 0, n0: 0, dist: 0 };
 let deathEl = null;
+// RESULT-SCREENS (menu2): one card layout for death and victory: the big result, the run in three numbers, the details, then the buttons (styles: .rs* in index.html)
+const rsEsc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+function rsCard(o) {   // o: { big, sub (html), hero: [[value, label]], rows: [[label, value]], mid (html), note, btns: [[id, label, primary]] }
+  return '<div class="rs-card"><h1 class="rs-big">' + rsEsc(o.big) + '</h1><div class="rs-sub">' + o.sub + '</div>'
+    + '<div class="rs-hero">' + o.hero.map(h => '<div><b>' + rsEsc(h[0]) + '</b><span>' + rsEsc(h[1]) + '</span></div>').join('') + '</div>'
+    + '<dl class="rs-rows">' + o.rows.map(r => '<dt>' + rsEsc(r[0]) + '</dt><dd>' + rsEsc(r[1]) + '</dd>').join('') + '</dl>' + (o.mid || '')
+    + (o.note ? '<div class="rs-note">' + o.note + '</div>' : '')
+    + '<div class="rs-btns">' + o.btns.map(b => '<button id="' + b[0] + '" class="rbtn' + (b[2] ? ' primary' : '') + '">' + rsEsc(b[1]) + '</button>').join('') + '</div></div>';
+}
+function rsShow(cls, html) {
+  const el = document.createElement('div'); el.className = 'rs ' + cls; el.innerHTML = html; document.body.appendChild(el); requestAnimationFrame(() => { el.style.opacity = 1; }); return el;
+}
+const rsTime = secs => Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0');
 function showDeathScreen(info) {
   if (GK.mode !== 'play') return;
   const mine = actors.get(me), type = mine ? mine.goblin : 0, gear = GEAR[type], st = STATS[type];
@@ -3858,27 +3871,18 @@ function showDeathScreen(info) {
   const where = !WORLD.inGrid(P.x, P.z) ? 'Treasure room' : roomAt(P.x, P.z) === WORLD.VAULT ? 'THE VAULT' : 'Room ' + (roomAt(P.x, P.z) + 1);
   closeInv(true); closeShop(true); GK.mode = 'dead'; inside = false; keys.clear(); hideHotbar();
   try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
-  for (const id of ['hint', 'dot', 'rr', 'roundHud']) { const el = $(id); if (el) el.style.display = 'none'; }
+  for (const id of ['hint', 'dot', 'rr', 'roundHud', 'hud', 'gkLeft']) { const el = $(id); if (el) el.style.display = 'none'; }
   if (statsEl) statsEl.style.display = 'none';
   const rows = [['Goblin', NAMES[type]], ['Survived', Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0')], ['Round reached', n || 1], ['Distance travelled', Math.round(run.dist) + ' m'], ['Died in', where],
     ['Starting weapon', gear.weapon + ' (' + [tierTxt((itemsData().START[type] || {}).weapon), st.attack + ' dmg'].filter(Boolean).join(', ') + ')'], ['Starting armour', gear.armor + ' (' + [tierTxt((itemsData().START[type] || {}).armor), st.health + ' HP'].filter(Boolean).join(', ') + ')'], ['Dropped', [...((info && info.items) || []), ...(info && info.brain ? [info.brain] : [])].map(k => itemName(k) + (tierN(k) != null ? ' (T' + tierN(k) + ')' : '')).join(', ') || 'nothing']];
-  deathEl = document.createElement('div');
-  deathEl.style.cssText = 'position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,rgba(60,0,0,.55),rgba(0,0,0,.88));font-family:system-ui,sans-serif;color:#f2efe6;opacity:0;transition:opacity .8s';
-  deathEl.innerHTML = '<div style="width:min(520px,92vw);padding:28px 32px 26px;border-radius:16px;background:rgba(14,10,12,.82);border:1px solid rgba(255,90,74,.45);box-shadow:0 10px 60px rgba(0,0,0,.7)">'
-    + '<div style="text-align:center;color:#ff5a4a;font-weight:800;font-size:clamp(34px,6vw,58px);letter-spacing:.1em;text-shadow:0 0 24px rgba(255,60,40,.5)">YOU DIED</div>'
-    + '<div style="text-align:center;color:#b9b4ae;margin:2px 0 18px;letter-spacing:.14em;font-size:13px">YOUR RUN</div>'
-    + '<div style="display:grid;grid-template-columns:auto 1fr;gap:7px 22px;font-size:15px;font-variant-numeric:tabular-nums">'
-    + rows.map(r => '<span style="color:#aaa59d">' + r[0] + '</span><b style="font-weight:600;text-align:right">' + String(r[1]).replace(/</g, '&lt;') + '</b>').join('') + '</div>'
-    + '<div style="text-align:center;margin-top:16px;color:#ff8a7a;font-size:14px;letter-spacing:.04em">Everything you carried is lost.</div>'
-    + '<div style="display:flex;gap:12px;margin-top:20px"><button id="deathQueue" style="flex:1;padding:13px 10px;border:0;border-radius:10px;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font:800 16px system-ui,sans-serif;letter-spacing:.08em;cursor:pointer">REQUEUE</button>'
-    + '<button id="deathMenu" style="flex:1;padding:13px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.3);background:transparent;color:#f2efe6;font:700 16px system-ui,sans-serif;letter-spacing:.08em;cursor:pointer">MAIN MENU</button></div></div>';
-  document.body.appendChild(deathEl); requestAnimationFrame(() => { deathEl.style.opacity = 1; });
+  const dhero = [[rsTime(secs), 'Survived'], [n || 1, 'Round'], [(typeof CB !== 'undefined' && CB.kills) | 0, 'Kills']];
+  deathEl = rsShow('dead', rsCard({ big: 'You died', sub: 'Your run', hero: dhero, rows: rows.filter(r => r[0] !== 'Survived' && r[0] !== 'Round reached'), note: 'Everything you carried is lost.', btns: [['deathQueue', 'Requeue', true], ['deathMenu', 'Main menu']] }));
   $('deathQueue').onclick = () => { try { sessionStorage.setItem('gk.requeue', '1'); } catch (e) {} location.reload(); };   // fresh connection, new wheel roll
   $('deathMenu').onclick = () => location.reload();
   if (GK.fun) GK.fun.deathButton(info);   // FUN: SPECTATE
   if (window.GK_OFFLINE) {   // demo: come back as a new goblin right here; the loot pile stays and can be looted
     const b = document.createElement('button'); b.id = 'deathAgain'; b.textContent = 'NEW GOBLIN (DEMO)';
-    b.style.cssText = 'flex:1;padding:13px 10px;border-radius:10px;border:1px solid rgba(255,215,94,.5);background:transparent;color:#ffd75e;font:700 14px system-ui,sans-serif;letter-spacing:.06em;cursor:pointer';
+    b.className = 'rbtn';
     $('deathMenu').parentNode.appendChild(b);
     b.onclick = () => {
       deathEl.remove(); deathEl = null; GK.mode = 'play'; inside = true; winDone = false; run.t0 = performance.now(); run.dist = 0; myGold = 0;
@@ -4351,6 +4355,34 @@ addEventListener('keydown', e => {
 addEventListener('wheel', e => { if (GK.mode === 'play' && !invOpen && !shopOpen) { ensureHotbar(); setSel(qSel +(e.deltaY > 0 ? 1 : -1)); } }, { passive: true });
 
 // ---------- victory screen: the run is won, the character and everything it carried are kept ----------
+// WINSTAGE (menu2): on victory the goblin that won turns on a gold-lit floor behind the card. Own scene and lights, so the game scene (9 PointLight + 1 Hemisphere) is untouched; frame() renders this instead of the world while it is on.
+const WINSTAGE = { on: false, sc: null, cam: null, g: null, pts: null, key: null, W: 0, H: 0 };
+function winStageStart(type) {
+  try {
+    const sc = new THREE.Scene(); sc.background = new THREE.Color(0x07060a); sc.fog = new THREE.FogExp2(0x07060a, 0.045);
+    if (scene.environment) { sc.environment = scene.environment; if ('environmentIntensity' in sc) sc.environmentIntensity = 0.4; }
+    sc.add(new THREE.AmbientLight(0x4a3c2a, 1.3));
+    const key = new THREE.SpotLight(0xffe2a8, 130, 30, 0.5, 0.6, 1.4); key.position.set(0, 9, 4.5); key.target.position.set(0, 1.2, 0); sc.add(key, key.target);
+    const rimA = new THREE.PointLight(0xff9a30, 50, 22, 1.6); rimA.position.set(-4, 2.6, -3); sc.add(rimA);
+    const rimB = new THREE.PointLight(0x38d6b4, 36, 22, 1.6); rimB.position.set(4.2, 2.2, -2.4); sc.add(rimB);
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(14, 64), new THREE.MeshStandardMaterial({ color: 0x0c0a0c, metalness: 0.65, roughness: 0.3, envMapIntensity: 0.6 })); floor.rotation.x = -Math.PI / 2; sc.add(floor);
+    for (const [r0, r1, o] of [[2.1, 2.16, 0.9], [3.3, 3.34, 0.5], [4.6, 4.63, 0.3]]) { const ring = new THREE.Mesh(new THREE.RingGeometry(r0, r1, 96), new THREE.MeshBasicMaterial({ color: 0xf5c451, transparent: true, opacity: o, blending: THREE.AdditiveBlending, depthWrite: false })); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.012; sc.add(ring); }
+    const g = buildGoblin(type, true); g.traverse(o => { if (o.isSprite) o.visible = false; }); g.scale.multiplyScalar(1.4); sc.add(g);
+    const NP = 200, pos = new Float32Array(NP * 3), seed = new Float32Array(NP);
+    for (let i = 0; i < NP; i++) { const a = Math.random() * 6.283, r = 0.8 + Math.random() * 7; pos[i * 3] = Math.cos(a) * r; pos[i * 3 + 1] = Math.random() * 8; pos[i * 3 + 2] = Math.sin(a) * r - 1; seed[i] = Math.random() * 6; }
+    const pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const pts = new THREE.Points(pg, new THREE.PointsMaterial({ map: glowTex, color: 0xffd36a, size: 0.22, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.85, fog: false })); pts.frustumCulled = false; sc.add(pts);
+    const cam = new THREE.PerspectiveCamera(34, 1, 0.1, 60); cam.position.set(0, 1.9, 6.4); cam.lookAt(0, 1.25, 0);
+    Object.assign(WINSTAGE, { on: true, sc, cam, g, pts, seed, key, W: 0, H: 0 });
+  } catch (e) { WINSTAGE.on = false; console.warn('win stage skipped', e); }
+}
+function winStageRender(now, dt) {
+  const S = WINSTAGE, W = innerWidth, H = innerHeight;
+  if (W !== S.W || H !== S.H) { S.W = W; S.H = H; S.cam.aspect = W / H; if (W / H > 1.25) S.cam.setViewOffset(W, H, -W * 0.2, 0, W, H); else S.cam.clearViewOffset(); S.cam.updateProjectionMatrix(); renderer.setSize(W, H); }
+  const t = now / 1000; S.g.rotation.y += dt * 0.7; S.g.position.y = Math.sin(t * 1.4) * 0.04; S.key.intensity = 125 + Math.sin(t * 1.7) * 8;
+  const p = S.pts.geometry.attributes.position.array; for (let i = 0; i < p.length / 3; i++) { p[i * 3 + 1] -= dt * (0.25 + (i % 5) * 0.08); p[i * 3] += Math.sin(t * 0.8 + S.seed[i]) * dt * 0.2; if (p[i * 3 + 1] < 0) p[i * 3 + 1] = 8; } S.pts.geometry.attributes.position.needsUpdate = true;
+  renderer.setRenderTarget(null); renderer.render(S.sc, S.cam);
+}
 let winEl = null, winDone = false;
 function showVictory(info) {
   if (GK.mode !== 'play' || winDone) return;
@@ -4363,29 +4395,21 @@ function showVictory(info) {
   const wins = c && c.wins != null ? c.wins : (GK.wins | 0) + 1;
   closeInv(true); closeShop(true); GK.mode = 'win'; inside = false; keys.clear(); hideHotbar();
   try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
-  for (const id of ['hint', 'dot', 'rr', 'roundHud']) { const el = $(id); if (el) el.style.display = 'none'; }
+  for (const id of ['hint', 'dot', 'rr', 'roundHud', 'hud', 'gkLeft']) { const el = $(id); if (el) el.style.display = 'none'; }
   if (statsEl) statsEl.style.display = 'none';
   const esc = s => String(s).replace(/</g, '&lt;');
   const pm = (info && info.parts) || {}, partsStr = Object.keys(pm).filter(p => pm[p] > 0).map(p => pm[p] + ' ' + partName(p)).join(', ');
   const rows = [['Goblin', NAMES[type]], ['Survived', Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0')], ['Round reached', n || 1], ['Distance travelled', Math.round(run.dist) + ' m'], ...(info && info.gold != null ? [['Gold left', info.gold]] : []), ['Victories', wins]];
-  winEl = document.createElement('div');
-  winEl.style.cssText = 'position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,rgba(70,50,0,.5),rgba(0,0,0,.88));font-family:system-ui,sans-serif;color:#f2efe6;opacity:0;transition:opacity .8s;overflow:auto';
-  winEl.innerHTML = '<div style="width:min(540px,92vw);max-height:96vh;overflow:auto;box-sizing:border-box;padding:20px 32px 20px;border-radius:16px;background:rgba(16,13,6,.84);border:1px solid rgba(255,215,94,.55);box-shadow:0 10px 60px rgba(0,0,0,.7),0 0 50px rgba(255,200,60,.12)">'
-    + '<div style="text-align:center;color:' + GOLD + ';font-weight:800;font-size:clamp(34px,6vw,58px);letter-spacing:.1em;text-shadow:0 0 26px rgba(255,200,60,.55)">VICTORY</div>'
-    + '<div style="text-align:center;color:#d8c98c;margin:2px 0 14px;letter-spacing:.06em;font-size:15px">' + (c ? '<b style="color:' + GOLD + '">' + esc(c.name) + '</b> now has <b style="color:' + GOLD + '">' + wins + '</b> victor' + (wins === 1 ? 'y' : 'ies') : 'Your run is won') + '</div>'
-    + '<div style="display:grid;grid-template-columns:auto 1fr;gap:6px 22px;font-size:15px;font-variant-numeric:tabular-nums">'
-    + rows.map(r => '<span style="color:#aaa59d">' + r[0] + '</span><b style="font-weight:600;text-align:right">' + esc(r[1]) + '</b>').join('') + '</div>'
-    + '<div style="text-align:center;margin:16px 0 8px;color:#b9b4ae;letter-spacing:.14em;font-size:12px">ITEMS YOU KEEP</div>'
-    + '<div id="winItems" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;min-height:30px"></div>'
-    + (partsStr ? '<div style="text-align:center;margin-top:8px;color:#d8c98c;font-size:13px">Materials kept: ' + esc(partsStr) + '</div>' : '')
-    + '<div style="text-align:center;margin-top:8px;color:#8d8880;font-size:12px">' + (c ? 'Saved to your stash, along with ' + esc(c.name) : 'Saved to your stash') + '</div>'
-    + '<div style="display:flex;gap:12px;margin-top:20px"><button id="winQueue" style="flex:1;padding:13px 10px;border:0;border-radius:10px;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font:800 16px system-ui,sans-serif;letter-spacing:.08em;cursor:pointer">QUEUE AGAIN</button>'
-    + '<button id="winMenu" style="flex:1;padding:13px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.3);background:transparent;color:#f2efe6;font:700 16px system-ui,sans-serif;letter-spacing:.08em;cursor:pointer">MAIN MENU</button></div></div>';
-  document.body.appendChild(winEl); requestAnimationFrame(() => { winEl.style.opacity = 1; });
+  const whero = [[rsTime(secs), 'Survived'], [n || 1, 'Round'], [wins, wins === 1 ? 'Victory' : 'Victories']];
+  const wsub = c ? '<b>' + esc(c.name) + '</b> now has <b>' + wins + '</b> victor' + (wins === 1 ? 'y' : 'ies') : 'Your run is won';
+  winEl = rsShow('win', rsCard({ big: 'Victory', sub: wsub, hero: whero, rows: rows.filter(r => !['Survived', 'Round reached', 'Victories'].includes(r[0])),
+    mid: '<div class="rs-h">Items you keep</div><div id="winItems" class="rs-items"></div>' + (partsStr ? '<div class="rs-note">Materials kept: ' + esc(partsStr) + '</div>' : ''),
+    note: c ? 'Saved to your stash, along with ' + esc(c.name) : 'Saved to your stash', btns: [['winQueue', 'Queue again', true], ['winMenu', 'Main menu']] }));
+  winStageStart(type);
   const box = $('winItems');
-  if (!items.length) box.innerHTML = '<span style="color:#8d8880">nothing</span>';
+  if (!items.length) box.innerHTML = '<span style="color:var(--mut)">nothing</span>';
   for (const k of items) {
-    const d = document.createElement('div'); d.style.cssText = 'width:74px;padding:6px 2px 5px;border-radius:9px;background:rgba(0,0,0,.4);border:1px solid rgba(255,215,94,.3);text-align:center;font-size:11px;line-height:1.2;display:flex;flex-direction:column;align-items:center;gap:2px';
+    const d = document.createElement('div'); d.className = 'rs-item';
     d.appendChild(mkIcon(k, 44)); const t = document.createElement('span'); t.textContent = itemName(k) + (tierN(k) != null ? ' (T' + tierN(k) + ')' : ''); d.appendChild(t); box.appendChild(d);
   }
   $('winQueue').onclick = () => { try { sessionStorage.setItem('gk.requeue', '1'); if (from != null) sessionStorage.setItem('gk.requeueChar', String(from)); } catch (e) {} location.reload(); };
@@ -6041,6 +6065,7 @@ GK.social = SOC;
 function frame(now) {
   const dt = clamp((now - last) / 1000, 0.001, 0.05); last = now; const t = now / 1000;
   if (GK.mode !== 'play' && GK.mode !== 'dead' && GK.mode !== 'win') { vmHide(); GK.menu && GK.menu.render(now, dt); requestAnimationFrame(frame); return; }
+  if (GK.mode === 'win' && WINSTAGE.on) { winStageRender(now, dt); requestAnimationFrame(frame); return; }   // MENU2: the victory stage replaces the world view
   panelTick();
   /* FEEL-BEGIN */ if (GK.feel) GK.feel.tick(dt, now); /* FEEL-END */
   const mine = actors.get(me);
