@@ -32,7 +32,7 @@ const ready = c => c.send({ ready: 1 });
     const late = await connectRaw(srv.port); await sleep(200); assert(!late.state.matchStart && late.state.queue.n === 1, 'late joiner must not enter the closed match');
     for (const c of [...cs, late]) await c.close();
   });
-  await run('movement, attacks, claims and door picks are ignored before GO', { GK_MATCH_SIZE: '2', GK_COUNTDOWN_MS: '1500' }, async srv => {
+  await run('movement, attacks, claims and door picks are ignored before GO', { GK_MATCH_SIZE: '2', GK_COUNTDOWN_MS: '3000' }, async srv => {
     const a = await connectRaw(srv.port, 'goblin=2'), b = await connectRaw(srv.port, 'goblin=2');
     await a.until(x => x.state.matchStart, 2000, 'matchStart'); ready(a); ready(b);
     await a.until(x => x.state.countdown, 2000, 'countdown');
@@ -41,7 +41,7 @@ const ready = c => c.send({ ready: 1 });
     await sleep(300);
     assert(Date.now() < a.state.countdown.at, 'test timing: GO already happened');
     assert(a.msgs.slice(n0).every(m => !m.players && !m.claimFail && !m.swing && !(m.sel && Object.keys(m.sel).length)), 'a locked message got an answer: ' + JSON.stringify(a.msgs.slice(n0)).slice(0, 200));
-    await a.until(x => x.state.round && x.state.round.left < 29500 && x.msgs.slice(n0).some(m => m.players), 3500, 'GO');
+    await a.until(x => x.state.round && x.state.round.left < 29500 && x.msgs.slice(n0).some(m => m.players), 5500, 'GO');
     const after = a.state.players.find(p => p.id === a.state.you); eq([after.x, after.z], [me.x, me.z], 'moved before GO');
     // movement now arrives as {s:[t,id,x,z,yaw,v,age]} snapshots to the OTHER player; the mover gets a {fix} only if refused. A 0.4 m step from the spawn is legal.
     const nb = b.msgs.length, nf = a.msgs.length, tx = +(me.x + 0.4).toFixed(2); a.send({ m: [tx, me.z, 1] });
