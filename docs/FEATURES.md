@@ -20,6 +20,7 @@ Screenshots live in `docs/screens/`. Agent reports live in `docs/reports/`.
   - Merchant room: merchant goblin behind glass (click to trade: 5 random items with gold prices), knowledge tree, crafting bench, recycler.
 - **Stations**: the recycler and crafting bench can be used by everyone. Recycler turns weapons into parts (wood, metal, leather, cloth, gold, bone, gems, string, crystal).
   Bench crafts tier 0 base items for everyone; higher tiers unlock through the knowledge tree. Knowledge tree has 5 tiers needing 20, 40, 60, 80, 100 knowledge.
+  The knowledge tree is a workbench: E at either opens one screen with the perk tree and the recipes. Knowledge points (1 per 20 knowledge, +1 per brain eaten) buy 9 perks in 3 branches (Craft, Lore, Guts) that last until death. See docs/KNOWLEDGE.md.
 - **Items**: 20 base weapons and 20 base armours, each with its own drop chance (each list adds up to 100%); rarer means stronger. Tiers: 0 common, 1 uncommon, 2 rare, 3 mythic, 4 legendary, 5 transcendent.
 - **Inventory**: 9 backpack slots + weapon slot + armour slot + 3 quick slots (hotbar).
 - **Death**: everything is lost. The dead goblin drops its weapon, armour, inventory and its goblin brain (eat it for 5% of that goblin's knowledge). The player sees a death screen with run stats and can requeue or go to the main menu.

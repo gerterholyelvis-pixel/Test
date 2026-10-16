@@ -225,6 +225,7 @@ function equip(p, goblin) { // give a player a goblin type with its starting gea
   const s = G.START[goblin];
   p.goblin = goblin; p.inv = { backpack: Array(G.SLOTS.backpack).fill(null), quick: Array(G.SLOTS.quick).fill(null), weapon: s.weapon, armor: s.armor };
   p.stats = null; recalc(p); p.gold = G.START_GOLD; p.parts = {}; for (const pt of G.PARTS) p.parts[pt.key] = 0;
+  p.perks = []; p.swUsed = false;   // KNOWLEDGE: perks last until death
 }
 const sendGold = p => { if (p.ws) sendTo(p.ws, { gold: p.gold }); };
 const sendParts = p => { if (p.ws) sendTo(p.ws, { parts: p.parts }); };
@@ -234,20 +235,42 @@ function hasStation(m, p, st) { // merchant rooms have all stations, mystery 'st
   return L === 'merchant' || (L === 'mystery' && !!my && my.kind === 'stations' && Array.isArray(my.stations) && my.stations.includes(st));
 }
 function craft(m, p, rid) { // {craft: recipeId}; returns null or a failure reason
-  if (!hasStation(m, p, 'workbench')) return 'room';
+  if (!knowBench(m, p)) return 'room';   // KNOWLEDGE: the knowledge tree is a workbench too
   const r = typeof rid === 'string' && G.RECIPES.find(x => x.id === rid);
   if (!r) return 'recipe';
   if (p.stats.knowledge < (r.needs || 0)) return 'knowledge';
-  for (const k in r.cost) if ((p.parts[k] || 0) < r.cost[k]) return 'parts';
+  const cost = G.recipeCost(r, p.perks);   // KNOWLEDGE: Thrifty Hands
+  for (const k in cost) if ((p.parts[k] || 0) < cost[k]) return 'parts';
   if (p.inv.backpack.indexOf(null) < 0) return 'space';
-  for (const k in r.cost) p.parts[k] -= r.cost[k];
+  for (const k in cost) p.parts[k] -= cost[k];
   giveItem(p, r.out); sendParts(p); sendTo(p.ws, { crafted: { key: r.out, recipe: r.id } });
   return null;
 }
+// KNOWLEDGE-BEGIN (docs/KNOWLEDGE.md): learning perks and reforging gear at a workbench or knowledge tree
+const knowBench = (m, p) => hasStation(m, p, 'workbench') || hasStation(m, p, 'knowledge');
+function learn(m, p, id) {   // {learn: perkId}; returns null or a failure reason
+  if (!knowBench(m, p)) return 'room';
+  const why = G.learnFail(id, p.stats.knowledge, p.brains, p.perks); if (why) return why;
+  p.perks.push(id); sendTo(p.ws, { perks: p.perks, learned: id });
+  return null;
+}
+function reforge(m, p, slot) {   // {reforge: slotId}: needs the Reforge perk, a bench, and the parts; the item becomes its '+' twin in place
+  if (typeof slot !== 'string' || !SLOT_IDS.has(slot)) return 'item';
+  if (!knowBench(m, p)) return 'room';
+  if (!G.hasPerk(p.perks, 'reforge')) return 'perk';
+  const key = getSlot(p.inv, slot), cost = key && G.reforgeCost(key); if (!cost) return 'item';
+  for (const k in cost) if ((p.parts[k] || 0) < cost[k]) return 'parts';
+  for (const k in cost) p.parts[k] -= cost[k];
+  setSlot(p.inv, slot, key + '+'); recalc(p); sendInv(p); sendParts(p); sendTo(p.ws, { reforged: { slot, key: key + '+' } }); m.dirty = true;
+  return null;
+}
+const BOT_PERKS = ['medic', 'thrifty', 'gourmet', 'scrapper', 'secondwind'];   // bots only take perks that act on their own (no map reading, no reforging)
+function botLearn(m, p) { for (const id of BOT_PERKS) if (!learn(m, p, id)) return; }
+// KNOWLEDGE-END
 function recycle(m, p, slot) { // returns null on success or a failure reason
   if (typeof slot !== 'string' || !/^(b[0-8]|q[0-2])$/.test(slot)) return 'item';
   if (!hasStation(m, p, 'recycler')) return 'room';
-  const key = getSlot(p.inv, slot), y = key && G.recycleYield(key);
+  const key = getSlot(p.inv, slot), y = key && G.recycleFor(key, p.perks);   // KNOWLEDGE: Scrapper
   if (!y) return 'item';
   setSlot(p.inv, slot, null);
   for (const k in y) p.parts[k] = (p.parts[k] || 0) + y[k];
@@ -425,7 +448,8 @@ function ruleOpen(m, fresh) {   // doorclose: the doors stay open for DOOR_LIFE 
   m.openLeft = next; return keep;
 }
 function hitTarget(m, ws, p, tws, t, dmg, now, wname) {   // damage, hit broadcast, kill bookkeeping (melee and bolts share it)
-  const hp = Math.max(0, t.stats.health - dmg);
+  let hp = Math.max(0, t.stats.health - dmg);
+  if (hp <= 0 && !t.npc && !t.swUsed && G.hasPerk(t.perks, 'secondwind')) { hp = 1; t.swUsed = true; sendTo(t.ws, { secondWind: 1 }); }   // KNOWLEDGE: Second Wind
   t.stats.health = hp; t.hurtAt = now; t.hitBy = p.id; m.dirty = true;   // hitBy: a bot notices whoever hurt it at once
   bcast(m, { hit: { from: p.id, to: t.id, dmg, hp, max: t.stats.maxHealth, dead: hp <= 0 } });
   if (hp <= 0) { p.kills = (p.kills || 0) + 1; const bounty = paceBounty(p, t); t.killedBy = p.id; { const kw = p.npc ? null : p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; t.killer = { name: p.name || 'Goblin', npc: !!p.npc, w: wname || (kw ? kw.name : (p.npc ? '' : 'Fists')) }; } sendTo(ws, { kills: p.kills, ...(bounty ? { bounty } : null) }); sendFeed(m, p, t); die(tws, t); }
@@ -495,7 +519,8 @@ function ruleTick(m, now) {   // called from the 50 ms match loop
 function eatBrain(p, key) { // applies a brain's knowledge gain, returns the gain
   const gain = G.brainGain(key);
   p.stats.knowledge = Math.round((p.stats.knowledge + gain) * 100) / 100; p.brains = (p.brains || 0) + 1;
-  sendTo(p.ws, { ate: { gain, knowledge: p.stats.knowledge } }); p.match.dirty = true;
+  const heal = G.hasPerk(p.perks, 'gourmet') && !(p.match && p.match.sudden) ? Math.min(G.KNOW.gourmet, p.stats.maxHealth - p.stats.health) : 0; if (heal > 0) p.stats.health += heal;   // KNOWLEDGE: Brain Gourmet
+  sendTo(p.ws, { ate: { gain, knowledge: p.stats.knowledge, ...(heal > 0 ? { heal } : null) } }); p.match.dirty = true;
   return gain;
 }
 function eat(p, slot) { // {eat: slotId}
@@ -1056,10 +1081,10 @@ function useItem(m, p, slot, now) {   // returns null or a failure reason
   switch (it.use) {
     case 'heal':
       if (m.sudden) return 'sudden'; if (hp >= max) return 'full'; if (now < (p.healAt || 0)) return 'busy';
-      p.stats.health = Math.min(max, hp + it.n); p.healAt = now + 4000; extra = { hp: p.stats.health - hp }; break;
+      p.stats.health = Math.min(max, hp + Math.round(it.n * G.healMult(p.perks))); p.healAt = now + 4000; extra = { hp: p.stats.health - hp }; break;
     case 'regen':
       if (m.sudden) return 'sudden'; if (hp >= max) return 'full'; if (p.regen && p.regen.until > now) return 'busy';
-      p.regen = { until: now + it.ms, next: now + 1000, since: now, n: it.n }; extra = { ms: it.ms }; break;
+      p.regen = { until: now + it.ms, next: now + 1000, since: now, n: Math.round(it.n * G.healMult(p.perks)) }; extra = { ms: it.ms }; break;
     case 'speed':
       if (now < (p.tonicUntil || 0)) return 'busy';
       p.tonicUntil = now + it.ms; extra = { ms: it.ms, n: it.n }; break;
@@ -1162,9 +1187,10 @@ const isJunkW = (p, k) => { const it = G.ITEMS[k]; return !!it && it.type === 'w
 const botNeedsStation = p => BOT_SLOTS.some(s => { const k = getSlot(p.inv, s); return k && isJunkW(p, k); });
 function botStations(m, p) {   // in a merchant room or a stations mystery room: recycle junk weapons, then craft the best tier 0 recipe the parts pay for
   if (hasStation(m, p, 'recycler')) for (const s of BOT_SLOTS) { const k = getSlot(p.inv, s); if (k && isJunkW(p, k) && !recycle(m, p, s)) BS.rec = (BS.rec || 0) + 1; }
-  if (hasStation(m, p, 'workbench')) {
+  if (knowBench(m, p)) botLearn(m, p);   // KNOWLEDGE: spend knowledge points on the bot perks
+  if (knowBench(m, p)) {
     let best = null, bv = -1;
-    for (const r of G.RECIPES) { if (r.tier !== 0 || !Object.keys(r.cost).every(k => (p.parts[k] || 0) >= r.cost[k])) continue; const o = G.ITEMS[r.out], v = o.attack || o.health || 0; if (!v) continue; if (v > bv) { bv = v; best = r; } }
+    for (const r of G.RECIPES) { const cost = G.recipeCost(r, p.perks); if (r.tier !== 0 || !Object.keys(cost).every(k => (p.parts[k] || 0) >= cost[k])) continue; const o = G.ITEMS[r.out], v = o.attack || o.health || 0; if (!v) continue; if (v > bv) { bv = v; best = r; } }
     if (best && !craft(m, p, best.id)) BS.cra = (BS.cra || 0) + 1;
   }
 }
@@ -1254,7 +1280,7 @@ function socResume(ws, token) {   // the player of this token, now bound to the 
 }
 function socWelcome(m, ws, p) {   // full resync: the welcome fields of startMatch, then the current round, players, drops, board and countdown
   sendTo(ws, { token: p.token, resumed: 1, you: p.id, chests: m.chests, chestKeys: m.chestKeys, layout: m.layout, mystery: m.mystery, shops: m.shops, drops: m.drops, ...roundState(m), match: matchInfo(m), players: [...m.players.values()].map(pub), fix: [p.x, p.z] });
-  sendTo(ws, { inv: p.inv }); sendGold(p); sendParts(p);
+  sendTo(ws, { inv: p.inv }); sendGold(p); sendParts(p); sendTo(ws, { perks: p.perks || [] });   // KNOWLEDGE
   if (m.phase === 'play') sendTo(ws, { board: { left: matchInfo(m).alive, rows: boardRows(m) } });
   if (m.phase === 'countdown') sendTo(ws, { countdown: { at: m.goAt, now: Date.now() } });
 }
@@ -1318,6 +1344,7 @@ wss.on('connection', (ws, req) => {
     } else if (dbg && Array.isArray(d.tp) && d.tp.length === 2 && d.tp.every(v => typeof v === 'number' && Number.isFinite(v))) {
       { const pr = p.room; place(p, clamp(d.tp[0]), clamp(d.tp[1])); noteRoom(m, p, pr); } m.dirty = true;
     } else if (dbg && Number.isFinite(d.hp)) { p.stats.health = Math.max(1, Math.min(p.stats.maxHealth, Math.floor(d.hp))); p.hurtAt = now; m.dirty = true;   // test hook (utility items)
+    } else if (dbg && Number.isFinite(d.know)) { p.stats.knowledge = Math.max(0, d.know); m.dirty = true;   // test hook (knowledge.test.js)
     } else if (dbg && Number.isFinite(d.gold)) { p.gold = Math.max(0, Math.floor(d.gold)); sendGold(p);
     } else if (typeof d.throw === 'string') { throwPlushie(m, p, d.throw, now);   // LOOT
     } else if (typeof d.use === 'string') { const why = useItem(m, p, d.use, now); if (why) sendTo(ws, { useFail: why });   // UTILITY
@@ -1329,6 +1356,8 @@ wss.on('connection', (ws, req) => {
     } else if (Array.isArray(d.loot)) { const why = loot(m, p, d.loot); if (why) sendTo(ws, { lootFail: why });
     } else if (typeof d.craft === 'string') {
       const why = craft(m, p, d.craft); if (why) sendTo(ws, { craftFail: why });
+    } else if (typeof d.learn === 'string') { const why = learn(m, p, d.learn); if (why) sendTo(ws, { learnFail: why });   // KNOWLEDGE
+    } else if (typeof d.reforge === 'string') { const why = reforge(m, p, d.reforge); if (why) sendTo(ws, { reforgeFail: why });
     } else if (typeof d.recycle === 'string') {
       const why = recycle(m, p, d.recycle); if (why) sendTo(ws, { recycleFail: why });
     } else if (d.claim === 1) { const why = claim(m, p); if (why) sendTo(ws, { claimFail: why });

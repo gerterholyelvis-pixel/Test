@@ -168,11 +168,64 @@
     'w:pike': { range: 3.1, cd: 850 }, 'w:ogreclub': { cd: 1000 }, 'w:maul': { cd: 1300 }, 'w:arbalest': { range: 16, cd: 1700, ranged: true }, 'w:crownsplitter': { range: 2.4, cd: 800 } };
   function combat(weaponKey) {   // { dmg, range, cd } for the equipped weapon; damage is the attack stat, at least 1 (a staff with attack 0 still bonks for 1)
     const w = weaponKey && ITEMS[weaponKey], fam = w ? w.family : null, ranged = fam === 'bow' || fam === 'crossbow';
-    const t = (w && WEAPON_TUNE[weaponKey]) || {}, isR = t.ranged != null ? t.ranged : ranged;
+    const t = (w && (WEAPON_TUNE[weaponKey] || (w.base && WEAPON_TUNE[w.base]))) || {}, isR = t.ranged != null ? t.ranged : ranged;
     return { dmg: w ? Math.max(1, w.attack) : COMBAT.unarmed, range: t.range || (isR ? COMBAT.ranged : COMBAT.melee), cd: t.cd || (w ? (SWING_CD[fam] || 600) : 500), ranged: isR };
   }
   const armorSpeed = key => { const it = key && ITEMS[key]; return (it && it.speed) || 1; };   // ARMOUR-2: movement multiplier of the worn armour
   const MAX_ARMOR_SPEED = Math.max(1, ...Object.values(ITEMS).map(i => i.speed || 1));
-  root.GKITEMS = { UTIL_KEYS, pickUtil, armorSpeed, MAX_ARMOR_SPEED, randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, WEAPON_TUNE, START, KNOWLEDGE, SPEED, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info };
+  // KNOWLEDGE-BEGIN (docs/KNOWLEDGE.md): the knowledge tree is the workbench. Knowledge (innate + brains) unlocks recipe tiers; knowledge points buy perks.
+  // Points: 1 per KNOW.step knowledge, +1 per brain eaten, minus what the learned perks cost. Perks last until death (death loses them, like everything else).
+  // Perks are keyed off generic item fields (type, use, tierN, family), never item ids, so new items work with them automatically.
+  const KNOW = { step: 20, medic: 1.5, gourmet: 25, up: 1.2 };
+  const BRANCHES = [{ id: 'craft', name: 'Craft' }, { id: 'lore', name: 'Lore' }, { id: 'guts', name: 'Guts' }];
+  const PERKS = [   // learned top to bottom inside a branch: rank 2 needs rank 1 of the same branch
+    { id: 'thrifty', branch: 'craft', rank: 1, cost: 1, name: 'Thrifty Hands', desc: 'Recipes cost 1 less of every material they need 2 or more of.' },
+    { id: 'scrapper', branch: 'craft', rank: 2, cost: 2, name: 'Scrapper', desc: 'The recycler gives you +1 of every material.' },
+    { id: 'reforge', branch: 'craft', rank: 3, cost: 3, name: 'Reforge', desc: 'At the bench, reforge a weapon or armour once: +20% attack or health.' },
+    { id: 'appraiser', branch: 'lore', rank: 1, cost: 1, name: 'Appraiser', desc: 'Facility maps show what waits in every outer room.' },
+    { id: 'eavesdrop', branch: 'lore', rank: 2, cost: 2, name: 'Eavesdropper', desc: 'Facility maps show the doors every room is picking right now.' },
+    { id: 'headcount', branch: 'lore', rank: 3, cost: 3, name: 'Head Count', desc: 'Facility maps count the goblins in every room and name the Vault relic.' },
+    { id: 'medic', branch: 'guts', rank: 1, cost: 1, name: 'Field Medic', desc: 'Healing items heal 50% more.' },
+    { id: 'gourmet', branch: 'guts', rank: 2, cost: 2, name: 'Brain Gourmet', desc: 'Eating a brain also heals 25 HP (not in sudden death).' },
+    { id: 'secondwind', branch: 'guts', rank: 3, cost: 3, name: 'Second Wind', desc: 'Once per match, a killing blow leaves you at 1 HP instead.' },
+  ];
+  const PERK = Object.create(null); for (const p of PERKS) PERK[p.id] = p;   // no prototype: ids come from the network
+  const hasPerk = (perks, id) => Array.isArray(perks) && perks.includes(id);
+  const perkSpent = perks => (Array.isArray(perks) ? perks : []).reduce((s, id) => s + (PERK[id] ? PERK[id].cost : 0), 0);
+  const knowPoints = (knowledge, brains, perks) => Math.max(0, Math.floor((+knowledge || 0) / KNOW.step + 1e-9) + (brains | 0) - perkSpent(perks));
+  const knowTier = knowledge => KNOWLEDGE_TIERS.filter(t => (+knowledge || 0) >= t).length;   // 0..5: highest recipe tier unlocked
+  function learnFail(id, knowledge, brains, perks) {   // null when the perk can be learned, else 'perk' | 'have' | 'order' | 'points'
+    const pk = typeof id === 'string' && PERK[id]; if (!pk) return 'perk';
+    if (hasPerk(perks, id)) return 'have';
+    if (pk.rank > 1 && !PERKS.some(q => q.branch === pk.branch && q.rank === pk.rank - 1 && hasPerk(perks, q.id))) return 'order';
+    return knowPoints(knowledge, brains, perks) < pk.cost ? 'points' : null;
+  }
+  function recipeCost(r, perks) { const c = { ...r.cost }; if (hasPerk(perks, 'thrifty')) for (const k in c) if (c[k] >= 2) c[k]--; return c; }   // Thrifty Hands
+  function recycleFor(key, perks) {   // what the recycler really gives this goblin: Scrapper adds 1 per part on found gear (chance > 0); anything a recipe makes never returns more than that recipe costs (no craft/recycle loops)
+    const y = recycleYield(key), it = ITEMS[key]; if (!y || !it) return y;
+    if (hasPerk(perks, 'scrapper') && it.chance > 0) for (const k in y) y[k]++;
+    const r = RECIPES.find(q => q.out === key || (it.base && q.out === it.base));
+    if (r) { const c = recipeCost(r, perks); for (const k in y) { y[k] = Math.min(y[k], c[k] || 0); if (!y[k]) delete y[k]; } }
+    return Object.keys(y).length ? y : null;
+  }
+  const healMult = perks => hasPerk(perks, 'medic') ? KNOW.medic : 1;   // Field Medic: items with use 'heal' or 'regen'
+  // Reforge: every weapon and armour has a reforged twin '<key>+' (+20% stat, at least +2), never dropped or sold; it keeps family, tier and feel (combat() reads the base's tune).
+  for (const k of Object.keys(ITEMS)) {
+    const it = ITEMS[k]; if ((it.type !== 'weapon' && it.type !== 'armor') || it.up || ITEMS[k + '+']) continue;
+    const s = it.type === 'weapon' ? 'attack' : 'health';
+    ITEMS[k + '+'] = { ...it, key: k + '+', name: it.name + ' +', [s]: Math.max(it[s] + 2, Math.round(it[s] * KNOW.up)), chance: 0, price: Math.round(it.price * 1.3 / 5) * 5, up: 1, base: k };
+  }
+  function reforgeCost(key) {   // parts to reforge this item, or null if it cannot be reforged (not gear, or already reforged)
+    const it = typeof key === 'string' && ITEMS[key]; if (!it || it.up || !ITEMS[key + '+']) return null;
+    const t = it.tierN | 0; return it.type === 'weapon' ? { metal: 2 + t } : { metal: 1 + t, leather: 1 };
+  }
+  // Higher tiers get real gear to craft (tier N = the item's tier, needs KNOWLEDGE_TIERS[N-1] knowledge). Costs beat one same-tier recycle so crafting is an upgrade path, not a swap.
+  for (const [key, tier, cost] of [['w:ironsword', 2, { metal: 8, leather: 3, string: 1 }], ['a:chain', 2, { metal: 8, leather: 2, string: 1 }],
+    ['w:halberd', 3, { metal: 10, wood: 6, cloth: 2 }], ['a:cuirass', 3, { metal: 12, leather: 4 }],
+    ['w:claymore', 4, { metal: 14, leather: 4, gold: 3, gem: 1 }], ['a:dwarven', 4, { metal: 16, leather: 4, gold: 3, gem: 1 }],
+    ['w:slayer', 5, { metal: 18, gold: 8, gem: 4, crystal: 3 }], ['a:aegis', 5, { metal: 20, gold: 8, gem: 4, crystal: 3 }]])
+    if (ITEMS[key] && !RECIPES.some(r => r.out === key)) RECIPES.push({ id: 'r:' + key, out: key, tier, cost, needs: KNOWLEDGE_TIERS[tier - 1] });
+  // KNOWLEDGE-END
+  root.GKITEMS = { KNOW, BRANCHES, PERKS, PERK, hasPerk, perkSpent, knowPoints, knowTier, learnFail, recipeCost, recycleFor, healMult, reforgeCost, UTIL_KEYS, pickUtil, armorSpeed, MAX_ARMOR_SPEED, randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, WEAPON_TUNE, START, KNOWLEDGE, SPEED, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.GKITEMS;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -688,6 +688,7 @@ function canon(key) {
   if (key.startsWith('m:brain')) return 'm:brain';
   if (key === 'gold' || key === 'm:gold' || key === 'part:gold') return 'gold';
   const k = key.replace(/^(m:|part:)/, ''); if (PART_KEYS.includes(k)) return 'part:' + k;
+  { const it = infoOf(key); if (it && it.up && it.base) return canon(it.base); }   // KNOWLEDGE: a reforged item looks like its base
   if (infoOf(key)) return key; if (infoOf('w:' + key)) return 'w:' + key;
   return null;
 }
