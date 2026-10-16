@@ -606,6 +606,21 @@ const WS = {
   'w:staff': ['staff', { gem: 0x66ddff }, { handle: ['wood', 0x6a4426] }, 1.8],
   'w:scepter': ['scepter', {}, {}, 1.3],
 };
+// ---------- WEAPONS 2 (placeholder models; reuse the existing family builders with new parameters; another pass may polish these) ----------
+function registerWeapons2() {
+  Object.assign(WS, {
+    'w:scrapcleaver': ['sword', { len: 0.5, w: 0.17, tip: 0.8, notch: 1, guard: 'none', grip: 0.2, gr: 0.02, rings: 3, pommel: 'none' }, { steel: 0x7d6a58, iron: 1, rough: 0.9, handle: ['wood', 0x5a4028], trim: ROPE }, 1.15],
+    'w:handxbow': ['crossbow', { len: 0.5, span: 0.24, bend: 0.3 }, { handle: ['wood', 0x7a5230], trim: 'dark', steel: 0x8f969c }, 0.7],
+    'w:twinfangs': ['sword', { len: 0.32, w: 0.05, tip: 0.3, curve: 0.06, guard: 'wing', gw: 0.07, grip: 0.12, gr: 0.015, rings: 4, pr: 0.022, ridge: 0.7, gth: 0.011 }, { steel: 0xb8e0c8, handle: ['leather', 0x2f4a38] }, 0.95],
+    'w:throwaxe': ['axe', { haft: 0.5, size: 0.5 }, { steel: 0xa8b0b8, handle: ['wood', 0x8a5a30] }, 0.9],
+    'w:pike': ['spear', { shaft: 2.4, head: 0.22, hw: 0.04 }, { steel: 0xb4bcc4, handle: ['wood', 0x6a4426] }, 2.6],
+    'w:ogreclub': ['club', { len: 1.25, headR: 0.15, nails: 6 }, { handle: ['wood', 0x5a3a22], iron: 1, steel: 0x8a8f95 }, 1.5],
+    'w:maul': ['hammer', { len: 1.45, head: 0.5 }, { steel: 0x6e757d, handle: ['wood', 0x3f2a1a] }, 1.9],
+    'w:arbalest': ['crossbow', { len: 1.2, span: 0.5, bend: 0.55 }, { handle: ['wood', 0x4f3220], trim: 'dark', steel: 0x5d646c }, 1.35],
+    'w:crownsplitter': ['axe', { haft: 1.3, size: 1.2, double: 1, rings: 4 }, { steel: 0xe8c860, keepTone: 1, handle: ['wood', 0x2a1018] }, 1.9],
+  });
+}
+registerWeapons2();
 const AS = {
   'a:sack': ['cloth', { kind: 'sack', belt: 1, rag: 0.07, prof: { hemY: 0.5, hemR: 0.3, waistR: 0.3, chestR: 0.3, shR: 0.26, waistY: 0.7 } }, { main: ['cloth', 0xc4ae7c, { tex: 'burlap' }], trim: CLO(0x7a5a30, { tex: 'burlap' }) }],
   'a:cloth': ['cloth', { patches: 4, belt: 1, rag: 0.04 }, { main: ['cloth', 0xcdbf9a], trim: CLO(0x8a3a30) }],

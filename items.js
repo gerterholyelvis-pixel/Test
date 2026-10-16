@@ -10,6 +10,9 @@
     ['longbow', 'Longbow', 'bow', 3.5, 38], ['halberd', 'Halberd', 'halberd', 3, 43], ['warhammer', 'Warhammer', 'hammer', 2.5, 49], ['claymore', 'Claymore', 'sword', 2, 56],
     ['wyrmspear', 'Wyrmfang Spear', 'spear', 1.5, 64], ['executioner', "Executioner's Axe", 'axe', 1, 75], ['shadowfang', 'Shadowfang Dagger', 'dagger', 0.6, 90], ['slayer', 'Goblin Slayer', 'sword', 0.4, 110],
   ];
+  // WEAPONS 2: nine more weapons with their own feel (per-item reach / swing time in WEAPON_TUNE below). They reuse existing families so models, icons and swing clips work; chances are relative weights (the pool no longer sums to exactly 100).
+  W.push(['scrapcleaver', 'Scrap Cleaver', 'sword', 7.2, 14], ['handxbow', 'Hand Crossbow', 'crossbow', 5, 14], ['twinfangs', 'Twin Fangs', 'dagger', 4.6, 9], ['throwaxe', 'Throwing Axe', 'axe', 4.6, 21],
+    ['pike', 'Heavy Pike', 'spear', 3, 30], ['ogreclub', 'Ogre Club', 'club', 2.6, 40], ['maul', 'Siege Maul', 'hammer', 1.1, 72], ['arbalest', 'Arbalest', 'crossbow', 1, 66], ['crownsplitter', 'Crownsplitter', 'axe', 0.3, 120]);
   const A = [   // [key, name, family, chance %, health]
     ['sack', 'Burlap Sack', 'cloth', 10.5, 20], ['cloth', 'Patched Cloth', 'cloth', 10, 30], ['rags', 'Ragged Tunic', 'cloth', 9.5, 40], ['scraps', 'Leather Scraps', 'leather', 8.5, 45],
     ['vest', 'Studded Vest', 'leather', 8, 50], ['jerkin', 'Hide Jerkin', 'leather', 7.5, 56], ['gambeson', 'Padded Gambeson', 'cloth', 6.5, 62], ['boiled', 'Boiled Leather', 'leather', 6, 70],
@@ -139,12 +142,16 @@
   // ---- COMBAT rules shared by server and client (server is authoritative). weaponKey may be null (unarmed).
   const COMBAT = { melee: 2.2, ranged: 12, cone: 70 * Math.PI / 180, slack: 0.3, unarmed: 1, regenIdle: 6000, regenEvery: 4000, regenAmt: 1 };
   const SWING_CD = { dagger: 450, sword: 600, club: 600, mace: 650, spear: 650, axe: 750, flail: 750, hammer: 900, halberd: 850, bow: 700, crossbow: 1000, staff: 600, scepter: 600 };   // ms between swings per weapon family, default 600
+  // per-weapon overrides of the family defaults: range (m), cd (ms between swings), ranged (hits from afar, like a bow). Reach / speed / weight is what tells the new weapons apart.
+  const WEAPON_TUNE = { 'w:scrapcleaver': { range: 1.9, cd: 560 }, 'w:twinfangs': { range: 1.9, cd: 300 }, 'w:handxbow': { range: 10, cd: 650, ranged: true }, 'w:throwaxe': { range: 8, cd: 900, ranged: true },
+    'w:pike': { range: 3.1, cd: 850 }, 'w:ogreclub': { cd: 1000 }, 'w:maul': { cd: 1300 }, 'w:arbalest': { range: 16, cd: 1700, ranged: true }, 'w:crownsplitter': { range: 2.4, cd: 800 } };
   function combat(weaponKey) {   // { dmg, range, cd } for the equipped weapon; damage is the attack stat, at least 1 (a staff with attack 0 still bonks for 1)
     const w = weaponKey && ITEMS[weaponKey], fam = w ? w.family : null, ranged = fam === 'bow' || fam === 'crossbow';
-    return { dmg: w ? Math.max(1, w.attack) : COMBAT.unarmed, range: ranged ? COMBAT.ranged : COMBAT.melee, cd: w ? (SWING_CD[fam] || 600) : 500, ranged };
+    const t = (w && WEAPON_TUNE[weaponKey]) || {}, isR = t.ranged != null ? t.ranged : ranged;
+    return { dmg: w ? Math.max(1, w.attack) : COMBAT.unarmed, range: t.range || (isR ? COMBAT.ranged : COMBAT.melee), cd: t.cd || (w ? (SWING_CD[fam] || 600) : 500), ranged: isR };
   }
   const armorSpeed = key => { const it = key && ITEMS[key]; return (it && it.speed) || 1; };   // ARMOUR-2: movement multiplier of the worn armour
   const MAX_ARMOR_SPEED = Math.max(1, ...Object.values(ITEMS).map(i => i.speed || 1));
-  root.GKITEMS = { armorSpeed, MAX_ARMOR_SPEED, randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, START, KNOWLEDGE, SPEED, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info };
+  root.GKITEMS = { armorSpeed, MAX_ARMOR_SPEED, randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, WEAPON_TUNE, START, KNOWLEDGE, SPEED, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.GKITEMS;
 })(typeof window !== 'undefined' ? window : globalThis);
