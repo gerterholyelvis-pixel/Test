@@ -20,6 +20,7 @@ const L = require('./lib.js'), { assert, eq } = L;
     ['weapon families map to sound classes, unknown ones fall back by name then to blade', async () => {
       eq(A.weaponClass('sword'), 'blade'); eq(A.weaponClass('hammer'), 'heavy'); eq(A.weaponClass('crossbow'), 'xbow'); eq(A.weaponClass(null), 'fist');
       eq(A.weaponClass('warbow'), 'bow'); eq(A.weaponClass('glaive'), 'pole'); eq(A.weaponClass('zzz'), 'blade'); eq(A.weaponClass('wand'), 'magic');
+      eq(A.weaponClass('whip'), 'whip'); eq(A.weaponClass('sling'), 'sling'); for (const f of ['whip', 'sling']) for (const n of ['swing', 'hit']) assert(A.play(n, { fam: f, armor: 'leather' }) !== undefined, n + ' ' + f);   // WEAPONS3
     }],
     ['armour families map to materials with a fallback', async () => {
       eq(A.armorClass('plate'), 'plate'); eq(A.armorClass('robe'), 'cloth'); eq(A.armorClass('chainshirt'), 'mail'); eq(A.armorClass(null), 'flesh'); eq(A.armorClass('weird'), 'leather');

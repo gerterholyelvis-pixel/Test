@@ -653,6 +653,127 @@ delete AS['a:leafwrapX'];
 // base-item aliases and unknown future items fall back to a representative of their family
 const REP = { club: 'w:club', dagger: 'w:dagger', sword: 'w:ironsword', bow: 'w:bow', axe: 'w:axe', spear: 'w:spear', mace: 'w:mace', crossbow: 'w:crossbow', flail: 'w:flail', halberd: 'w:halberd', hammer: 'w:warhammer', staff: 'w:staff', scepter: 'w:scepter', cloth: 'a:cloth', leather: 'a:vest', mail: 'a:chain', harness: 'a:harness', plate: 'a:cuirass', robe: 'a:robe', royal: 'a:royal' };
 
+// ---------- WEAPONS 3 BEGIN: fourteen weapons with their own silhouettes (whips, sling, wands, knives, trident, glaive, frying pan, staves) ----------
+// New builders go into WF under names of their own (an item's `family` in items.js is only used for sounds, clips and fallbacks), items are registered in registerWeapons3().
+Object.assign(REP, { whip: 'w:bullwhip', sling: 'w:sling', wand: 'w:emberwand' });
+Object.assign(WF, {
+  whip(b, c, p) {   // short wrapped handle, a lazily waving cord that tapers to a frayed popper; optional thorns (barbed) or gold cord (gilded)
+    const { S, T, H, G } = c, gl = 0.3, L = p.len ?? 1.2, cm = p.cord === 'G' ? G : p.cord === 'S' ? S : T, N = 30, pts = [];
+    gripPart(b, H, 0, gl, 0.024, 6, T); pommel(b, p.cord === 'G' ? G : T, 'ball', -0.02, 0.034); b.add(p.cord === 'S' ? S : T, TOR(0.03, 0.011, 6, 14), 0, gl, 0, PI / 2);
+    b.add(H, lathe([0, gl, 0.03, gl, 0.026, gl + 0.04, 0.012, gl + 0.07, 0, gl + 0.07], 10));
+    for (let i = 0; i <= N; i++) { const t = i / N, a = t * PI * (p.waves ?? 2.2), env = Math.sin(Math.min(1, t * 2.2) * PI / 2) * (0.35 + 0.65 * t); pts.push([Math.sin(a) * (p.amp ?? 0.08) * env, gl + 0.06 + t * L, Math.cos(a * 0.9 + 0.5) * (p.amp ?? 0.08) * 0.8 * env]); }
+    b.add(cm, sweep(pts, t => 0.028 * (1 - t) + 0.007, 6, 60));
+    if (p.barbs) for (let i = 2; i < 12; i++) { const k = Math.round(i / 12 * N * 0.95), q = pts[k], q2 = pts[Math.min(N, k + 1)], ang = i * 2.1; b.aim(S, CONE(0.011, 0.055, 4), q[0], q[1], q[2], Math.cos(ang) * 0.9 + (q2[0] - q[0]), 0.35, Math.sin(ang) * 0.9 + (q2[2] - q[2])); }
+    if (p.cord === 'G') for (let i = 1; i < 8; i++) { const q = pts[Math.round(i / 8 * N * 0.9)]; b.add(S, TOR(0.016, 0.005, 5, 10), q[0], q[1], q[2], PI / 2, 0, 0); }
+    const e = pts[N]; for (let i = 0; i < 3; i++) b.aim(cm, CONE(0.006, 0.09, 4), e[0], e[1], e[2], Math.sin(i * 2.1) * 0.4, 1, Math.cos(i * 2.1) * 0.4);   // frayed popper
+    b.spine = { y0: 0.04, y1: gl - 0.02, rx: 0.02, rz: 0.03, kind: 'shaft', gs: 0.016 }; b.gem = [0, gl + 0.03, 0.035, 0.016];
+  },
+  sling(b, c, p) {   // forked branch slingshot: two rubber bands to a leather pouch holding a stone
+    const { S, T, H } = c, L = 0.3, rub = M('plain', 0x6e4a32, { rough: 0.9 });
+    b.add(H, lathe([0, 0, 0.02, 0, 0.028, 0.03, 0.024, L * 0.6, 0.03, L, 0, L], 10));
+    for (const sd of [-1, 1]) {
+      b.add(H, sweep([[0, L - 0.02, 0], [sd * 0.05, L + 0.07, 0], [sd * 0.115, L + 0.19, 0.01], [sd * 0.13, L + 0.28, 0]], t => 0.03 - 0.012 * t, 7, 14));
+      b.add(T, TOR(0.026, 0.008, 5, 10), sd * 0.128, L + 0.26, 0, PI / 2);   // binding where the band is tied
+      b.add(rub, sweep([[sd * 0.13, L + 0.28, 0], [sd * 0.07, L + 0.27, 0.07], [sd * 0.02, L + 0.24, 0.14]], 0.006, 5, 10));
+    }
+    b.add(T, SP(0.045, 10, 8), 0, L + 0.235, 0.15, 0, 0, 0, 1.3, 0.8, 0.5); b.add(S, SP(0.03, 10, 8), 0, L + 0.235, 0.17, 0, 0, 0, 1, 1, 1); b.add(T, TOR(0.024, 0.008, 5, 10), 0, L - 0.01, 0, PI / 2);
+    for (let i = 0; i < 3; i++) b.add(T, TOR(0.0285, 0.006, 5, 10), 0, 0.05 + i * 0.045, 0, PI / 2);
+    b.spine = { y0: 0.03, y1: L * 0.9, rx: 0.02, rz: 0.028, kind: 'shaft', gs: 0.016 }; b.gem = [0, L - 0.04, 0.03, 0.016];
+  },
+  wand(b, c, p) {   // slim tapered wand with a spiral wire and a gem in a small claw
+    const { S, T, H } = c, L = p.len ?? 0.6;
+    b.add(H, lathe([0, 0, 0.022, 0, 0.03, 0.03, 0.017, 0.12, 0.011, L * 0.8, 0.014, L, 0, L], 12));
+    const pts = []; for (let i = 0; i <= 18; i++) { const t = i / 18, a = t * TAU * 3; pts.push([Math.cos(a) * 0.018 * (1 - t * 0.35), 0.1 + t * (L - 0.14), Math.sin(a) * 0.018 * (1 - t * 0.35)]); }
+    b.add(T, sweep(pts, 0.0042, 4, 40)); b.add(T, SP(0.026, 10, 8), 0, 0, 0, 0, 0, 0, 1, 0.7, 1);
+    for (let i = 0; i < 4; i++) { const a = i * PI / 2 + 0.4; b.aim(T, CONE(0.01, 0.07, 4), Math.cos(a) * 0.022, L - 0.01, Math.sin(a) * 0.022, Math.cos(a) * 0.5, 1, Math.sin(a) * 0.5); }
+    const gc = M('gem', p.gem ?? 0xff7a2a, { ei: 1.7 }); b.add(gc, OCT, 0, L + 0.06, 0, 0, 0.4, 0, 0.034, 0.06, 0.034); b.ownGem = true;
+    b.spine = { y0: 0.1, y1: L * 0.7, rx: 0.015, rz: 0.018, kind: 'shaft', gs: 0.012 };
+  },
+  knives(b, c, p) {   // three throwing knives fanned out and tied together at the grips
+    const { S, T, H } = c, EG = M('steel', 0xeef2f6, { rough: 0.2 });
+    for (const rz of [-0.34, 0, 0.34]) {
+      const bl = ext(bladeShape(0.34, 0.075, { tip: 0.4, taper: 0.9, curve: rz * 0.05 }), 0.003, 0.011, 0.005, 2); bl.translate(0, 0.12, 0);
+      b.add(S, bl, 0, 0, rz === 0 ? 0.012 : 0, 0, 0, rz); b.add(EG, ext(polyShape([[-0.003, 0.14], [0.003, 0.14], [0.002, 0.42], [-0.002, 0.42]]), 0.002, 0.016, 0.003, 2), 0, 0, rz === 0 ? 0.012 : 0, 0, 0, rz);
+      b.add(H, lathe([0, -0.01, 0.015, -0.01, 0.017, 0.06, 0.014, 0.12, 0, 0.12], 8), 0, 0, 0, 0, 0, rz); b.add(T, TOR(0.022, 0.006, 5, 10), Math.sin(rz) * 0.035, -0.035 * Math.cos(rz), 0, 0, 0, 0);
+    }
+    b.add(T, TOR(0.034, 0.012, 6, 12), 0, 0.06, 0, PI / 2); b.add(T, TOR(0.036, 0.009, 6, 12), 0, 0.085, 0, PI / 2);
+    b.spine = { y0: 0.2, y1: 0.4, rx: 0.02, rz: 0.012, gs: 0.016 }; b.gem = [0, 0.065, 0.04, 0.016];
+  },
+  trident(b, c, p) {   // three barbed prongs joined by a curved bar on a long shaft
+    const { S, T, H } = c, L = p.shaft ?? 1.5;
+    b.add(H, lathe([0, 0, 0.018, 0, 0.022, 0.02, 0.02, L * 0.5, 0.022, L, 0, L], 12)); b.aim(S, CONE(0.02, 0.1, 6), 0, 0, 0, 0, -1, 0); b.add(T, TOR(0.022, 0.008, 6, 12), 0, 0.03, 0, PI / 2);
+    b.add(T, lathe([0, L - 0.04, 0.036, L - 0.04, 0.03, L + 0.04, 0.022, L + 0.07, 0, L + 0.07], 12));
+    b.add(S, sweep([[-0.15, L + 0.17, 0], [-0.11, L + 0.07, 0], [0, L + 0.04, 0], [0.11, L + 0.07, 0], [0.15, L + 0.17, 0]], 0.017, 7, 22));
+    for (const x of [-0.15, 0, 0.15]) {
+      const y0 = x === 0 ? L + 0.06 : L + 0.16, hl = x === 0 ? 0.4 : 0.3, w = x === 0 ? 0.045 : 0.032;
+      b.add(S, ext(polyShape([[-w * 0.6, 0], [-w, hl * 0.18], [0, hl], [w, hl * 0.18], [w * 0.6, 0]]), 0.004, 0.012, 0.005, 2), x, y0, 0);
+      for (const sd of [-1, 1]) b.add(S, ext(polyShape([[0, 0], [sd * w * 1.6, hl * 0.13], [sd * w * 0.4, hl * 0.2]]), 0.004, 0.008, 0.004, 1), x, y0 + hl * 0.14, 0);   // barbs
+    }
+    b.spine = { y0: L * 0.15, y1: L - 0.1, rx: 0.02, rz: 0.022, kind: 'shaft', gs: 0.02 }; b.gem = [0, L + 0.05, 0.035, 0.02];
+  },
+  glaive(b, c, p) {   // long pole, one broad curved blade with a spine hook, red tassel
+    const { S, T, H } = c, L = p.shaft ?? 1.7, EG = M('steel', 0xeef2f6, { rough: 0.2 });
+    gripPart(b, H, 0, L, 0.023, 0); b.aim(S, CONE(0.02, 0.09, 6), 0, 0, 0, 0, -1, 0); for (const y of [L * 0.2, L * 0.6]) b.add(T, TOR(0.027, 0.009, 6, 14), 0, y, 0, PI / 2);
+    b.add(T, lathe([0, L - 0.05, 0.034, L - 0.05, 0.03, L + 0.04, 0.02, L + 0.09, 0, L + 0.09], 12));
+    const bs = ext(bladeShape(0.66, 0.15, { curve: 0.14, tip: 0.38, taper: 0.55, hook: 0.03 }), 0.004, 0.013, 0.006, 2); b.add(S, bs, 0, L + 0.06, 0);
+    b.add(EG, ext(polyShape([[0.0, 0.08], [0.062, 0.1], [0.07, 0.4], [0.17, 0.62], [0.12, 0.38], [0.02, 0.08]]), 0.002, 0.016, 0.003, 2), 0, L + 0.06, 0);
+    b.add(S, sweep([[-0.01, L + 0.1, 0], [-0.1, L + 0.12, 0], [-0.17, L + 0.24, 0]], t => 0.022 * (1 - t) + 0.004, 6, 10));
+    const tas = M('cloth', 0x9a1c26); for (let i = 0; i < 6; i++) { const a = i / 6 * TAU; b.aim(tas, CONE(0.013, 0.16, 5), Math.cos(a) * 0.03, L - 0.05, Math.sin(a) * 0.03, Math.cos(a) * 0.5, -1, Math.sin(a) * 0.5); }
+    b.spine = { y0: L * 0.1, y1: L - 0.12, rx: 0.02, rz: 0.022, kind: 'shaft', gs: 0.02 }; b.gem = [0, L + 0.05, 0.036, 0.02];
+  },
+  pan(b, c, p) {   // dented iron frying pan: wrapped handle, hanging hole, a bright inner rim
+    const { S, T, H } = c, R = 0.19, hy = 0.34 + R;
+    b.add(H, lathe([0, 0, 0.022, 0, 0.026, 0.03, 0.021, 0.2, 0.024, 0.3, 0, 0.3], 10)); b.add(S, rbox(0.045, 0.2, 0.02, 0.006), 0, 0.38, 0); b.add(T, TOR(0.016, 0.005, 5, 10), 0, -0.012, 0, 0, 0, 0);
+    b.add(S, lathe([0, -0.02, R, -0.02, R * 1.04, 0.0, R * 1.06, 0.045, R * 0.99, 0.052], 28), 0, hy, 0, PI / 2, 0, 0);
+    b.add(M('iron', 0x1d1f22, { rough: 0.7 }), CYL(R * 0.9, R * 0.9, 0.004, 28), 0, hy, 0.045, PI / 2, 0, 0);
+    b.add(S, TOR(R * 1.0, 0.009, 6, 32), 0, hy, 0.05); b.add(T, SP(0.012, 6, 5), -R * 0.5, hy + 0.04, 0.052); b.add(T, SP(0.01, 6, 5), R * 0.45, hy - 0.08, 0.052);
+    b.spine = { y0: 0.05, y1: 0.28, rx: 0.02, rz: 0.026, kind: 'shaft', gs: 0.016 }; b.gem = [0, hy, 0.07, 0.022];
+  },
+  staff2(b, c, p) {   // three wizard staves: 'storm' (wire-wrapped, crystal cluster), 'arch' (silver crescent holding an orb), 'sun' (gold spire with a flaring sun)
+    const { S, T, H, G } = c, L = p.len ?? 1.5, pts = [], gc = M('gem', p.gem ?? 0x66ddff, { ei: 1.6 });
+    for (let i = 0; i <= 10; i++) pts.push([p.kind === 'sun' ? 0 : Math.sin(i * 0.7) * 0.012, i / 10 * L, p.kind === 'sun' ? 0 : Math.cos(i * 0.9) * 0.01]);
+    b.add(H, sweep(pts, t => 0.024 - 0.004 * t + (p.kind === 'storm' ? 0.003 * Math.sin(t * 24) : 0), 9, 44));
+    b.add(T, SP(0.032, 8, 6), 0, 0, 0, 0, 0, 0, 1, 0.8, 1); b.aim(T, CONE(0.014, 0.08, 6), 0, 0, 0, 0, -1, 0);
+    for (const y of [0.3, 0.52]) b.add(T, TOR(0.028, 0.009, 6, 14), 0, y * L, 0, PI / 2);
+    if (p.kind === 'storm') {
+      const w = []; for (let i = 0; i <= 20; i++) { const t = i / 20, a = t * TAU * 4; w.push([Math.cos(a) * 0.03, 0.4 * L + t * 0.5 * L, Math.sin(a) * 0.03]); } b.add(T, sweep(w, 0.004, 4, 50));
+      for (const [dx, dz, h, tl] of [[0, 0, 0.3, 0], [0.05, 0.02, 0.2, 0.35], [-0.05, 0.02, 0.22, -0.35], [0.01, -0.05, 0.18, 0.3]]) b.aim(gc, CONE(0.032, h, 5), dx, L + 0.01, dz, tl, 1, dz * 2);
+      b.add(T, lathe([0, L - 0.06, 0.04, L - 0.06, 0.05, L - 0.02, 0.035, L + 0.03, 0, L + 0.03], 10));
+    } else if (p.kind === 'arch') {
+      b.add(T, lathe([0, L - 0.05, 0.034, L - 0.05, 0.03, L, 0, L], 10));
+      b.add(S, sweep((() => { const o = []; for (let i = 0; i <= 14; i++) { const a = -2.5 + i / 14 * 5.0; o.push([Math.sin(a) * 0.15, L + 0.2 + Math.cos(a) * 0.15, 0]); } return o; })(), t => 0.012 + 0.016 * Math.sin(t * PI), 7, 36));   // crescent open at the top
+      b.add(gc, new THREE.IcosahedronGeometry(0.06, 0), 0, L + 0.2, 0, 0.3, 0.4, 0); for (const sd of [-1, 1]) b.add(T, SP(0.014, 6, 5), sd * 0.1, L + 0.34, 0);
+    } else {
+      b.add(G, lathe([0, L - 0.06, 0.038, L - 0.06, 0.03, L, 0.02, L + 0.06, 0, L + 0.06], 12));
+      b.add(G, TOR(0.14, 0.012, 7, 36), 0, L + 0.22, 0); b.add(G, TOR(0.1, 0.009, 7, 30), 0, L + 0.22, 0);
+      for (let i = 0; i < 12; i++) { const a = i / 12 * TAU, r = i % 2 ? 0.13 : 0.145; b.aim(G, CONE(0.016, i % 2 ? 0.07 : 0.11, 5), Math.cos(a) * r, L + 0.22 + Math.sin(a) * r, 0, Math.cos(a), Math.sin(a), 0); }
+      b.add(gc, new THREE.IcosahedronGeometry(0.07, 1), 0, L + 0.22, 0);
+    }
+    b.ownGem = true; b.spine = { y0: L * 0.1, y1: L * 0.28, rx: 0.02, rz: 0.026, kind: 'shaft', gs: 0.018 };
+  },
+});
+function registerWeapons3() {
+  const LE = (col, o) => ({ kind: 'leather', col, o });
+  Object.assign(WS, {
+    'w:shiv': ['sword', { len: 0.3, w: 0.07, tip: 0.5, notch: 1, guard: 'none', grip: 0.11, gr: 0.015, rings: 4, pommel: 'spike', pr: 0.016, ridge: 0.5 }, { steel: 0xe2d8bc, keepTone: 1, rough: 0.8, handle: ['leather', 0x4a3a28], trim: ROPE }, 0.8],
+    'w:pan': ['pan', {}, { steel: 0x3b3e43, iron: 1, keepTone: 1, handle: ['wood', 0x6a4426] }, 1.15],
+    'w:sling': ['sling', {}, { handle: ['wood', 0x7a5230], trim: LE(0x5a3a22), steel: 0x8a8d90 }, 0.62],
+    'w:knives': ['knives', {}, { steel: 0xaab2ba, handle: ['leather', 0x4a3a28], trim: ROPE }, 0.75],
+    'w:bullwhip': ['whip', { len: 1.2, waves: 2.2, amp: 0.08 }, { handle: ['leather', 0x3a2616], trim: LE(0x6b4a2f), steel: 0x9a9fa5 }, 1.55],
+    'w:trident': ['trident', { shaft: 1.5 }, { steel: 0x9fc0c8, handle: ['wood', 0x4f3a24] }, 2.0],
+    'w:emberwand': ['wand', { len: 0.6, gem: 0xff7a2a }, { handle: ['wood', 0x2a1c14], trim: LE(0x8a4a22) }, 0.8],
+    'w:glaive': ['glaive', { shaft: 1.7 }, { steel: 0x6a727c, handle: ['wood', 0x2f2018] }, 2.15],
+    'w:ballchain': ['flail', { len: 0.5, ball: 0.17 }, { iron: 1, steel: 0x50555c, keepTone: 1, handle: ['wood', 0x3a2a1c] }, 1.3],
+    'w:barbedlash': ['whip', { len: 1.3, waves: 2.6, amp: 0.09, barbs: 1, cord: 'S' }, { steel: 0x8e949b, handle: ['leather', 0x2b2030], trim: LE(0x3a3040) }, 1.7],
+    'w:stormstaff': ['staff2', { kind: 'storm', len: 1.5, gem: 0x8ad0ff }, { handle: ['wood', 0x4a3a52] }, 1.9],
+    'w:archstaff': ['staff2', { kind: 'arch', len: 1.6, gem: 0xc08aff }, { handle: ['wood', 0x2a2438], steel: 0xdfe6ee }, 2.05],
+    'w:gildedlash': ['whip', { len: 1.35, waves: 2.4, amp: 0.085, cord: 'G' }, { handle: ['leather', 0x5a1020] }, 1.8],
+    'w:sunstaff': ['staff2', { kind: 'sun', len: 1.65, gem: 0xffe27a }, { handle: ['wood', 0x6a4a20] }, 2.15],
+  });
+}
+registerWeapons3();
+// ---------- WEAPONS 3 END ----------
+
 // ---------- brain, gold, parts ----------
 function brainModel() {
   const b = new Build('m:brain'), m = M('flesh', 0xf6a2bb);

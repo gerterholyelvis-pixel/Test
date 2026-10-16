@@ -100,7 +100,7 @@
   const ping = (out, t, f, peak, dur) => { tone(out, 'sine', f, t, dur, peak, { a: 0.002 }); tone(out, 'sine', f * 2.756, t, dur * 0.5, peak * 0.35, { a: 0.002 }); tone(out, 'triangle', f * 5.4, t, dur * 0.2, peak * 0.15, { a: 0.001 }); };
 
   // ---------- item family -> sound class (new families fall back by name, then to a generic blade/flesh) ----------
-  const WCLASS = { dagger: 'blade', sword: 'blade', axe: 'axe', spear: 'pole', halberd: 'pole', club: 'blunt', mace: 'blunt', flail: 'blunt', hammer: 'heavy', bow: 'bow', crossbow: 'xbow', staff: 'magic', scepter: 'magic', wand: 'magic', fist: 'fist' };
+  const WCLASS = { dagger: 'blade', sword: 'blade', axe: 'axe', spear: 'pole', halberd: 'pole', club: 'blunt', mace: 'blunt', flail: 'blunt', hammer: 'heavy', bow: 'bow', crossbow: 'xbow', staff: 'magic', scepter: 'magic', wand: 'magic', whip: 'whip', sling: 'sling', fist: 'fist' };
   const ACLASS = { cloth: 'cloth', robe: 'cloth', leather: 'leather', mail: 'mail', harness: 'mail', plate: 'plate', royal: 'plate', shield: 'plate' };
   function weaponClass(fam) {
     if (!fam) return 'fist'; if (WCLASS[fam]) return WCLASS[fam];
@@ -281,6 +281,8 @@
       else if (c === 'blunt') { noise(out, t, 0.2, 0.36, 'bandpass', 300 * p, 1500 * p, 0.9, { a: 0.09 }); tone(out, 'sine', 90 * p, t + 0.08, 0.14, 0.14, { f1: 60, a: 0.04 }); }
       else if (c === 'heavy') { noise(out, t, 0.32, 0.44, 'bandpass', 200 * p, 1100 * p, 0.8, { a: 0.16 }); tone(out, 'sine', 70 * p, t + 0.12, 0.2, 0.2, { f1: 45, a: 0.06 }); }
       else if (c === 'bow') { tone(out, 'triangle', 190 * p, t, 0.09, 0.3, { f1: 120, a: 0.001 }); noise(out, t, 0.05, 0.26, 'bandpass', 2400, 900, 2, { a: 0.001 }); noise(out, t + 0.03, 0.14, 0.12, 'bandpass', 3200 * p, 5400, 2, { a: 0.02 }); }
+      else if (c === 'whip') { noise(out, t, 0.07, 0.3, 'bandpass', 1200 * p, 3600 * p, 1.2, { a: 0.03 }); noise(out, t + 0.07, 0.03, 0.5, 'highpass', 3800, 6500, 0.6, { a: 0.001 }); tone(out, 'triangle', 900 * p, t + 0.07, 0.04, 0.12, { f1: 260, a: 0.001 }); }   // WEAPONS3: a lash and a crack
+      else if (c === 'sling') { noise(out, t, 0.3, 0.2, 'bandpass', 500 * p, 1500 * p, 2, { a: 0.2 }); tone(out, 'sine', 220 * p, t + 0.28, 0.07, 0.22, { f1: 90, a: 0.002 }); noise(out, t + 0.28, 0.05, 0.25, 'bandpass', 2200, 900, 2, { a: 0.001 }); }   // spin up, release
       else if (c === 'xbow') { noise(out, t, 0.025, 0.42, 'highpass', 2500, 3200, 0.6, { a: 0.001 }); tone(out, 'square', 140 * p, t + 0.012, 0.09, 0.2, { f1: 70, a: 0.001 }); noise(out, t + 0.02, 0.08, 0.2, 'bandpass', 1800, 700, 2, { a: 0.002 }); }
       else if (c === 'magic') { tone(out, 'sine', 520 * p, t, 0.32, 0.18, { f1: 1300 * p, a: 0.08 }); tone(out, 'triangle', 1040 * p, t + 0.04, 0.26, 0.08, { f1: 2400 * p, a: 0.08 }); noise(out, t, 0.28, 0.1, 'highpass', 3500, 6500, 0.6, { a: 0.1 }); }
       else noise(out, t, 0.15, 0.2, 'bandpass', 400 * p, 1600 * p, 0.9, { a: 0.06 });   // fist
@@ -289,8 +291,8 @@
       const c = weaponClass(o.fam), ar = armorClass(o.armor), p = rnd(0.94, 1.08);
       const heavy = c === 'heavy' ? 1.35 : c === 'blunt' || c === 'axe' ? 1.1 : c === 'fist' ? 0.7 : 1;   // the body: how hard the weapon lands
       tone(out, 'sine', 140 * p / heavy, t, 0.16, 0.55 * heavy, { f1: 48, a: 0.002 });
-      if (c === 'blade' || c === 'axe') noise(out, t, 0.1, 0.45, 'bandpass', 2600, 800, 1.2, { a: 0.001 });          // a slicing hiss
-      else if (c === 'pole' || c === 'bow' || c === 'xbow') noise(out, t, 0.05, 0.42, 'bandpass', 1500, 600, 2.2, { a: 0.001 }); // a short stab / thwack
+      if (c === 'blade' || c === 'axe' || c === 'whip') noise(out, t, 0.1, 0.45, 'bandpass', 2600, 800, 1.2, { a: 0.001 });          // a slicing hiss
+      else if (c === 'pole' || c === 'bow' || c === 'xbow' || c === 'sling') noise(out, t, 0.05, 0.42, 'bandpass', 1500, 600, 2.2, { a: 0.001 }); // a short stab / thwack
       else if (c === 'magic') { tone(out, 'sawtooth', 700, t, 0.12, 0.14, { f1: 180, a: 0.001 }); noise(out, t, 0.12, 0.25, 'highpass', 3000, 1500, 0.6, { a: 0.001 }); }
       else noise(out, t, 0.12, 0.5, 'lowpass', 1400, 300, 0.8, { a: 0.001 });                                        // blunt crunch
       if (c === 'heavy') tone(out, 'sine', 55, t + 0.02, 0.35, 0.4, { f1: 30, a: 0.004 });

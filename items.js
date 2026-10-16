@@ -13,6 +13,10 @@
   // WEAPONS 2: nine more weapons with their own feel (per-item reach / swing time in WEAPON_TUNE below). They reuse existing families so models, icons and swing clips work; chances are relative weights (the pool no longer sums to exactly 100).
   W.push(['scrapcleaver', 'Scrap Cleaver', 'sword', 7.2, 14], ['handxbow', 'Hand Crossbow', 'crossbow', 5, 14], ['twinfangs', 'Twin Fangs', 'dagger', 4.6, 9], ['throwaxe', 'Throwing Axe', 'axe', 4.6, 21],
     ['pike', 'Heavy Pike', 'spear', 3, 30], ['ogreclub', 'Ogre Club', 'club', 2.6, 40], ['maul', 'Siege Maul', 'hammer', 1.1, 72], ['arbalest', 'Arbalest', 'crossbow', 1, 66], ['crownsplitter', 'Crownsplitter', 'axe', 0.3, 120]);
+  // WEAPONS 3: fourteen more, with new families whip / sling / wand and per-weapon twists in WEAPON_TUNE (reach, swing time, ranged, bleed, magic bolt damage). Relative weights again.
+  W.push(['shiv', 'Bone Shiv', 'dagger', 7.4, 8], ['pan', 'Frying Pan', 'club', 7, 15], ['sling', 'Goblin Sling', 'sling', 7, 10], ['knives', 'Throwing Knives', 'dagger', 4.8, 8], ['bullwhip', 'Bullwhip', 'whip', 4.7, 11],
+    ['trident', 'Trident', 'spear', 4.6, 21], ['emberwand', 'Ember Wand', 'wand', 4.6, 12], ['glaive', 'Reaper Glaive', 'halberd', 2.9, 38], ['ballchain', 'Ball and Chain', 'flail', 3, 52], ['barbedlash', 'Barbed Lash', 'whip', 2.7, 20],
+    ['stormstaff', 'Stormstaff', 'staff', 2.6, 36], ['archstaff', 'Archmage Staff', 'staff', 1.3, 62], ['gildedlash', 'Gilded Lash', 'whip', 0.4, 62], ['sunstaff', 'Sunspire Staff', 'staff', 0.3, 95]);
   const A = [   // [key, name, family, chance %, health]
     ['sack', 'Burlap Sack', 'cloth', 10.5, 20], ['cloth', 'Patched Cloth', 'cloth', 10, 30], ['rags', 'Ragged Tunic', 'cloth', 9.5, 40], ['scraps', 'Leather Scraps', 'leather', 8.5, 45],
     ['vest', 'Studded Vest', 'leather', 8, 50], ['jerkin', 'Hide Jerkin', 'leather', 7.5, 56], ['gambeson', 'Padded Gambeson', 'cloth', 6.5, 62], ['boiled', 'Boiled Leather', 'leather', 6, 70],
@@ -53,7 +57,8 @@
   }
   // Higher-tier recipes unlock through the knowledge tree (tier N needs KNOWLEDGE_TIERS[N-1] knowledge).
   // ARMOUR-2: some of the new armours can be built at the workbench (the rest are loot, merchant stock and the vault relic).
-  for (const [key, tier, cost] of [['a:swiftwrap', 1, { cloth: 3, string: 2 }], ['a:bonemail', 1, { bone: 5, string: 2 }], ['a:furmantle', 1, { leather: 3, cloth: 2, string: 1 }], ['a:scrapplate', 2, { metal: 4, leather: 2, string: 1 }], ['a:lamellar', 3, { metal: 5, leather: 3, string: 2 }]])
+  for (const [key, tier, cost] of [['a:swiftwrap', 1, { cloth: 3, string: 2 }], ['a:bonemail', 1, { bone: 5, string: 2 }], ['a:furmantle', 1, { leather: 3, cloth: 2, string: 1 }], ['a:scrapplate', 2, { metal: 4, leather: 2, string: 1 }], ['a:lamellar', 3, { metal: 5, leather: 3, string: 2 }],
+    ['w:sling', 1, { wood: 3, string: 2 }], ['w:bullwhip', 1, { leather: 3, string: 1 }], ['w:trident', 2, { wood: 3, metal: 3 }], ['w:emberwand', 2, { wood: 2, crystal: 1, gem: 1 }]])   // WEAPONS 3: four of the new weapons can be crafted
     RECIPES.push({ id: 'r:' + key, out: key, tier, cost, needs: [20, 40, 60, 80, 100][tier - 1] });   // the values of KNOWLEDGE_TIERS below
   // class items (start-only, never dropped)
   WEAPONS.staff = { name: 'Gnarled Staff', attack: 0, family: 'staff', chance: 0, tier: 'rare' };
@@ -109,7 +114,7 @@
   // ---- RECYCLER: weapons break down into parts (everyone can use a recycler). Yield depends on the weapon family and scales with its tier.
   const PARTS = [['wood', 'Wood'], ['metal', 'Metal'], ['leather', 'Leather'], ['cloth', 'Cloth'], ['gold', 'Gold'], ['bone', 'Bone'], ['gem', 'Gems'], ['string', 'String'], ['crystal', 'Crystal']].map(([key, name]) => ({ key, name }));
   const FAMILY_PARTS = { club: { wood: 3, bone: 1 }, dagger: { metal: 2, leather: 1 }, sword: { metal: 4, leather: 1 }, bow: { wood: 3, string: 2 }, axe: { metal: 3, wood: 2 }, spear: { wood: 3, metal: 2 }, mace: { metal: 3, wood: 2, bone: 1 },
-    crossbow: { wood: 3, metal: 2, string: 2 }, flail: { metal: 3, wood: 2, leather: 1 }, halberd: { wood: 3, metal: 3, cloth: 1 }, hammer: { metal: 4, wood: 2 }, staff: { wood: 3, crystal: 1, cloth: 1 }, scepter: { gold: 3, gem: 1 } };
+    crossbow: { wood: 3, metal: 2, string: 2 }, flail: { metal: 3, wood: 2, leather: 1 }, halberd: { wood: 3, metal: 3, cloth: 1 }, hammer: { metal: 4, wood: 2 }, staff: { wood: 3, crystal: 1, cloth: 1 }, scepter: { gold: 3, gem: 1 }, whip: { leather: 3, string: 2 }, sling: { wood: 2, leather: 1, string: 2 }, wand: { wood: 2, crystal: 1, gem: 1 } };
   const TIER_MULT = { common: 0.5, uncommon: 1, rare: 1.5, mythic: 2, legendary: 3, transcendent: 5 };
   function recycleYield(key) {   // -> { part: amount } for a weapon key, or null if the item cannot be recycled (armour is not recyclable yet)
     const it = ITEMS[key]; if (it && it.scrap) return { ...it.scrap };   // UTILITY: utility items break down into one or two parts
@@ -162,14 +167,18 @@
   const CHEST_WEAPONS = ['w:sword', 'w:axe', 'w:spear', 'w:mace', 'w:bow', 'w:dagger'];   // legacy: old 6-entry chest list (indices), kept until the client reads chestKeys
   // ---- COMBAT rules shared by server and client (server is authoritative). weaponKey may be null (unarmed).
   const COMBAT = { melee: 2.2, ranged: 12, cone: 70 * Math.PI / 180, slack: 0.3, unarmed: 1, regenIdle: 6000, regenEvery: 4000, regenAmt: 1 };
-  const SWING_CD = { dagger: 450, sword: 600, club: 600, mace: 650, spear: 650, axe: 750, flail: 750, hammer: 900, halberd: 850, bow: 700, crossbow: 1000, staff: 600, scepter: 600 };   // ms between swings per weapon family, default 600
+  const SWING_CD = { dagger: 450, sword: 600, club: 600, mace: 650, spear: 650, axe: 750, flail: 750, hammer: 900, halberd: 850, bow: 700, crossbow: 1000, staff: 600, scepter: 600, whip: 520, sling: 520, wand: 650 };   // ms between swings per weapon family, default 600
   // per-weapon overrides of the family defaults: range (m), cd (ms between swings), ranged (hits from afar, like a bow). Reach / speed / weight is what tells the new weapons apart.
   const WEAPON_TUNE = { 'w:scrapcleaver': { range: 1.9, cd: 560 }, 'w:twinfangs': { range: 1.9, cd: 300 }, 'w:handxbow': { range: 10, cd: 650, ranged: true }, 'w:throwaxe': { range: 8, cd: 900, ranged: true },
-    'w:pike': { range: 3.1, cd: 850 }, 'w:ogreclub': { cd: 1000 }, 'w:maul': { cd: 1300 }, 'w:arbalest': { range: 16, cd: 1700, ranged: true }, 'w:crownsplitter': { range: 2.4, cd: 800 } };
+    'w:pike': { range: 3.1, cd: 850 }, 'w:ogreclub': { cd: 1000 }, 'w:maul': { cd: 1300 }, 'w:arbalest': { range: 16, cd: 1700, ranged: true }, 'w:crownsplitter': { range: 2.4, cd: 800 },
+    // WEAPONS 3. bleed: [damage per tick, ticks] (one tick a second, a new bleed replaces the old). bolt: damage of the slow magic bolt this staff/wand throws instead of swinging (the old staff and scepter keep 9).
+    'w:shiv': { range: 1.9, cd: 380 }, 'w:pan': { range: 1.9, cd: 640 }, 'w:sling': { range: 9, cd: 520, ranged: true }, 'w:knives': { range: 8, cd: 430, ranged: true }, 'w:bullwhip': { range: 3.4, cd: 520 },
+    'w:trident': { range: 2.6, cd: 640, bleed: [2, 3] }, 'w:emberwand': { cd: 650, bolt: 12 }, 'w:glaive': { range: 3.0, cd: 800 }, 'w:ballchain': { range: 2.4, cd: 1150 }, 'w:barbedlash': { range: 3.6, cd: 540, bleed: [3, 3] },
+    'w:stormstaff': { cd: 1100, bolt: 36 }, 'w:archstaff': { cd: 1200, bolt: 62 }, 'w:gildedlash': { range: 4.2, cd: 450, bleed: [6, 3] }, 'w:sunstaff': { cd: 1000, bolt: 95 } };
   function combat(weaponKey) {   // { dmg, range, cd } for the equipped weapon; damage is the attack stat, at least 1 (a staff with attack 0 still bonks for 1)
     const w = weaponKey && ITEMS[weaponKey], fam = w ? w.family : null, ranged = fam === 'bow' || fam === 'crossbow';
     const t = (w && WEAPON_TUNE[weaponKey]) || {}, isR = t.ranged != null ? t.ranged : ranged;
-    return { dmg: w ? Math.max(1, w.attack) : COMBAT.unarmed, range: t.range || (isR ? COMBAT.ranged : COMBAT.melee), cd: t.cd || (w ? (SWING_CD[fam] || 600) : 500), ranged: isR };
+    return { dmg: w ? Math.max(1, w.attack) : COMBAT.unarmed, range: t.range || (isR ? COMBAT.ranged : COMBAT.melee), cd: t.cd || (w ? (SWING_CD[fam] || 600) : 500), ranged: isR, ...(t.bleed ? { bleed: t.bleed } : null), ...(t.bolt ? { bolt: t.bolt } : null) };
   }
   const armorSpeed = key => { const it = key && ITEMS[key]; return (it && it.speed) || 1; };   // ARMOUR-2: movement multiplier of the worn armour
   const MAX_ARMOR_SPEED = Math.max(1, ...Object.values(ITEMS).map(i => i.speed || 1));
