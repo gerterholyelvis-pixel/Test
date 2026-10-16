@@ -493,11 +493,22 @@ function dieNpc(m, p) {   // loot by type, counts as a kill for the attacker (do
 // ---- the brain
 const NPC_AGGRO = DBG && process.env.GK_NPC_AGGRO_MS !== undefined && +process.env.GK_NPC_AGGRO_MS >= 0 ? +process.env.GK_NPC_AGGRO_MS : 1500;   // a mystery enemy only turns on a goblin that has been inside its room this long
 function graceOver(m, now) { return m.round > 1 && now - m.goAt >= BOT_GRACE; }
+const GANG_PEN = 4.5, HUMAN_PEN = 1.2;   // fairness: metres of "distance" a bot adds for a target that others already attack, and for a human target
+function focusOf(m) {   // target id -> how many bots are attacking it right now (rebuilt once per bot tick)
+  const f = {}; for (const q of m.players.values()) { const t = q.bot && !q.dead && q.brain && q.brain.tgt; if (t && !t.dead) f[t.id] = (f[t.id] || 0) + 1; } return f;
+}
 function nearestEnemy(m, p, maxd) {
-  let best = null, bd = maxd;
+  let best = null, bs = maxd + 99;
   for (const q of m.players.values()) {
     if (q === p || q.dead || !q.entered || q.room !== p.room || (p.npc && q.npc)) continue;
-    const d = Math.hypot(q.x - p.x, q.z - p.z); if (d < bd) { bd = d; best = q; }
+    const d = Math.hypot(q.x - p.x, q.z - p.z); if (d >= maxd) continue;
+    let sc = d;
+    if (p.bot && m.focus) {   // spread the bots over the targets: a goblin that 2+ others already attack is less attractive, humans are not singled out
+      const others = (m.focus[q.id] || 0) - (p.brain && p.brain.tgt === q ? 1 : 0);
+      if (others >= 2) sc += GANG_PEN * (others - 1);
+      if (isHum(q)) sc += HUMAN_PEN;
+    }
+    if (sc < bs) { bs = sc; best = q; }
   }
   return best;
 }
@@ -574,7 +585,8 @@ function pickDest(m, p, now) {   // idle: where to go next (claimable rooms, the
       else s -= 1;
     } else if (key === '4') s += (m.round > 3 ? 4 : -1) + (relicFree(m) && p.inv.backpack.indexOf(null) >= 0 ? 14 : 0);   // LOOT: bots want the vault relic
     else s += (b.seen[key] ? 0 : 1);
-    if (m.round >= 3 && hunt[key]) s += 2.5;
+    if (m.round >= 3 && hunt[key]) s += m.sudden ? 0.6 : 2.5;   // in sudden death everyone converges on the vault (and its relic), not on whoever is in the next room
+    if (m.sudden && key === '4') s += 7;
     if (key === p.room) s -= b.done[key] || !/^c/.test(key) ? 1 : 0;
     if (s > bs) { bs = s; best = key; }
   }
@@ -632,6 +644,7 @@ function botTick(m, now) {   // ~10 Hz per match
   if (m.phase !== 'play') return;
   if (now - (m.botAt || 0) < 95) return;
   const t0 = process.hrtime.bigint(), dt = Math.min(0.25, (now - (m.botAt || now - 100)) / 1000); m.botAt = now;
+  m.focus = focusOf(m);
   for (const p of m.players.values()) if ((p.bot || p.npc) && !p.dead) botThink(m, p, now, dt);
   BS.cur += Number(process.hrtime.bigint() - t0) / 1e6; BS.calls++;
 }
