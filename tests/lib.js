@@ -38,7 +38,8 @@ async function connectWith(port, pred, query = '') {
 async function run(file, tests) {
   let fail = 0;
   for (const [name, fn] of tests) {
-    try { const r = await fn(); console.log(r === 'skip' ? '  skip ' : '  ok   ', file + ': ' + name); }
+    const t0 = Date.now();
+    try { const r = await fn(); console.log(r === 'skip' ? '  skip ' : '  ok   ', file + ': ' + name + (Date.now() - t0 > 1500 ? '  (' + ((Date.now() - t0) / 1000).toFixed(1) + ' s)' : '')); }
     catch (e) { fail++; console.log('  FAIL ', file + ': ' + name + '\n         ' + (e && e.stack || e).toString().split('\n').slice(0, 3).join('\n         ')); }
   }
   return fail;

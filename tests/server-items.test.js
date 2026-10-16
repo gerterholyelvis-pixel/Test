@@ -1,4 +1,4 @@
-// claim, merchant buy failures, inventory mv/drop, death drops, eating a brain, atk (skipped until the server supports it)
+// claim, merchant buy failures, inventory mv/drop, death drops, eating a brain, bogus atk
 const L = require('./lib.js'), { connect, connectWith, sleep, assert, eq } = L, W = require('../world.js'), G = require('../items.js'), fs = require('fs');
 const WEAPON = Object.keys(G.ITEMS).find(k => G.ITEMS[k].type === 'weapon' && G.ITEMS[k].chance > 0), ARMOR = Object.keys(G.ITEMS).find(k => G.ITEMS[k].type === 'armor' && G.ITEMS[k].chance > 0);
 const at = id => [W.CHEST[id].cx, W.CHEST[id].cz];
@@ -53,8 +53,7 @@ const at = id => [W.CHEST[id].cx, W.CHEST[id].cz];
         b.send({ loot: [pile.id, 99, 'take'] }); await b.until(x => x.state.lootFail, 2000, 'lootFail'); eq(b.state.lootFail, 'item');
         await a.close(); await b.close();
       }],
-      ['atk (combat): skipped until the server handles it, otherwise bogus attacks do not crash anything', async () => {
-        if (!/\.atk\b/.test(fs.readFileSync(L.ROOT + '/server.js', 'utf8'))) return 'skip';
+      ['atk: bogus attack messages do not crash anything (real combat checks: combat.test.js)', async () => {
         const a = await connect(srv.port); a.send({ atk: 99999 }); a.send({ atk: 'x' }); a.send({ atk: null }); await sleep(200); assert(srv.alive()); await a.close();
       }],
     ]);
