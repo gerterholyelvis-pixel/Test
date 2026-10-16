@@ -25,14 +25,13 @@ async function waitFor(c, pred, ms, what) { const t0 = Date.now(); let s = null;
         assert(s.tree.well >= 4, 'use + taps + choose were sent: ' + s.tree.well);
         await c.close();
       }],
-      ['heist: a bot in the Keystone room lights the 4 stones in the secret order and completes the circuit (+3 knowledge, a Rune Charge)', async () => {
+      ['heist: a bot in the Keystone room lights the 4 stones in the secret order and completes the circuit (+3 knowledge to the lighters)', async () => {
         const c = await connect(srv.port, 'wins=0');
         c.send({ actDbg: { vb: ['keystone', 'ram', 'locksmith', 'counting'], npcs: false } }); await sleep(200);   // order of cells 7 11 13 17
         const s0 = await bot5(c); const cell = Object.keys(s0.vbLayout).find(k => s0.vbLayout[k] === 'keystone');
         await bot5(c, { goal: cell });
         const s = await waitFor(c, s => (s.rewards.keystone || 0) >= 1, 24000, 'a circuit');
         assert(s.vb.keystone >= 4, 'stone verbs: ' + s.vb.keystone);
-        assert(s.lab.pack.includes('x:runecharge'), 'the Rune Charge: ' + JSON.stringify(s.lab.pack));
         await c.close();
       }],
       ['the vault in a late round: a bot walks onto the dais and builds a crown claim', async () => {

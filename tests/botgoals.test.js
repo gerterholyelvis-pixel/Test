@@ -1,7 +1,7 @@
 // botgoals.js (pure 5x5 bot scoring, docs/reports/bots5.md): room terms, the vault want and vote under the 2-room rule, timing presses against the real
 // activity.js judge, lanterns, stand points, the stuck watchdog, all-pairs door hops over the WORLD door table, craft values, personalities.
 const L = require('./lib.js'), { assert, eq } = L, BG = require('../botgoals.js'), ACT = require('../activity.js'), W = require('../world.js');
-const base = { dist: 2, hint: 0, work: false, junk: 0, master: false, tank: false, hpFrac: 1, sudden: false, round: 2, done: false, vault: 0, homeBody: 0.5 };
+const base = { dist: 2, hint: 0, work: false, junk: 0, master: false, hpFrac: 1, sudden: false, round: 2, done: false, vault: 0, homeBody: 0.5 };
 const T = o => BG.roomTerm(Object.assign({}, base, o));
 const vw = o => BG.vaultWant(Object.assign({ round: 2, sudden: false, sudRound: 5, msLeft: 90000, gaining: false, wardens: 0, hpFrac: 1, aggr: 0.5, patience: 0.5 }, o));
 const vv = o => BG.vaultVote(Object.assign({ round: 3, sudden: false, hurt: false, others: 0, extra: 0, bribe: false, pick: false, want: 3, spoil: false }, o));
@@ -13,7 +13,6 @@ const vv = o => BG.vaultVote(Object.assign({ round: 3, sudden: false, hurt: fals
       assert(T({ kind: 'home', hpFrac: 0.3 }) >= BG.K.HOME_HURT, 'hurt goes home');
       assert(T({ kind: 'home', hpFrac: 0.3, work: true }) > T({ kind: 'home', work: true }), 'hurt adds to work');
       assert(T({ kind: 'home' }) < 0, 'nothing to do at home');
-      assert(T({ kind: 'home', tank: true }) > 0, 'a full pump is worth a trip');
       assert(T({ kind: 'home', hpFrac: 0.3, sudden: true }) === BG.K.VENT, 'sudden death: homes vent');
       assert(T({ kind: 'foreign', work: true }) < 0 && T({ kind: 'foreign' }) === BG.K.FOREIGN_HOME, 'never another home');
       assert(T({ kind: 'home', work: true, homeBody: 1 }) > T({ kind: 'home', work: true, homeBody: 0 }), 'personality: home bodies like home more');

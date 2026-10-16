@@ -4,7 +4,7 @@
 'use strict';
 
 const K = {
-  HOME_WORK: 4, HOME_HURT: 5, HOME_TANK: 2, FOREIGN_HOME: -5,   // own home: +4 with work (junk, a craftable upgrade), +5 when hurt, +2 for a full pump tank; never someone else's home
+  HOME_WORK: 4, HOME_HURT: 5, FOREIGN_HOME: -5,   // own home: +4 with work (junk, a craftable upgrade), +5 when hurt (the full pump is server.js botHomeWant); never someone else's home
   FORGE: 5, GRAND: 3, GRAND_NEAR: 4.5,                          // Master Forge with a craftable upgrade; Grand Recycler with junk (preferred over home within 3 hops)
   VENT: -6,                                                     // sudden death: outer ring, homes and loot rooms hurt
   TREASURY: 4, CLAIM: 5, CONTEST: 9, WARDEN: -5,                // the vault: be inside at the round end, claim late, contest a claimant, avoid wardens when hurt
@@ -13,7 +13,7 @@ const K = {
   HURT: 0.45,                                                   // below this HP fraction a bot goes home to recover (outside sudden death)
 };
 
-// ---- the extra pickDest term for one room. o: {kind, dist, hint, work, junk, craft, master, tank, hpFrac, sudden, round, sudRound, msLeft,
+// ---- the extra pickDest term for one room. o: {kind, dist, hint, work, junk, master, hpFrac, sudden, round, sudRound, msLeft,
 // gaining, wardens, aggr, greed, caution, done, vault (the bot's vault want), homeBody}. kind: home | foreign | forge | grand | tree | vb | vault | vent | other
 function roomTerm(o) {
   let s = 0;
@@ -23,8 +23,7 @@ function roomTerm(o) {
       if (o.sudden) return K.VENT;
       if (o.work) s += K.HOME_WORK * (0.7 + 0.6 * (o.homeBody || 0.5));
       if (hurt) s += K.HOME_HURT;
-      if (o.tank) s += K.HOME_TANK;
-      return o.work || hurt || o.tank ? s : -1;
+      return o.work || hurt ? s : -1;
     case 'foreign': return K.FOREIGN_HOME + (o.sudden ? K.VENT : 0);
     case 'forge': return o.sudden ? K.VENT : o.master ? K.FORGE : -1;
     case 'grand': return o.sudden ? K.VENT : o.junk ? (o.dist <= 3 ? K.GRAND_NEAR : K.GRAND) + Math.min(2, (o.junk - 1) * 0.5) : -1;

@@ -1145,7 +1145,7 @@ function treeInfo5(m, p, key, now, base) {   // the `b` object of rooms5-trees.j
     o = { now, round: m.round, sudden: !!m.sudden, knowLeft: knowLeft5(m, p), hpFrac: hpFrac(p), aggr: b.aggr, greed: b.greed, coop: b.p5.coop > 0.5,
       brainOf: brain ? 'goblin' : husk ? 'husk' : null, scions, junk: junkSlot >= 0, junkSlot, healItems: heals, hasGear: !!p.inv.weapon, cautious: b.caution > 0.5 };
   }
-  return Object.assign({}, o, { anchor: id => an[id] || null, others });
+  return Object.assign({}, o, { anchor: id => an[id] ? { x: an[id].x, z: an[id].z, r: an[id].r + 0.3 } : null, others });   // the hints' near() (r + 1.0) widened to just inside the server reach (r + 1.4): anchors stand on solid props now
 }
 function vbInfo5(m, p, key, now) {   // the `info` object of VB5.botHint
   const b = p.brain, H = m.act.H, wantVault = (b.v5 || 0) > 4 || m.round >= 3, wantNoVault = !wantVault && b.p5.spoil, ram = H.st.ram;
@@ -1167,8 +1167,7 @@ function vaultWant5(m, p, now) {
 function b5Prep(m, p, now, dist) {   // once per pickDest: what the bot could do where; c.terms[key] = the extra pickDest term of every reachable room
   const t0 = process.hrtime.bigint(), b = b5Init(m, p), c = { work: null, hints: {}, vault: 0, terms: {} };
   const junk = junk5(p), craftN = !!bestCraft5(p, 'normal'), craftM = !!bestCraft5(p, 'master');
-  let tank = false; const h = m.homes && m.homes[p.home]; if (h && h.pump && !h.dead && typeof h.pump.tank === 'number') tank = h.pump.tank + Math.floor((now - (h.pump.t || now)) / 5000) >= 20;   // ELIXIR (when merged): a full pump is worth a trip
-  c.work = { junk, craftN, craftM, tank }; c.shut = !m.sudden && !VAULT.some(d => isOpen(m, d));
+  c.work = { junk, craftN, craftM };   // ELIXIR: the pump's pull is pickDest's own botHomeWant term (not counted twice here); a home visit is a station goal either way c.shut = !m.sudden && !VAULT.some(d => isOpen(m, d));
   b.v5 = c.vault = vaultWant5(m, p, now);
   if (m.act && b.h5 && now - b.h5.t < 1500 && b.h5.room === p.room && b.h5.round === m.round) c.hints = b.h5.hints;   // the room hints change slowly: reuse them for 1.5 s
   else if (m.act) { let base = null; for (const k of GOAL5) if (k !== VK) { try { if (!base && TREE5.has(k)) base = treeInfo5(m, p, k, now); c.hints[k] = hint5(m, p, k, now, base); } catch (e) { c.hints[k] = null; } } b.h5 = { t: now, room: p.room, round: m.round, hints: c.hints }; }
@@ -1181,7 +1180,7 @@ function b5Prep(m, p, now, dist) {   // once per pickDest: what the bot could do
 function b5Term(m, p, key, dist, c) {   // the extra pickDest term for one room (botgoals.js roomTerm)
   const b = p.brain, kind = kind5(m, p, key), w = c.work, hn = c.hints[key];
   const vaultShut = c.shut;
-  return BG.roomTerm({ kind, dist, hint: hn ? hn.score : 0, work: w.junk >= 2 || w.craftN, junk: w.junk, master: w.craftM, tank: w.tank, hpFrac: hpFrac(p), sudden: !!m.sudden, round: m.round,
+  return BG.roomTerm({ kind, dist, hint: hn ? hn.score : 0, work: w.junk >= 2 || w.craftN, junk: w.junk, master: w.craftM, hpFrac: hpFrac(p), sudden: !!m.sudden, round: m.round,
     done: b.d5[key] === m.round, vault: kind === 'vb' ? (vaultShut ? c.vault : 0) : c.vault, homeBody: b.p5.homeBody });
 }
 function b5Pick(m, p, key, now) {   // pickDest chose `key`: remember it as the goal when there is something to do there
@@ -1195,7 +1194,7 @@ function b5Station(m, p) {   // roomGoals hook: own home, the Forge and the Gran
   const b = b5Init(m, p), kind = kind5(m, p, p.room);
   if (kind !== 'home' && kind !== 'forge' && kind !== 'grand' && kind !== 'foreign') return false;
   if (kind !== 'foreign' && !b.g5 && b.d5[p.room] !== m.round) {
-    const junk = junk5(p), has = kind === 'home' ? junk > 0 || !!bestCraft5(p, 'normal') || hpFrac(p) < 0.75 : kind === 'forge' ? !!bestCraft5(p, 'master') : junk > 0;
+    const junk = junk5(p), has = kind === 'home' ? junk > 0 || !!bestCraft5(p, 'normal') || hpFrac(p) < 0.75 || (typeof botHomeWant === 'function' && botHomeWant(m, p, Date.now()) > 0) : kind === 'forge' ? !!bestCraft5(p, 'master') : junk > 0;
     if (has) b5Pick(m, p, p.room, Date.now());
   }
   return true;
@@ -1241,9 +1240,14 @@ function act5Think(m, p, now, dt) {   // the bot is in its activity room: follow
     next = { verb: 'use', a: g.memA, mem: 1 };
   }
   const aid = next.go || next.stay || next.a, a = an[aid]; if (!a) { leave5(m, p, now, 'anchor'); return false; }
-  if (next.stay) { if (Math.hypot(p.x - a.x, p.z - a.z) > Math.min(0.9, (a.r || 1) * 0.6)) walk5(m, p, a.x, a.z, dt, now); else idleLook(m, p, now); return true; }
-  if (next.go) { if (!BG.inReach(a, p.x, p.z, 0.7)) { const [x, z] = BG.standPoint(a, p.x, p.z, R.cx, R.cz); walk5(m, p, x, z, dt, now); } else idleLook(m, p, now); return true; }
-  if (!BG.inReach(a, p.x, p.z, 1.2)) { const [x, z] = BG.standPoint(a, p.x, p.z, R.cx, R.cz); walk5(m, p, x, z, dt, now); return true; }
+  const obs = obstaclesFor(m, key), free = (x, z) => obs.length ? BN.pushOut(x, z, obs, BN.BOT_R, p.x, p.z) : [x, z], there = pt => Math.hypot(p.x - pt[0], p.z - pt[1]) < 0.4;   // anchors sit on solid props (trunks, posts, stations): aim at the free spot next to them
+  if (next.stay) { const pt = free(a.x, a.z); if (!there(pt) && Math.hypot(p.x - a.x, p.z - a.z) > Math.min(0.9, (a.r || 1) * 0.6)) walk5(m, p, pt[0], pt[1], dt, now); else idleLook(m, p, now); return true; }
+  if (!BG.inReach(a, p.x, p.z, 1.25)) {   // walk up to the anchor (go, or before a verb); the server's reach is r + 1.4
+    const pt = free(...BG.standPoint(a, p.x, p.z, R.cx, R.cz));
+    if (!there(pt)) { walk5(m, p, pt[0], pt[1], dt, now); return true; }
+    if (!BG.inReach(a, p.x, p.z, 1.38)) { leave5(m, p, now, 'unreachable'); return false; }
+  }
+  if (next.go) { idleLook(m, p, now); return true; }
   if (now < g.nextAt) { face(m, p, a.x, a.z, now, false); return true; }
   if (next.verb === 'tap' && TREE5.has(key)) {   // a tree timing press: wait for the window (skill roll per attempt), then press like a human
     const tm = A.trees[key].st._tm;
@@ -1277,13 +1281,16 @@ function station5(m, p, now, dt) {   // home work at the bench and recycler (own
   g.nextAt = now + rnd(450, 900);   // one panel click per beat, like a player
   const t0 = process.hrtime.bigint();
   try {
-    if (hasStation(m, p, 'recycler')) for (const s of BOT_SLOTS) { const k = getSlot(p.inv, s); if (k && isJunkW(p, k)) { if (!recycle(m, p, s)) S.recycled++; return true; } }
+    const home = typeof homeAt === 'function' ? homeAt(m, key) : null;   // ELIXIR: a home's stations follow the player paths ({recycle} -> homeRecycle with its upgrade and Refine, owner-only craft)
+    if (home && HB.canUseStation && !HB.canUseStation(home, p.id)) { leave5(m, p, now, 'owner'); return false; }
+    if (hasStation(m, p, 'recycler')) for (const s of BOT_SLOTS) { const k = getSlot(p.inv, s); if (k && isJunkW(p, k)) { if (!(home && typeof homeRecycle === 'function' ? homeRecycle(m, p, s, (p.elixir | 0) >= 4 + 12) : recycle(m, p, s))) S.recycled++; else g.recFail = (g.recFail | 0) + 1; if (g.recFail > 2) break; return true; } }   // refine (100%) while the bot keeps 12 elixir in reserve
     const bench = stationAt(m, p, 'workbench');
-    if (bench && typeof brewAt === 'function' && (p.elixir | 0) >= 8 && !healCount5(p) && !g.brewed) { g.brewed = 1; try { if (!brewAt(m, p, 'heal')) S.brewed++; } catch (e) {} return true; }   // ELIXIR (when merged): a Healing Draught
+    if (bench && typeof brewAt === 'function' && (p.elixir | 0) >= 8 && !healCount5(p) && !g.brewed) { g.brewed = 1; try { if (!brewAt(m, p, 'heal')) S.brewed++; } catch (e) {} return true; }   // ELIXIR: a Healing Draught when it carries no heal
     if (bench && g.crafts < 3) { const r = bestCraft5(p, bench.type); if (r) { g.crafts++; if (!craft(m, p, r.id)) S.crafted++; return true; } }
     if (knowBench(m, p)) botLearn(m, p);
     equipBest(m, p);
     if (g.kind === 'home' && hpFrac(p) < 0.75 && !m.sudden && now - g.since < 26000) { if (!g.rest) { g.rest = 1; S.rested++; } return true; }   // heal up at home before going out again
+    if (g.kind === 'home' && now - g.since < 1300) return true;   // ELIXIR: botHomes (1 Hz) empties the pump and buys upgrades while the bot is home
   } finally { f5('station', t0); }
   leave5(m, p, now, 'stationDone'); return false;
 }
