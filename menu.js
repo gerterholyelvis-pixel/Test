@@ -3,7 +3,7 @@
 const GK = window.GK, THREE = window.THREE;
 const $ = id => document.getElementById(id);
 const TAU = Math.PI * 2;
-const DEFAULTS = { sens: 1, fov: 75, scale: 1, invertY: false, tags: true, fx: true };
+const DEFAULTS = { sens: 1, fov: 75, scale: 1, invertY: false, tags: true, fx: true, fsStart: false };
 Object.assign(DEFAULTS, GK.feelDefaults || {});   // FEEL: vol, sfx, amb, bob (feel.js)
 const SKIN = ['#9bd45a', '#6dbb44', '#3f8a36', '#4cb8a6', '#a9cc34'];
 const ODDS = [30, 30, 30, 9, 1];
@@ -31,12 +31,39 @@ $('s-bob').onchange = e => { GK.settings.bob = e.target.checked; save(); };
 // FEEL-END
 function syncUI() {
   for (const k in ctl) { ctl[k].value = GK.settings[k]; $('o-' + k).textContent = fmt[k](GK.settings[k]); const p = (ctl[k].value - ctl[k].min) / (ctl[k].max - ctl[k].min); ctl[k].style.setProperty('--p', (p * 100) + '%'); }
-  $('s-inv').checked = GK.settings.invertY; $('s-tags').checked = GK.settings.tags; $('s-fx').checked = GK.settings.fx; GK.feelSync && GK.feelSync();
+  $('s-inv').checked = GK.settings.invertY; $('s-tags').checked = GK.settings.tags; $('s-fx').checked = GK.settings.fx; GK.feelSync && GK.feelSync(); fsSync();   // FULLSCREEN
 }
 for (const k in ctl) ctl[k].addEventListener('input', () => { GK.settings[k] = +ctl[k].value; syncUI(); GK.applySettings(); save(); });
 $('s-inv').onchange = e => { GK.settings.invertY = e.target.checked; GK.applySettings(); save(); };
 $('s-tags').onchange = e => { GK.settings.tags = e.target.checked; GK.applySettings(); save(); };
 $('s-fx').onchange = e => { GK.settings.fx = e.target.checked; GK.applySettings(); save(); };
+// FULLSCREEN-BEGIN (fullscreen toggle, title-screen button, F key, 'start in fullscreen' option)
+const fsEl = document.documentElement;
+const fsOn = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+function fsSet(on) {   // must run inside a user gesture (click / keydown)
+  try {
+    if (on && !fsOn()) { const r = (fsEl.requestFullscreen || fsEl.webkitRequestFullscreen).call(fsEl, { navigationUI: 'hide' }); r && r.catch && r.catch(() => fsSync()); }
+    else if (!on && fsOn()) { const r = (document.exitFullscreen || document.webkitExitFullscreen).call(document); r && r.catch && r.catch(() => fsSync()); }
+  } catch (e) { fsSync(); }
+}
+function fsSync() {
+  const on = fsOn(), c = $('s-fs'), b = $('fsbtn'), o = $('s-fsstart');
+  if (c) c.checked = on; if (o) o.checked = !!GK.settings.fsStart;
+  if (b) { b.classList.toggle('on', on); b.title = b.dataset.tip = on ? 'Exit fullscreen' : 'Fullscreen'; b.setAttribute('aria-label', b.dataset.tip); b.setAttribute('aria-pressed', on); }
+}
+function fsChanged() {
+  fsSync(); GK.applySettings();   // resize renderer, composer and camera to the new window size
+  if (GK.mode === 'play' && fsOn() && GK.requestLock && !GK.lockOk() && navigator.userActivation && navigator.userActivation.isActive) GK.requestLock();   // entering by click/key: end up locked. Leaving (Esc) is left to the browser; the game shows 'Click to resume'
+}
+document.addEventListener('fullscreenchange', fsChanged); document.addEventListener('webkitfullscreenchange', fsChanged);
+$('s-fs').onchange = e => fsSet(e.target.checked);
+$('s-fsstart').onchange = e => { GK.settings.fsStart = e.target.checked; save(); };
+$('fsbtn').onclick = e => { fsSet(!fsOn()); e.currentTarget.blur(); };
+addEventListener('keydown', e => {   // F in play (no other handler in game.js / menu.js uses it)
+  if (e.code === 'KeyF' && !e.repeat && !e.ctrlKey && !e.altKey && !e.metaKey && GK.mode === 'play') { e.preventDefault(); fsSet(!fsOn()); }
+});
+GK.fullscreen = { on: fsOn, set: fsSet };
+// FULLSCREEN-END
 $('s-reset').onclick = () => { Object.assign(GK.settings, DEFAULTS); syncUI(); GK.applySettings(); save(); };
 syncUI(); GK.applySettings();
 
@@ -462,6 +489,7 @@ GK.menuDebug = { addDemoSave() {
 } };
 $('retry').onclick = () => location.reload();
 $('enter').onclick = () => {
+  if (GK.settings.fsStart) fsSet(true);   // FULLSCREEN: inside the click, before the pointer lock request
   body.classList.remove('menu');
   GK.enter();
   $('roll').classList.add('out'); setTimeout(() => { $('roll').classList.remove('show'); wheelGo = false; }, 700);
