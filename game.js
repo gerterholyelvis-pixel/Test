@@ -3350,12 +3350,17 @@ const handleMsg0 = d => {
 };
 let assigned = false;
 let statsEl = null;
+function leftStack() {   // one bottom-left column: the combat card sits above the stats card, so they never overlap
+  let s = document.getElementById('gkLeft');
+  if (!s) { s = document.createElement('div'); s.id = 'gkLeft'; s.style.cssText = 'position:fixed;left:2vw;bottom:2.5vh;max-width:calc(100vw - 4vw);display:flex;flex-direction:column;gap:6px;align-items:stretch;pointer-events:none;z-index:20'; document.body.appendChild(s); }
+  return s;
+}
 function showStats(p, type) {   // small stat panel, bottom-left
   ensureCss();
   if (!statsEl) {
     statsEl = document.createElement('div');
-    statsEl.style.cssText = 'position:fixed;left:2vw;bottom:2.5vh;min-width:190px;padding:10px 14px;border-radius:10px;background:rgba(10,10,16,.62);border:1px solid rgba(255,215,94,.35);color:#f2efe6;font:600 14px/1.5 system-ui,sans-serif;pointer-events:none;display:none;text-shadow:0 1px 4px #000';
-    document.body.appendChild(statsEl);
+    statsEl.style.cssText = 'min-width:190px;padding:10px 14px;border-radius:10px;background:rgba(10,10,16,.62);border:1px solid rgba(255,215,94,.35);color:#f2efe6;font:600 14px/1.5 system-ui,sans-serif;pointer-events:none;display:none;text-shadow:0 1px 4px #000';
+    leftStack().appendChild(statsEl);
   }
   if (p && p.stats && p.stats.knowledge != null) knowOv = p.stats.knowledge;
   const mineInv = invReady ? invStats(myInv, type, knowOv) : null;   // my own inventory is the freshest source for my stats
@@ -4736,8 +4741,8 @@ function combatBar(a, id) {   // small health bar sprite over another goblin's h
 function combatHud(mine) {   // health bar next to the stats panel, plus kills and "Goblins left"
   if (!CB.hud) {
     CB.hud = document.createElement('div');
-    CB.hud.style.cssText = 'position:fixed;left:calc(2vw + 238px);bottom:2.5vh;width:210px;padding:9px 12px;border-radius:10px;background:rgba(10,10,16,.62);border:1px solid rgba(255,90,74,.4);color:#f2efe6;font:600 14px/1.5 system-ui,sans-serif;pointer-events:none;display:none;text-shadow:0 1px 4px #000;z-index:20';
-    document.body.appendChild(CB.hud);
+    CB.hud.style.cssText = 'order:-1;padding:9px 12px;border-radius:10px;background:rgba(10,10,16,.62);border:1px solid rgba(255,90,74,.4);color:#f2efe6;font:600 14px/1.5 system-ui,sans-serif;pointer-events:none;display:none;text-shadow:0 1px 4px #000;';
+    leftStack().appendChild(CB.hud);
   }
   const play = GK.mode === 'play' && mine && mine.hp != null;
   const hp = play ? Math.max(0, mine.hp) : 0, max = play ? (mine.maxHp || 1) : 1, left = CB.alive > 0 ? CB.alive : CB.size, sig = play + '|' + hp + '|' + max + '|' + left + '|' + CB.kills;
