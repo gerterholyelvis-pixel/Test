@@ -3593,8 +3593,9 @@ const A_EARS = {};
     // blob shadow and name tag
     const sh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: glowTex, color: 0x000000, transparent: true, opacity: 0.55, depthWrite: false }));
     sh.rotation.x = -Math.PI / 2; sh.position.y = 0.03; sh.scale.setScalar(1.1 * SCALE[type] * b * 1.4); root.add(sh);
-    const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: textTex(NAMES[type], type === 4 ? '#ffd75e' : type === 3 ? '#c9a6ff' : '#f1f1f1', null, 512, 96, 'bold 52px system-ui'), transparent: true, depthWrite: false }));
-    label.scale.set(1.6, 0.3, 1); label.position.y = (GOB_TAGY[type] || 1.95) * SCALE[type]; root.add(label); u.label = label;   // UNIQUE: tag above the wizard hat / king crown
+    const nameCol = type === 4 ? '#ffd75e' : type === 3 ? '#c9a6ff' : '#f1f1f1';
+    const label = window.GKTAGS ? window.GKTAGS.nameTag(NAMES[type], nameCol) : new THREE.Sprite(new THREE.SpriteMaterial({ map: textTex(NAMES[type], nameCol, null, 512, 96, 'bold 52px system-ui'), transparent: true, depthWrite: false }));   // UI-TAGS: one shared atlas texture (client/ui/tags.js)
+    if (!window.GKTAGS) label.scale.set(1.6, 0.3, 1); label.position.y = (GOB_TAGY[type] || 1.95) * SCALE[type]; root.add(label); u.label = label;   // UNIQUE: tag above the wizard hat / king crown
     A.curMat = null; root.userData = u; if (PERF2_ON) perf2LodInit(root, u);   // PERF2: level-of-detail copies of the baked parts
     return root;
   }
@@ -4049,7 +4050,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
 // ---------- state ----------
 function dropGoblin(g) { // free GPU memory of a removed goblin (shared geometry/materials re-upload lazily if reused)
   scene.remove(g);
-  const lm = g.userData.label && g.userData.label.material.map; if (lm) lm.dispose();
+  if (window.GKTAGS) window.GKTAGS.disposeTag(g.userData.label); else { const lm = g.userData.label && g.userData.label.material.map; if (lm) lm.dispose(); }
   g.traverse(o => { if (o.geometry) o.geometry.dispose(); [].concat(o.material || []).forEach(m => m.dispose()); });
 }
 // NET-BEGIN (client side of the netcode: snapshot interpolation with an adaptive delay, clock sync, ping readout, server corrections; see docs/reports/netcode.md)
@@ -6660,12 +6661,18 @@ function combatBar(a, id) {   // small health bar sprite over another goblin's h
   let b = CB.bars.get(id);
   if (b && b.a !== a) { b.tex.dispose(); CB.bars.delete(id); b = null; }
   if (!b) {
+    if (window.GKTAGS) {   // UI-TAGS: a shared-atlas bar sprite (client/ui/tags.js), hidden at full health
+      const sp = window.GKTAGS.healthBar(); sp.position.y = a.group.userData.label.position.y + 0.2; a.group.add(sp);
+      b = { a, tex: { dispose() {} }, sp, sig: '', atlas: true }; CB.bars.set(id, b);
+    } else {
     const c = document.createElement('canvas'); c.width = 128; c.height = 16; const tex = new THREE.CanvasTexture(c);
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
     sp.scale.set(0.9, 0.11, 1); sp.position.y = a.group.userData.label.position.y + 0.26; sp.renderOrder = 5; a.group.add(sp);
     b = { a, c, tex, sp, sig: '' }; CB.bars.set(id, b);
+    }
   }
   const hp = Math.max(0, a.hp), max = a.maxHp || 1, sig = hp + '/' + max;
+  if (b.atlas) { if (b.sig !== sig) { b.sig = sig; b.full = !window.GKTAGS.setBar(b.sp, Math.max(0, Math.min(1, hp / max))); } b.sp.visible = !b.full && GK.settings.tags !== false; return; }
   if (b.sig !== sig) {
     b.sig = sig; const g = b.c.getContext('2d'), f = Math.max(0, Math.min(1, hp / max));
     g.clearRect(0, 0, 128, 16); g.fillStyle = 'rgba(10,10,14,.85)'; g.fillRect(0, 0, 128, 16);
@@ -7183,6 +7190,7 @@ function frame(now) {
     g.position.set(a.x, a.jy || 0, a.z); g.rotation.y = a.yaw + Math.PI;
     g.visible = !(inside && id === me);
     u.label.visible = id !== me && GK.settings.tags;
+    if (window.GKTAGS && u.label.visible) { const tb = CB.bars.get(id), td = Math.hypot(cam.position.x - a.x, cam.position.y - (g.position.y + u.label.position.y), cam.position.z - a.z); window.GKTAGS.fit(u.label, td, true); if (tb && tb.sp.visible) window.GKTAGS.fit(tb.sp, td, true); }   // UI-TAGS: clamp size, fade up close
     const walk = clamp(a.speed / 3.5, 0, 1); a.phase += dt * a.speed * 2.7 / Math.pow(SCALE[u.type] || 1, 0.6);   // stride rate follows the leg length (small goblins scurry, big ones lumber) so the feet stay planted
     /* PERF2-BEGIN: far goblins refresh their pose every 2nd / 3rd frame (the skipped dt is carried over); distant ones also drop to simpler geometry */
     let adt = dt;

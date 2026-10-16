@@ -15,16 +15,16 @@
   const api = () => GK.feelApi || null;
   const css = document.createElement('style');
   css.textContent =
-    '#gkPrompt{position:fixed;left:50%;top:calc(50% + 44px);transform:translateX(-50%);z-index:25;pointer-events:none;display:flex;align-items:center;gap:9px;padding:6px 15px 6px 8px;border-radius:9px;background:rgba(10,10,16,.68);border:1px solid rgba(255,215,94,.4);font:600 15px/1 system-ui,sans-serif;color:#f2efe6;letter-spacing:.03em;text-shadow:0 1px 3px #000;opacity:0;transition:opacity .14s}' +
+    '#gkPrompt{position:fixed;left:50%;top:calc(50% + 44px);transform:translateX(-50%);z-index:25;pointer-events:none;display:flex;align-items:center;gap:9px;padding:6px 15px 6px 8px;border-radius:9px;background:rgba(10,10,16,.68);border:1px solid rgba(255,215,94,.4);font:600 15px/1 var(--ui);color:#f2efe6;letter-spacing:.03em;text-shadow:0 1px 3px #000;opacity:0;transition:opacity .14s}' +
     '#gkPrompt.low{top:auto;bottom:calc(2.5vh + 150px)}#gkPrompt.on{opacity:1}#gkPrompt b{display:inline-block;min-width:24px;text-align:center;padding:4px 7px;border-radius:5px;background:#ffd75e;color:#1a1405;font-weight:800;box-shadow:0 2px 0 #a8741a}' +
     '#gkBanner{position:fixed;left:0;right:0;top:19%;z-index:31;pointer-events:none;display:none;justify-content:center}' +
-    '#gkBanner div{padding:10px 40px 12px;font:900 clamp(22px,4vw,44px)/1 system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#ffe9a8;text-shadow:0 0 18px #ff9a00,0 3px 10px #000;background:linear-gradient(90deg,transparent,rgba(12,8,2,.78) 18%,rgba(12,8,2,.78) 82%,transparent);border-top:2px solid rgba(255,200,70,.55);border-bottom:2px solid rgba(255,200,70,.55)}' +
+    '#gkBanner div{padding:10px 40px 12px;font:900 clamp(22px,4vw,44px)/1 var(--ui);letter-spacing:.14em;text-transform:uppercase;color:#ffe9a8;text-shadow:0 0 18px #ff9a00,0 3px 10px #000;background:linear-gradient(90deg,transparent,rgba(12,8,2,.78) 18%,rgba(12,8,2,.78) 82%,transparent);border-top:2px solid rgba(255,200,70,.55);border-bottom:2px solid rgba(255,200,70,.55)}' +
     '#gkFade{position:fixed;inset:0;z-index:9;background:#000;opacity:0;pointer-events:none}' +
-    '#gkLost{position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.78);font-family:system-ui,sans-serif;color:#f2efe6}' +
+    '#gkLost{position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.78);font-family:var(--ui);color:#f2efe6}' +
     '#gkLost .c{width:min(460px,92vw);padding:28px 32px 26px;border-radius:16px;background:rgba(14,10,12,.9);border:1px solid rgba(255,90,74,.5);box-shadow:0 10px 60px rgba(0,0,0,.7);text-align:center}' +
     '#gkLost h2{margin:0 0 6px;color:#ff5a4a;font-size:clamp(28px,5vw,42px);letter-spacing:.08em;text-shadow:0 0 22px rgba(255,60,40,.45)}' +
     '#gkLost p{margin:0 0 20px;color:#b9b4ae;font-size:14px;letter-spacing:.04em}#gkLost .r{display:flex;gap:12px}' +
-    '#gkLost button{flex:1;padding:13px 10px;border-radius:10px;font:800 15px system-ui,sans-serif;letter-spacing:.08em;cursor:pointer;text-transform:uppercase}' +
+    '#gkLost button{flex:1;padding:13px 10px;border-radius:10px;font:800 15px var(--ui);letter-spacing:.08em;cursor:pointer;text-transform:uppercase}' +
     '#gkLost .go{border:0;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405}#gkLost .no{border:1px solid rgba(255,255,255,.3);background:transparent;color:#f2efe6}';
   document.head.appendChild(css);
   const mk = (tag, id, parent) => { const e = document.createElement(tag); if (id) e.id = id; (parent || document.body).appendChild(e); return e; };

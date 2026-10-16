@@ -51,6 +51,8 @@ function staticFor(url) {   // -> { body, type, cc } or null (404)
   if (p === '/' || p === '/index.html') { const e = cached('/index.html', path.join(ROOT_DIR, 'index.html'), 'text/html; charset=utf-8'); return e && { ...e, cc: 'no-cache' }; }
   const mm = p.match(/^\/([a-z]+)\.js$/);
   if (mm && CLIENT_JS.has(mm[1])) { const e = cached(p, path.join(ROOT_DIR, mm[1] + '.js'), 'text/javascript; charset=utf-8'); return e && { ...e, cc: 'no-cache' }; }
+  const cm = p.match(/^\/client\/((?:[a-z0-9_-]+\/)*[a-z0-9_-]+)\.js$/);   // client modules (client/**.js); no dots in the capture, so no traversal
+  if (cm) { const e = cached(p, path.join(ROOT_DIR, 'client', cm[1] + '.js'), 'text/javascript; charset=utf-8'); return e && { ...e, cc: 'no-cache' }; }
   if (/^\/three\/three\.(module|core)\.js$/.test(p)) { const e = cached(p, path.join(THREE_DIR, p.slice(7)), 'text/javascript; charset=utf-8'); return e && { ...e, cc: 'public, max-age=86400' }; }
   if (p.startsWith('/three/addons/')) {   // .js only, no path traversal
     let rel = ''; try { rel = decodeURIComponent(p.slice(14)); } catch (e) {}
