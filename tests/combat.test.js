@@ -36,7 +36,7 @@ const equipBow = async c => { c.send({ give: 'w:bow' }); await c.until(x => x.st
         const early = await swing(a); assert(!early.some(m => m.swing != null || m.hit), 'cooldown ignored: ' + JSON.stringify(early));
         await sleep(600);
         const ms2 = await swing(a); eq(hits(ms2).map(x => x.dead), [true], 'second hit kills');
-        await b.until(x => x.state.died, 2000, 'died'); eq(b.state.died.by, a.state.you); assert(b.state.died.brain.startsWith('m:brain:'), 'brain'); assert(b.state.died.items.includes(G.START[0].weapon), 'dropped gear');
+        await b.until(x => x.state.died, 2000, 'died'); eq(b.state.died.by, a.state.you); assert(b.state.died.killer && b.state.died.killer.name && typeof b.state.died.killer.w === 'string' && b.state.died.killer.npc === false, 'the died message names the killer: ' + JSON.stringify(b.state.died.killer)); assert(b.state.died.brain.startsWith('m:brain:'), 'brain'); assert(b.state.died.items.includes(G.START[0].weapon), 'dropped gear');
         await a.until(x => x.state.kills === 1, 2000, 'kill count'); await a.until(x => x.state.won, 2000, 'survivor won'); assert(a.state.won.items.includes(MACE), 'winner keeps the mace');
         await a.close(); await b.close();
       }],

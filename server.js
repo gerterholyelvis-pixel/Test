@@ -214,7 +214,7 @@ function die(ws, p) { // a dead player drops everything where they fell and leav
   m.deaths = (m.deaths || 0) + 1; p.dead = true; p.diedAt = Date.now(); m.dead.push(p);
   if (ws && ws.readyState === 1) m.specs.set(ws, p);   // FUN: a dead human stays subscribed as a spectator (snapshots, hits, feed) until the socket closes
   addDrop(m, p, [...items, brain]);
-  sendTo(ws, { died: { items, brain, by: p.killedBy || null } });
+  sendTo(ws, { died: { items, brain, by: p.killedBy || null, ...(p.killer ? { killer: p.killer } : null) } });   // killer: { name, npc, w } for the death card
   leave(m, ws);
 }
 // FUN-BEGIN (kill feed, board, spectators, match summary; see docs/reports/fun.md)
@@ -285,7 +285,7 @@ function attack(m, ws, p, now, rt) {   // {atk:1, rt}: rate limit by weapon, nea
   const [tws, t] = best, hp = Math.max(0, t.stats.health - cb.dmg);
   t.stats.health = hp; t.hurtAt = now; m.dirty = true;
   bcast(m, { hit: { from: p.id, to: t.id, dmg: cb.dmg, hp, max: t.stats.maxHealth, dead: hp <= 0 } });
-  if (hp <= 0) { p.kills = (p.kills || 0) + 1; t.killedBy = p.id; sendTo(ws, { kills: p.kills }); sendFeed(m, p, t); die(tws, t); }
+  if (hp <= 0) { p.kills = (p.kills || 0) + 1; t.killedBy = p.id; { const kw = p.npc ? null : p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; t.killer = { name: p.name || 'Goblin', npc: !!p.npc, w: kw ? kw.name : (p.npc ? '' : 'Fists') }; } sendTo(ws, { kills: p.kills }); sendFeed(m, p, t); die(tws, t); }
 }
 // COMBAT-END
 function eatBrain(p, key) { // applies a brain's knowledge gain, returns the gain

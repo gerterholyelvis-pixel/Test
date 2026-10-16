@@ -3877,8 +3877,9 @@ function showDeathScreen(info) {
   if (statsEl) statsEl.style.display = 'none';
   const rows = [['Goblin', NAMES[type]], ['Survived', Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0')], ['Round reached', n || 1], ['Distance travelled', Math.round(run.dist) + ' m'], ['Died in', where],
     ['Starting weapon', gear.weapon + ' (' + [tierTxt((itemsData().START[type] || {}).weapon), st.attack + ' dmg'].filter(Boolean).join(', ') + ')'], ['Starting armour', gear.armor + ' (' + [tierTxt((itemsData().START[type] || {}).armor), st.health + ' HP'].filter(Boolean).join(', ') + ')'], ['Dropped', [...((info && info.items) || []), ...(info && info.brain ? [info.brain] : [])].map(k => itemName(k) + (tierN(k) != null ? ' (T' + tierN(k) + ')' : '')).join(', ') || 'nothing']];
+  const kl = info && info.killer, killedBy = kl ? (kl.npc ? 'a ' : '') + kl.name + (kl.w ? ' (' + kl.w + ')' : '') : '';
   const dhero = [[rsTime(secs), 'Survived'], [n || 1, 'Round'], [(typeof CB !== 'undefined' && CB.kills) | 0, 'Kills']];
-  deathEl = rsShow('dead', rsCard({ big: 'You died', sub: 'Your run', hero: dhero, rows: rows.filter(r => r[0] !== 'Survived' && r[0] !== 'Round reached'), note: 'Everything you carried is lost.', btns: [['deathQueue', 'Requeue', true], ['deathMenu', 'Main menu']] }));
+  deathEl = rsShow('dead', rsCard({ big: 'You died', sub: 'Your run', hero: dhero, rows: (killedBy ? [['Killed by', killedBy]] : []).concat(rows.filter(r => r[0] !== 'Survived' && r[0] !== 'Round reached')), note: 'Everything you carried is lost.', btns: [['deathQueue', 'Requeue', true], ['deathMenu', 'Main menu']] }));
   $('deathQueue').onclick = () => { try { sessionStorage.setItem('gk.requeue', '1'); } catch (e) {} location.reload(); };   // fresh connection, new wheel roll
   $('deathMenu').onclick = () => location.reload();
   if (GK.fun) GK.fun.deathButton(info);   // FUN: SPECTATE
