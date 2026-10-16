@@ -16,6 +16,10 @@ const $ = id => document.getElementById(id);
 const GK = window.GK = window.GK || {};
 GK.mode = 'menu';                         // 'menu' (title, settings, wheel) or 'play'
 GK.settings = Object.assign({ sens: 1, fov: 75, scale: 1, invertY: false, tags: true, fx: true, gfx: 'high' }, GK.settings || {});
+// PERF2-BEGIN client performance pass 2 (docs/reports/perf-2.md): shared state. ?perf2=0 switches the whole pass off, for before / after measurements.
+const PERF2_ON = !/[?&]perf2=0/.test(location.search);
+const perf2Lod = { meshes: new WeakMap(), hi: new Map(), geo: new Map(), queue: [], queued: new Set(), timer: 0 };   // goblin level of detail: baked part mesh -> cache key, full-detail and simplified geometries
+// PERF2-END
 const CS = WORLD.CS;                      // chest room size
 const WEAPONS = ['Rusty Sword', 'Battle Axe', 'War Spear', 'Spiked Mace', 'Short Bow', 'Dagger'];
 // One chest room behind every outer wall: edge rooms get 1, corner rooms get 2 (12 in total)
@@ -2544,6 +2548,7 @@ for (let i = 0; i < 9; i++) {   // grid rooms: north wall, mirrored against the 
 for (const cr of CHEST_ROOMS) {   // chest rooms: 2 m panel on the room's left wall (the far wall is taken by banners and torches)
   const g = new THREE.Group(); g.position.set(cr.cx, 0, cr.cz); g.rotation.y = Math.atan2(-cr.dx, -cr.dz); scene.add(g);
   cpBuild('c' + cr.id, g, 2.0, 1.9, -(CS / 2 - T / 2), 2.6, 0, Math.PI / 2);
+  if (PERF2_ON) { g.updateMatrix(); g.matrixAutoUpdate = false; }   // PERF2: the wrapper never moves; frozen, the room culling can classify it (it was always drawn, from every room)
 }
 scene.updateMatrixWorld(true);
 for (const p of cpList) { const g = p.screen.parent; g.traverse(o => { o.updateMatrix(); o.matrixAutoUpdate = false; }); g.updateMatrixWorld(true); }
@@ -2569,7 +2574,7 @@ function panelTick() {
   cpAim = a;
   if (dotEl) { dotEl.style.transform = a ? 'scale(3)' : ''; dotEl.style.background = a ? '#ffd24a' : ''; dotEl.style.opacity = a ? '1' : ''; }
   const cur = CP[roomKeyAt(P.x, P.z)];   // redraw dirty panels: the one in front of us first, one other per frame
-  if (cur && cur.dirty) cpDraw(cur); else { const o = cpList.find(q => q.dirty); if (o) cpDraw(o); }
+  if (cur && cur.dirty) cpDraw(cur); else { let o = null; for (let i = 0; i < cpList.length; i++) if (cpList[i].dirty) { o = cpList[i]; break; } if (o) cpDraw(o); }   // PERF2: no closure per frame
 }
 function cpInteract() {   // E while aiming at a control-panel button picks that door; true if it did
   const a = cpComputeAim(); if (!a) return false;
@@ -2820,7 +2825,7 @@ const GA = (() => {
   function bake(parent, type, key, build) {   // build once per type and part, then every goblin of the type shares the geometry
     const ck = type + ':' + key; let geo = A.cache[ck];
     if (!geo) { const B = new GB(); build(B); geo = A.cache[ck] = B.finish(); }
-    const mesh = new THREE.Mesh(geo, uber(type)); parent.add(mesh); return mesh;
+    const mesh = new THREE.Mesh(geo, uber(type)); parent.add(mesh); if (PERF2_ON) perf2Lod.meshes.set(mesh, ck); return mesh;   // PERF2: remember the cache key (goblin level of detail)
   }
   A.bake = bake;
   // ---- sculpted head: an ellipsoid pushed into a heavy brow, sunken eye sockets, cheek bones and a jutting underbite
@@ -3299,7 +3304,7 @@ const A_EARS = {};
     sh.rotation.x = -Math.PI / 2; sh.position.y = 0.03; sh.scale.setScalar(1.1 * SCALE[type] * b * 1.4); root.add(sh);
     const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: textTex(NAMES[type], type === 4 ? '#ffd75e' : type === 3 ? '#c9a6ff' : '#f1f1f1', null, 512, 96, 'bold 52px system-ui'), transparent: true, depthWrite: false }));
     label.scale.set(1.6, 0.3, 1); label.position.y = [1.95, 1.95, 1.95, 2.85, 2.55][type] * SCALE[type]; root.add(label); u.label = label;   // UNIQUE: tag above the wizard hat / king crown
-    root.userData = u;
+    root.userData = u; if (PERF2_ON) perf2LodInit(root, u);   // PERF2: level-of-detail copies of the baked parts
     return root;
   }
   A.build = buildGoblin;
@@ -4546,9 +4551,10 @@ function setHover(id, kind) {
   hoverTip.innerHTML = 'Press <b style="padding:1px 6px;border-radius:4px;background:#ffd75e;color:#1a1405">E</b> to ' + (hoverKind === 'r' ? 'recycle' : hoverKind === 'w' ? 'craft' : 'trade'); hoverTip.style.display = /* FEEL: shown by feel.js */ false ? 'block' : 'none';
 }
 function merchantHoverTick() {
-  const T = [...(GK.merchantTargets || []), ...(GK.stationTargets || []).filter(o => o && o.userData && (o.userData.station === 'recycler' || o.userData.station === 'workbench'))];
+  const T = PERF2_ON ? perf2HoverTargets() : [...(GK.merchantTargets || []), ...(GK.stationTargets || []).filter(o => o && o.userData && (o.userData.station === 'recycler' || o.userData.station === 'workbench'))];   // PERF2: list cached (was rebuilt with a spread and a closure every frame)
   lootPromptTick();
   if (GK.mode !== 'play' || invOpen || shopOpen || !inside || !spawned || !T.length) { if (hoverRoom >= 0) setHover(-1); return; }
+  if (PERF2_ON && !perf2HoverNear(T)) { setHover(-1); return; }   // PERF2: nothing within 20 m, so the ray cannot reach (it is 7 m long): skip the raycast over every merchant, recycler and workbench model
   cam.updateMatrixWorld(); ray.setFromCamera({ x: 0, y: 0 }, cam); ray.far = 7;
   const hit = ray.intersectObjects(T, true)[0]; let id = -1, kind = '';
   if (hit) { for (let o = hit.object; o; o = o.parent) { const u = o.userData; if (!u || u.roomId == null) continue; id = u.roomId; kind = u.station === 'recycler' ? 'r' : u.station === 'workbench' ? 'w' : 'm'; break; } }
@@ -4721,7 +4727,7 @@ function nearestPile() {
 function lootPromptTick() {
   const near = GK.mode === 'play' && !invOpen && !shopOpen && spawned ? nearestPile() : null;
   if (!lootPromptEl) { lootPromptEl = document.createElement('div'); lootPromptEl.style.cssText = 'position:fixed;left:50%;top:62%;transform:translateX(-50%);z-index:25;pointer-events:none;padding:5px 14px;border-radius:8px;background:rgba(10,8,6,.8);border:1px solid rgba(255,215,94,.6);color:' + GOLD + ';font:700 14px system-ui,sans-serif;letter-spacing:.08em;display:none'; lootPromptEl.innerHTML = 'Press <b style="padding:1px 6px;border-radius:4px;background:#ffd75e;color:#1a1405">E</b> to loot'; document.body.appendChild(lootPromptEl); }
-  lootPromptEl.style.display = /* FEEL: shown by feel.js */ 'none';
+  if (lootPromptEl.style.display !== 'none') lootPromptEl.style.display = /* FEEL: shown by feel.js */ 'none';   // PERF2: no style write when nothing changes
 }
 GK.nearestPile = nearestPile; GK.drops = () => dropsList;
 function buildLoot() { lootPn = mkPanel('gkLoot', 'LOOT', 560); lootPn.sub.textContent = 'A DEAD GOBLIN\'S BAG'; lootPn.list = document.createElement('div'); lootPn.list.style.cssText = 'display:flex;flex-direction:column;gap:7px'; lootPn.body.appendChild(lootPn.list); }
@@ -4846,6 +4852,7 @@ function fxApplyQuality(force) {
     fxAniso = an; const seen = new Set();
     scene.traverse(o => { for (const m of [].concat(o.material || [])) for (const k of ['map', 'roughnessMap', 'bumpMap', 'normalMap', 'emissiveMap', 'metalnessMap', 'alphaMap', 'aoMap']) { const t = m[k]; if (t && t.isTexture && !seen.has(t) && !t.isRenderTargetTexture && t.anisotropy !== an) { seen.add(t); t.anisotropy = an; t.needsUpdate = true; } } });
   }
+  if (PERF2_ON) { for (const d of doors) d.halo.visible = GK.settings.gfx !== 'low'; perf2Quality(); }   // PERF2: the small additive halos round the door lamps and keypads (up to 8 draw calls per vault door) are dropped on Low
   aoM.opacity = cornerM.opacity = q.ao && GK.settings.fx ? 0.55 : 1;   // the baked corner shading is lighter when GTAO adds real AO
   if (fx && fx.gtao) { fx.gtao.enabled = q.ao > 0; fx.gtao.updateGtaoMaterial({ samples: q.ao > 1 ? 16 : 12 }); fx.gtao.updatePdMaterial({ samples: q.ao > 1 ? 16 : 8 }); fx.aoHalf = q.ao === 1; fxResize(); }
 }
@@ -5051,6 +5058,214 @@ const fxMergeStats = { walls: 0, rooms: 0, goblins: 0 };
   }
   for (const [, grp] of byRoom) { fxMergeStats.rooms += fxMergeKids(grp, skip); for (const c of grp.children.slice()) scene.add(c); }
 }
+// PERF2-BEGIN door draw-call merge (client performance pass 2, docs/reports/perf-2.md)
+// A vault door was about 130 draw calls: 32 laser boxes, 24 bolts, keypad / panel / beacon parts spread over nested groups. The startup merge above only joins direct siblings.
+// Here every door is split into rigid "frames" (the wall group itself plus each node the door code moves: leaf / hinge, wheels, rings, beacon rotors, scanner bars) and the
+// static meshes of each frame are merged per material into the frame. Lasers become one mesh (the frame loop only toggles .visible); the 24 bolts become one mesh per slide
+// direction (the frame loop sets position.x = userData.x0 + sx * 0.38 * (1 - bolt), x0 is baked into the geometry so it is 0 here).
+const perf2 = { lasers: 0, bolts: 0, flat: 0 };
+function perf2Bake(list, frame) {   // merge meshes sharing material and vertex layout into one mesh in the local space of `frame` (matrixWorld of everything is current)
+  const inv = new THREE.Matrix4().copy(frame.matrixWorld).invert(), rel = new THREE.Matrix4(), g0 = list[0].geometry, names = Object.keys(g0.attributes), parts = [];
+  let nv = 0, ni = 0;
+  for (const c of list) {
+    rel.multiplyMatrices(inv, c.matrixWorld);
+    const g = c.geometry.clone(); g.applyMatrix4(rel);
+    if (rel.determinant() < 0) { const ix = g.index.array; for (let i = 0; i < ix.length; i += 3) { const k = ix[i + 1]; ix[i + 1] = ix[i + 2]; ix[i + 2] = k; } }
+    parts.push(g); nv += g.attributes.position.count; ni += g.index.count;
+  }
+  const out = new THREE.BufferGeometry();
+  for (const n of names) {
+    const a0 = g0.attributes[n], arr = new a0.array.constructor(nv * a0.itemSize); let off = 0;
+    for (const g of parts) { arr.set(g.attributes[n].array, off); off += g.attributes[n].array.length; }
+    out.setAttribute(n, new THREE.BufferAttribute(arr, a0.itemSize, a0.normalized));
+  }
+  const idx = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni); let io = 0, vo = 0;
+  for (const g of parts) { const ix = g.index.array; for (let i = 0; i < ix.length; i++) idx[io + i] = ix[i] + vo; io += ix.length; vo += g.attributes.position.count; g.dispose(); }
+  out.setIndex(new THREE.BufferAttribute(idx, 1));
+  const m = new THREE.Mesh(out, list[0].material); m.name = 'fxMerged'; m.frustumCulled = list[0].frustumCulled; m.renderOrder = list[0].renderOrder; m.layers.mask = list[0].layers.mask;
+  m.matrixAutoUpdate = false; m.updateMatrix(); out.computeBoundingSphere();
+  return m;
+}
+function perf2Mergeable(o, skip) {
+  if (!o.isMesh || o.isInstancedMesh || o.isSkinnedMesh || o.children.length || !o.visible || skip.has(o) || Array.isArray(o.material) || o.onBeforeRender !== FX_OBR || Object.keys(o.userData).length) return false;
+  const g = o.geometry, m = o.material; if (!g || !g.index || !g.attributes.position || Object.keys(g.morphAttributes).length || Object.values(g.attributes).some(a => a.isInterleavedBufferAttribute)) return false;
+  return !m.transparent || (m.depthWrite === false && m.blending === THREE.AdditiveBlending);   // additive glow pieces add up in any order; ordinary see-through parts stay separate
+}
+const perf2Canon = new Map();   // look-alike materials the door builders create one per mesh (keypad buttons, signs, bio-panel hands / pupils, plaques) -> one fresh shared clone per look
+function perf2CanonMat(m, owned) {   // only unanimated, unreferenced look-alikes; the door's own materials (d.light, d.ledM, d.leafMat ...) and the pulsing keypad screens keep their identity
+  if (owned.has(m) || m.userData.perf2) return m;
+  let key = null;
+  if (m.isMeshBasicMaterial) key = ['B', m.color.getHex(), m.map && m.map.uuid, m.toneMapped, m.side, m.transparent, m.opacity, m.blending, m.depthWrite, m.fog, m.alphaTest, m.vertexColors].join('|');
+  else if (m.isMeshStandardMaterial && !m.isMeshPhysicalMaterial && m.color.getHex() === 0x000222 && m.emissive.getHex() === 0x7aa7ff && m.emissiveIntensity === 0.6 && !m.map) key = 'keypad-button';   // (the old startup pass looked for 0x222222 and never matched these)
+  if (!key) return m;
+  let c = perf2Canon.get(key); if (!c) { c = m.clone(); c.userData = { perf2: 1 }; perf2Canon.set(key, c); }
+  return c;
+}
+function perf2MergeDoors() {
+  const owned = new Set(statusMats); for (const s of fxScreens) owned.add(s.m);
+  for (const d of doors) for (const k in d) { const v = d[k]; if (v && v.isMaterial) owned.add(v); }
+  for (const d of doors) {
+    let root = d.leaf; while (root.parent && root.parent !== scene) root = root.parent;
+    root.updateMatrixWorld(true);
+    const skip = new Set();
+    if (d.art) for (const k in d.art) d.art[k].forEach(o => o.traverse(c => skip.add(c)));
+    for (const o of d.merchPlates || []) skip.add(o);
+    for (const o of d.scan || []) skip.add(o);   // the scanner bars move on their own
+    root.traverse(o => { if (o.isMesh && !o.isInstancedMesh && !skip.has(o) && !Array.isArray(o.material)) o.material = perf2CanonMat(o.material, owned); });
+    // lasers: one mesh, still toggled through d.lasers[i].visible
+    if (d.lasers && d.lasers.length > 1 && d.lasers.every(o => o.parent === d.lasers[0].parent && perf2Mergeable(o, skip))) {
+      const par = d.lasers[0].parent, m = perf2Bake(d.lasers, par); perf2.lasers += d.lasers.length - 1;
+      for (const o of d.lasers) par.remove(o); par.add(m); d.lasers = [m];
+    }
+    // bolts: one mesh per slide direction, position.x is the only animated channel
+    if (d.bolts.length > 1) {
+      const par = d.bolts[0].parent, bySx = new Map(); let ok = true;
+      for (const b of d.bolts) { if (b.parent !== par || !b.userData || b.userData.sx === undefined) { ok = false; break; } let l = bySx.get(b.userData.sx); if (!l) bySx.set(b.userData.sx, l = []); l.push(b); }
+      if (ok) {
+        const nb = [];
+        for (const [sx, l] of bySx) { const m = perf2Bake(l, par); m.matrixAutoUpdate = true; m.userData = { sx, x0: 0 }; perf2.bolts += l.length - 1; for (const o of l) par.remove(o); par.add(m); nb.push(m); }
+        d.bolts = nb;
+      }
+    }
+    for (const o of d.bolts) skip.add(o);
+    for (const o of d.lasers || []) skip.add(o);
+    // static parts per frame
+    const frames = new Set([root, d.leaf, ...d.wheels, ...d.rings, ...d.rots, ...d.dyn, ...(d.scan || [])]);
+    const buckets = new Map();
+    const walk = (o, frame) => {
+      for (const c of o.children) {
+        if (!c.visible) continue;
+        if (c.isMesh && !c.isInstancedMesh) {
+          if (!perf2Mergeable(c, skip)) continue;
+          const g = c.geometry, key = frame.uuid + '|' + c.material.uuid + '|' + c.renderOrder + '|' + c.frustumCulled + c.layers.mask + '|' + Object.keys(g.attributes).sort().map(n => n + g.attributes[n].itemSize + g.attributes[n].array.constructor.name).join();
+          let b = buckets.get(key); if (!b) buckets.set(key, b = { frame, list: [] }); b.list.push(c);
+        } else if (c.children.length) walk(c, frames.has(c) ? c : frame);
+      }
+    };
+    walk(root, root);
+    for (const b of buckets.values()) {
+      if (b.list.length < 2) continue;
+      const m = perf2Bake(b.list, b.frame); perf2.flat += b.list.length - 1;
+      for (const o of b.list) o.parent.remove(o); b.frame.add(m);
+    }
+  }
+}
+// PERF2-END
+// PERF2-BEGIN goblin level of detail and far-goblin update rate
+// A goblin is about 45 to 60 thousand triangles (10 baked parts, shared per type). Beyond a preset-dependent distance the parts swap to simplified copies of the same baked geometry
+// (vertex clustering: one vertex per grid cell, attributes averaged, degenerate triangles dropped), 3x and 7x fewer triangles. The copies are built one per idle slot after a goblin
+// of a new type appears, shared by every goblin of the type, and until one exists the full-detail geometry stays.
+const PERF2_LOD = { low: [5, 10], medium: [8, 16], high: [12, 24], ultra: [14, 28] };   // metres beyond which level 1 / level 2 is used
+const PERF2_CELL = [0, 0.03, 0.06];   // clustering cell size per level, in the baked part's own units (metres at rig scale 1)
+function perf2Simplify(geo, cell) {
+  const pa = geo.attributes.position.array, na = geo.attributes.normal.array, ua = geo.attributes.uv.array, ca = geo.attributes.color.array, ma = geo.attributes.aMat.array, ix = geo.index.array, n = geo.attributes.position.count;
+  if (!geo.boundingBox) geo.computeBoundingBox();
+  const bb = geo.boundingBox, map = new Map(), rep = new Int32Array(n);
+  let m = 0; const P = [], N = [], U = [], C = [], A = [], cnt = [];
+  for (let i = 0; i < n; i++) {
+    const key = Math.floor((pa[i * 3] - bb.min.x) / cell) + ',' + Math.floor((pa[i * 3 + 1] - bb.min.y) / cell) + ',' + Math.floor((pa[i * 3 + 2] - bb.min.z) / cell);
+    let c = map.get(key);
+    if (c === undefined) { c = m++; map.set(key, c); P.push(0, 0, 0); N.push(0, 0, 0); U.push(0, 0); C.push(0, 0, 0); A.push(0, 0, 0, 0); cnt.push(0); }
+    rep[i] = c; cnt[c]++;
+    for (let k = 0; k < 3; k++) { P[c * 3 + k] += pa[i * 3 + k]; N[c * 3 + k] += na[i * 3 + k]; C[c * 3 + k] += ca[i * 3 + k]; }
+    U[c * 2] += ua[i * 2]; U[c * 2 + 1] += ua[i * 2 + 1];
+    for (let k = 0; k < 4; k++) A[c * 4 + k] += ma[i * 4 + k];
+  }
+  const tri = []; for (let i = 0; i < ix.length; i += 3) { const a = rep[ix[i]], b = rep[ix[i + 1]], c = rep[ix[i + 2]]; if (a !== b && b !== c && a !== c) tri.push(a, b, c); }
+  const used = new Int32Array(m).fill(-1); let k = 0; for (let i = 0; i < tri.length; i++) if (used[tri[i]] < 0) used[tri[i]] = k++;
+  const op = new Float32Array(k * 3), on = new Float32Array(k * 3), ou = new Float32Array(k * 2), oc = new Float32Array(k * 3), oa = new Float32Array(k * 4);
+  for (let c = 0; c < m; c++) {
+    const j = used[c]; if (j < 0) continue; const q = 1 / cnt[c], l = Math.hypot(N[c * 3], N[c * 3 + 1], N[c * 3 + 2]) || 1;
+    for (let t = 0; t < 3; t++) { op[j * 3 + t] = P[c * 3 + t] * q; on[j * 3 + t] = N[c * 3 + t] / l; oc[j * 3 + t] = C[c * 3 + t] * q; }
+    ou[j * 2] = U[c * 2] * q; ou[j * 2 + 1] = U[c * 2 + 1] * q;
+    for (let t = 0; t < 4; t++) oa[j * 4 + t] = A[c * 4 + t] * q;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(op, 3)); g.setAttribute('normal', new THREE.BufferAttribute(on, 3)); g.setAttribute('uv', new THREE.BufferAttribute(ou, 2));
+  g.setAttribute('color', new THREE.BufferAttribute(oc, 3)); g.setAttribute('aMat', new THREE.BufferAttribute(oa, 4));
+  const oi = k > 65535 ? new Uint32Array(tri.length) : new Uint16Array(tri.length); for (let i = 0; i < tri.length; i++) oi[i] = used[tri[i]];
+  g.setIndex(new THREE.BufferAttribute(oi, 1)); g.computeBoundingSphere(); g.computeBoundingBox(); return g;
+}
+function perf2LodPump() {   // one simplified geometry per idle slot
+  perf2Lod.timer = 0; const job = perf2Lod.queue.shift(); if (!job) return;
+  try { perf2Lod.geo.set(job.k, perf2Simplify(job.g, job.cell)); } catch (e) { perf2Lod.geo.set(job.k, null); console.warn('goblin LOD skipped', e); }
+  if (perf2Lod.queue.length) perf2LodSched();
+}
+function perf2LodSched() { if (perf2Lod.timer) return; perf2Lod.timer = 1; if (window.requestIdleCallback) requestIdleCallback(perf2LodPump, { timeout: 1500 }); else setTimeout(perf2LodPump, 60); }
+function perf2LodInit(root, u) {   // called by buildGoblin: collect the baked part meshes and queue their simplified copies
+  const list = []; root.traverse(o => { const ck = perf2Lod.meshes.get(o); if (ck) list.push({ mesh: o, k: [ck, ck + '|1', ck + '|2'] }); });
+  u.lodList = list; u.lodLvl = 0; u.lodDone = true;
+  for (const e of list) {
+    if (!perf2Lod.hi.has(e.k[0])) perf2Lod.hi.set(e.k[0], e.mesh.geometry);
+    for (let l = 2; l >= 1; l--) if (!perf2Lod.queued.has(e.k[l])) { perf2Lod.queued.add(e.k[l]); perf2Lod.queue.push({ k: e.k[l], g: perf2Lod.hi.get(e.k[0]), cell: PERF2_CELL[l] }); }
+  }
+  perf2LodSched();
+}
+function perf2LodStep(u, d2, th) {   // th = [near, far] metres for the current preset; 10 % hysteresis so a goblin on the border does not flicker
+  const lst = u.lodList; if (!lst) return;
+  const a = th[0] * (u.lodLvl >= 1 ? 0.9 : 1.1), b = th[1] * (u.lodLvl === 2 ? 0.9 : 1.1);
+  const lvl = d2 > b * b ? 2 : d2 > a * a ? 1 : 0;
+  if (lvl === u.lodLvl && u.lodDone) return;
+  u.lodLvl = lvl; u.lodDone = true;
+  for (let i = 0; i < lst.length; i++) {
+    const e = lst[i]; let g = lvl ? perf2Lod.geo.get(e.k[lvl]) : null;
+    if (!g && lvl === 2) g = perf2Lod.geo.get(e.k[1]);   // level 2 not built yet: level 1 if it is there
+    if (!g) { g = perf2Lod.hi.get(e.k[0]); if (lvl) u.lodDone = false; }   // nothing built yet: stay detailed and look again next frame
+    if (e.mesh.geometry !== g) e.mesh.geometry = g;
+  }
+}
+// far goblins: the animation pose is refreshed every 2nd frame beyond 14 m and every 3rd beyond 26 m, or when the goblin is outside the view frustum and not within 6 m; the local goblin and anything within 6 m always runs
+const perf2View = { m: new THREE.Matrix4(), fr: new THREE.Frustum(), s: new THREE.Sphere(), n: 0 };
+function perf2ViewBegin() { perf2View.n++; if (!PERF2_ON) return; perf2View.m.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse); perf2View.fr.setFromProjectionMatrix(perf2View.m); }
+function perf2Skip(a, id, d2) {   // true when this goblin's pose update can wait for a later frame
+  if (!PERF2_ON || id === me || d2 < 36 || a.swing || a.hitT > 0 || a.dead) return false;
+  const v = perf2View; v.s.center.set(a.x, 1, a.z); v.s.radius = 2.2;
+  const k = d2 > 676 ? 3 : d2 > 196 ? 2 : !v.fr.intersectsSphere(v.s) ? 3 : 1;
+  return k > 1 && (v.n + id) % k !== 0;
+}
+// PERF2-END
+// PERF2-BEGIN per-frame JS and preset details
+// merchantHoverTick: the target list is cached (rebuilt only when the arrays change) and the 7 m ray is skipped while no target is within 20 m
+const perf2Hov = { mt: null, st: null, m0: null, m1: null, s0: null, s1: null, nm: -1, ns: -1, T: [] };
+function perf2HoverTargets() {
+  const mt = GK.merchantTargets, st = GK.stationTargets, nm = mt ? mt.length : 0, ns = st ? st.length : 0, h = perf2Hov, m0 = nm ? mt[0] : null, m1 = nm ? mt[nm - 1] : null, s0 = ns ? st[0] : null, s1 = ns ? st[ns - 1] : null;
+  if (h.mt !== mt || h.st !== st || h.nm !== nm || h.ns !== ns || h.m0 !== m0 || h.m1 !== m1 || h.s0 !== s0 || h.s1 !== s1) {
+    h.mt = mt; h.st = st; h.nm = nm; h.ns = ns; h.m0 = m0; h.m1 = m1; h.s0 = s0; h.s1 = s1;
+    h.T = [...(mt || []), ...(st || []).filter(o => o && o.userData && (o.userData.station === 'recycler' || o.userData.station === 'workbench'))];
+  }
+  return h.T;
+}
+function perf2HoverNear(T) {
+  const p = cam.position;
+  for (let i = 0; i < T.length; i++) { const e = T[i].matrixWorld.elements, dx = e[12] - p.x, dz = e[14] - p.z; if (dx * dx + dz * dz < 400) return true; }
+  return false;
+}
+// preset details: the door chains and rivets (instanced, 168 and 80 triangles each, 100 to 150 per vault door) use a coarser mesh on Low and Medium; Medium's HDR composer targets use 2x instead of 4x MSAA
+const perf2Detail = { chain: new THREE.TorusGeometry(0.07, 0.022, 4, 8), rivet: new THREE.SphereGeometry(1, 6, 4), list: null };
+function perf2Quality() {
+  if (!PERF2_ON) return;
+  const gq = GK.settings.gfx, coarse = gq === 'low' || gq === 'medium', D = perf2Detail;
+  if (!D.list) { D.list = []; scene.traverse(o => { if (o.isInstancedMesh && (o.geometry === chainGeo || o.geometry === rivetGeo)) D.list.push({ m: o, hi: o.geometry, lo: o.geometry === chainGeo ? D.chain : D.rivet }); }); }
+  for (const e of D.list) { const g = coarse ? e.lo : e.hi; if (e.m.geometry !== g) e.m.geometry = g; }
+  if (fx && fx.composer) { const s = gq === 'medium' ? 2 : 4; for (const t of [fx.composer.renderTarget1, fx.composer.renderTarget2]) if (t.samples !== s) { t.samples = s; t.dispose(); } }
+}
+// PERF2-END
+// PERF2-BEGIN door merge, continued: rigid groups, startup
+function perf2MergeGroup(g) {   // rigid group built from many small meshes (the first-person hand): one mesh per material, same pose
+  g.updateMatrixWorld(true);
+  const buckets = new Map();
+  for (const c of g.children) {
+    if (!perf2Mergeable(c, perf2None)) continue;
+    const key = c.material.uuid + '|' + Object.keys(c.geometry.attributes).sort().join(); let l = buckets.get(key); if (!l) buckets.set(key, l = []); l.push(c);
+  }
+  for (const l of buckets.values()) { if (l.length < 2) continue; const m = perf2Bake(l, g); m.frustumCulled = false; for (const c of l) g.remove(c); g.add(m); perf2.flat += l.length - 1; }
+  return g;
+}
+const perf2None = new Set();
+try { if (PERF2_ON) perf2MergeDoors(); } catch (e) { console.warn('door merge skipped', e); }
+if (PERF2_ON) scene.traverse(o => { if (o.name === 'fxMerged' && o.geometry && !o.geometry.boundingSphere) o.geometry.computeBoundingSphere(); });   // the merged meshes get their bounding sphere now, not lazily in the first frame that tests them against the frustum
+GK.perf2 = perf2;
+// PERF2-END
 // goblins (players): merged lazily the first time they are drawn; animated parts (legs, arms, head, cape, spinning and floating bits) keep their own groups
 const fxSeen = new WeakSet();
 function fxPrepActors() {
@@ -5981,7 +6196,7 @@ function vmHandMesh(side) {   // grip axis = local y, palm behind (+z), three ch
   }
   const th = add(vmCap, vmSkin, side * 0.05, 0.062, -0.012, 1.15, 0.85, 1.15); th.rotation.z = side * 0.5; th.rotation.x = 0.2;   // thumb
   add(vmCone, vmClaw, side * 0.06, 0.1, -0.03, 1.1, 1.1, 1.1).rotation.z = side * 0.4;
-  g.traverse(o => { o.frustumCulled = false; }); return g;
+  g.traverse(o => { o.frustumCulled = false; }); return PERF2_ON ? perf2MergeGroup(g) : g;   // PERF2: 12 meshes -> 3 (skin, knuckles, claws)
 }
 const vmGlowMat = col => new THREE.SpriteMaterial({ map: glowTex, color: col, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: 0 });
 VM.burst = new THREE.Sprite(vmGlowMat(0x7affd8)); VM.burst.visible = false; VM.burst.renderOrder = 30;
@@ -6409,6 +6624,7 @@ function frame(now) {
   dfxUpdate(dt);
   // goblins
   const nrt = netRenderT(dt);   // NET: server time that remote goblins are drawn at
+  perf2ViewBegin();   // PERF2
   for (const [id, a] of actors) {
     if (id !== me) {
       const s = netSample(a, nrt), nx = s ? s.x : a.x, nz = s ? s.z : a.z;
@@ -6420,8 +6636,18 @@ function frame(now) {
     g.visible = !(inside && id === me);
     u.label.visible = id !== me && GK.settings.tags;
     const walk = clamp(a.speed / 3.5, 0, 1); a.phase += dt * a.speed * 2.3;
-    GA.anim(a, u, id, t, dt, walk);   // GOBLINART: waddle, breathing, ear twitch, flinch, gear
-    JUMP.pose(a, u, id, dt);   // JUMP: ears-flop pose and remote hop sounds, after GA.anim
+    /* PERF2-BEGIN: far goblins refresh their pose every 2nd / 3rd frame (the skipped dt is carried over); distant ones also drop to simpler geometry */
+    let adt = dt;
+    if (PERF2_ON) {
+      const dx = a.x - cam.position.x, dz = a.z - cam.position.z, dy = cam.position.y - 1, d2 = dx * dx + dz * dz + dy * dy;
+      if (id !== me && u.lodList) perf2LodStep(u, d2, PERF2_LOD[GK.settings.gfx] || PERF2_LOD.high);
+      adt = a.pdt ? a.pdt + dt : dt;
+      if (perf2Skip(a, id, d2)) { a.pdt = adt; continue; }
+      a.pdt = 0;
+    }
+    /* PERF2-END */
+    GA.anim(a, u, id, t, adt, walk);   // GOBLINART: waddle, breathing, ear twitch, flinch, gear
+    JUMP.pose(a, u, id, adt);   // JUMP: ears-flop pose and remote hop sounds, after GA.anim
     UNIQUE.actor(a, u, id, t);   // UNIQUE: knowledge glow, brain aura, king marker
     SOC.actor(a, u, id, t);   // SOCIAL: emote pose, bubble, disconnected icon
   }
