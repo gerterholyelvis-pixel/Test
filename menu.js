@@ -3,7 +3,7 @@
 const GK = window.GK, THREE = window.THREE;
 const $ = id => document.getElementById(id);
 const TAU = Math.PI * 2;
-const DEFAULTS = { sens: 1, fov: 75, scale: 1, invertY: false, tags: true, fx: true, fsStart: false };
+const DEFAULTS = { sens: 1, fov: 75, scale: 1, invertY: false, tags: true, fx: true, fsStart: false, gfx: 'high' };
 Object.assign(DEFAULTS, GK.feelDefaults || {});   // FEEL: vol, sfx, amb, bob (feel.js)
 const SKIN = ['#9bd45a', '#6dbb44', '#3f8a36', '#4cb8a6', '#a9cc34'];
 const ODDS = [30, 30, 30, 9, 1];
@@ -32,6 +32,7 @@ $('s-bob').onchange = e => { GK.settings.bob = e.target.checked; save(); };
 function syncUI() {
   for (const k in ctl) { ctl[k].value = GK.settings[k]; $('o-' + k).textContent = fmt[k](GK.settings[k]); const p = (ctl[k].value - ctl[k].min) / (ctl[k].max - ctl[k].min); ctl[k].style.setProperty('--p', (p * 100) + '%'); }
   $('s-inv').checked = GK.settings.invertY; $('s-tags').checked = GK.settings.tags; $('s-fx').checked = GK.settings.fx; GK.feelSync && GK.feelSync(); fsSync();   // FULLSCREEN
+  if (!['low', 'medium', 'high', 'ultra'].includes(GK.settings.gfx)) GK.settings.gfx = DEFAULTS.gfx; $('s-gfx').value = GK.settings.gfx;
 }
 for (const k in ctl) ctl[k].addEventListener('input', () => { GK.settings[k] = +ctl[k].value; syncUI(); GK.applySettings(); save(); });
 $('s-inv').onchange = e => { GK.settings.invertY = e.target.checked; GK.applySettings(); save(); };
@@ -64,6 +65,7 @@ addEventListener('keydown', e => {   // F in play (no other handler in game.js /
 });
 GK.fullscreen = { on: fsOn, set: fsSet };
 // FULLSCREEN-END
+$('s-gfx').onchange = e => { GK.settings.gfx = e.target.value; GK.settings.fx = e.target.value !== 'low'; syncUI(); GK.applySettings(); save(); };   // the preset also switches post effects (Low = none)
 $('s-reset').onclick = () => { Object.assign(GK.settings, DEFAULTS); syncUI(); GK.applySettings(); save(); };
 syncUI(); GK.applySettings();
 
