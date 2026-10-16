@@ -3751,6 +3751,7 @@ const handleMsg0 = d => {
   if (d.ate) ateFx(d.ate);
   if (d.lootFail) lootFailFx(d.lootFail);
   if (GK.fun) GK.fun.onMsg(d);   // FUN: kill feed, board, match summary
+  if (window.GKLOOT) GKLOOT.onMsg(d);   // LOOT: vault relic, thrown plushie
   if (d.died) showDeathScreen(d.died);
   if (d.won) showVictory(d.won);
   if (d.swing != null || d.hit || d.kills != null || d.match) combatMsg(d);   // COMBAT
@@ -3917,7 +3918,7 @@ GK.fun = (() => {
   function feed(f) {
     css(); const box = S.feed || (S.feed = el('gkFeed', '')), row = document.createElement('div');
     if (S.myName && (f.k === S.myName || f.v === S.myName)) row.className = 'me';
-    row.innerHTML = f.npc ? '<b class="v">' + esc(f.v) + '</b> ' + (NPCV[f.k] || 'was mauled by') + ' ' + an(f.k) + esc(f.k)
+    row.innerHTML = f.msg ? '<b>' + esc(f.k) + '</b>' + esc(f.msg) : f.npc ? '<b class="v">' + esc(f.v) + '</b> ' + (NPCV[f.k] || 'was mauled by') + ' ' + an(f.k) + esc(f.k)
       : '<b>' + esc(f.k) + '</b> ' + (VERB[f.f] || 'killed') + ' <b class="v">' + esc(f.v) + '</b>' + (f.w ? ' with ' + an(f.w) + '<i>' + esc(f.w) + '</i>' : '');
     box.appendChild(row); while (box.children.length > 5) box.removeChild(box.firstChild);
     setTimeout(() => row.classList.add('fade'), 5400); setTimeout(() => row.remove(), 6000);
@@ -4202,6 +4203,7 @@ addEventListener('keydown', e => {
   if (e.code === 'Escape' && invOpen) { if (held) { held = null; paintAll(); } else closeInv(); return; }
   if (e.repeat) return;
   if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') {
+    if (window.GKLOOT && GKLOOT.key(+e.code.slice(5) - 1)) return;   // LOOT: a plushie in that quick slot is thrown
     ensureHotbar(); const i = +e.code.slice(5) - 1, k = invGet(myInv, 'q' + i);
     if (i === qSel && k != null && infoOf(k) && infoOf(k).family === 'brain') eatSlot('q' + i); else setSel(i);   // pressing the selected slot's key eats a brain
     return;
@@ -4289,7 +4291,7 @@ function buildShop() {
 function paintShop() {
   if (!shopEl) return;
   shopEl.querySelector('#shopTitle').textContent = merchantName(shopRoom).toUpperCase();
-  shopEl.querySelector('#shopGold').innerHTML = 'Your gold ' + coin + ' ' + myGold;
+  shopEl.querySelector('#shopGold').innerHTML = 'Your gold ' + coin + ' ' + myGold; window.GKLOOT && GKLOOT.shopNote(shopEl);   // LOOT
   const rows = shopEl.querySelector('#shopRows'); rows.textContent = '';
   const list = shops[shopRoom] || [], full = myInv.backpack.indexOf(null) < 0;
   if (!list.length) { rows.innerHTML = '<div style="text-align:center;color:#8d8880;padding:20px">The merchant has nothing to sell.</div>'; return; }
@@ -6114,6 +6116,76 @@ GK.feelApi = { P, actors, doors, keys, CHEST_ROOMS, roomKeyAt, nearestPile, hove
   get me() { return me; }, get invOpen() { return invOpen; }, get shopOpen() { return shopOpen; }, get panelKind() { return panelKind; },
   get spawned() { return spawned; }, get inside() { return inside; }, get cpAim() { return cpAim; } };
 // FEEL-END
+// LOOT-BEGIN (vault relic pedestal, merchant price note, throwable goblin plushie; no lights; see docs/reports/loot.md)
+const LOOT = window.GKLOOT = (() => {
+  const [vx, vz] = rc(WORLD.VAULT), PX = vx + 2.4, PZ = vz, PH = 0.95, BASE = 0.16;   // pedestal on the dais edge (same offset as RELIC_POS in server.js)
+  const gold = new THREE.MeshStandardMaterial({ color: 0xe0a93a, metalness: 1, roughness: 0.3, emissive: 0x4a2800, emissiveIntensity: 0.5 }), dark = new THREE.MeshStandardMaterial({ color: 0x1d2128, metalness: 0.7, roughness: 0.4 });
+  const ped = new THREE.Group(); ped.position.set(PX, BASE, PZ); scene.add(ped);
+  const add = (geo, mat, y) => { const m = new THREE.Mesh(geo, mat); m.position.y = y; ped.add(m); return m; };
+  add(new THREE.CylinderGeometry(0.62, 0.7, 0.18, 24), dark, 0.09); add(new THREE.CylinderGeometry(0.4, 0.52, PH - 0.3, 24), dark, 0.09 + (PH - 0.3) / 2);
+  add(new THREE.CylinderGeometry(0.58, 0.46, 0.12, 24), gold, PH - 0.06); add(new THREE.TorusGeometry(0.5, 0.035, 8, 32), gold, 0.2).rotation.x = Math.PI / 2;
+  const sparkTex = canvasTex(128, 128, (g, w, h) => {
+    const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64); gr.addColorStop(0, 'rgba(255,248,210,1)'); gr.addColorStop(0.15, 'rgba(255,214,110,0.5)'); gr.addColorStop(1, 'rgba(255,190,60,0)'); g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    g.fillStyle = 'rgba(255,250,225,0.95)'; for (const [a, l] of [[0, 62], [Math.PI / 2, 62], [Math.PI / 4, 28], [-Math.PI / 4, 28]]) { g.save(); g.translate(64, 64); g.rotate(a); g.beginPath(); g.moveTo(-l, 0); g.quadraticCurveTo(0, 2.5, l, 0); g.quadraticCurveTo(0, -2.5, -l, 0); g.fill(); g.restore(); }
+  });
+  const spark = new THREE.Sprite(new THREE.SpriteMaterial({ map: sparkTex, color: 0xffe9a8, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, fog: false })); spark.visible = false; ped.add(spark);
+  let relicKey = null, relicObj = null, spin = null;
+  function setRelic(key) {
+    if (key === relicKey) return; relicKey = key;
+    if (spin) { ped.remove(spin); spin = null; relicObj = null; }
+    spark.visible = !!key; if (!key) return;
+    const mdl = window.GKART && GKART.model(key); if (!mdl) { relicKey = null; return; }
+    const bb = new THREE.Box3().setFromObject(mdl), sz = bb.getSize(new THREE.Vector3()), c = bb.getCenter(new THREE.Vector3()), s = 1.5 / Math.max(sz.x, sz.y, sz.z, 0.01);
+    spin = new THREE.Group(); relicObj = new THREE.Group(); mdl.position.set(-c.x, -c.y, -c.z); relicObj.add(mdl); relicObj.scale.setScalar(s); spin.add(relicObj); spin.position.y = PH + 0.62; ped.add(spin);
+    if (infoOf(key) && infoOf(key).type === 'weapon') relicObj.rotation.z = 0.5;
+  }
+  // E prompt next to the pedestal
+  let promptEl = null;
+  const near = () => relicKey && Math.hypot(P.x - PX, P.z - PZ) < 2.2;
+  // ---- throwable plushie: the server picks the landing spot, the client draws the arc and the squeak
+  const pk = new THREE.MeshStandardMaterial({ color: 0xff9fc4, roughness: 0.95 }), eyeM = new THREE.MeshStandardMaterial({ color: 0x2a1018, roughness: 0.5 });
+  const gS = new THREE.SphereGeometry(0.5, 14, 10), gC = new THREE.ConeGeometry(0.2, 0.42, 8);
+  function plushieMesh() {
+    const g = new THREE.Group(), body = new THREE.Mesh(gS, pk); body.scale.set(0.2, 0.22, 0.17); g.add(body);
+    const head = new THREE.Mesh(gS, pk); head.scale.setScalar(0.22); head.position.y = 0.2; g.add(head);
+    for (const sx of [-1, 1]) { const ear = new THREE.Mesh(gC, pk); ear.position.set(sx * 0.12, 0.26, 0); ear.rotation.z = -sx * 1.25; ear.scale.setScalar(0.45); g.add(ear); const eye = new THREE.Mesh(gS, eyeM); eye.scale.setScalar(0.03); eye.position.set(sx * 0.05, 0.22, 0.095); g.add(eye); }
+    return g;
+  }
+  const flying = [];
+  function onThrow(t) {
+    const m = plushieMesh(); scene.add(m);
+    const y0 = (t.by === me ? 1.45 : 1.3);
+    flying.push({ m, t0: performance.now(), ms: t.ms, x0: t.from[0], z0: t.from[1], y0, x1: t.to[0], z1: t.to[1], landed: false, until: 0 });
+    snd('squeak', { x: t.from[0], z: t.from[1], vol: 0.6 });
+  }
+  function update(now, dt) {
+    if (spin) { spin.rotation.y += dt * 0.7; spin.position.y = PH + 0.62 + Math.sin(now * 0.0016) * 0.06; const k = 0.5 + 0.5 * Math.sin(now * 0.004); spark.position.y = PH + 0.62; spark.scale.setScalar(0.9 + k * 0.5); spark.material.opacity = 0.3 + 0.4 * k; }
+    for (let i = flying.length - 1; i >= 0; i--) {
+      const f = flying[i], k = Math.min(1, (now - f.t0) / f.ms);
+      if (k < 1) {
+        f.m.position.set(f.x0 + (f.x1 - f.x0) * k, f.y0 * (1 - k) + 0.16 * k + Math.sin(k * Math.PI) * 1.4, f.z0 + (f.z1 - f.z0) * k); f.m.rotation.x = k * 9; f.m.rotation.z = k * 5;
+      } else if (!f.landed) { f.landed = true; f.until = now + 3200; f.m.position.set(f.x1, 0.14, f.z1); f.m.rotation.set(0.35, f.x0, 1.2); snd('squeak', { x: f.x1, z: f.z1, pitch: 1.15 }); }
+      else if (now > f.until) { scene.remove(f.m); flying.splice(i, 1); }
+    }
+    const show = GK.mode === 'play' && !invOpen && near();
+    if (show && !promptEl) { promptEl = document.createElement('div'); promptEl.style.cssText = 'position:fixed;left:50%;bottom:24vh;transform:translateX(-50%);z-index:30;padding:8px 16px;border-radius:10px;background:rgba(10,10,16,.72);border:1px solid rgba(255,215,94,.55);color:#ffe9a8;font:700 15px system-ui,sans-serif;letter-spacing:.04em;pointer-events:none;text-shadow:0 1px 3px #000'; document.body.appendChild(promptEl); }
+    if (promptEl) { promptEl.style.display = show ? 'block' : 'none'; if (show) { const n = (infoOf(relicKey) || {}).name || 'relic'; if (promptEl.dataset.k !== relicKey) { promptEl.dataset.k = relicKey; promptEl.textContent = 'E  take the Vault relic: ' + n; } } }
+  }
+  let last = performance.now(); const loop = now => { update(now, Math.min(0.1, (now - last) / 1000)); last = now; requestAnimationFrame(loop); }; requestAnimationFrame(loop);
+  return {
+    onMsg(d) { if (d.relic !== undefined) setRelic(d.relic); if (d.throw) onThrow(d.throw); },
+    key(i) {   // quick-slot key pressed: a plushie in that slot is thrown (true = handled)
+      if (GK.mode !== 'play' || invOpen || !myInv || invGet(myInv, 'q' + i) !== 'x:plushie') return false;
+      net.send({ throw: 'q' + i }); return true;
+    },
+    shopNote(el) {   // merchant panel: say that prices follow the round
+      const n = GK.roundInfo ? GK.roundInfo().n : 0, g = el && el.querySelector('#shopGold'); if (!g || n < 3) return;
+      const s = document.createElement('span'); s.style.cssText = 'margin-left:12px;font-size:12px;color:#ff9f7a'; s.textContent = 'Round ' + n + ': prices +' + (n - 2) * 10 + '%'; g.appendChild(s);
+    },
+    get relic() { return relicKey; }
+  };
+})();
+// LOOT-END
 if (window.GKART) requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => GKART.bake(renderer), 600)));   // ITEMART: bake the inventory icons in small batches once the first frame is up
 window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw, pitch) { P.x = x; P.z = z; P.yaw = yaw; P.pitch = pitch || 0; spawned = true; }, toggleOverview() { inside = !inside; }, build: buildGoblin };
 })();

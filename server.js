@@ -53,11 +53,12 @@ function newMatch() {
     chests: Array.from({ length: 12 }, () => Math.floor(Math.random() * 6)), chestKeys: Array.from({ length: 12 }, () => GKITEMS.randomWeaponKey()), layout: GKITEMS.randomLayout() };
   m.shops = m.layout.map(x => x === 'merchant' ? GKITEMS.randomShop() : null);   // each merchant's 5 items with gold prices, rolled once per match
   m.mystery = m.layout.map(x => x === 'mystery' ? GKITEMS.randomMystery() : null);   // what is inside each mystery room, rolled once per match // weapon index per chest room
+  lootInit(m);   // LOOT: vault relic, shop base prices, lures
   matches.set(m.id, m); return m;
 }
 const VAULT = ROOM_DOORS['4'] || []; // the 4 doors touching the middle vault room
 const vaultVotes = m => new Set(Object.keys(m.sel).filter(k => VAULT.includes(m.sel[k]))).size; // distinct rooms selecting a vault door
-const roundState = m => ({ round: { n: m.round, left: Math.max(0, m.endsAt - Date.now()), dur: m.dur }, sel: m.sel, selBy: m.selBy || {}, lastSel: m.lastSel || {}, open: m.open, vaultVotes: vaultVotes(m), fizzled: m.fizzled || [], ...(m.sudden ? { sudden: 1 } : null) });
+const roundState = m => ({ round: { n: m.round, left: Math.max(0, m.endsAt - Date.now()), dur: m.dur }, sel: m.sel, selBy: m.selBy || {}, lastSel: m.lastSel || {}, open: m.open, vaultVotes: vaultVotes(m), fizzled: m.fizzled || [], relic: m.relicKey && !m.relicTaken ? m.relicKey : null, ...(m.sudden ? { sudden: 1 } : null) });
 const broadcastRound = m => bcast(m, roundState(m));
 const matchInfo = m => { let lo = Infinity, hi = -Infinity, n = 0, alive = 0; for (const p of m.players.values()) { if (p.npc) continue; n++; lo = Math.min(lo, p.wins); hi = Math.max(hi, p.wins); if (p.entered && !p.dead) alive++; } return { size: n, minWins: n ? lo : 0, maxWins: n ? hi : 0, alive }; };   // mystery enemies never count
 const broadcastMatch = m => bcast(m, { match: matchInfo(m) });
@@ -88,7 +89,7 @@ setInterval(() => { // one global timer steps every match
     if (!m.started) m.endsAt = now + m.dur;   // round 1 waits until someone has left the wheel and entered the rooms
     if (now >= m.endsAt) {
       const picked = [...new Set(Object.values(m.sel))], ok = vaultVotes(m) >= 2; // vault doors need 2 different rooms
-      m.open = picked.filter(d => ok || !VAULT.includes(d)); m.fizzled = ok ? [] : picked.filter(d => VAULT.includes(d)); m.lastSel = { ...m.sel }; m.sel = {}; m.selBy = {}; m.round++; m.dur = NEXT_MS; m.endsAt = now + m.dur; suddenCheck(m); broadcastRound(m); m.lastRound = now; }
+      m.open = picked.filter(d => ok || !VAULT.includes(d)); m.fizzled = ok ? [] : picked.filter(d => VAULT.includes(d)); m.lastSel = { ...m.sel }; m.sel = {}; m.selBy = {}; m.round++; m.dur = NEXT_MS; m.endsAt = now + m.dur; suddenCheck(m); lootRound(m); broadcastRound(m); m.lastRound = now; }
     else if (now - m.lastRound >= 1000) { m.lastRound = now; broadcastRound(m); }
     // COMBAT-BEGIN regen: 1 HP every 4 s once a player has not been hit for 6 s
     for (const p of m.players.values()) if (!m.sudden && p.entered && !p.dead && p.stats && p.stats.health < p.stats.maxHealth && now - (p.hurtAt || 0) >= C.regenIdle * RSCALE && now - (p.regenAt || 0) >= C.regenEvery * RSCALE) { p.regenAt = now; p.stats.health = Math.min(p.stats.maxHealth, p.stats.health + C.regenAmt); m.dirty = true; }
@@ -160,6 +161,7 @@ function buy(m, p, roomId, idx) { // returns null on success or a failure reason
   return null;
 }
 function claim(m, p) { // E in a chest room or a weapon/armour/gold mystery room: each player takes its contents once
+  if (p.room === '4') return relicClaim(m, p);   // LOOT: the vault relic
   const id = /^c[0-9]+$/.test(p.room || '') ? +p.room.slice(1) : -1;
   if (id < 0 || id >= m.layout.length) return 'room';
   const L = m.layout[id], my = m.mystery[id];
@@ -167,6 +169,7 @@ function claim(m, p) { // E in a chest room or a weapon/armour/gold mystery room
   if (L === 'chest') key = m.chestKeys[id];
   else if (L === 'mystery' && my && (my.kind === 'weapon' || my.kind === 'armor')) key = my.key;
   else if (L === 'mystery' && my && my.kind === 'gold') gold = my.amount;
+  else if (L === 'mystery' && my && my.kind === 'plushie') key = 'x:plushie';   // LOOT: a throwable plushie
   else return 'room';
   p.claimed = p.claimed || new Set();
   if (p.claimed.has(id)) return 'taken';
@@ -552,6 +555,7 @@ function roomGoals(m, p) {   // once per visit: claim a chest/mystery prize, buy
     shop.forEach((it, i) => { if (it.sold || it.price > p.gold) return; const g = G.ITEMS[it.key].type === 'weapon' ? (betterW(p.inv.weapon, it.key) ? G.ITEMS[it.key].attack - (p.inv.weapon ? info(p.inv.weapon).attack : 0) : 0) : (betterA(p.inv.armor, it.key) ? (G.ITEMS[it.key].health - (p.inv.armor ? info(p.inv.armor).health : 0)) / 2 : 0); if (g > bg) { bg = g; bi = i; } });
     if (bi >= 0) buy(m, p, id, bi);
   } else claim(m, p);
+  equipBest(m, p); botStations(m, p);   // LOOT: recycle junk, craft tier 0
   equipBest(m, p);
 }
 function pickDest(m, p, now) {   // idle: where to go next (claimable rooms, the merchant, the vault later, hunting, otherwise wander in the room)
@@ -565,9 +569,10 @@ function pickDest(m, p, now) {   // idle: where to go next (claimable rooms, the
       if (L === 'chest' && !(p.claimed && p.claimed.has(id))) s += 6;
       else if (L === 'mystery' && my && ['weapon', 'armor', 'gold'].includes(my.kind) && !(p.claimed && p.claimed.has(id))) s += 5;
       else if (L === 'merchant' && !b.done[key] && p.gold >= 20) s += 4;
+      else if (L === 'merchant' || (L === 'mystery' && my && my.kind === 'stations')) s += !b.done[key] && botNeedsStation(p) ? 3 : -1;   // LOOT: junk to recycle
       else if (L === 'mystery' && my && my.kind === 'enemy') s += m.round > 2 && p.stats.health > p.stats.maxHealth * 0.7 ? 0.5 : -3;
       else s -= 1;
-    } else if (key === '4') s += m.round > 3 ? 4 : -1;
+    } else if (key === '4') s += (m.round > 3 ? 4 : -1) + (relicFree(m) && p.inv.backpack.indexOf(null) >= 0 ? 14 : 0);   // LOOT: bots want the vault relic
     else s += (b.seen[key] ? 0 : 1);
     if (m.round >= 3 && hunt[key]) s += 2.5;
     if (key === p.room) s -= b.done[key] || !/^c/.test(key) ? 1 : 0;
@@ -588,6 +593,7 @@ function botThink(m, p, now, dt) {
     }
   }
   if (now < b.pauseUntil) return;
+  { const lu = lureFor(m, p, now); if (lu) { b.route = []; b.tgt = null; b.mode = ''; const [lx, lz] = clampIn(p.room, lu.x, lu.z, 0.5); if (Math.hypot(lx - p.x, lz - p.z) > 0.9) stepTo(m, p, lx, lz, dt, now); return; } }   // LOOT: a thrown plushie distracts
   // reaction: re-decide the target every 200-400 ms (human-like delay)
   if (now >= b.reactAt) {
     b.reactAt = now + (b.react ? rnd(b.react[0], b.react[1]) : rnd(200, 400));
@@ -618,6 +624,7 @@ function botThink(m, p, now, dt) {
   }
   if (b.route.length) { follow(m, p, dt, now); return; }
   if (lootNearby(m, p, dt, now)) return;
+  if (p.bot && relicGoal(m, p, dt, now)) return;   // LOOT
   roomGoals(m, p);
   if (now >= b.idleUntil) pickDest(m, p, now);
 }
@@ -629,6 +636,70 @@ function botTick(m, now) {   // ~10 Hz per match
   BS.cur += Number(process.hrtime.bigint() - t0) / 1e6; BS.calls++;
 }
 // BOTS-END
+
+// LOOT-BEGIN (vault relic, merchant price scaling, throwable plushie, bots at stations; see docs/reports/loot.md)
+const RELIC_POS = (() => { const [vx, vz] = WORLD.rc(WORLD.VAULT); return { x: vx + 2.4, z: vz }; })();   // the pedestal on the dais edge (the game.js LOOT block uses the same offset)
+const priceAt = (base, round) => Math.max(5, Math.round(base * (1 + 0.1 * Math.max(0, round - 2)) / 5) * 5);   // +10 % per round after round 2, rounded to 5 gold
+const LURE_FLY = 650, LURE_MS = 3000, LURE_RANGE = 8;
+function lootInit(m) {
+  const keys = Object.keys(ITEMS).filter(k => ITEMS[k].chance > 0 && ITEMS[k].tierN >= 3 && (ITEMS[k].type === 'weapon' || ITEMS[k].type === 'armor'));   // mythic or better, weighted by the normal drop chances
+  let r = Math.random() * keys.reduce((s, k) => s + ITEMS[k].chance, 0); m.relicKey = keys[0]; for (const k of keys) { if ((r -= ITEMS[k].chance) < 0) { m.relicKey = k; break; } }
+  m.relicTaken = null; m.lures = [];
+  for (const s of m.shops) if (s) for (const it of s) it.base = it.price;
+}
+function lootRound(m) {   // a new round: shop prices follow the round number (server is authoritative; buy() and the bots read it.price)
+  let ch = false; for (const s of m.shops) if (s) for (const it of s) { const np = priceAt(it.base || it.price, m.round); if (np !== it.price) { it.price = np; ch = true; } }
+  if (ch) bcast(m, { shops: m.shops });
+}
+const relicFree = m => !!m.relicKey && !m.relicTaken && m.open.some(d => VAULT.includes(d));
+function relicClaim(m, p) {   // E next to the pedestal inside the vault: the first goblin only
+  if (m.relicTaken) return 'taken';
+  if (Math.hypot(p.x - RELIC_POS.x, p.z - RELIC_POS.z) > 2.2) return 'room';   // too far from the pedestal (also keeps the old 'claim in the middle of the vault fails' test true)
+  if (!giveItem(p, m.relicKey)) return 'space';
+  m.relicTaken = p.id; m.dirty = true;
+  sendTo(p.ws, { claimed: { room: 4, key: m.relicKey, gold: 0, relic: 1 } });
+  bcast(m, { relic: null, feed: { k: p.name || 'Goblin', msg: ' seized the Vault relic!' } });
+  return null;
+}
+function relicGoal(m, p, dt, now) {   // a bot in the vault walks to the pedestal and takes the relic
+  const b = p.brain; if (p.room !== '4' || m.relicTaken || !m.relicKey || b.relicTries > 2) return false;
+  if (Math.hypot(p.x - RELIC_POS.x, p.z - RELIC_POS.z) > 1.8) { stepTo(m, p, RELIC_POS.x, RELIC_POS.z, dt, now); return true; }
+  b.relicTries = (b.relicTries || 0) + 1; claim(m, p); equipBest(m, p); return false;
+}
+function throwPlushie(m, p, slot, now) {   // {throw: 'q1'}: the plushie leaves the slot, the server picks the landing spot 7 m ahead (clamped into the room) and tells everyone
+  if (m.phase !== 'play' || !m.goAt || now < m.goAt || !RB[p.room] || typeof slot !== 'string' || !/^(q[0-2]|b[0-8])$/.test(slot) || getSlot(p.inv, slot) !== 'x:plushie') return;
+  setSlot(p.inv, slot, null); recalc(p); sendInv(p); m.dirty = true;
+  const [lx, lz] = clampIn(p.room, p.x - Math.sin(p.yaw) * 7, p.z - Math.cos(p.yaw) * 7, 0.7);
+  m.lures = (m.lures || []).filter(q => q.until > now);
+  const l = { id: (m.lureId = (m.lureId || 0) + 1), x: lx, z: lz, room: p.room, from: now + LURE_FLY, until: now + LURE_FLY + LURE_MS };
+  m.lures.push(l);
+  bcast(m, { throw: { id: l.id, by: p.id, from: [+p.x.toFixed(2), +p.z.toFixed(2)], to: [+lx.toFixed(2), +lz.toFixed(2)], ms: LURE_FLY, room: p.room } });
+}
+function lureFor(m, p, now) {   // the landed plushie in this room within 8 m of p (bots and mystery enemies walk to it for 3 s)
+  let best = null, bd = LURE_RANGE;
+  for (const l of m.lures || []) { if (now < l.from || now > l.until || l.room !== p.room) continue; const d = Math.hypot(l.x - p.x, l.z - p.z); if (d <= bd) { bd = d; best = l; } }
+  return best;
+}
+const BOT_SLOTS = [...Array.from({ length: 9 }, (_, i) => 'b' + i), 'q0', 'q1', 'q2'];
+const isJunkW = (p, k) => { const it = G.ITEMS[k]; return !!it && it.type === 'weapon' && !!G.recycleYield(k) && !betterW(p.inv.weapon, k); };
+const botNeedsStation = p => BOT_SLOTS.some(s => { const k = getSlot(p.inv, s); return k && isJunkW(p, k); });
+function botStations(m, p) {   // in a merchant room or a stations mystery room: recycle junk weapons, then craft the best tier 0 recipe the parts pay for
+  if (hasStation(m, p, 'recycler')) for (const s of BOT_SLOTS) { const k = getSlot(p.inv, s); if (k && isJunkW(p, k) && !recycle(m, p, s)) BS.rec = (BS.rec || 0) + 1; }
+  if (hasStation(m, p, 'workbench')) {
+    let best = null, bv = -1;
+    for (const r of G.RECIPES) { if (r.tier !== 0 || !Object.keys(r.cost).every(k => (p.parts[k] || 0) >= r.cost[k])) continue; const o = G.ITEMS[r.out], v = o.attack || o.health || 0; if (v > bv) { bv = v; best = r; } }
+    if (best && !craft(m, p, best.id)) BS.cra = (BS.cra || 0) + 1;
+  }
+}
+function botLab(m, ws, p, cmd) {   // GK_DEBUG only, for tests. 'station': make c0 a merchant and drop a bot with junk into it. {near:[x,z]}: put a bot there. Any command replies with counters and the lab bot's state.
+  const bot = [...m.players.values()].find(q => q.bot && !q.dead);
+  if (cmd === 'station' && bot) {
+    m.layout[0] = 'merchant'; m.shops[0] = G.randomShop().map(it => ({ ...it, base: it.price })); bot.inv.weapon = 'w:sword'; bot.inv.backpack[0] = 'w:stick'; bot.inv.backpack[1] = 'w:stick'; bot.gold = 0; recalc(bot);
+    const c = WORLD.CHEST[0]; bot.brain.route = []; bot.brain.done = {}; bot.brain.idleUntil = 0; bot.brain.mode = ''; place(bot, c.cx, c.cz); m.dirty = true; BS.rec = 0; BS.cra = 0;
+  } else if (cmd && Array.isArray(cmd.near) && bot) { place(bot, cmd.near[0], cmd.near[1]); bot.brain.route = []; bot.brain.idleUntil = Date.now() + 60000; bot.brain.mode = ''; m.dirty = true; }
+  sendTo(ws, { botlab: { rec: BS.rec || 0, cra: BS.cra || 0, pos: bot ? [bot.x, bot.z] : null, junk: bot ? bot.inv.backpack.filter(k => k === 'w:stick').length : 0, room: bot ? bot.room : null, wpn: bot ? bot.inv.weapon : null } });
+}
+// LOOT-END
 
 /* MATCH-BEGIN */
 const queueInfo = m => ({ n: m.players.size, size: CAP, since: Date.now() - m.formedAt });
@@ -744,6 +815,8 @@ wss.on('connection', (ws, req) => {
     } else if (dbg && Array.isArray(d.tp) && d.tp.length === 2 && d.tp.every(v => typeof v === 'number' && Number.isFinite(v))) {
       { const pr = p.room; place(p, clamp(d.tp[0]), clamp(d.tp[1])); noteRoom(m, p, pr); } m.dirty = true;
     } else if (dbg && Number.isFinite(d.gold)) { p.gold = Math.max(0, Math.floor(d.gold)); sendGold(p);
+    } else if (typeof d.throw === 'string') { throwPlushie(m, p, d.throw, now);   // LOOT
+    } else if (dbg && d.botlab) { botLab(m, ws, p, d.botlab);
     } else if (d.atk === 1) { attack(m, ws, p, now, d.rt);
     } else if (d.enter === 1) { /* legacy: the match start (GO) replaced it */
     } else if (typeof d.eat === 'string') { eat(p, d.eat);

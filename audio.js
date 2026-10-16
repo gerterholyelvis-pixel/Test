@@ -181,6 +181,11 @@
       }
       tone(out, 'sine', 140, t + 0.55, 0.22, 0.25, { f1: 220, a: 0.02 });
     },
+    squeak(out, t, o) {   // LOOT: the goblin plushie's squeaky-toy "pweep", two quick rubber chirps (called with GKAUDIO.play('squeak', {x, z}))
+      const p = num(o.pitch, 1);
+      tone(out, 'sine', 900 * p, t, 0.11, 0.4, { f1: 1900 * p, a: 0.004 }); tone(out, 'triangle', 1800 * p, t, 0.11, 0.12, { f1: 3400 * p, a: 0.004 });
+      tone(out, 'sine', 1100 * p, t + 0.13, 0.09, 0.3, { f1: 2300 * p, a: 0.004 });
+    },
     deny(out, t) { tone(out, 'square', 150, t, 0.1, 0.16, { f1: 120, a: 0.003 }); tone(out, 'square', 130, t + 0.12, 0.14, 0.16, { f1: 90, a: 0.003 }); },
     // SOCIAL-BEGIN goblin emotes (keys 4-7): short, silly, vocal
     emoteTaunt(out, t, o) {   // chest thumps and a gravelly "HAH!"
