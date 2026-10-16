@@ -4393,8 +4393,8 @@ const ROOMART = (() => {
   const goldVM = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 1, envMapIntensity: 1.4, emissive: 0x3a2000, emissiveIntensity: 0.6 });
   const MOOD = { chest: 0xffb02e, mystery: 0xa04dff, merchant: 0x22e0cc };
   const moodM = {}; for (const k in MOOD) moodM[k] = new THREE.MeshStandardMaterial({ color: 0x15110c, emissive: MOOD[k], emissiveIntensity: 2.3, roughness: 0.55 });
-  const AW = 1024, AH = 1280;
-  const CELLS = { gob: [0, 0, 512, 256], crown: [512, 0, 256, 256], tally: [768, 0, 256, 256], arrow: [0, 256, 256, 256], mine: [256, 256, 256, 256], king: [512, 256, 512, 256], haz: [0, 512, 1024, 128], kingme: [0, 640, 512, 256], face: [512, 640, 256, 256], scr: [768, 640, 256, 256], grime: [0, 896, 512, 128], scuff: [512, 896, 256, 128], crack: [768, 896, 256, 128], warrR: [0, 1024, 512, 256], warrL: [512, 1024, 512, 256] };
+  const AW = 1024, AH = 1536;
+  const CELLS = { gob: [0, 0, 512, 256], crown: [512, 0, 256, 256], tally: [768, 0, 256, 256], arrow: [0, 256, 256, 256], mine: [256, 256, 256, 256], king: [512, 256, 512, 256], haz: [0, 512, 1024, 128], kingme: [0, 640, 512, 256], face: [512, 640, 256, 256], scr: [768, 640, 256, 256], grime: [0, 896, 512, 128], scuff: [512, 896, 256, 128], crack: [768, 896, 256, 128], warrR: [0, 1024, 512, 256], warrL: [512, 1024, 512, 256], path: [0, 1280, 256, 256], drag: [256, 1280, 256, 256] };
   const SIZES = { gob: [1.5, 0.75], crown: [0.75, 0.75], tally: [0.7, 0.7], arrow: [0.95, 0.95], mine: [0.8, 0.8], king: [1.5, 0.75], warr: [1.6, 0.8], kingme: [2.0, 1.0], face: [0.9, 0.9], scr: [0.9, 0.9], warrR: [1.6, 0.8], warrL: [1.6, 0.8] };
   const GW = { gob: 4.0, crown: 2.0, tally: 2.0, mine: 2.2, king: 4.2, kingme: 4.5, face: 2.6, scr: 2.4, warr: 3.4 };   // wall graffiti widths in metres (readable from across the room)
   const uvr = k => { const [x, y, w, h] = CELLS[k]; return [(x + 2) / AW, 1 - (y + h - 2) / AH, (x + w - 2) / AW, 1 - (y + 2) / AH]; };
@@ -4421,7 +4421,10 @@ const ROOMART = (() => {
       for (let k = 0; k < 6; k++) { const x = 50 + rnd() * 156, l = 12 + rnd() * 34; sl(x, 194, x + (rnd() - 0.5) * 3, 194 + l, 4, RED); }
     });
     cell('tally', () => { for (let gI = 0; gI < 3; gI++) { const ox = 30 + (gI % 2) * 110, oy = 28 + gI * 72; for (let k = 0; k < 4; k++) sl(ox + k * 20, oy, ox + k * 20 + (rnd() - 0.5) * 4, oy + 54, 5, INK); sl(ox - 8, oy + 44, ox + 70, oy + 8, 5, INK); } });
-    cell('arrow', () => { sl(128, 220, 128, 70, 12, RED); sl(128, 30, 76, 100, 12, RED); sl(128, 30, 180, 100, 12, RED); scrawl('VAULT', 128, 238, 42, INK); });
+    cell('arrow', () => {   // arrow in the middle, VAULT readable from either end (the far copy is upside down on purpose)
+      sl(128, 190, 128, 70, 12, RED); sl(128, 52, 76, 112, 12, RED); sl(128, 52, 180, 112, 12, RED); scrawl('VAULT', 128, 236, 42, INK);
+      g.save(); g.translate(128, 20); g.rotate(Math.PI); scrawl('VAULT', 0, 0, 42, INK); g.restore();
+    });
     cell('mine', () => { face(128, 70, 26, INK); scrawl('MINE!!', 128, 170, 78, INK); sl(30, 222, 226, 214, 5, INK); });
     cell('king', () => { scrawl('KING SMELZ', 256, 96, 74, INK); sl(20, 96, 490, 100, 6, RED); sl(20, 120, 490, 70, 5, RED); face(256, 200, 22, RED); });
     // ---- art pass 2: three hand-drawn graffiti styles (scratched into the paint, red paint with drips, smudged charcoal) and wall wear
@@ -4476,14 +4479,30 @@ const ROOMART = (() => {
       for (let i = 0; i < 9; i++) { const x = 20 + rnd() * 200, y = 14 + rnd() * 100, a = -0.5 + rnd() * 0.4, l = 30 + rnd() * 70; g.strokeStyle = `rgba(40,40,44,${0.18 + rnd() * 0.3})`; g.lineWidth = 2 + rnd() * 6; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke(); }
       for (let i = 0; i < 2; i++) { const x = 40 + rnd() * 170, y = 30 + rnd() * 70; g.strokeStyle = 'rgba(20,20,24,0.45)'; g.lineWidth = 7 + rnd() * 4; g.beginPath(); g.arc(x, y, 18 + rnd() * 16, 0.2, 1.7); g.stroke(); }
     }, false);
-    cell('crack', (cw, ch) => {   // cracked floor tile cluster
+    cell('crack', (cw, ch) => {   // cracked floor tile cluster: soft grey, thick at the impact point, tapering to hairlines
       const crack = (x, y, a, n, lw, depth) => {
         const pts = [[x, y]];
-        for (let s = 0; s < n; s++) { a += (rnd() - 0.5) * 0.9; x += Math.cos(a) * (6 + rnd() * 10); y += Math.sin(a) * (4 + rnd() * 7); pts.push([x, y]); if (depth < 2 && rnd() < 0.18) crack(x, y, a + (rnd() < 0.5 ? 1 : -1) * (0.6 + rnd() * 0.5), 5 + ((rnd() * 6) | 0), lw * 0.6, depth + 1); }
-        for (let pass = 0; pass < 2; pass++) { g.strokeStyle = pass ? 'rgba(255,255,255,0.35)' : 'rgba(38,38,42,0.85)'; g.lineWidth = pass ? lw * 0.5 : lw; g.beginPath(); pts.forEach(([px, py], i) => i ? g.lineTo(px + pass, py + pass) : g.moveTo(px + pass, py + pass)); g.stroke(); }
+        for (let q = 0; q < n; q++) { a += (rnd() - 0.5) * 0.9; x += Math.cos(a) * (6 + rnd() * 10); y += Math.sin(a) * (4 + rnd() * 7); pts.push([x, y]); if (depth < 2 && rnd() < 0.18) crack(x, y, a + (rnd() < 0.5 ? 1 : -1) * (0.6 + rnd() * 0.5), 5 + ((rnd() * 6) | 0), lw * 0.6, depth + 1); }
+        for (let i = 1; i < pts.length; i++) {
+          const k = Math.max(0.12, 1 - i / n * 0.9), seg = (col, wd, o) => { g.strokeStyle = col; g.lineWidth = wd; g.beginPath(); g.moveTo(pts[i - 1][0] + o, pts[i - 1][1] + o); g.lineTo(pts[i][0] + o, pts[i][1] + o); g.stroke(); };
+          seg('rgba(150,152,158,0.10)', lw * k * 3.2, 0); seg('rgba(128,130,136,0.4)', lw * k, 0); seg('rgba(255,255,255,0.3)', lw * k * 0.4, 1);
+        }
       };
-      for (let k = 0; k < 6; k++) crack(128, 64, k * 1.05 + rnd() * 0.5, 7 + ((rnd() * 6) | 0), 2.6, 0);
-      g.fillStyle = 'rgba(30,30,34,0.35)'; g.beginPath(); g.ellipse(128, 64, 9, 6, 0, 0, 7); g.fill();
+      for (let k = 0; k < 6; k++) crack(128, 64, k * 1.05 + rnd() * 0.5, 7 + ((rnd() * 6) | 0), 5.5, 0);
+      g.fillStyle = 'rgba(130,132,138,0.16)'; g.beginPath(); g.ellipse(128, 64, 10, 7, 0, 0, 7); g.fill();
+    }, false);
+    const fadeEnds = (cw, ch) => { g.globalCompositeOperation = 'destination-in'; const gy = g.createLinearGradient(0, 0, 0, ch); gy.addColorStop(0, 'rgba(0,0,0,0)'); gy.addColorStop(0.14, 'rgba(0,0,0,1)'); gy.addColorStop(0.86, 'rgba(0,0,0,1)'); gy.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gy; g.fillRect(0, 0, cw, ch); g.globalCompositeOperation = 'source-over'; };
+    cell('path', (cw, ch) => {   // worn walking line: darker band, long scuff streaks, boot marks; x across the path, y along it
+      const gx = g.createLinearGradient(0, 0, cw, 0); gx.addColorStop(0, 'rgba(70,64,56,0)'); gx.addColorStop(0.22, 'rgba(70,64,56,0.10)'); gx.addColorStop(0.5, 'rgba(60,54,46,0.2)'); gx.addColorStop(0.78, 'rgba(70,64,56,0.10)'); gx.addColorStop(1, 'rgba(70,64,56,0)');
+      g.fillStyle = gx; g.fillRect(0, 0, cw, ch);
+      for (let i = 0; i < 34; i++) { const x = 40 + rnd() * 176, y = rnd() * ch, l = 20 + rnd() * 90; g.strokeStyle = `rgba(40,36,30,${0.05 + rnd() * 0.13})`; g.lineWidth = 1 + rnd() * 3; g.lineCap = 'round'; g.beginPath(); g.moveTo(x, y); g.lineTo(x + (rnd() - 0.5) * 8, y + l); g.stroke(); }
+      for (let i = 0; i < 18; i++) { const x = 50 + rnd() * 156, y = rnd() * ch; g.strokeStyle = 'rgba(30,28,24,0.2)'; g.lineWidth = 3 + rnd() * 3; g.beginPath(); g.arc(x, y, 6 + rnd() * 8, 0.3, 2.2); g.stroke(); }
+      fadeEnds(cw, ch);
+    }, false);
+    cell('drag', (cw, ch) => {   // something heavy dragged across the floor: two smeared lanes
+      g.lineCap = 'round'; for (const ox of [-20, 22]) { g.strokeStyle = 'rgba(70,58,46,0.32)'; g.lineWidth = 16; g.shadowColor = 'rgba(70,58,46,0.6)'; g.shadowBlur = 10; g.beginPath(); for (let y = 0; y <= ch; y += 16) { const x = 128 + ox + Math.sin(y * 0.04 + ox) * 14; y ? g.lineTo(x, y) : g.moveTo(x, y); } g.stroke(); }
+      g.shadowBlur = 0; for (let i = 0; i < 14; i++) { const x = 70 + rnd() * 116, y = rnd() * ch; g.strokeStyle = 'rgba(40,34,28,0.2)'; g.lineWidth = 1 + rnd() * 2; g.beginPath(); g.moveTo(x, y); g.lineTo(x + (rnd() - 0.5) * 6, y + 20 + rnd() * 40); g.stroke(); }
+      fadeEnds(cw, ch);
     }, false);
     cell('haz', (cw, ch) => {   // yellow/black safety stripes, 8:1, worn
       g.fillStyle = '#17171a'; g.fillRect(0, 0, cw, ch); g.fillStyle = '#e1ad1c';
@@ -4620,6 +4639,8 @@ const ROOMART = (() => {
     put(A.S, HEMG, x, 0.7, z, PI, 0, 0, 0.24, 0.2, 0.24, cv(0x2a2a2c, rnd, 0.08)); put(A.S, CYLG, x, 0.7, z, 0, 0, 0, 0.245, 0.03, 0.245, cv(0x3a3a3d, rnd, 0.08));
   };
   const logSeat = (A, x, z, yaw, rnd) => { put(A.S, CYLG, x, 0.13, z, 0, yaw, PI / 2, 0.13, 0.85, 0.13, cv(0x6a4a2e, rnd, 0.1)); put(A.S, CYLG, x + Math.cos(yaw) * 0.43, 0.13, z - Math.sin(yaw) * 0.43, 0, yaw, PI / 2, 0.1, 0.02, 0.1, cv(0xb8956a, rnd, 0.06)); };
+  const tooth = (A, x, z, rnd) => put(A.S, CONEG, x, 0.025, z, PI / 2 - 0.1, rnd() * 6.28, 0, 0.022, 0.07, 0.022, cv(0xe8dfc2, rnd, 0.05));   // a knocked-out goblin tooth
+  const earRing = (A, x, z, rnd) => { put(A.G, LINKG, x, 0.012, z, PI / 2, rnd() * 6.28, 0, 0.055, 0.055, 0.055, cv(0xf0b02a, rnd, 0.06)); if (rnd() < 0.5) put(A.G, LINKG, x + 0.07, 0.011, z + 0.03, PI / 2, rnd() * 6.28, 0, 0.04, 0.04, 0.04, cv(0xffc83a, rnd, 0.06)); };   // a dropped ear-ring
   const waterStain = (A, x, z, rnd) => {   // dried tide-mark rings on the ceiling
     const rx = 0.7 + rnd() * 0.7, rz = rx * (0.6 + rnd() * 0.5), yw = rnd() * 3;
     put(A.C, CYLG, x, H - 0.012, z, 0, yw, 0, rx, 0.004, rz, cv(0xb9a981, rnd, 0.04));
@@ -4667,13 +4688,13 @@ const ROOMART = (() => {
     // 5. props, near walls and corners only, kept clear of door gaps
     const occ = [], free = (x, z, rad) => !occ.some(o => Math.hypot(o[0] - x, o[1] - z) < o[2] + rad + 0.12);
     // 5b. art pass 2: the story corner is placed first so the older props flow around it
-    const r2 = mul(hashStr('roomart2:' + r.key));
+    const r2 = mul(hashStr('roomart2:' + r.key)); let storyAt = null;
     const spot = (rad, edge) => { for (let k = 0; k < 24; k++) { const sx = r2() < 0.5 ? -1 : 1, sz = r2() < 0.5 ? -1 : 1, x = sx * (hx - edge - r2() * 0.3), z = sz * (hz - edge - r2() * 0.3); if (free(x, z, rad)) { occ.push([x, z, rad]); return [x, z, sx, sz]; } } return null; };
     const theme = (r2() * 3) | 0;   // 0 goblin camp, 1 hoard corner, 2 gaol corner
     if (!big && r.kind === 'grid') {
       const p = spot(1.5, 1.7);
       if (p) {
-        const [x, z, sx, sz] = p, toCentre = Math.atan2(sz, -sx); story.set(r.key, [x, z, theme]);
+        const [x, z, sx, sz] = p, toCentre = Math.atan2(sz, -sx); story.set(r.key, [x, z, theme]); storyAt = [x, z];
         if (theme === 0) { coldFire(A, x, z, r2); tripodPot(A, x, z, r2); logSeat(A, x - sx * 0.2, z - sz * 0.95, 0.4 + r2(), r2); bedroll(A, x + sx * 1.1, z + sz * 0.15, (r2() - 0.5) * 0.2, r2); bonePile(A, x - sx * 0.1, z + sz * 1.1, r2); barrelTipped(A, x - sx * 1.25, z + sz * 0.95, toCentre, r2); crate(A, x + sx * 1.15, z - sz * 0.95, r2() * 0.4, 0.62, r2); crate(A, x + sx * 1.15, z - sz * 1.55, r2() * 0.4, 0.55, r2); sack(A, x + sx * 0.55, z - sz * 1.2, r2); }
         else if (theme === 1) { barrelTipped(A, x, z, toCentre, r2); barrelUpright(A, x + sx * 1.0, z + sz * 1.35, r2); barrelUpright(A, x + sx * 1.55, z + sz * 0.85, r2); crateBroken(A, x + sx * 1.3, z - sz * 0.45, (r2() - 0.5) * 0.6, 0.85, r2); sack(A, x + sx * 0.4, z + sz * 1.3, r2); sack(A, x + sx * 0.9, z + sz * 1.45, r2); coinScatter(A, x - sx * 0.8, z + sz * 0.3, 10, 0.4, r2); }
         else { shackles(A, x, z, r2); bonePile(A, x, z + sz * 0.15, r2); bucket(A, x + sx * 1.0, z + sz * 0.6, r2() * 6, r2); crateBroken(A, x - sx * 0.2, z + sz * 1.5, r2() * 0.5, 0.7, r2); }
@@ -4724,7 +4745,7 @@ const ROOMART = (() => {
     }
     if (r.kind === 'grid' && !big) {
       const [vx, vz] = rc(WORLD.VAULT), dx = vx - r.cx, dz = vz - r.cz, l = Math.hypot(dx, dz), dir = new V3(dx / l, 0, dz / l);
-      D.quad(new V3(dir.x * 3.1, 0.008, dir.z * 3.1), new V3(0, 1, 0), dir, 0.5, 0.5, uvr('arrow'), WHITE);
+      D.quad(new V3(dir.x * 3.5, 0.008, dir.z * 3.5), new V3(0, 1, 0), dir, 0.95, 0.95, uvr('arrow'), WHITE);   // big enough to read from the room centre; text readable from both ends
     }
     // 7. art pass 2: the story corner, wall wear (grime, scuffs, cracked tiles, ceiling water stains). Own seeded stream so the layout above is untouched.
     const nv0 = i => new V3(NRM[i][0], 0, NRM[i][1]);
@@ -4740,7 +4761,21 @@ const ROOMART = (() => {
       for (let k = 0; k < 12; k++) {
         const x = (r2() - 0.5) * (hx * 2 - 3), z = (r2() - 0.5) * (hz * 2 - 3);
         if (r.doors.some(d => Math.hypot(d.lp.x - x, d.lp.z - z) < 2.8) || (big && Math.hypot(x, z) < 4.6)) continue;
-        const a = r2() * 6.28, hw = 0.5 + r2() * 0.4; dq(x, 0.009, z, new V3(0, 1, 0), new V3(Math.sin(a), 0, Math.cos(a)), hw, hw / 2, 'crack', 0.45 + r2() * 0.35, r2() < 0.5); break;
+        const a = r2() * 6.28, hw = 0.5 + r2() * 0.4; dq(x, 0.009, z, new V3(0, 1, 0), new V3(Math.sin(a), 0, Math.cos(a)), hw, hw / 2, 'crack', 0.45 + r2() * 0.35, r2() < 0.5); story.set(r.key + '#crack' + i, [x, z, 0]); break;
+      }
+    }
+    // 8. art pass 3: floor storytelling in the middle of the room (decals and tiny props in the same merged meshes, no collision)
+    if (r.kind === 'grid' && !big && r.doors.length >= 2) {
+      let best = null;   // the worn line runs between the two doors that are furthest apart (a vault door counts extra: that is where everyone is heading)
+      for (let i = 0; i < r.doors.length; i++) for (let j = i + 1; j < r.doors.length; j++) { const P0 = r.doors[i], P1 = r.doors[j], d = Math.hypot(P0.lp.x - P1.lp.x, P0.lp.z - P1.lp.z) * (P0.d.kind === 'vault' || P1.d.kind === 'vault' ? 1.3 : 1); if (!best || d > best[2]) best = [P0, P1, d]; }
+      const [P0, P1] = best, ax = P0.lp.x + P0.sl.x * 1.1, az = P0.lp.z + P0.sl.z * 1.1, bx = P1.lp.x + P1.sl.x * 1.1, bz = P1.lp.z + P1.sl.z * 1.1, L = Math.hypot(bx - ax, bz - az);
+      if (L > 2) dq((ax + bx) / 2, 0.006, (az + bz) / 2, new V3(0, 1, 0), new V3((bx - ax) / L, 0, (bz - az) / L), 0.75 + r2() * 0.2, L / 2, 'path', 0.85 + r2() * 0.15, r2() < 0.5);
+      if (storyAt) { const m = Math.hypot(storyAt[0], storyAt[1]) || 1, dx = -storyAt[0] / m, dz = -storyAt[1] / m, Ld = 3 + r2() * 2; dq(storyAt[0] + dx * (0.9 + Ld / 2), 0.007, storyAt[1] + dz * (0.9 + Ld / 2), new V3(0, 1, 0), new V3(dx, 0, dz), 0.4, Ld / 2, 'drag', 0.8 + r2() * 0.2, r2() < 0.5); }
+      const cd = r.doors.find(e => e.d.kind === 'chest');   // spilled coins trailing away from the treasure door
+      if (cd) for (let i = 0; i < 9; i++) { const k = 1.5 + i * 0.5 + r2() * 0.2, off = (r2() - 0.5) * 0.45 + Math.sin(i * 0.9) * 0.2, cx = cd.lp.x + cd.sl.x * k - cd.sl.z * off, cz = cd.lp.z + cd.sl.z * k + cd.sl.x * off; for (let c2 = 0, nc = Math.max(1, 4 - ((i * 0.4) | 0) - ((r2() * 2) | 0)); c2 < nc; c2++) coin(A, cx + (r2() - 0.5) * 0.3, 0.012 + (r2() < 0.2 ? 0.012 : 0), cz + (r2() - 0.5) * 0.3, r2, 0.3); }
+      for (let i = 0, n = 3 + ((r2() * 2) | 0); i < n; i++) for (let k = 0; k < 10; k++) {   // a couple of teeth and an ear-ring away from the doorways
+        const x = (r2() - 0.5) * (hx * 2 - 4), z = (r2() - 0.5) * (hz * 2 - 4); if (r.doors.some(e => Math.hypot(e.lp.x - x, e.lp.z - z) < 2.4)) continue;
+        if (i === 0) earRing(A, x, z, r2); else tooth(A, x, z, r2); break;
       }
     }
     for (let i = 0, n = 1 + ((r2() * 2) | 0); i < n; i++) waterStain(A, (r2() < 0.5 ? -1 : 1) * (hx - 1.1 - r2() * 1.4), (r2() < 0.5 ? -1 : 1) * (hz - 1.1 - r2() * 1.4), r2);

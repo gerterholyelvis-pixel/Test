@@ -79,3 +79,11 @@ Before/after: `docs/screens/art-rooms2-{before,after}-{spawn,vault,corner}.jpg` 
 
 Cost: lights unchanged (9 PointLight + 1 Hemisphere). Draw calls: the new props, decals and stains reuse the existing per-room merged meshes; the only new mesh is one ember mesh in camp rooms (+1 to +4 draw calls in the whole level, and culling still applies). Triangles: static art grows 140k to 199k (whole scene 272k to 332k). Not measured: real GPU frame time (software GL only).
 Test hook: `GK.roomart.story` (room key to [x, z, theme]).
+
+## Art pass 3 (floor storytelling)
+Before/after: `docs/screens/art-rooms3-{before,after}-{corner,arrow,centre,crack}.jpg`.
+- **Floor VAULT sign** is now ~1.9 m across (3.5 m from the room centre) and carries the word at both ends (the far copy is upside down), so it reads whichever way you approach; the arrow in the middle points to the vault.
+- **Worn path**: a darker, scuffed band between the two furthest doors (a vault door counts extra), faded at both ends. A **drag mark** runs from the story corner toward the room centre. A **coin trail** leads away from the treasure door. A few **goblin teeth** and an **ear-ring** are dropped in the middle. Grid rooms only (not the vault); seeded, visual only, no collision.
+- **Cracks** are soft light grey, thick at the impact point and tapering out (they were near-black hairlines).
+- Budget: everything reuses the existing per-room decal and solid/gold meshes, so no new draw calls (roomart meshes 92 to 93 in the scene; lights unchanged at 9 PointLight + 1 Hemisphere). Static art triangles 199k to 207k.
+- Debug hook: `GK.roomart.story` also holds each crack position as `<room>#crack<n>`.
