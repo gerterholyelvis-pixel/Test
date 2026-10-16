@@ -99,20 +99,18 @@ process.on('unhandledRejection', e => console.error('unhandled', e));
 // SECURITY-END
 const wss = new WebSocketServer({ server: srv, maxPayload: 512, verifyClient }); // oversize frames close the socket
 setInterval(() => { for (const ws of wss.clients) { if (ws.alive === false || ws.bufferedAmount > 262144) { try { ws.terminate(); } catch (e) {} continue; }   /* ROBUST: also drop a socket that is not reading (256 KB queued) */ ws.alive = false; try { ws.ping(); } catch (e) {} } }, 30000).unref();   // SECURITY: heartbeat, a socket that answers no ping for 30 s is dead (frees its per-IP slot, starts the reconnect grace)
-const LIM = WORLD.LIM + 1; // world half-extent: the room grid plus the 8 m chest rooms around it (+1 m slack)
+const LIM = WORLD.LIM + 1; // world half-extent: the room grid plus the attached rooms around it (+1 m slack)
 const clamp = v => Math.max(-LIM, Math.min(LIM, v));
-// ---- doors and rounds (door ids and room keys must match game.js) ----
-const chestKey = WORLD.chestKey; // chest rooms in game.js order (WORLD.CHEST)
-const ROOM_DOORS = {}; let nDoors = 0; // room key ('0'..'8' grid, 'c0'..'c11' chest) -> door ids on its walls
+// ---- doors and rounds: every table comes from WORLD.DOORS / WORLD.ROOMS (docs/PLAN-5x5.md 5.1), the client derives the same ids ----
+const VK = WORLD.VAULT_KEY;   // THE VAULT's room key ('12')
+const ROOM_DOORS = WORLD.ROOM_DOORS, nDoors = WORLD.DOORS.length; // room key ('0'..'24' arena, 'c0'..'c15' attached) -> door ids on its walls (sorted N E S W)
 const DOOR_AT = {}; // 'a|b' and 'b|a' -> { id, axis, c, hw }: where the doorway sits on the wall between two rooms (axis = coordinate along the wall, c = its centre, hw = half opening + slack)
-const addDoor = (a, b, axis, c) => { const id = nDoors++; (ROOM_DOORS[a] = ROOM_DOORS[a] || []).push(id); (ROOM_DOORS[b] = ROOM_DOORS[b] || []).push(id); DOOR_AT[a + '|' + b] = DOOR_AT[b + '|' + a] = { id, axis, c, hw: (a === '4' || b === '4' ? 4.9 : 4) / 2 + 0.2 }; }; // opening widths = VW / DW in game.js
-for (let i = 0; i < 9; i++) {
-  const col = i % 3, row = Math.floor(i / 3), [rx, rz] = WORLD.rc(i); // every door is centred on its wall segment
-  addDoor(String(i), col < 2 ? String(i + 1) : chestKey(i, 'E'), 'z', rz);
-  addDoor(String(i), row < 2 ? String(i + 3) : chestKey(i, 'S'), 'x', rx);
-  if (col === 0) addDoor(String(i), chestKey(i, 'W'), 'z', rz);
-  if (row === 0) addDoor(String(i), chestKey(i, 'N'), 'x', rx);
-}
+for (const d of WORLD.DOORS) DOOR_AT[d.a + '|' + d.b] = DOOR_AT[d.b + '|' + d.a] = { id: d.id, axis: d.axis, c: d.c, hw: d.hw };
+const isOpen = (m, d) => WORLD.alwaysOpen(d) || m.open.includes(d);   // a home's hatch is always open
+const isHatch = d => WORLD.alwaysOpen(d);
+const isArena = k => typeof k === 'string' && /^\d{1,2}$/.test(k) && +k < WORLD.NARENA;
+const isHome = k => typeof k === 'string' && k[0] === 'c' && !!WORLD.CHEST[+k.slice(1)] && WORLD.CHEST[+k.slice(1)].home;
+const parentCell = k => isHome(k) ? String(WORLD.CHEST[+k.slice(1)].parent) : k;   // a home's arena cell (the door guard counts a goblin at home as an occupant of it)
 const roomKeyOf = WORLD.roomKeyOf, boxOf = WORLD.roomAt;
 // ---- matches: independent games, players are queued with similar victory counts ----
 // MATCH-BEGIN (matchmaking: players wait in a queue match (phase 'queue'); it closes at CAP players, or after QUEUE_MS with >= 2; then everyone loads in together. See docs/reports/matchmaking.md)
@@ -139,17 +137,18 @@ const humans = m => { let n = 0; for (const p of m.players.values()) if (isHum(p
 const avgWins = m => { let s = 0; for (const p of m.players.values()) s += p.wins; return m.players.size ? s / m.players.size : 0; };
 const tolerance = w => w <= 5 ? 1 : Math.ceil(w * 0.25);
 function newMatch() {
-  const R1 = process.env.GK_DEBUG && +process.env.GK_ROUND_MS > 0 ? +process.env.GK_ROUND_MS : 30000; // GK_DEBUG only: shorter round 1 so the tests run fast
+  const R1 = process.env.GK_DEBUG && +process.env.GK_ROUND_MS > 0 ? +process.env.GK_ROUND_MS : ROUND_MS; // GK_DEBUG only: shorter round 1 so the tests run fast
   const m = { id: nextMatch++, players: new Map(), round: 1, dur: R1, endsAt: Date.now() + R1, started: false, phase: 'queue', formedAt: Date.now(), goAt: 0, sel: {}, selBy: {}, lastSel: {}, open: [], drops: [], nextDrop: 1, dirty: false, lastRound: 0, specs: new Map(), dead: [], npcSpawned: new Set(),
-    chests: Array.from({ length: 12 }, () => Math.floor(Math.random() * 6)), chestKeys: Array.from({ length: 12 }, () => GKITEMS.randomWeaponKey()), layout: GKITEMS.randomLayout() };
+    chests: Array.from({ length: WORLD.NATT }, () => Math.floor(Math.random() * 6)), chestKeys: Array.from({ length: WORLD.NATT }, () => GKITEMS.randomWeaponKey()), layout: GKITEMS.randomLayout(),
+    trees: null, vb: null, vbNext: null, ram: null, claimant: null, relicRestock: null };   // 5x5 hooks (docs/PLAN-5x5.md 5.2): tree rooms and vaultbreakers (task B), crown claim and relic restock (task A) fill these; null = inert
   m.shops = m.layout.map(x => x === 'merchant' ? GKITEMS.randomShop() : null);   // each merchant's 5 items with gold prices, rolled once per match
   m.mystery = m.layout.map(x => x === 'mystery' ? GKITEMS.randomMystery() : null);   // what is inside each mystery room, rolled once per match // weapon index per chest room
   lootInit(m);   // LOOT: vault relic, shop base prices, lures
   matches.set(m.id, m); return m;
 }
-const VAULT = ROOM_DOORS['4'] || []; // the 4 doors touching the middle vault room
+const VAULT = ROOM_DOORS[VK] || []; // the 4 doors touching the middle vault room
 const vaultVotes = m => { const rooms = Object.keys(m.sel).filter(k => VAULT.includes(m.sel[k])); return (rule('bribe') ? rooms.reduce((n, k) => n + 1 + ((m.bribes && m.bribes[k]) || 0), 0) : rooms.length) + rooms.filter(k => m.picked && m.picked[k]).length; }; // distinct rooms selecting a vault door (bribe rule: each room weighs 1 + its bribes)
-const roundState = m => ({ round: { n: m.round, left: Math.max(0, m.endsAt - Date.now()), dur: m.dur }, sel: m.sel, selBy: m.selBy || {}, lastSel: m.lastSel || {}, open: m.open, vaultVotes: vaultVotes(m), fizzled: m.fizzled || [], relic: m.relicKey && !m.relicTaken ? m.relicKey : null, ...(m.sudden ? { sudden: 1 } : null), ...(m.showdown && !m.sudden ? { showdown: 1 } : null), ...ruleState(m) });
+const roundState = m => ({ round: { n: m.round, left: Math.max(0, m.endsAt - Date.now()), dur: m.dur }, sel: m.sel, selBy: m.selBy || {}, lastSel: m.lastSel || {}, open: m.open, vaultVotes: vaultVotes(m), fizzled: m.fizzled || [], relic: m.relicKey && !m.relicTaken ? m.relicKey : null, ...(m.sudden ? { sudden: 1 } : null), ...(m.showdown && !m.sudden ? { showdown: 1 } : null), ...(m.vb ? { vb: m.vb } : null), ...ruleState(m) });   // vb: task B (vaultbreaker assignment)
 const broadcastRound = m => bcast(m, roundState(m));
 const matchInfo = m => { let lo = Infinity, hi = -Infinity, n = 0, alive = 0; for (const p of m.players.values()) { if (p.npc) continue; n++; lo = Math.min(lo, p.wins); hi = Math.max(hi, p.wins); if (p.entered && !p.dead) alive++; } return { size: n, minWins: n ? lo : 0, maxWins: n ? hi : 0, alive }; };   // mystery enemies never count
 const broadcastMatch = m => bcast(m, { match: matchInfo(m) });
@@ -194,7 +193,7 @@ setInterval(() => { // one global timer steps every match
       const fresh = paceNoDoor(m, picked.filter(d => ok || !VAULT.includes(d))); m.open = useOpen(m, ruleOpen(m, fresh)); m.fizzled = ok ? [] : picked.filter(d => VAULT.includes(d)); m.lastSel = { ...m.sel }; m.sel = {}; m.selBy = {}; m.bribes = {}; m.round++; m.dur = NEXT_MS; m.endsAt = now + m.dur; suddenCheck(m); paceRound(m); lootRound(m); broadcastRound(m); m.lastRound = now; }
     else if (now - m.lastRound >= 1000) { m.lastRound = now; broadcastRound(m); }
     // COMBAT-BEGIN regen: 1 HP every 4 s once a player has not been hit for 6 s. SUDDEN DEATH: only inside THE VAULT (the sanctuary everyone converges on), nowhere else.
-    for (const p of m.players.values()) if ((!m.sudden || p.room === '4') && p.entered && !p.dead && p.stats && p.stats.health < p.stats.maxHealth && now - (p.hurtAt || 0) >= C.regenIdle * RSCALE * G.goblinRegen(p.goblin).idle && now - (p.regenAt || 0) >= C.regenEvery * RSCALE * G.goblinRegen(p.goblin).every) { p.regenAt = now; p.stats.health = Math.min(p.stats.maxHealth, p.stats.health + C.regenAmt); m.dirty = true; }
+    for (const p of m.players.values()) if ((!m.sudden || p.room === VK) && p.entered && !p.dead && p.stats && p.stats.health < p.stats.maxHealth && now - (p.hurtAt || 0) >= C.regenIdle * RSCALE * G.goblinRegen(p.goblin).idle && now - (p.regenAt || 0) >= C.regenEvery * RSCALE * G.goblinRegen(p.goblin).every) { p.regenAt = now; p.stats.health = Math.min(p.stats.maxHealth, p.stats.health + C.regenAmt); m.dirty = true; }
     // COMBAT-END
     if (m.dirty) { m.dirty = false; bcast(m, { players: [...m.players.values()].map(pub) }); } // slow state: only when something other than movement changed
     snapshots(m); // NETCODE: positions of players who moved go out at 20 Hz as compact snapshots
@@ -232,16 +231,23 @@ function equip(p, goblin) { // give a player a goblin type with its starting gea
 }
 const sendGold = p => { if (p.ws) sendTo(p.ws, { gold: p.gold }); };
 const sendParts = p => { if (p.ws) sendTo(p.ws, { parts: p.parts }); };
-function hasStation(m, p, st) { // merchant rooms have all stations, mystery 'stations' rooms list theirs
+// STATIONS (docs/PLAN-5x5.md 1.6): which station of which type the goblin stands at. kind: 'workbench' | 'recycler' | 'knowledge'. -> { kind, type } or null.
+// Types are items.js STATIONS keys: bench 'normal' | 'master', recycler 'home' (50%) | 'full' (100%). Merchants and mystery 'stations' rooms: normal bench, full recycler (as before);
+// homes: normal bench, home recycler; the Master Forge: master bench; the Grand Recycler: full recycler. Task E adds bench tiers, craft time and owner rules.
+const STATION_TYPES = { merchant: { workbench: 'normal', recycler: 'full', knowledge: 'normal' }, home: { workbench: 'normal', recycler: 'home' }, forge: { workbench: 'master' }, grand: { recycler: 'full' } };
+function stationAt(m, p, st) {
   const mm = /^c(\d+)$/.exec(p.room || ''), id = mm ? +mm[1] : -1;
   const L = id >= 0 ? m.layout[id] : null, my = id >= 0 ? m.mystery[id] : null;
-  return L === 'merchant' || (L === 'mystery' && !!my && my.kind === 'stations' && Array.isArray(my.stations) && my.stations.includes(st));
+  if (L === 'mystery') return !!my && my.kind === 'stations' && Array.isArray(my.stations) && my.stations.includes(st) ? { kind: st, type: st === 'recycler' ? 'full' : 'normal' } : null;
+  const t = L && STATION_TYPES[L] && STATION_TYPES[L][st];
+  return t ? { kind: st, type: t } : null;
 }
+const hasStation = (m, p, st) => !!stationAt(m, p, st);
 function craft(m, p, rid) { // {craft: recipeId}; returns null or a failure reason
   if (!knowBench(m, p)) return 'room';   // KNOWLEDGE: the knowledge tree is a workbench too
   const r = typeof rid === 'string' && G.RECIPES.find(x => x.id === rid);
   if (!r) return 'recipe';
-  if (p.stats.knowledge < (r.needs || 0)) return 'knowledge';
+  if (!G.canCraft(p, r)) return 'knowledge';   // STATIONS: knowledge adapter (task E: bench maxTier / bonusTier from stationAt(m, p, 'workbench').type)
   const cost = G.recipeCost(r, p.perks);   // KNOWLEDGE: Thrifty Hands
   for (const k in cost) if ((p.parts[k] || 0) < cost[k]) return 'parts';
   if (p.inv.backpack.indexOf(null) < 0) return 'space';
@@ -272,8 +278,8 @@ function botLearn(m, p) { for (const id of BOT_PERKS) if (!learn(m, p, id)) retu
 // KNOWLEDGE-END
 function recycle(m, p, slot) { // returns null on success or a failure reason
   if (typeof slot !== 'string' || !/^(b[0-8]|q[0-2])$/.test(slot)) return 'item';
-  if (!hasStation(m, p, 'recycler')) return 'room';
-  const key = getSlot(p.inv, slot), y = key && G.recycleFor(key, p.perks);   // KNOWLEDGE: Scrapper
+  const stn = stationAt(m, p, 'recycler'); if (!stn) return 'room';
+  const key = getSlot(p.inv, slot), y = key && G.recycleEff(G.recycleFor(key, p.perks), (G.STATIONS.recycler[stn.type] || {}).eff);   // KNOWLEDGE: Scrapper; STATIONS: the home recycler gives 50%
   if (!y) return 'item';
   setSlot(p.inv, slot, null);
   for (const k in y) p.parts[k] = (p.parts[k] || 0) + y[k];
@@ -293,7 +299,7 @@ function buy(m, p, roomId, idx) { // returns null on success or a failure reason
   return null;
 }
 function claim(m, p) { // E in a chest room or a weapon/armour/gold mystery room: each player takes its contents once
-  if (p.room === '4') return relicClaim(m, p);   // LOOT: the vault relic
+  if (p.room === VK) return relicClaim(m, p);   // LOOT: the vault relic
   const id = /^c[0-9]+$/.test(p.room || '') ? +p.room.slice(1) : -1;
   if (id < 0 || id >= m.layout.length) return 'room';
   const L = m.layout[id], my = m.mystery[id];
@@ -324,7 +330,7 @@ function move(p, from, to) { // inventory move/swap, strictly validated
   setSlot(p.inv, to, a); setSlot(p.inv, from, b == null ? null : b);
   recalc(p); return true;
 }
-const pub = p => ({ ...(p.bot ? { bot: 1, name: p.name } : p.npc ? { npc: p.npc, name: p.name } : { name: p.name }), kills: p.kills || 0, brains: p.brains || 0, ...(p.dc ? { dc: 1 } : null), id: p.id, goblin: p.goblin, wins: p.wins, box: p.box, room: p.room, x: p.x, z: p.z, yaw: p.yaw, stats: p.stats, gear: p.gear }); // never includes the inventory
+const pub = p => ({ ...(p.bot ? { bot: 1, name: p.name } : p.npc ? { npc: p.npc, name: p.name } : { name: p.name }), kills: p.kills || 0, brains: p.brains || 0, ...(p.dc ? { dc: 1 } : null), id: p.id, goblin: p.goblin, wins: p.wins, box: p.box, ...(p.home ? { home: p.home } : null), room: p.room, x: p.x, z: p.z, yaw: p.yaw, stats: p.stats, gear: p.gear }); // never includes the inventory
 function addDrop(m, p, items) {
   if (!items.length) return;
   m.drops.push({ id: m.nextDrop++, x: +p.x.toFixed(2), z: +p.z.toFixed(2), items }); if (m.drops.length > 60) m.drops.shift();
@@ -332,10 +338,9 @@ function addDrop(m, p, items) {
 }
 function rollGoblin() { return G.rollGoblin(); }   // GOBTYPES: 12 weighted types (items.js GOBLINS)
 const GOBLIN_N = G.GOBLINS.length;
-function spawn() {
-  const box = [0, 1, 2, 3, 5, 6, 7, 8][Math.floor(Math.random() * 8)]; // never the vault (4)
-  const [cx, cz] = WORLD.rc(box), [x, z] = WORLD.randomPoint(box);
-  return { box, x, z, yaw: Math.atan2(-(cx - x), -(cz - z)) }; // facing the room centre
+function spawn(slot = Math.floor(Math.random() * 8)) {   // a point in home slot 0..7 (room 'c' + 2 * slot), 3 m off the walls, facing the doorway
+  const home = WORLD.homeOf(slot), c = WORLD.CHEST[+home.slice(1)], [x, z] = WORLD.randomPoint(home);
+  return { home, box: c.parent, x, z, yaw: Math.atan2(-(c.wallX - x), -(c.wallZ - z)) };
 }
 function die(ws, p) { // a dead player drops everything where they fell and leaves the match
   const m = p.match; if (p.dead || !m) return;
@@ -372,8 +377,15 @@ function endMatch(m, winner) {   // once per match: {matchEnd:{winner, top, long
 }
 // FUN-END
 // SUDDEN-BEGIN (match time limit, DEFAULT awaiting the owner's decision, see docs/FEATURES.md): after round SUDDEN_ROUND every door is open and regeneration stops; if nobody has won after round MAX_ROUND the goblin with the most kills wins, then the most HP
-const SUDDEN_ROUND = DBG && +process.env.GK_SUDDEN_ROUND > 0 ? +process.env.GK_SUDDEN_ROUND : 8, MAX_ROUND = DBG && +process.env.GK_MAX_ROUND > 0 ? +process.env.GK_MAX_ROUND : 10;
-const NEXT_MS = DBG && +process.env.GK_NEXT_ROUND_MS > 0 ? +process.env.GK_NEXT_ROUND_MS : 45000;   // length of rounds 2 and up (GK_DEBUG only override)
+// 5x5 (docs/PLAN-5x5.md 5.2): every round is ROUND_MS (2 min); sudden death after round 5, decided after round 7 (14 min at most)
+const SUDDEN_ROUND = DBG && +process.env.GK_SUDDEN_ROUND > 0 ? +process.env.GK_SUDDEN_ROUND : 5, MAX_ROUND = DBG && +process.env.GK_MAX_ROUND > 0 ? +process.env.GK_MAX_ROUND : 7;
+const ROUND_MS = 120000;
+const NEXT_MS = DBG && +process.env.GK_NEXT_ROUND_MS > 0 ? +process.env.GK_NEXT_ROUND_MS : ROUND_MS;   // length of rounds 2 and up (GK_DEBUG only override; GK_ROUND_MS shortens round 1)
+const FF_MS = 10000;   // DEV: {dbgFF:1} (GK_DEBUG only) cuts the round to 0:10
+function dbgFF(m, now) {   // the dev fast-forward button: honoured only under GK_DEBUG, while a started round is running; anything else is ignored silently
+  if (!DBG || m.phase !== 'play' || !m.started || m.ended) return false;
+  m.endsAt = Math.min(m.endsAt, now + FF_MS); broadcastRound(m); return true;
+}
 function suddenCheck(m) {   // right after m.round++ (the round that just ended is m.round - 1)
   if (m.ended) return;
   if (m.round > SUDDEN_ROUND) { m.sudden = true; m.open = Array.from({ length: nDoors }, (_, i) => i); m.openLeft = {}; m.fizzled = []; }
@@ -397,8 +409,9 @@ function paceBounty(p, t) {   // the killer takes half of the victim's gold plus
 }
 function paceNoDoor(m, fresh) {   // a round that would open nothing at all (nobody picked) opens one outer door of a room that holds somebody, so a round is never dead time
   if (fresh.length || m.sudden || rule('doorclose')) return fresh;
-  const rooms = [...new Set([...m.players.values()].filter(q => !q.npc && q.entered && !q.dead).map(q => q.room))].filter(r => ROOM_DOORS[r]);
-  const ds = rooms.length ? ROOM_DOORS[rooms[Math.floor(Math.random() * rooms.length)]].filter(d => !VAULT.includes(d)) : [];
+  const cand = r => (ROOM_DOORS[r] || []).filter(d => !VAULT.includes(d) && !isHatch(d));   // never a vault door, never a home's hatch (it is open anyway)
+  const rooms = [...new Set([...m.players.values()].filter(q => !q.npc && q.entered && !q.dead).map(q => parentCell(q.room)))].filter(r => cand(r).length);
+  const ds = rooms.length ? cand(rooms[Math.floor(Math.random() * rooms.length)]) : [];
   return ds.length ? [ds[Math.floor(Math.random() * ds.length)]] : fresh;
 }
 function paceRound(m) {   // right after m.round++: round income for everyone still alive, and the showdown (every door opens) once only three goblins are left
@@ -418,16 +431,17 @@ function guardTick(m, now) {
   const occ = new Map();   // room -> [ws, player] in it (bots count as occupants, only humans get the hint)
   for (const [ws, p] of m.players) {
     if (p.npc || !p.entered || p.dead) continue;
-    (occ.get(p.room) || occ.set(p.room, []).get(p.room)).push([ws, p]);
+    { const k = parentCell(p.room); (occ.get(k) || occ.set(k, []).get(k)).push([ws, p]); }   // 5x5: a goblin at home occupies the arena cell outside (the hatch is always open, the cell must have an exit)
     if (WORLD.inProp(p.x, p.z, 0.2, m.layout, true)) {   // stuck-recovery push-out
       if (!p.stuckAt) p.stuckAt = now;
       else if (now - p.stuckAt >= GUARD.STUCK_MS) { const s = GUARD.freeSpot(p.x, p.z, (x, z) => roomFree(m, p.room, x, z)); p.stuckAt = 0; if (s) { place(p, s[0], s[1]); sendTo(ws, { fix: [r2(s[0]), r2(s[1])] }); m.dirty = true; } }
     } else p.stuckAt = 0;
   }
   const since = m.trapSince;
-  for (const k of Object.keys(since)) if (!occ.has(k) || !GUARD.trapped(k, m.open, ROOM_DOORS, VAULT)) delete since[k];
+  const op = d => isOpen(m, d);
+  for (const k of Object.keys(since)) if (!occ.has(k) || !GUARD.trapped(k, op, ROOM_DOORS, VAULT)) delete since[k];
   for (const [room, ps] of occ) {
-    if (!GUARD.trapped(room, m.open, ROOM_DOORS, VAULT)) continue;
+    if (!GUARD.trapped(room, op, ROOM_DOORS, VAULT)) continue;
     if (since[room] == null) { since[room] = now; for (const [ws, p] of ps) if (isHum(p)) sendTo(ws, { exitHint: { ms: TRAP_MS } }); }
     else if (now - since[room] >= TRAP_MS) {
       const d = GUARD.pickExit(room, m.sel, ROOM_DOORS, VAULT);
@@ -532,7 +546,7 @@ function boltTick(m, now) {
   });
 }
 function bribe(m, p) {   // bribe: pay gold at your room's panel for +1 weight on its pick this round (counts for the vault's 2-vote rule); returns a failure reason or null
-  if (!/^[0-8]$/.test(p.room || '') || m.phase !== 'play') return 'room';
+  if (!isArena(p.room) || m.phase !== 'play') return 'room';
   if (m.sel[p.room] == null) return 'pick';
   m.bribes = m.bribes || {};
   if ((m.bribes[p.room] || 0) >= BRIBE.max) return 'max';
@@ -545,7 +559,7 @@ function crownTick(m, now) {   // crown: stand on the vault dais for CROWN_MS wi
   let lead = null;
   for (const [ws, p] of m.players) {
     if (p.npc || p.dead || !p.entered) continue;
-    const on = p.room === '4' && Math.hypot(p.x, p.z) < DAIS_R;
+    const on = p.room === VK && Math.hypot(p.x, p.z) < DAIS_R;
     if (!on) { p.crownAt = 0; continue; }
     if (!p.crownAt || (p.hurtAt || 0) > p.crownAt) p.crownAt = now;   // damage starts the count again
     const prog = (now - p.crownAt) / CROWN_MS;
@@ -619,11 +633,11 @@ const MAXV = 7.5 * Math.max(...G.SPEED) * G.MAX_ARMOR_SPEED * Math.max(1, ...G.C
 const HIST_MS = 1000, REWIND_MAX = 200;
 const r1 = v => Math.round(v * 10) / 10, r2 = v => Math.round(v * 100) / 100, r3 = v => Math.round(v * 1000) / 1000;
 const PROP_R = 0.33;   // SOLID: the walker radius the server checks against prop footprints (game.js RAD is 0.45; the gap keeps a slide along an edge from being corrected)
-function inBounds(x, z) {   // inside a room of the grid, or inside one of the 12 chest rooms (not the void around them)
+function inBounds(x, z) {   // inside a room of the grid, or inside one of the 16 attached rooms (not the void around them)
   if (Math.abs(x) > LIM || Math.abs(z) > LIM) return false;
   if (Math.abs(x) <= WORLD.HALF && Math.abs(z) <= WORLD.HALF) return true;
-  const c = WORLD.CHEST[+roomKeyOf(x, z).slice(1)];
-  return !!c && Math.abs(x - c.cx) <= WORLD.CS / 2 + SLACK && Math.abs(z - c.cz) <= WORLD.CS / 2 + SLACK;
+  const id = WORLD.attachedAt(x, z, SLACK);
+  return id >= 0 && 'c' + id === roomKeyOf(x, z);
 }
 function pathOk(m, x0, z0, x1, z1) {   // walk the segment in 0.2 m steps: every room change must go through an OPEN door, inside its opening
   const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 0.2)); let prev = roomKeyOf(x0, z0); const inside0 = WORLD.inProp(x0, z0, PROP_R, m.layout, true);
@@ -633,7 +647,7 @@ function pathOk(m, x0, z0, x1, z1) {   // walk the segment in 0.2 m steps: every
     if (!inside0 && WORLD.inProp(x, z, PROP_R, m.layout, true)) return false;   // SOLID: crates, barrels, urns, pedestal, vault pillars (the client keeps 0.45, the server accepts 0.33)
     const k = roomKeyOf(x, z); if (k === prev) continue;
     const d = DOOR_AT[prev + '|' + k];
-    if (!d || !m.open.includes(d.id) || Math.abs((d.axis === 'x' ? x : z) - d.c) > d.hw) return false;
+    if (!d || !isOpen(m, d.id) || Math.abs((d.axis === 'x' ? x : z) - d.c) > d.hw) return false;
     prev = k;
   }
   return true;
@@ -692,8 +706,7 @@ function snapshots(m) {   // {s:[t, id,x,z,yaw,speed,age, ...]} with the players
 const BOT_GRACE = DBG && process.env.GK_BOT_GRACE_MS !== undefined && +process.env.GK_BOT_GRACE_MS >= 0 ? +process.env.GK_BOT_GRACE_MS : 20000;   // no bot attacks in round 1 or in this long after GO (GK_DEBUG only override)
 const BOT_NAMES = ['Snikt', 'Grubb', 'Mozzle', 'Skritch', 'Nobb', 'Gribble', 'Zug', 'Pogg', 'Snaga', 'Murk', 'Blit', 'Krag', 'Fizzle', 'Drog', 'Wort', 'Skab', 'Yibb', 'Glorp', 'Narg', 'Tikk'];
 const RB = {};   // room key -> bounds { cx, cz, hw, hd }
-for (let i = 0; i < 9; i++) { const [cx, cz] = WORLD.rc(i); RB[i] = { cx, cz, hw: WORLD.roomW(i) / 2, hd: WORLD.roomD(i) / 2 }; }
-for (const c of WORLD.CHEST) RB['c' + c.id] = { cx: c.cx, cz: c.cz, hw: WORLD.CS / 2, hd: WORLD.CS / 2 };
+for (const r of WORLD.ROOMS) RB[r.key] = { cx: r.cx, cz: r.cz, hw: r.hw, hd: r.hd };
 const ADJ = {};   // room key -> edges { to, door, w1, w2 }: w1 is a point inside this room in front of the doorway, w2 a point inside the next room behind it
 for (const k of Object.keys(DOOR_AT)) {
   const [a, b] = k.split('|'), d = DOOR_AT[k], A = RB[a], B = RB[b];
@@ -701,7 +714,7 @@ for (const k of Object.keys(DOOR_AT)) {
                            : (s => ({ w1: [d.c, A.cz + s * A.hd - s * 1.5], w2: [d.c, A.cz + s * A.hd + s * 1.5] }))(Math.sign(B.cz - A.cz));
   (ADJ[a] = ADJ[a] || []).push({ to: b, door: d.id, ...e });
 }
-const DIST_V = (() => { const dist = { 4: 0 }, q = ['4']; for (let h = 0; h < q.length; h++) for (const e of ADJ[q[h]] || []) if (dist[e.to] === undefined) { dist[e.to] = dist[q[h]] + 1; q.push(e.to); } return dist; })();   // hops to the vault, all doors
+const DIST_V = (() => { const dist = { [VK]: 0 }, q = [VK]; for (let h = 0; h < q.length; h++) for (const e of ADJ[q[h]] || []) if (dist[e.to] === undefined) { dist[e.to] = dist[q[h]] + 1; q.push(e.to); } return dist; })();   // hops to the vault, all doors
 const DOOR_ROOMS = []; for (const k of Object.keys(DOOR_AT)) { const [a, b] = k.split('|'); DOOR_ROOMS[DOOR_AT[k].id] = [a, b]; }
 const rnd = (a, b) => a + Math.random() * (b - a);
 const pointIn = (key, margin) => { const r = RB[key]; return [r.cx + rnd(-1, 1) * (r.hw - margin), r.cz + rnd(-1, 1) * (r.hd - margin)]; };
@@ -713,7 +726,7 @@ function bfsPath(m, from, to) {   // edges over currently OPEN doors, or null
   if (from === to) return [];
   const prev = { [from]: null }, q = [from];
   for (let h = 0; h < q.length; h++) for (const e of ADJ[q[h]] || []) {
-    if (prev[e.to] !== undefined || !m.open.includes(e.door)) continue;
+    if (prev[e.to] !== undefined || !isOpen(m, e.door)) continue;
     prev[e.to] = { u: q[h], e };
     if (e.to === to) { const path = []; for (let k = to; prev[k]; k = prev[k].u) path.push(prev[k].e); return path.reverse(); }
     q.push(e.to);
@@ -722,7 +735,7 @@ function bfsPath(m, from, to) {   // edges over currently OPEN doors, or null
 }
 function reach(m, from) {   // hops to every room reachable through open doors
   const dist = { [from]: 0 }, q = [from];
-  for (let h = 0; h < q.length; h++) for (const e of ADJ[q[h]] || []) if (dist[e.to] === undefined && m.open.includes(e.door)) { dist[e.to] = dist[q[h]] + 1; q.push(e.to); }
+  for (let h = 0; h < q.length; h++) for (const e of ADJ[q[h]] || []) if (dist[e.to] === undefined && isOpen(m, e.door)) { dist[e.to] = dist[q[h]] + 1; q.push(e.to); }
   return dist;
 }
 const tag = (w, door) => { const a = [w[0], w[1]]; a.door = door; return a; };   // a doorway waypoint remembers its door: follow() gives up when that door has closed meanwhile
@@ -758,14 +771,14 @@ function botHeal(m, p, now) {   // drink the right healing consumable (any item 
   const k = BN.pickHeal(slots.map(s => s[1]), info, p.stats.health, p.stats.maxHealth); if (!k) return false;
   setSlot(p.inv, slots.find(s => s[1] === k)[0], null); p.stats.health = Math.min(p.stats.maxHealth, p.stats.health + BN.healValue(info(k))); p.healAt = now; m.dirty = true; return true;
 }
-function fillBots(m) {   // up to CAP goblins: bots get the normal goblin odds, START gear, a goblin name and an outer room of their own
-  const used = new Set([...m.players.values()].map(p => p.box)), free = [0, 1, 2, 3, 5, 6, 7, 8].filter(b => !used.has(b));
+function fillBots(m) {   // up to CAP goblins: bots get the normal goblin odds, START gear, a goblin name and a home of their own
+  const used = new Set([...m.players.values()].map(p => p.home)), free = [0, 1, 2, 3, 4, 5, 6, 7].filter(s => !used.has(WORLD.homeOf(s)));
   for (let i = free.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [free[i], free[j]] = [free[j], free[i]]; }
   const taken = new Set([...m.players.values()].map(p => (p.name || '').toLowerCase())), names = BOT_NAMES.filter(b => !taken.has(b.toLowerCase())).sort(() => Math.random() - 0.5); let w = 0, n = 0; for (const p of m.players.values()) { w += p.wins; n++; }
   while (m.players.size < CAP && free.length) {
-    const box = free.pop(), [cx, cz] = WORLD.rc(box), [x, z] = WORLD.randomPoint(box), key = { readyState: 0, bot: true };
-    const p = { id: nextId++, wins: n ? Math.round(w / n) : 0, ws: null, key, bot: true, name: names.pop() || 'Grub' + nextId, match: m, box, home: box, yaw: Math.atan2(-(cx - x), -(cz - z)), ready: true };
-    equip(p, rollGoblin()); place(p, x, z); p.brain = newBrain(p, (3.6 + Math.random() * 1.0) * G.SPEED[p.goblin]); m.players.set(key, p);   // BALANCE: bots walk at their class speed like humans
+    const sp = spawn(free.pop()), key = { readyState: 0, bot: true };
+    const p = { id: nextId++, wins: n ? Math.round(w / n) : 0, ws: null, key, bot: true, name: names.pop() || 'Grub' + nextId, match: m, box: sp.box, home: sp.home, yaw: sp.yaw, ready: true };
+    equip(p, rollGoblin()); place(p, sp.x, sp.z); p.brain = newBrain(p, (3.6 + Math.random() * 1.0) * G.SPEED[p.goblin]); m.players.set(key, p);   // BALANCE: bots walk at their class speed like humans
   }
   m.dirty = true;
 }
@@ -879,7 +892,7 @@ function idleLook(m, p, now) {   // standing around: every 1-3 s turn 60-180 deg
   } else if (b.jump) mv(m, p, p.x, p.z, p.yaw, now);
 }
 function startFlee(m, p, from, nearest, now) {   // run for an open doorway (the nearest one, or the one farthest from `from`) and stay out of this room for a while
-  const b = p.brain, es = (ADJ[p.room] || []).filter(e => m.open.includes(e.door));
+  const b = p.brain, es = (ADJ[p.room] || []).filter(e => isOpen(m, e.door));
   if (es.length) {
     es.sort(nearest ? (a, c) => Math.hypot(a.w1[0] - p.x, a.w1[1] - p.z) - Math.hypot(c.w1[0] - p.x, c.w1[1] - p.z) : (a, c) => Math.hypot(c.w1[0] - from.x, c.w1[1] - from.z) - Math.hypot(a.w1[0] - from.x, a.w1[1] - from.z));
     const e = es[0]; b.route = [tag(e.w1, e.door), tag(e.w2, e.door), [e.w2[0] + (e.w2[0] - e.w1[0]) * 1.2, e.w2[1] + (e.w2[1] - e.w1[1]) * 1.2]]; b.cross = true;
@@ -954,7 +967,7 @@ function doorClamp(m, key, x, z) {   // keep (x, z) 0.5 m off the walls of room 
   const r = RB[key]; if (!r) return [x, z];
   let [cx, cz] = clampIn(key, x, z, 0.5);
   for (const e of ADJ[key] || []) {
-    if (!m.open.includes(e.door)) continue; const d = DOOR_AT[key + '|' + e.to];
+    if (!isOpen(m, e.door)) continue; const d = DOOR_AT[key + '|' + e.to];
     if (d.axis === 'z') { if (Math.abs(z - d.c) < d.hw - 0.5 && Math.sign(x - r.cx) === Math.sign(e.w2[0] - r.cx)) cx = x; }
     else if (Math.abs(x - d.c) < d.hw - 0.5 && Math.sign(z - r.cz) === Math.sign(e.w2[1] - r.cz)) cz = z;
   }
@@ -979,7 +992,7 @@ function stepTo(m, p, tx, tz, dt, now, free) {   // one validated step toward (t
 function follow(m, p, dt, now) {   // walk the current route (waypoints are pre-validated points: doorway fronts, doorway exits, room points)
   const b = p.brain; if (!b.route.length) return;
   const wp = b.route[0];
-  if (wp.door !== undefined && !m.open.includes(wp.door)) { b.route = []; b.idleUntil = now + rnd(200, 600); return; }   // the door closed while we were on our way: plan again
+  if (wp.door !== undefined && !isOpen(m, wp.door)) { b.route = []; b.idleUntil = now + rnd(200, 600); return; }   // the door closed while we were on our way: plan again
   if (stepTo(m, p, wp[0], wp[1], dt, now, true)) b.route.shift();
 }
 function voteDoor(m, p, now, except) {   // weighted pick of a door of this room; `except`: a door the bot is changing its mind about
@@ -987,8 +1000,8 @@ function voteDoor(m, p, now, except) {   // weighted pick of a door of this room
   let tot = 0;
   for (const d of doors) {
     const o = DOOR_ROOMS[d][0] === p.room ? DOOR_ROOMS[d][1] : DOOR_ROOMS[d][0]; let w;
-    if (d === except) w = 0;
-    else if (o === '4') w = (m.round > 3 ? 7 : 0.4) * (hurt ? 0.5 : 1);   // late rounds: the vault (not when wounded)
+    if (d === except || isHatch(d)) w = 0;   // 5x5: a home's hatch is never voted on
+    else if (o === VK) w = (m.round > 3 ? 7 : 0.4) * (hurt ? 0.5 : 1);   // late rounds: the vault (not when wounded)
     else if (o[0] === 'c') {
       const id = +o.slice(1), L = m.layout[id], my = m.mystery[id];
       w = !b.seen[o] ? (m.round <= 3 ? 3.5 : 1.5) : 0.6;
@@ -1044,10 +1057,10 @@ function pickDest(m, p, now) {   // idle: where to go next (claimable rooms, the
       else if (L === 'merchant' || (L === 'mystery' && my && my.kind === 'stations')) s += !b.done[key] && botNeedsStation(p) ? 3 : -1;   // LOOT: junk to recycle
       else if (L === 'mystery' && my && my.kind === 'enemy') s += m.round > 2 && p.stats.health > p.stats.maxHealth * 0.7 ? 0.5 : -3;
       else s -= 1;
-    } else if (key === '4') s += (rule('crown') ? 9 : 0) + (m.round > 3 ? 4 : -1) + (relicFree(m) && p.inv.backpack.indexOf(null) >= 0 ? 14 : 0);   // LOOT: bots want the vault relic
+    } else if (key === VK) s += (rule('crown') ? 9 : 0) + (m.round > 3 ? 4 : -1) + (relicFree(m) && p.inv.backpack.indexOf(null) >= 0 ? 14 : 0);   // LOOT: bots want the vault relic
     else s += (b.seen[key] ? 0 : 1);
     if (m.round >= 3 && hunt[key]) s += (m.sudden ? 0.6 : 2.5) * (0.4 + b.aggr);   // AI: aggressive bots hunt   // in sudden death everyone converges on the vault (and its relic), not on whoever is in the next room
-    if (m.sudden && key === '4' && now >= b.sdAt) s += 7;   // AI: patient bots head for the vault later
+    if (m.sudden && key === VK && now >= b.sdAt) s += 7;   // AI: patient bots head for the vault later
     if (key === b.avoidRoom && now < b.avoidUntil) s -= 9;   // AI: not back into the room it ran from, yet
     if (key === p.room) s -= b.done[key] || !/^c/.test(key) ? 1 : 0;
     if (s > bs) { bs = s; best = key; }
@@ -1110,7 +1123,7 @@ function botThink(m, p, now, dt) {
     else { const [tx, tz] = clampIn(p.room, s.x, s.z, 0.5); stepTo(m, p, tx, tz, dt, now); return; }
   }
   if (now < b.waitUntil) { idleLook(m, p, now); return; }   // AI: holding at the doorway
-  if (rule('crown') && p.room === '4') { if (Math.hypot(p.x, p.z) > 1.0) stepTo(m, p, 0, 0, dt, now); return; }   // RULES crown: bots go and stand on the dais, and fight whoever is on it
+  if (rule('crown') && p.room === VK) { if (Math.hypot(p.x, p.z) > 1.0) stepTo(m, p, 0, 0, dt, now); return; }   // RULES crown: bots go and stand on the dais, and fight whoever is on it
   if (b.route.length) {
     if (b.cross) b.speed = sprintOf(p);   // AI: sprint between rooms
     follow(m, p, dt, now); if (!b.route.length) b.idleUntil = Math.max(b.idleUntil, now + rnd(500, 2200)); return;   // arrived: look around a moment
@@ -1150,7 +1163,7 @@ function useItem(m, p, slot, now) {   // returns null or a failure reason
   if (typeof slot !== 'string' || !/^(q[0-2]|b[0-8])$/.test(slot)) return 'item';
   const key = getSlot(p.inv, slot), it = key && G.ITEMS[key]; if (!it || !it.use) return 'item';
   if (now - (p.useAt || 0) < USE_CD) return 'busy';
-  const hp = p.stats.health, max = p.stats.maxHealth, grid = /^[0-8]$/.test(p.room);
+  const hp = p.stats.health, max = p.stats.maxHealth, grid = isArena(p.room);
   let extra = null;
   switch (it.use) {
     case 'heal':
@@ -1173,7 +1186,7 @@ function useItem(m, p, slot, now) {   // returns null or a failure reason
     case 'wedge': {
       if (m.sudden) return 'sudden';
       let best = null, bd = it.r; m.wedged = m.wedged || [];
-      for (const e of ADJ[p.room] || []) { if (!m.open.includes(e.door) || VAULT.includes(e.door) || m.wedged.includes(e.door)) continue; const d = Math.hypot(e.w1[0] - p.x, e.w1[1] - p.z); if (d <= bd) { bd = d; best = e; } }
+      for (const e of ADJ[p.room] || []) { if (!m.open.includes(e.door) || VAULT.includes(e.door) || isHatch(e.door) || m.wedged.includes(e.door)) continue; const d = Math.hypot(e.w1[0] - p.x, e.w1[1] - p.z); if (d <= bd) { bd = d; best = e; } }
       if (!best) return 'door';
       m.wedged.push(best.door); extra = { door: best.door }; break;
     }
@@ -1239,7 +1252,7 @@ function use2(m, p, it, now) {
     case 'pry': {
       if (m.sudden) return 'sudden';
       let best = null, bd = it.r;
-      for (const e of ADJ[p.room] || []) { if (m.open.includes(e.door) || VAULT.includes(e.door)) continue; const d = Math.hypot(e.w1[0] - p.x, e.w1[1] - p.z); if (d <= bd) { bd = d; best = e; } }
+      for (const e of ADJ[p.room] || []) { if (isOpen(m, e.door) || VAULT.includes(e.door)) continue; const d = Math.hypot(e.w1[0] - p.x, e.w1[1] - p.z); if (d <= bd) { bd = d; best = e; } }
       if (!best) return 'door';
       m.open = m.open.concat(best.door); (m.pried = m.pried || []).push({ door: best.door, until: now + it.ms }); broadcastRound(m); return { door: best.door, ms: it.ms };
     }
@@ -1328,7 +1341,7 @@ function use2Tick(m, now) {   // from useTick (50 ms)
 }
 // USE2-END
 // LOOT-BEGIN (vault relic, merchant price scaling, throwable plushie, bots at stations; see docs/reports/loot.md)
-const RELIC_POS = (() => { const [vx, vz] = WORLD.rc(WORLD.VAULT); return { x: vx + 2.4, z: vz }; })();   // the pedestal on the dais edge (the game.js LOOT block uses the same offset)
+const RELIC_POS = WORLD.RELIC;   // the pedestal on the dais edge (the game.js LOOT block uses the same offset)
 const priceAt = (base, round) => Math.max(5, Math.round(base * (1 + 0.1 * Math.max(0, round - 2)) / 5) * 5);   // +10 % per round after round 2, rounded to 5 gold
 const LURE_FLY = 650, LURE_MS = 3000, LURE_RANGE = 8;
 function lootInit(m) {
@@ -1347,12 +1360,12 @@ function relicClaim(m, p) {   // E next to the pedestal inside the vault: the fi
   if (Math.hypot(p.x - RELIC_POS.x, p.z - RELIC_POS.z) > 2.2) return 'room';   // too far from the pedestal (also keeps the old 'claim in the middle of the vault fails' test true)
   if (!giveItem(p, m.relicKey)) return 'space';
   m.relicTaken = p.id; m.dirty = true;
-  sendTo(p.ws, { claimed: { room: 4, key: m.relicKey, gold: 0, relic: 1 } });
+  sendTo(p.ws, { claimed: { room: WORLD.VAULT, key: m.relicKey, gold: 0, relic: 1 } });
   bcast(m, { relic: null, feed: { k: p.name || 'Goblin', msg: ' seized the Vault relic!' } });
   return null;
 }
 function relicGoal(m, p, dt, now) {   // a bot in the vault walks to the pedestal and takes the relic
-  const b = p.brain; if (p.room !== '4' || m.relicTaken || !m.relicKey || b.relicTries > 2) return false;
+  const b = p.brain; if (p.room !== VK || m.relicTaken || !m.relicKey || b.relicTries > 2) return false;
   if (Math.hypot(p.x - RELIC_POS.x, p.z - RELIC_POS.z) > 1.8) { stepTo(m, p, RELIC_POS.x, RELIC_POS.z, dt, now); return true; }
   b.relicTries = (b.relicTries || 0) + 1; claim(m, p); equipBest(m, p); return false;
 }
@@ -1383,7 +1396,7 @@ function botStations(m, p) {   // in a merchant room or a stations mystery room:
     if (best && !craft(m, p, best.id)) BS.cra = (BS.cra || 0) + 1;
   }
 }
-function botLab(m, ws, p, cmd) {   // GK_DEBUG only, for tests. 'station': make c0 a merchant and drop a bot with junk into it. {near:[x,z]}: put a bot there. Any command replies with counters and the lab bot's state.
+function botLab(m, ws, p, cmd) {   // GK_DEBUG only, for tests. 'station': make c1 (the first loot room) a merchant and drop a bot with junk into it. {near:[x,z]}: put a bot there. Any command replies with counters and the lab bot's state.
   const bot = [...m.players.values()].find(q => q.bot && !q.dead);
   if (cmd && cmd.nav && bot) {   // NAV test: {nav:{obs:[{x,z,hw,hd}|{x,z,r}], from:[x,z], to:[x,z]}} synthetic props for this match, the bot walks from `from` to `to`; {nav:{backpack:[keys]}} fills the bot's backpack and runs equipBest
     const n = cmd.nav, b = bot.brain;
@@ -1392,8 +1405,8 @@ function botLab(m, ws, p, cmd) {   // GK_DEBUG only, for tests. 'station': make 
     if (Array.isArray(n.backpack)) { bot.inv.backpack = n.backpack.slice(0, 9).concat(Array(9).fill(null)).slice(0, 9).map(k => (typeof k === 'string' && G.ITEMS[k] ? k : null)); equipBest(m, bot); }
   }
   if (cmd === 'station' && bot) {
-    m.layout[0] = 'merchant'; m.shops[0] = G.randomShop().map(it => ({ ...it, base: it.price })); bot.inv.weapon = 'w:sword'; bot.inv.backpack[0] = 'w:stick'; bot.inv.backpack[1] = 'w:stick'; bot.gold = 0; recalc(bot);
-    const c = WORLD.CHEST[0]; bot.brain.route = []; bot.brain.done = {}; bot.brain.idleUntil = 0; bot.brain.mode = ''; place(bot, c.cx, c.cz); m.dirty = true; BS.rec = 0; BS.cra = 0;
+    m.layout[1] = 'merchant'; m.shops[1] = G.randomShop().map(it => ({ ...it, base: it.price })); bot.inv.weapon = 'w:sword'; bot.inv.backpack[0] = 'w:stick'; bot.inv.backpack[1] = 'w:stick'; bot.gold = 0; recalc(bot);
+    const c = WORLD.CHEST[1]; bot.brain.route = []; bot.brain.done = {}; bot.brain.idleUntil = 0; bot.brain.mode = ''; place(bot, c.cx, c.cz); m.dirty = true; BS.rec = 0; BS.cra = 0;
   } else if (cmd && Array.isArray(cmd.near) && bot) {   // {near:[x,z]} one bot; {near:[x,z], all:1} every living bot in a small grid, or on a ring of radius `ring` around the point
     const bots = cmd.all ? [...m.players.values()].filter(q => q.bot && !q.dead) : [bot], r = +cmd.ring > 0 ? +cmd.ring : 0;
     bots.forEach((q, i) => { const a = 2 * Math.PI * i / bots.length; place(q, cmd.near[0] + (r ? Math.cos(a) * r : (i % 3) * 0.8), cmd.near[1] + (r ? Math.sin(a) * r : Math.floor(i / 3) * 0.8)); q.brain.route = []; q.brain.idleUntil = Date.now() + 60000; q.brain.mode = ''; q.roomAt = 0; q.brain.tgt = null; q.brain.search = null; q.brain.scan = null; q.brain.waitUntil = 0; q.brain.pauseUntil = 0;
@@ -1411,18 +1424,18 @@ function fillWithBots(m) { fillBots(m); }   // see the BOTS block
 function startMatch(m) {   // close the queue match, give everyone their own outer room, tell them to load
   if (m.phase !== 'queue') return;
   m.phase = 'loading'; m.loadAt = Date.now();
-  const rooms = [0, 1, 2, 3, 5, 6, 7, 8]; for (let i = rooms.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [rooms[i], rooms[j]] = [rooms[j], rooms[i]]; }   // never the vault
+  const slots = [0, 1, 2, 3, 4, 5, 6, 7]; for (let i = slots.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [slots[i], slots[j]] = [slots[j], slots[i]]; }   // 5x5: one home per goblin
   let i = 0;
   for (const p of m.players.values()) {
-    const box = rooms[i++ % rooms.length], [cx, cz] = WORLD.rc(box), [x, z] = WORLD.randomPoint(box);
-    Object.assign(p, { home: box, box, yaw: Math.atan2(-(cx - x), -(cz - z)), ready: false }); place(p, x, z);   // place() also resets the netcode speed budget and history
+    const sp = spawn(slots[i++ % slots.length]);
+    Object.assign(p, { home: sp.home, box: sp.box, yaw: sp.yaw, ready: false }); place(p, sp.x, sp.z);   // place() also resets the netcode speed budget and history
   }
   { const seen = new Set(); for (const p of m.players.values()) { let n = p.name || 'Goblin'; if (seen.has(n.toLowerCase())) { const free = BOT_NAMES.filter(b => !seen.has(b.toLowerCase())); n = free.length ? free[Math.floor(Math.random() * free.length)] : n + ' ' + p.id; } p.name = n; seen.add(n.toLowerCase()); } }   // unique names inside a match
   fillWithBots(m);
   const players = [...m.players.values()].map(pub);
   for (const [ws, p] of m.players) {
     sendTo(ws, { you: p.id, chests: m.chests, chestKeys: m.chestKeys, layout: m.layout, mystery: m.mystery, shops: m.shops, drops: m.drops, ...roundState(m), match: matchInfo(m), players,
-      matchStart: { you: p.id, players, layout: m.layout, chests: m.chests, chestKeys: m.chestKeys, mystery: m.mystery, shops: m.shops, spawn: { box: p.box, x: p.x, z: p.z, yaw: p.yaw }, size: players.length } });
+      matchStart: { you: p.id, players, layout: m.layout, chests: m.chests, chestKeys: m.chestKeys, mystery: m.mystery, shops: m.shops, spawn: { box: p.box, home: p.home, x: p.x, z: p.z, yaw: p.yaw }, size: players.length, ...(DBG ? { dbg: 1 } : null), ...(m.trees ? { trees: m.trees } : null) } });
     sendTo(ws, { inv: p.inv }); sendGold(p); sendParts(p);
   }
 }
@@ -1468,7 +1481,7 @@ function socResume(ws, token) {   // the player of this token, now bound to the 
   return p;
 }
 function socWelcome(m, ws, p) {   // full resync: the welcome fields of startMatch, then the current round, players, drops, board and countdown
-  sendTo(ws, { token: p.token, resumed: 1, you: p.id, chests: m.chests, chestKeys: m.chestKeys, layout: m.layout, mystery: m.mystery, shops: m.shops, drops: m.drops, ...roundState(m), match: matchInfo(m), players: [...m.players.values()].map(pub), fix: [p.x, p.z] });
+  sendTo(ws, { token: p.token, resumed: 1, ...(DBG ? { dbg: 1 } : null), ...(m.trees ? { trees: m.trees } : null), you: p.id, chests: m.chests, chestKeys: m.chestKeys, layout: m.layout, mystery: m.mystery, shops: m.shops, drops: m.drops, ...roundState(m), match: matchInfo(m), players: [...m.players.values()].map(pub), fix: [p.x, p.z] });
   sendTo(ws, { inv: p.inv }); sendGold(p); sendParts(p); sendTo(ws, { perks: p.perks || [] });   // KNOWLEDGE
   if (m.phase === 'play') sendTo(ws, { board: { left: matchInfo(m).alive, rows: boardRows(m) } });
   if (m.phase === 'countdown') sendTo(ws, { countdown: { at: m.goAt, now: Date.now() } });
@@ -1499,11 +1512,11 @@ wss.on('connection', (ws, req) => {
   m = findMatch(wins);
   if (!m) { sendTo(ws, { busy: 1 }); return ws.close(); }
   const id = nextId++, nq = cleanName(tokName != null ? tokName : q.get('name'));
-  p = { id, wins, charId, ws, name: nq || BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)], ...spawn() }; p.room = String(p.box); equip(p, goblin); place(p, p.x, p.z);
+  p = { id, wins, charId, ws, name: nq || BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)], ...spawn() }; equip(p, goblin); place(p, p.x, p.z);
   p.match = m; m.players.set(ws, p); m.dirty = true; socToken(p); p.unverified = unverified; }
   // SECURITY-END
   ws.on('error', () => {});
-  if (resumed) socWelcome(m, ws, p); else { /* MATCH-BEGIN */ sendTo(ws, { queue: queueInfo(m), goblin, wins: p.wins, token: p.token, ...(p.unverified ? { unverified: 1 } : null) }); broadcastQueue(m, ws); if (m.players.size >= CAP) startMatch(m); /* MATCH-END */ }
+  if (resumed) socWelcome(m, ws, p); else { /* MATCH-BEGIN */ sendTo(ws, { queue: queueInfo(m), goblin, wins: p.wins, token: p.token, ...(DBG ? { dbg: 1 } : null), ...(p.unverified ? { unverified: 1 } : null) }); broadcastQueue(m, ws); if (m.players.size >= CAP) startMatch(m); /* MATCH-END */ }
   ws.on('pong', () => { ws.alive = true; }); ws.alive = true;   // SECURITY: heartbeat
   let tokens = 40, last = Date.now(); // rate limit: ~30 msg/s sustained, burst 40
   ws.on('message', (raw, isBinary) => { try { onMessage(raw, isBinary); } catch (e) { console.error('message id=' + p.id, e); } });   // SECURITY: a bug in one handler never takes the process down
@@ -1525,6 +1538,7 @@ wss.on('connection', (ws, req) => {
     } else if (typeof d.ping === 'number' && Number.isFinite(d.ping)) { sendTo(ws, { pong: d.ping, t: srvT() });
     } else if (d.emote !== undefined) { socEmote(m, ws, p, d.emote, now);   // SOCIAL
     } else if (dbg && d.botstat) { sendTo(ws, { botstat: { n: BS.n, sum: BS.sum, max: BS.max, calls: BS.calls, bad: BS.bad, tick: TS, heap: process.memoryUsage().heapUsed, matches: matches.size, tokens: socTokens.size, ips: ipCount.size } });
+    } else if (d.dbgFF === 1) { dbgFF(m, now);   // DEV: skip to 0:10 (ignored without GK_DEBUG)
     } else if (dbg && d.boom === 1) { m.boom = true;   // test hook: this match's tick throws from now on (tests/robust.test.js)
     } else if (dbg && d.quit === 1) { process.exit(0);   // lets tests/tickbench.js flush a --cpu-prof profile
     } else if (dbg && d.kill) { die(ws, p);   // test hooks, only with GK_DEBUG=1
@@ -1559,7 +1573,7 @@ wss.on('connection', (ws, req) => {
         const key = getSlot(p.inv, d.drop); setSlot(p.inv, d.drop, null); recalc(p);
         addDrop(m, p, [key]); sendInv(p); m.dirty = true;
       }
-    } else if (Number.isInteger(d.sel) && d.sel >= 0 && d.sel < nDoors && (ROOM_DOORS[p.room] || []).includes(d.sel)) {
+    } else if (Number.isInteger(d.sel) && d.sel >= 0 && d.sel < nDoors && !isHatch(d.sel) && (ROOM_DOORS[p.room] || []).includes(d.sel)) {
       if (m.sealed && m.sealed[p.room]) sendTo(ws, { sealBlock: 1 });   // UTILITY: sealing wax
       else if (m.sel[p.room] !== d.sel) { m.sel[p.room] = d.sel; (m.selBy || (m.selBy = {}))[p.room] = p.id; broadcastRound(m); }
     }
