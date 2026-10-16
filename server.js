@@ -57,7 +57,7 @@ function newMatch() {
 }
 const VAULT = ROOM_DOORS['4'] || []; // the 4 doors touching the middle vault room
 const vaultVotes = m => new Set(Object.keys(m.sel).filter(k => VAULT.includes(m.sel[k]))).size; // distinct rooms selecting a vault door
-const roundState = m => ({ round: { n: m.round, left: Math.max(0, m.endsAt - Date.now()), dur: m.dur }, sel: m.sel, open: m.open, vaultVotes: vaultVotes(m), fizzled: m.fizzled || [] });
+const roundState = m => ({ round: { n: m.round, left: Math.max(0, m.endsAt - Date.now()), dur: m.dur }, sel: m.sel, open: m.open, vaultVotes: vaultVotes(m), fizzled: m.fizzled || [], ...(m.sudden ? { sudden: 1 } : null) });
 const broadcastRound = m => bcast(m, roundState(m));
 const matchInfo = m => { let lo = Infinity, hi = -Infinity, n = 0, alive = 0; for (const p of m.players.values()) { if (p.npc) continue; n++; lo = Math.min(lo, p.wins); hi = Math.max(hi, p.wins); if (p.entered && !p.dead) alive++; } return { size: n, minWins: n ? lo : 0, maxWins: n ? hi : 0, alive }; };   // mystery enemies never count
 const broadcastMatch = m => bcast(m, { match: matchInfo(m) });
@@ -87,10 +87,10 @@ setInterval(() => { // one global timer steps every match
     if (!m.started) m.endsAt = now + m.dur;   // round 1 waits until someone has left the wheel and entered the rooms
     if (now >= m.endsAt) {
       const picked = [...new Set(Object.values(m.sel))], ok = vaultVotes(m) >= 2; // vault doors need 2 different rooms
-      m.open = picked.filter(d => ok || !VAULT.includes(d)); m.fizzled = ok ? [] : picked.filter(d => VAULT.includes(d)); m.sel = {}; m.round++; m.dur = 45000; m.endsAt = now + m.dur; broadcastRound(m); m.lastRound = now; }
+      m.open = picked.filter(d => ok || !VAULT.includes(d)); m.fizzled = ok ? [] : picked.filter(d => VAULT.includes(d)); m.sel = {}; m.round++; m.dur = NEXT_MS; m.endsAt = now + m.dur; suddenCheck(m); broadcastRound(m); m.lastRound = now; }
     else if (now - m.lastRound >= 1000) { m.lastRound = now; broadcastRound(m); }
     // COMBAT-BEGIN regen: 1 HP every 4 s once a player has not been hit for 6 s
-    for (const p of m.players.values()) if (p.entered && !p.dead && p.stats && p.stats.health < p.stats.maxHealth && now - (p.hurtAt || 0) >= C.regenIdle * RSCALE && now - (p.regenAt || 0) >= C.regenEvery * RSCALE) { p.regenAt = now; p.stats.health = Math.min(p.stats.maxHealth, p.stats.health + C.regenAmt); m.dirty = true; }
+    for (const p of m.players.values()) if (!m.sudden && p.entered && !p.dead && p.stats && p.stats.health < p.stats.maxHealth && now - (p.hurtAt || 0) >= C.regenIdle * RSCALE && now - (p.regenAt || 0) >= C.regenEvery * RSCALE) { p.regenAt = now; p.stats.health = Math.min(p.stats.maxHealth, p.stats.health + C.regenAmt); m.dirty = true; }
     // COMBAT-END
     if (m.dirty) { m.dirty = false; bcast(m, { players: [...m.players.values()].map(pub) }); } // slow state: only when something other than movement changed
     snapshots(m); // NETCODE: positions of players who moved go out at 20 Hz as compact snapshots
@@ -232,14 +232,31 @@ function endMatch(m, winner) {   // once per match: {matchEnd:{winner, top, long
   const places = order.map((p, i) => ({ id: p.id, name: p.name, goblin: p.goblin, bot: p.bot ? 1 : 0, place: i + 1, kills: p.kills || 0, secs: secs(p) }));
   const top = places.slice().sort((a, b) => b.kills - a.kills || a.place - b.place)[0] || null;
   const run = places.filter(r => r.place > 1).sort((a, b) => b.secs - a.secs || a.place - b.place)[0] || null;   // longest survivor besides the winner (who survived by definition)
-  const w = places[0] || null, msg = JSON.stringify({ matchEnd: { winner: w && { id: w.id, name: w.name, goblin: w.goblin, bot: w.bot, kills: w.kills }, top, longest: run, places, size: places.length } });
+  const w = places[0] || null, msg = JSON.stringify({ matchEnd: { ...(m.timeLimit ? { timeLimit: 1 } : null), winner: w && { id: w.id, name: w.name, goblin: w.goblin, bot: w.bot, kills: w.kills }, top, longest: run, places, size: places.length } });
   bcast(m, msg);
   if (!m.specs.size && !humans(m)) matches.delete(m.id);
 }
 // FUN-END
+// SUDDEN-BEGIN (match time limit, DEFAULT awaiting the owner's decision, see docs/FEATURES.md): after round SUDDEN_ROUND every door is open and regeneration stops; if nobody has won after round MAX_ROUND the goblin with the most kills wins, then the most HP
+const SUDDEN_ROUND = DBG && +process.env.GK_SUDDEN_ROUND > 0 ? +process.env.GK_SUDDEN_ROUND : 8, MAX_ROUND = DBG && +process.env.GK_MAX_ROUND > 0 ? +process.env.GK_MAX_ROUND : 10;
+const NEXT_MS = DBG && +process.env.GK_NEXT_ROUND_MS > 0 ? +process.env.GK_NEXT_ROUND_MS : 45000;   // length of rounds 2 and up (GK_DEBUG only override)
+function suddenCheck(m) {   // right after m.round++ (the round that just ended is m.round - 1)
+  if (m.ended) return;
+  if (m.round > SUDDEN_ROUND) { m.sudden = true; m.open = Array.from({ length: nDoors }, (_, i) => i); m.fizzled = []; }
+  if (m.round > MAX_ROUND) timeLimit(m);
+}
+function timeLimit(m) {
+  const live = [...m.players.entries()].filter(([, q]) => !q.npc && q.entered && !q.dead);
+  live.sort((a, b) => (b[1].kills || 0) - (a[1].kills || 0) || ((b[1].stats && b[1].stats.health) || 0) - ((a[1].stats && a[1].stats.health) || 0) || a[1].id - b[1].id);
+  m.timeLimit = true; const best = live[0];
+  if (best && isHum(best[1])) win(best[0], best[1]); else endMatch(m, best ? best[1] : null);   // a bot can win too
+  for (const [ws, q] of live.slice(1)) if (isHum(q)) die(ws, q);   // the beaten humans become spectators (checkWin ignores a decided match)
+}
+// SUDDEN-END
+
 // COMBAT-BEGIN (server-authoritative melee/ranged attacks, kills and the DEFAULT win rule: last goblin standing; see docs/FEATURES.md)
 function checkWin(m) {   // DEFAULT RULE (owner has not decided): >= 2 players entered the rooms, at least one died, exactly one living entered player is left -> that player wins
-  if (!m.deaths || (m.enteredEver || 0) < 2) return;
+  if (m.ended || !m.deaths || (m.enteredEver || 0) < 2) return;
   const living = [...m.players.entries()].filter(([, q]) => !q.npc && q.entered && !q.dead);
   if (living.length === 1 && isHum(living[0][1])) win(living[0][0], living[0][1]);   // a bot standing last wins nothing (the match is dropped when no human is left)
   else if (!humans(m) && living.length <= 1 && m.specs.size) endMatch(m, null);   // FUN: only spectators are left: the last bot decides the match
