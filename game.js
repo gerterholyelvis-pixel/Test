@@ -3842,21 +3842,42 @@ addEventListener('blur', () => keys.clear());
 const canvas = renderer.domElement;
 const lockOk = () => document.pointerLockElement === canvas;
 
-canvas.addEventListener('mousedown', () => { if (!lockOk()) try { const r = canvas.requestPointerLock(); r && r.catch && r.catch(() => {}); } catch (e) {} });
-// look follows the mouse, no button held: raw deltas while the pointer is locked; if the browser refuses the lock
-// (embedded views, some browsers), plain cursor movement still turns, and resting the cursor near the left/right edge keeps turning
+// pointer lock with raw (unaccelerated) mouse input where the browser supports it, so the view moves 1:1 with the mouse
+let lockRefused = false;
+const requestLock = () => {
+  if (lockOk()) return;
+  const plain = () => { try { const r = canvas.requestPointerLock(); r && r.catch && r.catch(() => { lockRefused = true; }); } catch (e) { lockRefused = true; } };
+  try { const r = canvas.requestPointerLock({ unadjustedMovement: true }); if (r && r.catch) r.catch(plain); } catch (e) { plain(); }
+};
+document.addEventListener('pointerlockchange', () => { if (lockOk()) lockRefused = false; });
+document.addEventListener('pointerlockerror', () => { lockRefused = true; });
+canvas.addEventListener('mousedown', requestLock);
+// look follows the mouse, no button held: raw deltas while the pointer is locked; only if the browser refuses the lock
+// (embedded views, some browsers) does plain cursor movement turn, with the left/right screen edge to keep turning
 let mouseX = -1, edgeT = 0;
 const freeLook = () => GK.mode === 'play' && !invOpen && !shopOpen;
 addEventListener('mousemove', e => {
   mouseX = e.clientX;
-  if (!freeLook()) return;
+  if (!freeLook() || (!lockOk() && !lockRefused)) return;
+  if (Math.abs(e.movementX) > 400 || Math.abs(e.movementY) > 400) return;   // drop the jump some browsers report when the lock engages
   const k = 0.0022 * GK.settings.sens; P.yaw = wrapPi(P.yaw - e.movementX * k); P.pitch = clamp(P.pitch - e.movementY * k * (GK.settings.invertY ? -1 : 1), -1.45, 1.45);
 });
+// in play the cursor is hidden (only the centre dot shows); if the lock was dropped (Esc), a click anywhere resumes
+let resumeEl = null;
+addEventListener('mousedown', e => { if (freeLook() && !lockOk() && !lockRefused && e.target !== canvas) requestLock(); });
+function cursorTick() {
+  const play = freeLook() && !document.body.classList.contains('menu');
+  document.body.classList.toggle('nocur', play);
+  const show = play && !lockOk() && !lockRefused;
+  if (show && !resumeEl) { resumeEl = document.createElement('div'); resumeEl.textContent = 'Click to resume'; resumeEl.style.cssText = 'position:fixed;left:50%;top:58%;transform:translateX(-50%);padding:8px 18px;border-radius:8px;background:rgba(10,10,14,.7);color:#f2efe6;font:600 15px system-ui,sans-serif;letter-spacing:.06em;pointer-events:none;z-index:40'; document.body.appendChild(resumeEl); }
+  if (resumeEl) resumeEl.style.display = show ? 'block' : 'none';
+}
 document.addEventListener('mouseout', e => { if (!e.relatedTarget) mouseX = -1; });
 addEventListener('blur', () => { mouseX = -1; });
 (function edgeTurn(t) {
   const dt = Math.min((t - (edgeT || t)) / 1000, 0.05); edgeT = t;
-  if (!lockOk() && freeLook() && mouseX >= 0) {
+  cursorTick();
+  if (!lockOk() && lockRefused && freeLook() && mouseX >= 0) {
     const m = innerWidth * 0.06, d = mouseX < m ? 1 : mouseX > innerWidth - m ? -1 : 0;
     if (d) P.yaw = wrapPi(P.yaw + d * 2.4 * GK.settings.sens * dt);
   }
@@ -4069,7 +4090,7 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-const lockNow = () => { try { const r = canvas.requestPointerLock(); r && r.catch && r.catch(() => {}); } catch (e) {} };
+const lockNow = requestLock;
 GK.renderer = renderer; GK.scene = scene; GK.build = buildGoblin; GK.NAMES = NAMES; GK.SCALE = SCALE; GK.glowTex = glowTex; GK.textTex = textTex;
 GK.start = (opts) => { connect(opts); return new Promise(res => { if (assigned) res(actors.get(me).goblin); else { const prev = GK.onAssigned; GK.onAssigned = g => { GK.onAssigned = prev; res(g); }; } }); }; // connects and resolves with my goblin type
 GK.enter = () => { run.t0 = performance.now(); run.n0 = GK.roundInfo ? GK.roundInfo().n : 0; run.dist = 0; GK.mode = 'play'; net.send({ enter: 1 }); GK.showStats(); GK.applySettings(); if (window.GK_OFFLINE) $('rr').style.display = 'block'; lockNow(); };   // call from a click; 'enter' starts the match's round timer
