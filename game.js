@@ -5062,7 +5062,7 @@ function fxPrepActors() {
 }
 // ---- GFX2 room culling: from inside a room only that room, rooms reachable through open (or moving) doors, and the goblins in them are drawn
 const fxAny = (k, set) => { for (let i = 0; i < k.length; i++) if (set.has(k[i])) return true; return false; };   // PERF: replaces k.some(closure) in the per-frame culling loops
-const fxCull = { on: true, active: false, cls: new WeakMap(), adj: null, vis: new Set(), near: new Set(), hidden: [] };
+const fxCull = { on: true, active: false, cls: new WeakMap(), adj: null, vis: new Set(), near: new Set(), hidden: [], dist: new Map() /* FEEL2: door hops from the current room */ };
 const _fxB = new THREE.Box3();
 function fxClassify(o) {   // room keys a static top-level object belongs to (1 or 2 for walls between rooms), null = always drawn
   if (o.isLight || o.matrixAutoUpdate !== false) return null;
@@ -5085,7 +5085,18 @@ function fxCullBegin() {
   const vis = fxCull.vis, here = WORLD.roomKeyOf(p.x, p.z); vis.clear(); vis.add(here); fxCull.active = true;
   const near = fxCull.near; near.clear(); near.add(here);
   for (let i = 0; i < doors.length; i++) { const d = doors[i], ad = fxCull.adj[i], a = ad[0], b = ad[1]; if ((d.p > 0.001 || d.open) && (a === here || b === here)) { near.add(a); near.add(b); } }
-  for (let grow = true; grow;) { grow = false; for (let i = 0; i < doors.length; i++) { const d = doors[i]; if (d.p <= 0.001 && !d.open) continue; const ad = fxCull.adj[i], a = ad[0], b = ad[1]; if (vis.has(a) !== vis.has(b)) { vis.add(a); vis.add(b); grow = true; } } }
+  /* FEEL2-BEGIN: breadth-first growth through open doors, limited to 2 door hops (low/medium) or 3 (high/ultra) so sudden death does not render every room */
+  const dist = fxCull.dist, gq = GK.settings.gfx, maxHop = (gq === 'low' || gq === 'medium') ? 2 : 3; dist.clear(); dist.set(here, 0);
+  for (let hop = 0; hop < maxHop; hop++) {
+    let grew = false;
+    for (let i = 0; i < doors.length; i++) {
+      const d = doors[i]; if (d.p <= 0.001 && !d.open) continue;
+      const ad = fxCull.adj[i], a = ad[0], b = ad[1], da = dist.get(a), db = dist.get(b);
+      if (da === hop && db === undefined) { dist.set(b, hop + 1); vis.add(b); grew = true; } else if (db === hop && da === undefined) { dist.set(a, hop + 1); vis.add(a); grew = true; }
+    }
+    if (!grew) break;
+  }
+  /* FEEL2-END */
   const hid = fxCull.hidden;
   for (const o of scene.children) {
     if (!o.visible) continue;
@@ -5810,9 +5821,46 @@ function combatSwing() {   // left click: swing animation on my own goblin now, 
   const mine = actors.get(me); if (!mine) return false;
   const cb = itemsData().combat ? itemsData().combat(invReady ? myInv.weapon : null) : { cd: 600 }, now = performance.now();
   if (now - CB.last < cb.cd) return false;
-  CB.last = now; mine.swing = 1e-4; vmSwing(mine, true); net.send({ atk: 1 }); snd('swing'); return true;
+  CB.last = now; CB.nextAt = now + cb.cd; /* FEEL2: cooldown end for buffer/hold */ mine.swing = 1e-4; vmSwing(mine, true); net.send({ atk: 1 }); snd('swing'); return true;
 }
-canvas.addEventListener('mousedown', e => { if (e.button === 0 && (lockOk() || lockRefused)) combatSwing(); });   // the click that captures the mouse does not swing
+canvas.addEventListener('mousedown', e => { if (e.button === 0 && (lockOk() || lockRefused)) { /* FEEL2: hold + input buffer */ CB.held = true; if (!combatSwing() && CB.nextAt - performance.now() <= 180) CB.buf = true; } });   // the click that captures the mouse does not swing
+// FEEL2-BEGIN (attack input buffer + hold-to-attack, directional damage arc, crosshair hit marker; see docs/reports/feel-2.md)
+CB.nextAt = 0; CB.held = false; CB.buf = false; CB.arc = null; CB.arcAnim = null; CB.hm = null; CB.hmAnim = null;
+addEventListener('mouseup', e => { if (e.button === 0) { CB.held = false; } });
+addEventListener('blur', () => { CB.held = false; CB.buf = false; });
+function feel2Tick() {   // frame(): fire a buffered click or a held button as soon as the cooldown allows, through the normal combatSwing()
+  if (!CB.held && !CB.buf) return;
+  if (GK.mode !== 'play' || invOpen || shopOpen || !spawned || GK.locked) { CB.buf = false; return; }
+  if (CB.held && !lockOk() && !lockRefused) { CB.held = false; return; }   // lock dropped (Esc): stop auto-swinging
+  if (performance.now() < CB.nextAt) return;
+  CB.buf = false; combatSwing();
+}
+function feel2Arc(f) {   // short-lived red arc at the screen edge, pointing toward the attacker's bearing (forward = (-sin yaw, -cos yaw), right = (cos yaw, -sin yaw))
+  const mine = actors.get(me), px = mine ? mine.x : P.x, pz = mine ? mine.z : P.z, dx = f.x - px, dz = f.z - pz;
+  if (dx * dx + dz * dz < 0.04) return;
+  const sy = Math.sin(P.yaw), cy = Math.cos(P.yaw), ang = Math.atan2(dx * cy - dz * sy, -dx * sy - dz * cy);
+  if (!CB.arc) {
+    const w = document.createElement('div'); w.style.cssText = 'position:fixed;left:50%;top:50%;width:0;height:0;z-index:46;pointer-events:none;opacity:0';
+    const r = document.createElement('div'); r.style.cssText = 'position:absolute;border-radius:50%;background:conic-gradient(from -34deg,rgba(255,40,28,0) 0deg,rgba(255,40,28,.9) 14deg,rgba(255,40,28,.9) 54deg,rgba(255,40,28,0) 68deg,rgba(255,40,28,0) 360deg);-webkit-mask-image:radial-gradient(circle closest-side,transparent calc(100% - 30px),#000 calc(100% - 22px),#000 calc(100% - 8px),transparent 100%);mask-image:radial-gradient(circle closest-side,transparent calc(100% - 30px),#000 calc(100% - 22px),#000 calc(100% - 8px),transparent 100%);filter:drop-shadow(0 0 6px rgba(255,30,20,.8))';
+    w.appendChild(r); document.body.appendChild(w); CB.arc = { w, r, rad: 0 };
+  }
+  const a = CB.arc, rad = Math.round(Math.min(innerWidth, innerHeight) * 0.36);
+  if (a.rad !== rad) { a.rad = rad; a.r.style.width = a.r.style.height = 2 * rad + 'px'; a.r.style.left = a.r.style.top = -rad + 'px'; }
+  a.w.style.transform = 'rotate(' + ang + 'rad)';
+  if (CB.arcAnim) CB.arcAnim.cancel();
+  CB.arcAnim = a.w.animate([{ opacity: 1 }, { opacity: 1, offset: 0.25 }, { opacity: 0 }], { duration: 700, easing: 'ease-out' });
+}
+function feel2HitMark(kill) {   // small white X at screen centre for ~120 ms; larger and gold on a kill
+  if (!CB.hm) {
+    const e = document.createElement('div'); e.style.cssText = 'position:fixed;left:50%;top:50%;width:0;height:0;z-index:46;pointer-events:none;opacity:0';
+    e.innerHTML = '<svg width="44" height="44" viewBox="-22 -22 44 44" style="position:absolute;left:-22px;top:-22px;overflow:visible;filter:drop-shadow(0 0 2px rgba(0,0,0,.9))"><g fill="none" stroke-width="2.6" stroke-linecap="round"><path d="M-9 -9L-4.5 -4.5M9 -9L4.5 -4.5M-9 9L-4.5 4.5M9 9L4.5 4.5"/></g></svg>';
+    document.body.appendChild(e); CB.hm = { e, g: e.querySelector('g') };
+  }
+  CB.hm.g.setAttribute('stroke', kill ? '#ffd75e' : '#ffffff');
+  if (CB.hmAnim) CB.hmAnim.cancel();
+  const s = kill ? 1.45 : 1; CB.hmAnim = CB.hm.e.animate([{ opacity: 1, transform: 'scale(' + (s * 1.25) + ')' }, { opacity: 1, transform: 'scale(' + s + ')', offset: 0.35 }, { opacity: 0, transform: 'scale(' + s + ')' }], { duration: kill ? 170 : 120 });
+}
+// FEEL2-END
 function combatSync(a, p) { if (p.stats && p.stats.health != null) { a.hp = p.stats.health; a.maxHp = p.stats.maxHealth || p.stats.health; } if (p.kills != null) a.kills = p.kills; }
 function combatFloat(text, pos, color, size) {   // floating damage number (a sprite that rises and fades)
   const c = document.createElement('canvas'); c.width = 160; c.height = 80; const g = c.getContext('2d');
@@ -5840,7 +5888,7 @@ function combatMsg(d) {   // server messages: swing, hit, kills, match (goblins 
       const burst = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff3a2a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.9 }));   // red hit flash on the victim (sprite only, no lights)
       burst.scale.set(1.3, 1.3, 1); burst.position.set(v.x, 1.0 * (SCALE[v.goblin] || 1), v.z); scene.add(burst); CB.floats.push({ sp: burst, t: 0, flash: true });
     }
-    if (h.to === me) { combatHurtFx(h.dmg, h.max); snd('hurt'); } else if (v) snd('hit', h.from === me ? {} : { x: v.x, z: v.z });
+    if (h.to === me) { combatHurtFx(h.dmg, h.max); snd('hurt'); if (f) feel2Arc(f); /* FEEL2 */ } else if (v) snd('hit', h.from === me ? {} : { x: v.x, z: v.z });
   }
   if (d.kills != null) { CB.kills = d.kills; toastMsg('Goblin defeated!  Kills: ' + d.kills, true); }
   if (d.match) { CB.alive = d.match.alive | 0; CB.size = d.match.size | 0; }
@@ -6002,7 +6050,7 @@ function vmSwing(a, isMe) {   // hook: a.swing was just set (combatSwing for me,
 }
 function vmHit(h) {   // hook: the server confirmed my hit: recoil + hit-stop (heavier for big weapons)
   const heavy = VM_CLASS[VM.fam] === 'smash' ? 1 : VM_CLASS[VM.fam] === 'thrust' ? 0.7 : 0.5;
-  VM.stop = 0.06 + 0.03 * heavy; VM.kick = 1; VM.shake = Math.max(VM.shake, 0.35 + 0.5 * heavy);
+  feel2HitMark(!!h.dead); /* FEEL2 */ VM.stop = 0.06 + 0.03 * heavy; VM.kick = 1; VM.shake = Math.max(VM.shake, 0.35 + 0.5 * heavy);
 }
 function vmGear(a, p) { a.vmName = p.gear && p.gear.weapon || null; }   // hook: other goblins' weapon arrives as a name in the player list
 const vmByName = (() => { let m = null; return name => { if (!name) return null; if (!m) { m = {}; const I = itemsData().ITEMS; for (const k in I) if (I[k].type === 'weapon') m[I[k].name] = k; } return m[name] || null; }; })();
@@ -6286,6 +6334,7 @@ function frame(now) {
   panelTick();
   /* FEEL-BEGIN */ if (GK.feel) GK.feel.tick(dt, now); /* FEEL-END */
   const mine = actors.get(me);
+  feel2Tick();   // FEEL2: buffered / held attack
   // my movement
   if (mine && spawned && GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked) {
     const f = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
