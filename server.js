@@ -26,7 +26,7 @@ function readToken(t) {   // the payload when the signature and shape are valid,
   if (sig.length !== want.length || !crypto.timingSafeEqual(sig, want)) return null;
   try {
     const o = JSON.parse(Buffer.from(body, 'base64url').toString());
-    if (!o || typeof o.c !== 'string' || !Number.isInteger(o.g) || o.g < 0 || o.g > 4 || !Number.isInteger(o.w) || o.w < 0 || o.w > 9999 || typeof o.n !== 'string') return null;
+    if (!o || typeof o.c !== 'string' || !Number.isInteger(o.g) || o.g < 0 || o.g >= GOBLIN_N || !Number.isInteger(o.w) || o.w < 0 || o.w > 9999 || typeof o.n !== 'string') return null;
     return o;
   } catch (e) { return null; }
 }
@@ -192,7 +192,7 @@ setInterval(() => { // one global timer steps every match
       const fresh = paceNoDoor(m, picked.filter(d => ok || !VAULT.includes(d))); m.open = useOpen(m, ruleOpen(m, fresh)); m.fizzled = ok ? [] : picked.filter(d => VAULT.includes(d)); m.lastSel = { ...m.sel }; m.sel = {}; m.selBy = {}; m.bribes = {}; m.round++; m.dur = NEXT_MS; m.endsAt = now + m.dur; suddenCheck(m); paceRound(m); lootRound(m); broadcastRound(m); m.lastRound = now; }
     else if (now - m.lastRound >= 1000) { m.lastRound = now; broadcastRound(m); }
     // COMBAT-BEGIN regen: 1 HP every 4 s once a player has not been hit for 6 s. SUDDEN DEATH: only inside THE VAULT (the sanctuary everyone converges on), nowhere else.
-    for (const p of m.players.values()) if ((!m.sudden || p.room === '4') && p.entered && !p.dead && p.stats && p.stats.health < p.stats.maxHealth && now - (p.hurtAt || 0) >= C.regenIdle * RSCALE && now - (p.regenAt || 0) >= C.regenEvery * RSCALE) { p.regenAt = now; p.stats.health = Math.min(p.stats.maxHealth, p.stats.health + C.regenAmt); m.dirty = true; }
+    for (const p of m.players.values()) if ((!m.sudden || p.room === '4') && p.entered && !p.dead && p.stats && p.stats.health < p.stats.maxHealth && now - (p.hurtAt || 0) >= C.regenIdle * RSCALE * G.goblinRegen(p.goblin).idle && now - (p.regenAt || 0) >= C.regenEvery * RSCALE * G.goblinRegen(p.goblin).every) { p.regenAt = now; p.stats.health = Math.min(p.stats.maxHealth, p.stats.health + C.regenAmt); m.dirty = true; }
     // COMBAT-END
     if (m.dirty) { m.dirty = false; bcast(m, { players: [...m.players.values()].map(pub) }); } // slow state: only when something other than movement changed
     snapshots(m); // NETCODE: positions of players who moved go out at 20 Hz as compact snapshots
@@ -205,7 +205,7 @@ setInterval(() => { // one global timer steps every match
   if (DBG) { const ms = Number(process.hrtime.bigint() - tick0) / 1e6; TS.n++; TS.sum += ms; if (ms > TS.max) TS.max = ms; if (ms > 25) TS.over++; }
 }, 50);
 
-// 0 small 30%, 1 medium 30%, 2 big 30%, 3 wizard 9%, 4 king 1%
+// goblin types and their odds: items.js GOBLINS (GOBTYPES)
 // Equipment decides combat stats: attack damage comes from the weapon (items.js), health from the armour.
 const G = require('./items.js'), ITEMS = G.ITEMS, C = G.COMBAT;
 const info = k => (typeof k === 'string' && k.length < 40 && G.info(k)) || null; // any item key incl. goblin brains
@@ -217,7 +217,7 @@ const fits = (id, key) => key == null || (id === 'weapon' ? info(key).type === '
 const allItems = inv => [inv.weapon, inv.armor, ...inv.backpack, ...inv.quick].filter(Boolean);
 function recalc(p) { // derived stats from the equipped items
   const w = p.inv.weapon && info(p.inv.weapon), a = p.inv.armor && info(p.inv.armor);
-  const maxHealth = a ? a.health : 10;
+  const maxHealth = p.npc ? (a ? a.health : 10) : G.goblinHp(p.goblin, a ? a.health : 10);   // GOBTYPES: plus the type's health bonus
   p.stats = { knowledge: p.stats ? p.stats.knowledge : G.KNOWLEDGE[p.goblin], attack: w ? w.attack : 0, health: Math.min(p.stats ? p.stats.health : maxHealth, maxHealth), maxHealth };
   p.gear = { weapon: w ? w.name : 'None', armor: a ? a.name : 'None' };
 }
@@ -225,6 +225,7 @@ function equip(p, goblin) { // give a player a goblin type with its starting gea
   const s = G.START[goblin];
   p.goblin = goblin; p.inv = { backpack: Array(G.SLOTS.backpack).fill(null), quick: Array(G.SLOTS.quick).fill(null), weapon: s.weapon, armor: s.armor };
   p.stats = null; recalc(p); p.gold = G.START_GOLD; p.parts = {}; for (const pt of G.PARTS) p.parts[pt.key] = 0;
+  const pk = G.goblinStart(goblin); if (pk) { p.gold += pk.gold; for (const k in pk.parts) p.parts[k] = (p.parts[k] || 0) + pk.parts[k]; }   // GOBTYPES: the miner's prospector pouch
 }
 const sendGold = p => { if (p.ws) sendTo(p.ws, { gold: p.gold }); };
 const sendParts = p => { if (p.ws) sendTo(p.ws, { parts: p.parts }); };
@@ -303,10 +304,8 @@ function addDrop(m, p, items) {
   m.drops.push({ id: m.nextDrop++, x: +p.x.toFixed(2), z: +p.z.toFixed(2), items }); if (m.drops.length > 60) m.drops.shift();
   bcast(m, { drops: m.drops });
 }
-function rollGoblin() {
-  const r = Math.random() * 100;
-  return r < 30 ? 0 : r < 60 ? 1 : r < 90 ? 2 : r < 99 ? 3 : 4;
-}
+function rollGoblin() { return G.rollGoblin(); }   // GOBTYPES: 12 weighted types (items.js GOBLINS)
+const GOBLIN_N = G.GOBLINS.length;
 function spawn() {
   const box = [0, 1, 2, 3, 5, 6, 7, 8][Math.floor(Math.random() * 8)]; // never the vault (4)
   const [cx, cz] = WORLD.rc(box), [x, z] = WORLD.randomPoint(box);
@@ -398,21 +397,21 @@ function attack(m, ws, p, now, rt) {   // {atk:1, rt}: rate limit by weapon, nea
   if (now - (p.atkAt || 0) < cb.cd * 0.9) return;   // 10% jitter allowance
   p.atkAt = now; bcast(m, { swing: p.id });
   if (bolt) return fireBolt(m, p, now);
-  const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw), reach = cb.range + C.slack;   // forward vector, same as the client's movement
+  const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw), reach = cb.range + C.slack + (cb.ranged || p.npc ? 0 : G.goblinReach(p.goblin));   // GOBTYPES: the hobgoblin's long arms   // forward vector, same as the client's movement
   let best = null, bd = Infinity;
   const T = srvT(), at = typeof rt === 'number' && Number.isFinite(rt) ? Math.max(T - REWIND_MAX, Math.min(T, rt)) : T;   // lag compensation: look at the world as the attacker saw it
   for (const [tws, t] of m.players) {
     if (t === p || t.dead || !t.entered) continue;
     const [tx, tz] = at < T ? posAt(t, at) : [t.x, t.z]; if (roomKeyOf(tx, tz) !== p.room) continue;
     const dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz);
-    if (d > reach) continue;
+    if (d > reach + (t.npc ? 0 : G.hitRadius(t.goblin) - G.HIT_R)) continue;   // GOBTYPES: bigger goblins are easier to reach
     if (d > 2.5 && inSmoke(m, t, now)) continue;   // UTILITY: nobody shoots into a smoke cloud from beyond melee range
     if (d > 0.05 && (dx * fx + dz * fz) / d < Math.cos(C.cone)) continue;
     if (d > 0.9 && WORLD.segBlocked(p.x, p.z, tx, tz, m.layout)) continue;   // SOLID: no swinging through a crate or barrel
     if (d < bd) { bd = d; best = [tws, t]; }
   }
   if (!best) return;
-  const [tws, t] = best; hitTarget(m, ws, p, tws, t, cb.dmg, now);
+  const [tws, t] = best; hitTarget(m, ws, p, tws, t, cb.dmg, now, undefined, !cb.ranged);
 }
 // COMBAT-END
 // RULES-LOGIC-BEGIN (the four experimental rules; every function is a no-op unless its rule is on)
@@ -424,7 +423,10 @@ function ruleOpen(m, fresh) {   // doorclose: the doors stay open for DOOR_LIFE 
   for (const d of fresh) { next[d] = DOOR_LIFE; if (!keep.includes(d)) keep.push(d); }
   m.openLeft = next; return keep;
 }
-function hitTarget(m, ws, p, tws, t, dmg, now, wname) {   // damage, hit broadcast, kill bookkeeping (melee and bolts share it)
+function hitTarget(m, ws, p, tws, t, dmg, now, wname, melee) {   // damage, hit broadcast, kill bookkeeping (melee and bolts share it)
+  { const behind = (p.x - t.x) * -Math.sin(t.yaw || 0) + (p.z - t.z) * -Math.cos(t.yaw || 0) < -0.3 * Math.hypot(p.x - t.x, p.z - t.z);   // GOBTYPES: type perks (dodge, backstab, rage, thick hide)
+    const r = G.goblinHit({ goblin: p.goblin, hp: p.stats ? p.stats.health : 0, max: p.stats ? p.stats.maxHealth : 0, npc: p.npc }, { goblin: t.goblin, npc: t.npc }, dmg, { melee: !!melee, behind });
+    if (r.dodged) { bcast(m, { dodge: { from: p.id, to: t.id } }); return; } dmg = r.dmg; }
   const hp = Math.max(0, t.stats.health - dmg);
   t.stats.health = hp; t.hurtAt = now; t.hitBy = p.id; m.dirty = true;   // hitBy: a bot notices whoever hurt it at once
   bcast(m, { hit: { from: p.id, to: t.id, dmg, hp, max: t.stats.maxHealth, dead: hp <= 0 } });
@@ -442,7 +444,7 @@ function boltTick(m, now) {
   m.bolts = m.bolts.filter(b => {
     b.x += b.vx * dt; b.z += b.vz * dt; b.dist += BOLT.speed * dt;
     let hit = null;
-    for (const [tws, t] of m.players) { if (t === b.by || t.dead || !t.entered || t.room !== b.room) continue; if (Math.hypot(t.x - b.x, t.z - b.z) < BOLT.radius && !(Math.hypot(t.x - b.by.x, t.z - b.by.z) > 2.5 && inSmoke(m, t, now))) { hit = [tws, t]; break; } }
+    for (const [tws, t] of m.players) { if (t === b.by || t.dead || !t.entered || t.room !== b.room) continue; if (Math.hypot(t.x - b.x, t.z - b.z) < BOLT.radius + (t.npc ? 0 : G.hitRadius(t.goblin) - G.HIT_R) && !(Math.hypot(t.x - b.by.x, t.z - b.by.z) > 2.5 && inSmoke(m, t, now))) { hit = [tws, t]; break; } }
     if (hit && WORLD.segBlocked(b.x - b.vx * dt, b.z - b.vz * dt, hit[1].x, hit[1].z, m.layout)) hit = null;   // SOLID: a prop between the bolt and the goblin shields him
     if (hit) { hitTarget(m, b.by.ws, b.by, hit[0], hit[1], BOLT.dmg, now); bcast(m, { boltEnd: { id: b.id, hit: 1 } }); return false; }
     if (WORLD.inProp(b.x, b.z, 0.08, m.layout)) { bcast(m, { boltEnd: { id: b.id } }); return false; }   // SOLID: the bolt dies on a crate, barrel or urn
@@ -1279,7 +1281,7 @@ wss.on('connection', (ws, req) => {
   let wins = 0, charId = crypto.randomBytes(6).toString('hex'), tokName = null;
   goblin = rollGoblin();
   if (tok) { goblin = tok.g; wins = tok.w; charId = tok.c; tokName = tok.n; }
-  else if (SEC_DEBUG) { if (g !== null && /^[0-4]$/.test(g)) goblin = +g; if (wq !== null && /^\d{1,9}$/.test(wq)) wins = Math.min(9999, +wq); }
+  else if (SEC_DEBUG) { if (g !== null && /^\d{1,2}$/.test(g) && +g < GOBLIN_N) goblin = +g; if (wq !== null && /^\d{1,9}$/.test(wq)) wins = Math.min(9999, +wq); }
   const unverified = ct !== null && !tok;   // a saved character came without a valid token: playing as a new goblin
   m = findMatch(wins);
   if (!m) { sendTo(ws, { busy: 1 }); return ws.close(); }

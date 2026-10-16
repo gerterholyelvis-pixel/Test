@@ -7,6 +7,9 @@ const SCALE = [0.75, 1, 1.3, 1.1, 1.2];
 // Attack damage comes from the starting weapon and health from the starting armour (the server holds the real values, this is the offline/default display)
 const GEAR = [{ weapon: 'Dagger', armor: 'Ragged Tunic' }, { weapon: 'Nailed Club', armor: 'Studded Vest' }, { weapon: 'Spiked Mace', armor: 'Warlord Harness' }, { weapon: 'Gnarled Staff', armor: 'Starry Robe' }, { weapon: 'Royal Scepter', armor: 'Royal Mantle' }];
 const STATS = [{ knowledge: 60, attack: 10, health: 40 }, { knowledge: 40, attack: 15, health: 50 }, { knowledge: 30, attack: 20, health: 80 }, { knowledge: 80, attack: 0, health: 60 }, { knowledge: 40, attack: 20, health: 100 }];
+// GOBTYPES: the seven newer goblin types (ids 5-11) are appended from items.js GOBLINS; ids 0-4 above never change (saved-character tokens store them)
+const GOB_TAGY = [1.95, 1.95, 1.95, 2.85, 2.55, 2.3, 2.0, 2.25, 2.45, 2.3, 2.05, 2.2];   // name-tag height per type (above hats, crowns, horns, candles)
+(() => { const G = window.GKITEMS; if (!G || !G.GOBLINS) return; for (const g of G.GOBLINS.slice(NAMES.length)) { const i = NAMES.length, s = G.START[i], w = G.ITEMS[s.weapon], a = G.ITEMS[s.armor]; NAMES.push(g.name); SCALE.push(g.size); GEAR.push({ weapon: w.name, armor: a.name }); STATS.push({ knowledge: G.KNOWLEDGE[i], attack: w.attack, health: G.goblinHp(i, a.health) }); } })();
 const WORLD = window.GKWORLD;              // shared geometry (world.js, also used by server.js): room sizes, THE VAULT (middle room, bigger), chest rooms, helpers
 const { H, T, V: VSIZE, rc, roomAt, roomW, roomD } = WORLD;   // ceiling height, wall thickness, vault size, room centre / point -> room / per-room width and depth
 const DW = 4, DHT = 4.4, VW = 4.9, VH = 5; // secure door and vault door openings
@@ -2626,6 +2629,8 @@ function glow(parent, color, size, x, y, z, op = 0.9) {
 const CFG = [
   { skin: 0x86c050, cloth: 0x6a4a30, b: 0.85 }, { skin: 0x6dbb44, cloth: 0x7a5a34, b: 1 }, { skin: 0x3f8a36, cloth: 0x4a3a30, b: 1.22 },
   { skin: 0x4cb8a6, cloth: 0x5a2bb8, b: 0.95 }, { skin: 0xa9cc34, cloth: 0xb3122b, b: 1.05 },
+  { skin: 0x9ccf52, cloth: 0x4e6a2e, b: 0.82 }, { skin: 0x5e7a4c, cloth: 0x2e2c34, b: 0.9 }, { skin: 0x7f9a4a, cloth: 0x6a4a2a, b: 1.12 }, { skin: 0x8a9c6a, cloth: 0x6b5238, b: 0.92 },   // GOBTYPES: scout, sneak, miner, shaman
+  { skin: 0x8c9a3c, cloth: 0x5a4636, b: 1.12 }, { skin: 0x4f8f72, cloth: 0x4a6a2a, b: 1.05 }, { skin: 0xb4733a, cloth: 0x2e2238, b: 0.9 },   // berserker, bog goblin, hobgoblin (rust: the one non-green goblin)
 ];
 // GKKIT-BEGIN (shared helpers for the wizard and the king; cached)
 function goblinKit() {
@@ -2787,7 +2792,8 @@ const GA = (() => {
   }, false);
   const CT = [   // per type: [base grey, stitch colour, patch tints]
     ['#e8e2d0', '#2b2118', ['#f4efe0', '#cfc0a0', '#b9c7a0', '#d9a79a']], ['#dcd4c8', '#1c130d', ['#efe7da', '#b8a68c']], ['#cfc8bd', '#1a120c', ['#e0d8cb', '#a89c8a']],
-    ['#ece9f4', '#2c2250', ['#ffffff', '#d7d0ee']], ['#f2eee4', '#5a3a08', ['#ffffff', '#ece0c0']]];
+    ['#ece9f4', '#2c2250', ['#ffffff', '#d7d0ee']], ['#f2eee4', '#5a3a08', ['#ffffff', '#ece0c0']],
+    ['#e4e2d4', '#2b2118', ['#efe9d8']], ['#d0ccc8', '#141016', ['#dcd6d0']], ['#dcd4c8', '#1c130d', ['#efe7da']], ['#e0d8c4', '#2b2118', ['#efe6d0']], ['#d8d0c4', '#1c130d', ['#e8e0d0']], ['#e0e4d4', '#1c2a14', ['#eef0e0']], ['#dcd6e4', '#2a0a0a', ['#ece6f0']]];   // GOBTYPES
   function clothTex(type) {
     if (A.cloth && A.cloth[type]) return A.cloth[type]; (A.cloth = A.cloth || {});
     const [base, st, pt] = CT[type];
@@ -2874,6 +2880,11 @@ const GAT = [
   { hs: 0.88, hunch: 0.42, ear: 0.85, drop: 0.78, tilt: 0.42, limb: 1.25, pupil: 0.009, hold: -0.8, fam: 'harness' },
   { hs: 1.1, hunch: 0.14, ear: 1.2, drop: 0.7, tilt: -0.08, limb: 0.85, pupil: 0.011, hold: -0.45, fam: 'robe' },
   { hs: 1.12, hunch: 0.1, ear: 1.1, drop: 0.78, tilt: 0.0, limb: 0.95, pupil: 0.011, hold: -0.6, fam: 'royal' },
+  // GOBTYPES: scout, sneak, miner, shaman, berserker, bog goblin (hw: wider head), hobgoblin; fam = the family of the type's starting armour (its own outfit stands in for it)
+  { hs: 1.08, hunch: 0.12, ear: 1.5, drop: 0.4, tilt: 0.12, limb: 0.8, pupil: 0.012, hold: -0.9, fam: 'light' }, { hs: 1.14, hunch: 0.5, ear: 1.25, drop: 0.3, tilt: 0.28, limb: 0.85, pupil: 0.006, hold: -1.0, fam: 'leather' },
+  { hs: 1.0, hunch: 0.3, ear: 0.95, drop: 0.62, tilt: 0.2, limb: 1.12, pupil: 0.01, hold: -0.8, fam: 'scrap' }, { hs: 1.05, hunch: 0.3, ear: 1.25, drop: 0.72, tilt: 0.0, limb: 0.85, pupil: 0.008, hold: -0.6, fam: 'bone' },
+  { hs: 0.95, hunch: 0.36, ear: 0.9, drop: 0.45, tilt: 0.5, limb: 1.18, pupil: 0.008, hold: -0.85, fam: 'fur' }, { hs: 1.1, hw: 1.16, hunch: 0.32, ear: 0.75, drop: 0.2, tilt: 0.1, limb: 0.95, pupil: 0.016, hold: -0.85, fam: 'cloth' },
+  { hs: 0.88, hunch: 0.04, ear: 1.0, drop: 0.5, tilt: 0.35, limb: 0.85, pupil: 0.009, hold: -0.8, fam: 'cloth' },
 ];
 const GA_TIER = [0x8a8f98, 0x6fcf5a, 0x4a9bff, 0xb06cff, 0xff9a2a, 0x7ff6ff];   // trim colour by item tier (0..5)
 function gaLeg(B, type, s, b, SC) {
@@ -2882,7 +2893,7 @@ function gaLeg(B, type, s, b, SC) {
   B.tube([[0, -0.17, 0], [0, -0.3, 0.03], [0, -0.44, 0.0]], 0.075 * L * b, 0.05, SC, SK);   // skinny shin
   B.e(0, -0.31, 0.04, 0.065 * L, 0.06, 0.06, dk, SK);                                   // knee knob
   const toes = (zc, y, col, claw) => { for (const x of [-0.055, 0, 0.055]) { B.e(x * b, y, zc, 0.032, 0.03, 0.05, col, SK); B.k(x * b, y - 0.005, zc + 0.045, 0.02, 0.07, 1.75, 0, claw, BN); } };
-  if (type === 0) {   // barefoot scavenger: big flat feet, three toes with claws
+  if (type >= 5 && gxFeet(B, type, b, SC, toes)) { /* GOBTYPES */ } else if (type === 0) {   // barefoot scavenger: big flat feet, three toes with claws
     B.e(0, -0.52, 0.0, 0.065, 0.07, 0.06, SC, SK); B.e(0, -0.555, 0.08, 0.1 * b, 0.05, 0.17, SC, SK); toes(0.2, -0.56, SC, 0xd8cdb0);
     B.tor(0, -0.47, 0, 0.065, 0.014, Math.PI / 2, 0, 0, 0x7a5a34, LT);                 // rag anklet
   } else if (type === 3) {   // pointed slippers with a curled toe
@@ -2960,8 +2971,8 @@ function gaHead(B, type, b) {
     // eye: socket shadow, glowing ball, slit pupil, heavy lid, brow ridge
     const ex = s * 0.125, ey = 0.252;
     B.e(ex, ey, 0.172, 0.072, 0.068, 0.05, deep, SK);
-    B.e(ex, ey, 0.205, 0.064, 0.06, 0.06, type === 3 ? 0xa8f4ff : type === 4 ? 0xfff0a0 : 0xffe14a, GL, { v: 0 });
-    B.e(ex + s * 0.004, ey, 0.252, 0.03, 0.05, 0.016, type === 3 ? 0x1a8cff : type === 4 ? 0xffa800 : 0xff9b00, GL, { v: 0, hdr: 1.1 });         // iris
+    B.e(ex, ey, 0.205, 0.064, 0.06, 0.06, gxEye(type, 0, type === 3 ? 0xa8f4ff : type === 4 ? 0xfff0a0 : 0xffe14a), GL, { v: 0 });
+    B.e(ex + s * 0.004, ey, 0.252, 0.03, 0.05, 0.016, gxEye(type, 1, type === 3 ? 0x1a8cff : type === 4 ? 0xffa800 : 0xff9b00), GL, { v: 0, hdr: 1.1 });         // iris
     B.e(ex + s * 0.004, ey, 0.264, P.pupil, 0.042, 0.008, 0x050302, DK, { v: 0 });              // slit pupil
     B.add(new THREE.SphereGeometry(1, 20, 10, 0, TAU, 0, 1.0), { p: [ex, ey, 0.205], r: [P.drop, 0, s * P.tilt], s: [0.07, 0.069, 0.069], c: deep, m: SK });   // upper lid
     B.add(new THREE.SphereGeometry(1, 20, 10, 0, TAU, 0, 0.75), { p: [ex, ey - 0.004, 0.205], r: [Math.PI - 0.35 + (type === 0 ? 0.2 : 0), 0, 0], s: [0.069, 0.068, 0.068], c: deep, m: SK });   // lower lid bag
@@ -2981,7 +2992,7 @@ function gaHead(B, type, b) {
   B.tube([[-0.16, 0.34, 0.2], [-0.15, 0.28, 0.24], [-0.17, 0.2, 0.22]], 0.007, 0.007, 0xc98a82, SK, { rad: 5 });   // scar
 }
 function gaEarBake(B, type, s) {
-  const P = GAT[type], len = 0.5 * P.ear, wid = 0.15, droop = [0.66, 0.55, 0.4, 0.55, 0.5][type];
+  const P = GAT[type], len = 0.5 * P.ear, wid = 0.15, droop = [0.66, 0.55, 0.4, 0.55, 0.5, -0.22, 0.3, 0.55, 0.78, 0.45, 0.12, 0.2][type];   // GOBTYPES: a negative droop curls the tip up (the scout's upright ears)
   const sk = skinFn(CFG[type].skin, { tint: 0x203a10 });
   B.push([0, 0, 0], [0, 0, 0], [s, 1, 1]);
   B.add(earGeoFor(len, wid, droop, false), { c: sk, m: SK, uv: 1.5 });
@@ -3295,6 +3306,149 @@ const A_EARS = {};
     }
   }
   // ARMOUR2-END
+  // GOBTYPES-BEGIN: looks of the seven newer goblin types (5 scout, 6 sneak, 7 miner, 8 shaman, 9 berserker, 10 bog goblin, 11 hobgoblin). Same kit and spaces as above, all baked into the
+  // existing part meshes (no extra draw calls). Silhouettes: scout = tall upright ears and feathers, sneak = deep hood and a low crouch, miner = hard hat with a candle and a pick on the back,
+  // shaman = horned skull headdress and grass skirt, berserker = red mohawk and war paint, bog goblin = wide frog head, lily-pad hat and a tail, hobgoblin = tall, upright, rust skin, horns and topknot.
+  const GX_EAR = { 5: { x: 0.25, ry: 0.2, rz: 0.85 }, 6: { x: 0.27, ry: 0.95, rz: -0.05 }, 8: { x: 0.27, ry: 0.35, rz: -0.25 }, 10: { x: 0.3, ry: 0.25, rz: 0.3 }, 11: { x: 0.26, ry: 0.55, rz: 0.2 } };
+  const GX_EYE = { 5: [0xfff27a, 0x3ad06a], 6: [0xe4ff9a, 0x8aff2a], 7: [0xffe9a0, 0xffa020], 8: [0xd8f6ff, 0x5ac8ff], 9: [0xffa080, 0xff2a10], 10: [0xffc45a, 0xff7a00], 11: [0xfff4c0, 0xff5a00] };
+  const gxEye = (type, i, def) => GX_EYE[type] ? GX_EYE[type][i] : def;
+  const feather = (B, x, y, z, rx, rz, len, col) => { B.add(A.g.sph, { p: [x, y, z], s: [0.032, len, 0.008], r: [rx, 0, rz], c: col, m: HR }); B.tube([[x, y - len, z], [x, y + len * 0.9, z]].map(([px, py, pz]) => { const dy = py - y; return [px - Math.sin(rz) * dy, y + Math.cos(rx) * Math.cos(rz) * dy, pz + Math.sin(rx) * Math.cos(rz) * dy]; }), 0.007, 0.003, 0xe8e0c8, BN, { rad: 4 }); };
+  function gxFeet(B, type, b, SC, toes) {   // true when this type has its own feet (otherwise boots)
+    if (type === 5 || type === 6 || type === 8) {   // bare, wrapped feet (scout and sneak) or bare with a bead anklet (shaman)
+      const wrap = type === 5 ? 0x8a7a5a : 0x2e2c30;
+      B.e(0, -0.52, 0.0, 0.065, 0.07, 0.06, SC, SK); B.e(0, -0.555, 0.08, 0.095 * b, 0.05, 0.16, SC, SK); toes(0.19, -0.56, SC, 0xd8cdb0);
+      if (type === 8) for (let i = 0; i < 8; i++) { const a = i / 8 * TAU; B.es(Math.sin(a) * 0.07, -0.47, Math.cos(a) * 0.07, 0.018, 0.018, 0.018, i % 2 ? 0xe8dec0 : 0xb3402a, i % 2 ? BN : GEM); }
+      else { for (let i = 0; i < 3; i++) B.tor(0, -0.44 - i * 0.035, 0, 0.07 - i * 0.003, 0.016, Math.PI / 2 + 0.15 * (i - 1), 0, 0, wrap, CL); B.e(0, -0.55, 0.06, 0.1 * b, 0.045, 0.1, wrap, CL); }
+      return true;
+    }
+    if (type === 10) {   // webbed frog feet: long splayed toes with skin between them
+      B.e(0, -0.52, 0.0, 0.07, 0.07, 0.065, SC, SK); B.e(0, -0.565, 0.07, 0.11 * b, 0.04, 0.13, SC, SK);
+      for (const a of [-0.45, 0, 0.45]) { const x = Math.sin(a) * 0.2, z = 0.06 + Math.cos(a) * 0.2; B.tube([[0, -0.56, 0.08], [x * 0.6, -0.575, 0.06 + (z - 0.06) * 0.6], [x, -0.575, z]], 0.028, 0.012, SC, SK, { rad: 6 }); B.es(x, -0.575, z, 0.028, 0.02, 0.028, SC, SK); }
+      B.add(new THREE.CircleGeometry(1, 16, Math.PI * 0.2, Math.PI * 0.6), { p: [0, -0.57, 0.07], r: [-Math.PI / 2, 0, 0], s: [0.2, 0.2, 1], c: skinFn(CFG[type].skin, { tint: 0x1a4030 }), m: SK });   // the web
+      return true;
+    }
+    return false;
+  }
+  function gxOutfit(B, type, b) {   // torso space: hips y=0, shoulders y=0.5, neck y=0.6, front +z
+    if (type === 5) {   // scout: short hooded green cloak, sash, belt pouches, a spyglass and a bedroll on the back
+      B.add(new THREE.SphereGeometry(1, 26, 10, 0, TAU, 0.45, 1.05), { p: [0, 0.42, -0.01], s: [0.37 * b, 0.3, 0.33 * b], c: 0x4e6a2e, m: CL, uv: 1.6 });
+      B.e(0, 0.6, -0.2 * b, 0.17, 0.09, 0.1, 0x4e6a2e, CL);   // the hood, down
+      B.add(new THREE.SphereGeometry(1, 20, 8, Math.PI * 0.6, Math.PI * 0.8, 0.9, 1.4), { p: [0, 0.42, -0.02], s: [0.39 * b, 0.42, 0.35 * b], c: 0x445e28, m: CL, uv: 1.6 });   // cloak tail behind
+      strap(B, 0.3 * b, 0.56, -0.22 * b, 0.02, 0.29 * b, 0.05, 0x3f7f6a, CL); bandAt(B, 0.08, 0.34 * b, 0.028, 0x5a3b22, LT); B.box(0, 0.08, 0.33 * b, 0.06, 0.05, 0.02, 0xc9a24a, MT);
+      for (const s of [-1, 1]) B.box(s * 0.22 * b, 0.02, 0.27 * b, 0.09, 0.1, 0.07, 0x6a4626, LT, { r: [0, s * 0.6, 0] });
+      B.add(new THREE.CylinderGeometry(0.022, 0.03, 0.24, 10), { p: [-0.32 * b, 0.02, 0.1 * b], r: [0, 0, 0.25], c: 0xc9a24a, m: GD });   // spyglass
+      B.add(new THREE.CylinderGeometry(0.085, 0.085, 0.46, 12), { p: [0, 0.44, -0.3 * b], r: [0, 0, Math.PI / 2], c: 0x8a7a52, m: CL });   // bedroll
+      for (const x of [-0.14, 0.14]) B.tor(x, 0.44, -0.3 * b, 0.088, 0.012, 0, Math.PI / 2, 0, 0x3a281c, LT);
+    }
+    if (type === 6) {   // sneak: tight charcoal wraps, crossed knife belts, a scarf round the neck
+      garment(B, [[0.17, 0.58], [0.29, 0.5], [0.31, 0.38], [0.3, 0.22], [0.3, 0.06], [0.32, -0.06]], b, 0x2e2c34, CL, { fold: [9, 0.025, -0.06, 0.4], uv: 2.4 });
+      for (const s of [-1, 1]) strap(B, s * 0.28 * b, 0.56, -s * 0.22 * b, 0.02, 0.28 * b, 0.03, 0x1e1a18, LT);
+      for (let i = 0; i < 4; i++) { const t = 0.2 + i * 0.17, x = (0.28 - 0.5 * t) * b, y = 0.56 - 0.54 * t; B.box(x, y + 0.05, 0.31 * b, 0.018, 0.09, 0.02, 0x4a3020, LT, { r: [0, 0, 0.6] }); B.box(x + 0.035, y - 0.0, 0.31 * b, 0.022, 0.07, 0.008, 0xb0b8c0, MT, { r: [0, 0, 0.6] }); }
+      bandAt(B, 0.06, 0.32 * b, 0.026, 0x1e1a18, LT); B.box(0.12 * b, 0.0, 0.3 * b, 0.08, 0.1, 0.05, 0x2a221c, LT, { r: [0, 0.4, 0] });
+      B.add(new THREE.TorusGeometry(0.15, 0.06, 8, 22), { p: [0, 0.6, 0.0], r: [Math.PI / 2 - 0.25, 0, 0], c: 0x3a3440, m: CL, uv: 2 }); B.tube([[0.06, 0.58, -0.14], [0.1, 0.45, -0.24], [0.14, 0.3, -0.27]], 0.045, 0.02, 0x3a3440, CL, { rad: 6 });
+    }
+    if (type === 7) {   // miner: leather apron with bib straps, riveted scrap patches, tool belt and a pick slung on the back
+      garment(B, [[0.2, 0.5], [0.31, 0.42], [0.33, 0.26], [0.34, 0.1], [0.36, -0.08], [0.37, -0.16]], b, 0x6a4a2a, LT, { uv: 2.4, zs: 0.95 });
+      for (const s of [-1, 1]) { strap(B, s * 0.17 * b, 0.62, s * 0.15 * b, 0.36, 0.28 * b, 0.028, 0x4a301c); stud(B, s * 0.15 * b, 0.37, 0.33 * b, 0xb9a46a, 0.02); }
+      for (const [x, y, w, h, c] of [[-0.14, 0.22, 0.12, 0.1, 0x7d8590], [0.12, 0.08, 0.1, 0.12, 0x8a6a4a]]) { const a = x / 0.36; B.box(x * b, y, Math.cos(a) * 0.35 * b + 0.02, w, h, 0.02, c, MT, { r: [0.06, a, 0.1] }); stud(B, x * b - w * 0.35, y + h * 0.35, Math.cos(a) * 0.36 * b + 0.04, 0xb0b8c0, 0.011); }
+      bandAt(B, 0.02, 0.37 * b, 0.034, 0x2e1c10, LT); B.box(0, 0.02, 0.37 * b, 0.08, 0.07, 0.03, 0xaab0b8, MT);
+      B.box(0.27 * b, -0.04, 0.2 * b, 0.1, 0.12, 0.07, 0x4a301c, LT, { r: [0, 0.7, 0] }); B.cyl(-0.3 * b, -0.04, 0.16 * b, 0.02, 0.02, 0.2, 0x7a5530, LT, { r: [0.2, 0, 0.15] }); B.box(-0.3 * b, 0.07, 0.17 * b, 0.1, 0.04, 0.04, 0x6a6e76, MT, { r: [0, 0, 0.15] });   // pouch and hammer
+      B.tube([[-0.26 * b, -0.05, -0.32 * b], [0.0, 0.3, -0.36 * b], [0.26 * b, 0.65, -0.32 * b]], 0.026, 0.026, 0x7a5530, LT, { rad: 7 });   // the pick on the back
+      B.tube([[0.04 * b, 0.74, -0.33 * b], [0.24 * b, 0.67, -0.34 * b], [0.46 * b, 0.48, -0.32 * b]], 0.04, 0.008, 0x8a9098, MT, { rad: 7 }); B.tube([[0.24 * b, 0.67, -0.34 * b], [0.12 * b, 0.82, -0.33 * b], [0.02 * b, 0.9, -0.32 * b]], 0.036, 0.008, 0x8a9098, MT, { rad: 7 });
+    }
+    if (type === 8) {   // shaman: grass skirt, tooth necklace, fur shoulder wrap, white body paint and a charm pouch
+      ringTeeth(B, 0.06, 0.3 * b, 22, 0.05, 0.36, 0xb8a060, HR); ringTeeth(B, 0.0, 0.32 * b, 18, 0.045, 0.3, 0x8a7a40, HR); bandAt(B, 0.06, 0.3 * b, 0.03, 0x5a3b22, LT);
+      for (let i = 0; i < 11; i++) { const a = (i - 5) * 0.2; B.k(Math.sin(a) * 0.2, 0.55 - Math.abs(i - 5) * 0.012, Math.cos(a) * 0.17 + 0.04, 0.016, 0.07, Math.PI - 0.2, 0, 0xf0e6c8, BN); }
+      B.tube([[-0.2, 0.6, 0.12], [0, 0.53, 0.22], [0.2, 0.6, 0.12]], 0.008, 0.008, 0x3a281c, LT, { rad: 4 });
+      B.add(new THREE.TorusGeometry(0.27 * b, 0.075, 8, 24), { p: [0, 0.55, -0.02], r: [Math.PI / 2 + 0.1, 0, 0], s: [1, 0.9, 1], c: 0x6b5238, m: HR, uv: 3 });
+      for (const s of [-1, 1]) for (let i = 0; i < 3; i++) B.add(A.g.box, { p: [s * (0.1 + i * 0.05) * b, 0.36 - i * 0.03, 0.27 * b], r: [0, s * 0.3, s * 0.2], s: [0.025, 0.12, 0.006], c: 0xe8e0d0, m: DK });
+      B.e(0.2 * b, -0.02, 0.24 * b, 0.06, 0.08, 0.05, 0x5a3b22, LT); B.es(0.2 * b, 0.05, 0.27 * b, 0.025, 0.025, 0.025, 0x55ddff, GEM);
+    }
+    if (type === 9) {   // berserker: bare painted chest, one strap, fur kilt with a skull clasp
+      strap(B, 0.28 * b, 0.56, -0.22 * b, 0.02, 0.29 * b, 0.04, 0x2e1c10);
+      for (const [x, y, rz, l] of [[-0.14, 0.4, 0.5, 0.22], [-0.08, 0.33, 0.5, 0.2], [-0.02, 0.26, 0.5, 0.18]]) B.add(A.g.box, { p: [x * b, y, 0.3 * b], r: [0, Math.atan2(x, 0.3) * 0.8, rz], s: [0.03, l, 0.008], c: 0xb3122b, m: DK });   // red claw paint
+      B.e(0.12 * b, 0.42, 0.28 * b, 0.06, 0.06, 0.012, 0xb3122b, DK, { r: [0, 0.4, 0] });   // hand print
+      ringTeeth(B, 0.0, 0.33 * b, 16, 0.06, 0.22, 0x5a4636, HR); bandAt(B, 0.04, 0.34 * b, 0.04, 0x2e1c10, LT);
+      B.e(0, 0.04, 0.35 * b, 0.05, 0.055, 0.025, 0xe8e0c8, BN); for (const s of [-1, 1]) B.es(s * 0.02, 0.05, 0.37 * b, 0.011, 0.014, 0.01, 0x111111, DK);
+      for (const s of [-1, 1]) { B.e(s * 0.42 * b, 0.56, 0, 0.13, 0.08, 0.13, 0x5a4636, HR, { r: [0, 0, -s * 0.3] }); }
+      for (let i = 0; i < 5; i++) B.tor(0.0 + (i - 2) * 0.09 * b, 0.62 - Math.abs(i - 2) * 0.03, 0.16, 0.028, 0.008, 0.3, 0, 0, 0x8a9098, MT);   // chain links at the throat
+    }
+    if (type === 10) {   // bog goblin: reed skirt, moss and little mushrooms on the shoulders, and a long tail
+      ringTeeth(B, 0.02, 0.31 * b, 20, 0.04, 0.3, 0x6a8a3a, HR); ringTeeth(B, -0.02, 0.33 * b, 14, 0.035, 0.24, 0x4a6a2a, HR); bandAt(B, 0.04, 0.31 * b, 0.022, 0x4a3a20, LT);
+      for (const s of [-1, 1]) { B.e(s * 0.38 * b, 0.56, 0.0, 0.14, 0.06, 0.13, mossC[s < 0 ? 0 : 2], HR); for (const [dx, dz, h] of [[0.03, 0.04, 0.07], [-0.05, -0.02, 0.05]]) { B.cyl(s * 0.38 * b + dx, 0.6 + h / 2, dz, 0.012, 0.016, h, 0xe8dcc0, SK); B.add(new THREE.SphereGeometry(1, 10, 6, 0, TAU, 0, Math.PI / 2), { p: [s * 0.38 * b + dx, 0.6 + h, dz], s: [0.04, 0.03, 0.04], c: s < 0 ? 0xb83a22 : 0xa87a3a, m: SK }); } }
+      const SC = skinFn(CFG[type].skin, { tint: 0x1a4030 });
+      B.tube([[0, 0.02, -0.18 * b], [0, -0.12, -0.36 * b], [0.04, -0.34, -0.5 * b], [0.14, -0.5, -0.66], [0.3, -0.55, -0.78]], 0.1 * b, 0.014, SC, SK, { rad: 10, segs: 30 });   // tail
+      for (let i = 0; i < 6; i++) { const t = 0.12 + i * 0.13; B.k(0.02 + 0.2 * t * t, 0.04 - 0.62 * t, -0.2 - 0.55 * t, 0.025 - i * 0.003, 0.06 - i * 0.006, -1.2 - 0.3 * t, 0, 0x2a5a40, SK); }   // ridge along the tail
+    }
+    if (type === 11) {   // hobgoblin: a long dark coat with a red trim, sash, lamellar shoulder plates
+      const prof = [[0.17, 0.6], [0.3, 0.52], [0.33, 0.4], [0.31, 0.24], [0.32, 0.08], [0.35, -0.12], [0.39, -0.32]];
+      garment(B, prof, b, 0x2e2238, CL, { fold: [10, 0.04, -0.32, 0.1], uv: 1.8, zs: 0.95 });
+      B.add(new THREE.LatheGeometry([new THREE.Vector2(0.395 * b, -0.33), new THREE.Vector2(0.385 * b, -0.27)], 40), { p: [0, 0, 0.02], s: [1, 1, 0.95], c: 0x9a1a1a, m: CL });
+      bandAt(B, 0.14, 0.33 * b, 0.04, 0x9a1a1a, CL); B.box(-0.12 * b, -0.02, 0.3 * b, 0.06, 0.26, 0.015, 0x9a1a1a, CL, { r: [0.12, -0.3, 0.05] });
+      B.box(0, 0.36, 0.31 * b, 0.025, 0.36, 0.02, 0x9a1a1a, CL);
+      for (const s of [-1, 1]) { const px = s * 0.41 * b;   // layered lacquered shoulder guards
+        for (let r = 0; r < 3; r++) { B.add(new THREE.SphereGeometry(1, 18, 8, 0, TAU, 0, Math.PI * 0.45), { p: [px + s * r * 0.03, 0.58 - r * 0.06, 0], r: [0, 0, -s * (0.35 + r * 0.15)], s: [0.17, 0.11, 0.17], c: r % 2 ? 0x4a1a1a : 0x6a2222, m: LT }); B.tor(px + s * r * 0.03, 0.58 - r * 0.06, 0, 0.17, 0.008, Math.PI / 2, 0, -s * (0.35 + r * 0.15), 0xc9a24a, MT); } }
+    }
+  }
+  function gxHeadGear(B, type, b) {   // head space: centre (0, 0.22, 0), top ~0.5, face front z ~0.29, eyes at y 0.25
+    const top = z => 0.22 + 0.27 * Math.sqrt(Math.max(0, 1 - (z / 0.3) * (z / 0.3)));
+    if (type === 5) {   // scout: leather headband, two tall feathers, a bone toggle
+      B.add(new THREE.TorusGeometry(0.27, 0.026, 8, 30), { p: [0, 0.36, -0.01], r: [Math.PI / 2 + 0.2, 0, 0], c: 0x6a4626, m: LT });
+      feather(B, -0.12, 0.62, -0.22, -0.45, 0.25, 0.17, 0xf0ead8); feather(B, -0.05, 0.6, -0.25, -0.55, 0.05, 0.14, 0xb3402a); B.es(-0.1, 0.44, -0.22, 0.03, 0.03, 0.03, 0xe8dec0, BN);
+      for (let i = 0; i < 4; i++) B.k((i - 1.5) * 0.06, 0.44, 0.06, 0.02, 0.1, 0.4, (i - 1.5) * 0.3, 0x5a4020, HR);   // tuft
+    }
+    if (type === 6) {   // sneak: a deep hood that shades the eyes
+      B.add(new THREE.SphereGeometry(1, 28, 14, 0, TAU, 0, Math.PI * 0.68), { p: [0, 0.25, -0.05], r: [-0.8, 0, 0], s: [0.37, 0.37, 0.4], c: 0x2a2830, m: CL, uv: 2 });   // open at the front, falling down the back
+      B.tube([[0, 0.3, -0.36], [0, 0.08, -0.42], [0.04, -0.14, -0.36]], 0.12, 0.03, 0x2a2830, CL, { rad: 8 });   // hood tail
+      B.e(0, 0.1, 0.17, 0.25, 0.12, 0.21, 0x34303a, CL, { uv: 2 });   // cloth wrapped over the mouth
+    }
+    if (type === 7) {   // miner: hard hat with goggles and a lit candle, soot on the face
+      B.add(new THREE.SphereGeometry(1, 26, 10, 0, TAU, 0, Math.PI / 2), { p: [0, 0.31, 0], s: [0.33, 0.25, 0.32], c: 0xb08a3a, m: MT, v: 0.12 });
+      B.tor(0, 0.31, 0, 0.35, 0.03, Math.PI / 2, 0, 0, 0x9a7a30, MT); B.tor(0, 0.43, 0, 0.3, 0.012, Math.PI / 2, 0, 0, 0x6a5420, MT, { s: [1, 1, 0.97] });
+      for (const s of [-1, 1]) { B.tor(s * 0.09, 0.37, 0.31, 0.048, 0.014, 0, 0, 0, 0xc9a24a, MT); B.es(s * 0.09, 0.37, 0.31, 0.042, 0.042, 0.012, 0x8ad0ff, GEM); }
+      B.box(0, 0.37, 0.31, 0.06, 0.016, 0.01, 0x3a281c, LT);
+      B.cyl(0, 0.6, 0.0, 0.034, 0.04, 0.11, 0xf0e6c8, SK); B.tor(0, 0.555, 0, 0.05, 0.01, Math.PI / 2, 0, 0, 0x8a9098, MT); B.es(0.03, 0.6, 0.02, 0.012, 0.03, 0.012, 0xf0e6c8, SK);   // candle with a wax drip
+      B.e(0, 0.69, 0.0, 0.022, 0.05, 0.022, 0xffa030, GL, { hdr: 1.6, v: 0 }); B.e(0, 0.675, 0.0, 0.01, 0.022, 0.01, 0xfff4d0, GL, { hdr: 2, v: 0 });   // flame (emissive only, no light)
+      for (const [x, y, z, r] of [[-0.16, 0.14, 0.2, 0.05], [0.1, 0.33, 0.24, 0.035], [0.19, 0.18, 0.18, 0.04]]) B.es(x, y, z, r, r * 0.7, r * 0.3, 0x2a2a1c, DK, { r: [0, Math.atan2(x, z), 0] });
+    }
+    if (type === 8) {   // shaman: horned animal skull worn on the head, feathers, white face paint
+      B.e(0, top(0.02) + 0.02, 0.02, 0.2, 0.11, 0.22, 0xe8dec0, BN); B.e(0, top(0.18) + 0.0, 0.22, 0.1, 0.06, 0.13, 0xe0d4b4, BN);
+      for (const s of [-1, 1]) { B.es(s * 0.08, top(0.12) + 0.05, 0.16, 0.035, 0.03, 0.03, 0x1a1210, DK);
+        B.tube([[s * 0.16, 0.48, 0.0], [s * 0.3, 0.62, -0.04], [s * 0.38, 0.8, -0.16], [s * 0.32, 0.93, -0.32]], 0.055, 0.006, 0xe0d4b4, BN, { rad: 8, segs: 20 });
+        feather(B, s * 0.24, 0.3, -0.2, -0.3, s * 0.5, 0.13, s < 0 ? 0x2a2a2a : 0xf0ead8);
+        for (let i = 0; i < 2; i++) B.add(A.g.box, { p: [s * (0.13 + i * 0.05), 0.15, 0.24 - i * 0.02], r: [0, s * 0.5, 0], s: [0.016, 0.1, 0.006], c: 0xf0ead8, m: DK }); }
+      B.add(A.g.box, { p: [0, 0.36, 0.26], r: [-0.4, 0, 0], s: [0.12, 0.022, 0.008], c: 0xf0ead8, m: DK });
+    }
+    if (type === 9) {   // berserker: tall red mohawk, red paint across the brow, a nose ring
+      for (let i = 0; i < 11; i++) { const z = 0.2 - i * 0.05; B.k(0, top(z) - 0.03, z, 0.04, 0.26 - Math.abs(i - 4) * 0.018, -(i - 4) * 0.08, 0, i % 2 ? 0xc0201a : 0xe0401a, HR); }
+      B.add(A.g.box, { p: [0, 0.34, 0.25], r: [-0.35, 0, 0], s: [0.34, 0.05, 0.008], c: 0xb3122b, m: DK });
+      for (const s of [-1, 1]) for (let i = 0; i < 2; i++) B.add(A.g.box, { p: [s * (0.2 + i * 0.015), 0.12 + i * 0.04, 0.2], r: [0, -s * 0.7, s * 0.35], s: [0.08, 0.016, 0.008], c: 0xb3122b, m: DK });
+      B.tor(0.0, 0.06, 0.375, 0.032, 0.008, 0, 0, 0, 0xc9c9c9, MT);
+    }
+    if (type === 10) {   // bog goblin: frog brow bumps over the eyes, lily-pad hat, reeds, moss
+      for (const s of [-1, 1]) B.e(s * 0.13, 0.31, 0.15, 0.09, 0.07, 0.08, skinFn(CFG[type].skin, { tint: 0x1a4030 }), SK);
+      B.add(new THREE.CylinderGeometry(0.3, 0.3, 0.018, 22, 1, false, 0.35, TAU - 0.7), { p: [0.03, top(0) + 0.0, -0.02], r: [-0.12, 0.4, 0.12], c: 0x5a9a3a, m: CL, uv: 1 });
+      B.tube([[0.03, top(0) + 0.01, -0.02], [0.16, top(0) + 0.0, 0.08], [0.25, top(0) - 0.02, 0.15]], 0.006, 0.004, 0x3a6a2a, CL, { rad: 4 });
+      for (const [x, z, h, rz] of [[-0.1, -0.1, 0.26, 0.25], [-0.04, -0.14, 0.32, 0.1], [0.06, -0.12, 0.22, -0.2]]) { B.k(x, top(z) - 0.02, z, 0.012, h, -0.2, rz, 0x6a8a3a, HR); }
+      B.es(-0.05, top(-0.14) + 0.28, -0.18, 0.02, 0.06, 0.02, 0x6a4a2a, HR);   // cattail head
+      for (const [x, y, z] of [[0.2, 0.4, -0.1], [-0.22, 0.38, -0.08], [0.0, 0.42, -0.2]]) B.es(x, y, z, 0.06, 0.035, 0.06, mossC[(x * 10 | 0) & 3], HR);
+    }
+    if (type === 11) {   // hobgoblin: swept-back horns, a black topknot with a gold ring, heavy brows
+      for (const s of [-1, 1]) { B.tube([[s * 0.1, 0.44, 0.15], [s * 0.15, 0.55, 0.05], [s * 0.18, 0.6, -0.1], [s * 0.2, 0.58, -0.24]], 0.04, 0.005, 0x3a3028, BN, { rad: 7, segs: 16 });
+        B.tube([[s * 0.04, 0.35, 0.27], [s * 0.12, 0.37, 0.25], [s * 0.21, 0.34, 0.17]], 0.035, 0.015, 0x1a1414, HR, { rad: 6 }); }
+      B.tube([[0, top(-0.12) - 0.02, -0.12], [0, top(-0.12) + 0.12, -0.14], [0, top(-0.12) + 0.14, -0.22], [0, 0.42, -0.36], [0, 0.18, -0.4]], 0.07, 0.02, 0x1a1414, HR, { rad: 8, segs: 24 });
+      B.tor(0, top(-0.12) + 0.08, -0.14, 0.05, 0.014, Math.PI / 2, 0, 0, 0xffc933, GD);
+    }
+  }
+  function gxArm(B, type, s, b, part) {   // arm gear: 'sh' upper arm (origin shoulder), 'el' forearm + hand (origin elbow)
+    if (part !== 'el') { if (type === 11) B.tube([[0, 0.0, 0], [0, -0.15, 0.01], [0, -0.3, 0]], 0.085 * b, 0.07 * b, 0x2e2238, CL, { rad: 10 }); if (type === 7) B.tor(0, -0.27, 0, 0.068 * b, 0.022, Math.PI / 2, 0, 0, 0x8a6a4a, CL); return; }
+    if (type === 5 || type === 6) { const c = type === 5 ? 0x6a4626 : 0x2e2c30; B.lathe([[0.055, -0.08], [0.068, -0.1], [0.07, -0.22], [0.058, -0.24]].map(([x, y]) => [x * b, y]), 14, c, LT); for (let i = 0; i < 3; i++) B.tor(0, -0.11 - i * 0.05, 0, 0.07 * b, 0.007, Math.PI / 2 + 0.2, 0, 0, type === 5 ? 0x3a281c : 0x14100c, LT); }
+    if (type === 8) for (let i = 0; i < 7; i++) { const a = i / 7 * TAU; B.es(Math.sin(a) * 0.065 * b, -0.2, Math.cos(a) * 0.065 * b, 0.016, 0.016, 0.016, i % 2 ? 0xe8dec0 : 0x2a8a9a, i % 2 ? BN : GEM); }
+    if (type === 9) { B.lathe([[0.07, -0.09], [0.1, -0.11], [0.105, -0.22], [0.08, -0.24]].map(([x, y]) => [x * b, y]), 16, 0x3a281c, LT); for (let i = 0; i < 3; i++) B.k(0, -0.12 - i * 0.045, 0.095 * b, 0.016, 0.08, Math.PI / 2, 0, 0x9aa0a8, MT); }
+    if (type === 11) { B.lathe([[0.06, -0.08], [0.078, -0.1], [0.08, -0.22], [0.064, -0.24]].map(([x, y]) => [x * b, y]), 16, 0x6a2a2a, LT); B.tor(0, -0.1, 0, 0.078 * b, 0.01, Math.PI / 2, 0, 0, 0xc9a24a, MT); }
+    if (type === 10) B.es(0, -0.1, -0.05, 0.05, 0.03, 0.04, mossC[1], HR);
+  }
+  // GOBTYPES-END
   // ---- assemble one goblin
   function buildGoblin(type, demo) {
     const C = CFG[type], b = C.b, P = GAT[type], root = new THREE.Group(), rig = new THREE.Group(); root.add(rig); rig.scale.setScalar(SCALE[type]);
@@ -3306,20 +3460,20 @@ const A_EARS = {};
       bake(leg, type, 'leg', B => gaLeg(B, type, 1, b, SC));
     }
     const torso = new THREE.Group(); torso.name = 'torso'; torso.position.y = 0.55; torso.rotation.x = P.hunch; rig.add(torso); u.torso = torso;
-    bake(torso, type, 'torso', B => { gaBody(B, type, b, SC, SB); gaOutfit(B, type, b); });
+    bake(torso, type, 'torso', B => { gaBody(B, type, b, SC, SB); gaOutfit(B, type, b); gxOutfit(B, type, b); });
     for (const s of [-1, 1]) {   // arms: shoulder pivot -> elbow pivot -> hand socket
       const sh = new THREE.Group(); sh.position.set(s * 0.35 * b, 1.0, 0); sh.name = s < 0 ? 'armL' : 'armR'; rig.add(sh); u.arms.push(sh);
-      bake(sh, type, 'sh' + s, B => { B.push([0, 0, 0], [0, 0, 0], [s, 1, 1]); B.e(0, 0, 0, 0.1 * b * L, 0.09, 0.1 * b * L, SC, SK); B.tube([[0, 0.02, 0], [0, -0.15, 0.012], [0, -0.3, 0]], 0.072 * b * L, 0.056 * b * L, SC, SK, { rad: 9, bulge: 0.12 }); gaArmGear(B, type, s, b, 'sh'); B.pop(); });
+      bake(sh, type, 'sh' + s, B => { B.push([0, 0, 0], [0, 0, 0], [s, 1, 1]); B.e(0, 0, 0, 0.1 * b * L, 0.09, 0.1 * b * L, SC, SK); B.tube([[0, 0.02, 0], [0, -0.15, 0.012], [0, -0.3, 0]], 0.072 * b * L, 0.056 * b * L, SC, SK, { rad: 9, bulge: 0.12 }); gaArmGear(B, type, s, b, 'sh'); gxArm(B, type, s, b, 'sh'); B.pop(); });
       const el = new THREE.Group(); el.position.set(0, -0.3, 0); sh.add(el); sh.userData.el = el;
-      bake(el, type, 'el' + s, B => { B.push([0, 0, 0], [0, 0, 0], [s, 1, 1]); B.e(0, 0, -0.005, 0.062 * L * b, 0.056, 0.06 * L * b, SC, SK); B.tube([[0, 0, 0], [0, -0.14, 0.012], [0, -0.28, 0]], 0.058 * b * L, 0.044, SC, SK, { rad: 8, bulge: 0.1 }); gaArmGear(B, type, s, b, 'el'); gaHand(B, 1, b, SC, claw, L); if (type === 4 && s > 0) { B.tor(0.0, -0.325, 0.05, 0.034, 0.009, Math.PI / 2, 0, 0, 0xffc933, GD); B.es(0.0, -0.325, 0.088, 0.014, 0.014, 0.01, 0xff3355, GEM); } B.pop(); });
+      bake(el, type, 'el' + s, B => { B.push([0, 0, 0], [0, 0, 0], [s, 1, 1]); B.e(0, 0, -0.005, 0.062 * L * b, 0.056, 0.06 * L * b, SC, SK); B.tube([[0, 0, 0], [0, -0.14, 0.012], [0, -0.28, 0]], 0.058 * b * L, 0.044, SC, SK, { rad: 8, bulge: 0.1 }); gaArmGear(B, type, s, b, 'el'); gxArm(B, type, s, b, 'el'); gaHand(B, 1, b, SC, claw, L); if (type === 4 && s > 0) { B.tor(0.0, -0.325, 0.05, 0.034, 0.009, Math.PI / 2, 0, 0, 0xffc933, GD); B.es(0.0, -0.325, 0.088, 0.014, 0.014, 0.01, 0xff3355, GEM); } B.pop(); });
       const hand = new THREE.Group(); hand.name = 'hand'; hand.position.set(0, -0.28, 0); el.add(hand); el.userData.hand = hand; if (s > 0) u.hand = hand;
     }
     u.armL = u.arms[0]; u.armR = u.arms[1]; u.legL = u.legs[0]; u.legR = u.legs[1];
-    const head = new THREE.Group(); head.name = 'head'; head.position.set(0, 1.12, 0.04); head.scale.setScalar(P.hs); rig.add(head); u.head = head;
+    const head = new THREE.Group(); head.name = 'head'; head.position.set(0, 1.12, 0.04); head.scale.setScalar(P.hs); if (P.hw) head.scale.x *= P.hw; rig.add(head); u.head = head;
     if (u.sz) head.scale.multiplyScalar(0.96 + Math.random() * 0.1);   // a slightly bigger or smaller head
-    bake(head, type, 'head', B => { gaHead(B, type, b); gaHeadGear(B, type, b); });
+    bake(head, type, 'head', B => { gaHead(B, type, b); gaHeadGear(B, type, b); gxHeadGear(B, type, b); });
     for (const s of [-1, 1]) {
-      const ear = new THREE.Group(); ear.name = s < 0 ? 'earL' : 'earR'; ear.position.set(s * (type === 2 ? 0.31 : 0.27), 0.27, -0.02); ear.rotation.set(0, s * 0.35, s * 0.16); ear.userData.base = ear.rotation.clone(); head.add(ear);
+      const ear = new THREE.Group(); ear.name = s < 0 ? 'earL' : 'earR'; const eo = GX_EAR[type]; ear.position.set(s * (eo ? eo.x : type === 2 ? 0.31 : 0.27), 0.27, -0.02); ear.rotation.set(0, s * (eo ? eo.ry : 0.35), s * (eo ? eo.rz : 0.16)); ear.userData.base = ear.rotation.clone(); head.add(ear);
       bake(ear, type, 'ear', B => gaEarBake(B, type, 1)); if (s < 0) ear.scale.x = -1;   // the left ear is the mirror of the right one (shared geometry)
       u[s < 0 ? 'earL' : 'earR'] = ear;
     }
@@ -3366,7 +3520,7 @@ const A_EARS = {};
     const sh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: glowTex, color: 0x000000, transparent: true, opacity: 0.55, depthWrite: false }));
     sh.rotation.x = -Math.PI / 2; sh.position.y = 0.03; sh.scale.setScalar(1.1 * SCALE[type] * b * 1.4); root.add(sh);
     const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: textTex(NAMES[type], type === 4 ? '#ffd75e' : type === 3 ? '#c9a6ff' : '#f1f1f1', null, 512, 96, 'bold 52px system-ui'), transparent: true, depthWrite: false }));
-    label.scale.set(1.6, 0.3, 1); label.position.y = [1.95, 1.95, 1.95, 2.85, 2.55][type] * SCALE[type]; root.add(label); u.label = label;   // UNIQUE: tag above the wizard hat / king crown
+    label.scale.set(1.6, 0.3, 1); label.position.y = (GOB_TAGY[type] || 1.95) * SCALE[type]; root.add(label); u.label = label;   // UNIQUE: tag above the wizard hat / king crown
     A.curMat = null; root.userData = u; if (PERF2_ON) perf2LodInit(root, u);   // PERF2: level-of-detail copies of the baked parts
     return root;
   }
@@ -3547,7 +3701,7 @@ const UNIQUE = (() => {
     const now = performance.now();
     for (const p of cpList) if (p.flashUntil) { p.dirty = true; if (now > p.flashUntil) p.flashUntil = 0; }
   };
-  U.tagY = type => [1.95, 1.95, 1.95, 2.85, 2.55][type] * SCALE[type];   // name tag height: above the wizard's hat / the king's crown
+  U.tagY = type => (GOB_TAGY[type] || 1.95) * (SCALE[type] || 1);   // name tag height: above the wizard's hat / the king's crown
   return U;
 })();
 GK.unique = UNIQUE; panelsDirty();
@@ -3580,7 +3734,7 @@ function invMove(inv, from, to) {   // swaps when the target is occupied; return
 }
 function invDrop(inv, id) { if (typeof id !== 'string' || !SLOT_RE.test(id)) return null; const k = invGet(inv, id); if (k == null) return null; invSet(inv, id, null); return k; }
 function invStats(inv, goblin, know) {   // attack comes from the weapon, health from the armour, knowledge is innate (+ brains eaten)
-  const w = infoOf(inv.weapon), a = infoOf(inv.armor), hp = a ? a.health : 0;
+  const w = infoOf(inv.weapon), a = infoOf(inv.armor), hp = a ? (itemsData().goblinHp ? itemsData().goblinHp(goblin, a.health) : a.health) : 0;   // GOBTYPES: plus the type's health bonus
   return { knowledge: know != null ? know : (itemsData().KNOWLEDGE || [])[goblin] != null ? itemsData().KNOWLEDGE[goblin] : STATS[goblin].knowledge, attack: w ? w.attack : 0, health: hp, maxHealth: hp };
 }
 function invAll(inv) { return [inv.weapon, inv.armor, ...inv.backpack, ...inv.quick].filter(k => k != null); }
@@ -3607,7 +3761,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     wire(ws);
     return net;
   }
-  const roll = () => { const r = Math.random() * 100; return r < 30 ? 0 : r < 60 ? 1 : r < 90 ? 2 : r < 99 ? 3 : 4; };
+  const roll = () => itemsData().rollGoblin ? itemsData().rollGoblin() : (Math.random() * 3) | 0;   // GOBTYPES: the server's weighted 12-type roll
   let nid = 1, list = [], meP = null, seq = 0;
   const myWins = Math.max(0, (opts && opts.wins) | 0);
   const mk = bot => {
@@ -6228,6 +6382,7 @@ function combatMsg(d) {   // server messages: swing, hit, kills, match (goblins 
     { const fam = f && f.vmFam, ak = h.to === me ? (invReady ? myInv.armor : null) : (v && v.gArm !== undefined ? vmArmKey(v.gArm) : null), ait = ak && itemsData().ITEMS[ak], armor = ait && ait.family; /* FEEL3: weapon and armour families pick the hit sound */
       if (h.to === me) { combatHurtFx(h.dmg, h.max); snd('hit', { fam, armor, vol: 0.7 }); snd('hurt'); try { GK.feel.hurt(h.dmg, h.max); } catch (e) {} if (f) feel2Arc(f); /* FEEL2 */ } else if (v) snd('hit', h.from === me ? { fam, armor } : { x: v.x, z: v.z, fam, armor }); }
   }
+  if (d.dodge) { const v = actors.get(d.dodge.to); if (v && (d.dodge.to === me || d.dodge.from === me)) combatFloat('dodged', new THREE.Vector3(v.x, 1.8 * (SCALE[v.goblin] || 1), v.z), '#9ae6d0', 0.42); }   // GOBTYPES: the scout's nimble perk
   if (d.kills != null) { CB.kills = d.kills; toastMsg('Goblin defeated!  Kills: ' + d.kills + (d.bounty ? '   +' + d.bounty + ' gold' : ''), true); }   /* PACE: bounty */
   if (d.match) { CB.alive = d.match.alive | 0; CB.size = d.match.size | 0; }
 }

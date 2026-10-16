@@ -23,7 +23,7 @@ function inWall(x, z) {
         eq(ps.length, 8); const bots = ps.filter(p => p.bot); eq(bots.length, 7);
         assert(!ps.find(p => p.id === c.state.you).bot, 'the human is not a bot');
         assert(new Set(ps.map(p => p.id)).size === 8 && new Set(ps.map(p => p.box)).size === 8, 'ids and rooms must be distinct'); assert(ps.every(p => p.box !== 4), 'nobody starts in the vault');
-        for (const b of bots) { assert(typeof b.name === 'string' && b.name.length > 1, 'bot name'); assert(b.goblin >= 0 && b.goblin <= 4 && b.stats.health > 0 && b.gear.weapon !== 'None', 'type/gear'); }
+        for (const b of bots) { assert(typeof b.name === 'string' && b.name.length > 1, 'bot name'); assert(b.goblin >= 0 && b.goblin <= 11 && b.stats.health > 0 && b.gear.weapon !== 'None', 'type/gear'); }
         eq(c.state.matchStart.size, 8); await c.until(x => x.state.match && x.state.match.alive === 8 && x.state.match.size === 8, 2000, 'goblins left = 8');
         await c.close();
       }],

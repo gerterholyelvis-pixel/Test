@@ -334,6 +334,13 @@ div:is([style*="z-index:75"],[style*="z-index: 75"]){border-radius:3px!important
 @media (max-height:800px){.foot{display:none}}   /* the footer line would sit on top of the last menu button */
 #gkTip{border-radius:3px!important;font-family:var(--ui)!important;font-size:16px!important;border-left:3px solid var(--gold3)!important}
 div:is([style*="z-index:25"],[style*="z-index: 25"]){border-radius:3px!important;font-family:var(--ui)!important;font-size:16px!important}
+/* GOBTYPES: roster of the twelve starting goblins (Characters panel) */
+.roster-h{margin:var(--s3,16px) 0 var(--s2,8px);font-size:var(--t1,13px);letter-spacing:.22em;text-transform:uppercase;color:var(--mut)}
+.roster{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,230px),1fr));gap:8px}
+.rcard{display:flex;gap:10px;align-items:center;padding:6px 10px 6px 6px;border:1px solid rgba(245,196,81,.16);background:rgba(255,255,255,.03);min-width:0}
+.rcard .cport{width:58px;height:58px;box-shadow:none;border-width:1px}.rcard .cinfo{min-width:0}
+.rn{font-size:var(--t2,15px);color:var(--txt);letter-spacing:.04em}.ro{margin-left:6px;font-size:var(--t1,13px);color:var(--teal);letter-spacing:.08em}.rcard.king .rn{color:var(--gold2)}
+.rp{font-size:var(--t1,13px);color:#e8c9a8}.rd{font-size:var(--t1,13px);color:var(--mut);line-height:1.3}
 </style>
 <script type="importmap">{"imports":{"three":"/three/three.module.js","three/addons/":"/three/addons/"}}</script>
 </head>
@@ -368,6 +375,7 @@ div:is([style*="z-index:25"],[style*="z-index: 25"]){border-radius:3px!important
    <div class="sheet" id="chars-sheet">
     <div id="chars-list" class="clist"></div>
     <div class="note" id="chars-note">Matches pair you with goblins of similar victory counts.</div>
+    <div class="roster-h">The twelve goblins</div><div id="roster" class="roster"></div><!-- GOBTYPES: every starting goblin, its odds and perk -->
    </div>
    <div class="brow"><button class="mbtn small" id="ch-back">Back</button></div>
   </div>

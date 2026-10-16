@@ -6,7 +6,7 @@ Screenshots live in `docs/screens/`. Agent reports live in `docs/reports/`.
 ![title](screens/title.png) ![wheel](screens/wheel.png) ![in game](screens/in-game.png) ![overview](screens/overview.png)
 
 ## Rules decided so far
-- **Goblins** (rolled when you queue, shown on the wheel): Small 30%, Medium 30%, Big 30%, Wizard 9%, King 1%.
+- **Goblins** (rolled when you queue, shown on the 12-slot wheel; table in items.js `GOBLINS`, see docs/reports/goblin-types.md): Small 20%, Medium 20%, Big 20%, then a taper: Scout 11.2%, Sneak 8.2%, Miner 6.1%, Wizard 4.5%, Shaman 3.3%, Berserker 2.5%, Bog Goblin 1.8%, Hobgoblin 1.4%, King 1%. Each newer type has a health bonus, speed, hit-box size and one perk: Scout nimble (1 in 8 melee blows miss), Sneak backstab (+50% from behind), Miner prospector (+40 gold, metal/wood/gem parts), Shaman mending (heals twice as often and sooner), Berserker rage (+35% damage below half health), Bog Goblin thick hide (-15% damage taken), Hobgoblin long arms (+0.4 m melee reach). Bigger goblins are a little easier to hit (melee reach and bolt radius grow with the target's size).
 - **Stats**: attack comes from the equipped weapon, health from the equipped armour, knowledge is innate.
   Start: Small 60 knowledge / Dagger 10 / Ragged Tunic 40 HP; Medium 40 / Nailed Club 15 / Studded Vest 50;
   Big 30 / Spiked Mace 20 / Warlord Harness 80; Wizard 80 / Gnarled Staff 0 / Starry Robe 60; King 40 / Royal Scepter 20 / Royal Mantle 100.

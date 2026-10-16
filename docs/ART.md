@@ -38,7 +38,8 @@ Owner decision (2026-10-15): **custom stylized 3D, all made in code**: no downlo
    - Goblin: at most about 12 draw calls each. Item model: at most about 4 draw calls.
    - Textures: at most 512 px, generated once and cached.
 
-## Goblins (game.js `buildGoblin(type)`, 5 types: Small, Medium, Big, Wizard, King)
+## Goblins (game.js `buildGoblin(type)`, 12 types: Small, Medium, Big, Wizard, King, plus Scout, Sneak, Miner, Shaman, Berserker, Bog Goblin, Hobgoblin in the GOBTYPES block)
+- Newer types: Scout = tall upright ears, feathers, cloak and bedroll; Sneak = deep hood, face wrap, low crouch; Miner = hard hat with goggles and a candle, apron, pick on the back; Shaman = horned skull headdress, grass skirt; Berserker = red mohawk and war paint, fur kilt; Bog Goblin = wide frog head, lily-pad hat, reeds, tail, webbed feet; Hobgoblin = tall, upright, rust skin (the one non-green goblin), horns, topknot, long coat. All baked into the existing part meshes (same draw calls as before). Screenshot: docs/screens/art-goblin-types.jpg.
 - **Shared anatomy:**
   - big head (about 40% of height) with a pronounced brow
   - long, droopy, expressive ears with an inner-ear colour
