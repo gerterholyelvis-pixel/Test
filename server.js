@@ -39,7 +39,7 @@ function cached(key, file, type) {
   if (cache.size < 500) cache.set(key, e);
   return e;
 }
-const CLIENT_JS = new Set(['game', 'menu', 'items', 'world', 'save', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui']);
+const CLIENT_JS = new Set(['game', 'menu', 'items', 'world', 'save', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)
 let CSP = '';
 function buildCsp() {   // the page has two inline scripts (importmap + module): allowed by hash, so no 'unsafe-inline' for scripts
   const page = cached('/index.html', path.join(ROOT_DIR, 'index.html'), 'text/html; charset=utf-8'), hashes = [];
@@ -49,7 +49,7 @@ function buildCsp() {   // the page has two inline scripts (importmap + module):
 function staticFor(url) {   // -> { body, type, cc } or null (404)
   const p = url.split('?')[0].split('#')[0];
   if (p === '/' || p === '/index.html') { const e = cached('/index.html', path.join(ROOT_DIR, 'index.html'), 'text/html; charset=utf-8'); return e && { ...e, cc: 'no-cache' }; }
-  const mm = p.match(/^\/([a-z0-9]+)\.js$/);
+  const mm = p.match(/^\/([a-z0-9-]+)\.js$/);   // ROOMS5ART: hyphens and digits allowed (the whitelist above still decides)
   if (mm && CLIENT_JS.has(mm[1])) { const e = cached(p, path.join(ROOT_DIR, mm[1] + '.js'), 'text/javascript; charset=utf-8'); return e && { ...e, cc: 'no-cache' }; }
   const cm = p.match(/^\/client\/((?:[a-z0-9_-]+\/)*[a-z0-9_-]+)\.js$/);   // client modules (client/**.js); no dots in the capture, so no traversal
   if (cm) { const e = cached(p, path.join(ROOT_DIR, 'client', cm[1] + '.js'), 'text/javascript; charset=utf-8'); return e && { ...e, cc: 'no-cache' }; }

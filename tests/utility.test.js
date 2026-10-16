@@ -128,7 +128,7 @@ const roomOnly = id => DOORS.find(d => d[0] === id);
         await sleep(100); assert(hpOf(a) === ha, 'thrower unharmed'); await a.close(); await b.close();
       }],
       ['smoke bomb: a goblin inside the cloud cannot be shot from beyond 2.5 m, melee still works', async () => {
-        const [a, b] = await Promise.all([connect(srv.port, 'goblin=1'), connect(srv.port, 'goblin=1')]), [cx, cz] = W.rc(8);
+        const [a, b] = await Promise.all([connect(srv.port, 'goblin=1'), connect(srv.port, 'goblin=1')]), [cx, cz] = W.rc(9);   /* a plain hall: a tree room has its trunk in the line of fire */
         a.send({ tp: [cx + 4, cz] }); b.send({ tp: [cx - 2, cz] }); await sleep(120); a.send({ m: [cx + 4, cz, Math.PI / 2] }); await sleep(120);
         a.send({ give: 'w:bow' }); await a.until(x => x.state.inv.backpack.includes('w:bow'), 2000, 'bow'); a.send({ mv: ['b' + a.state.inv.backpack.indexOf('w:bow'), 'weapon'] }); await a.until(x => x.state.inv.weapon === 'w:bow', 2000, 'bow equipped');
         const shot = async () => { const n = b.msgs.length; a.send({ atk: 1 }); await sleep(200); return b.msgs.slice(n).some(m => m.hit && m.hit.to === b.state.you); };

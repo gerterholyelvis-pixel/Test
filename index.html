@@ -625,6 +625,9 @@ body:not(.tready) #menu h1.title,body:not(.tready) #p-main .mbtn{animation-play-
 import * as THREE from 'three';
 window.THREE = THREE;
 try { await import('/itemart.js'); } catch (e) { console.error('itemart failed, using the old item models', e); } // ITEMART: custom 3D item models + baked icons (window.GKART)
+// ROOMS5ART: the room art modules (home, 10 tree rooms, vaultbreakers + vault dressing); game.js builds them lazily and falls back to the plain rooms when one is missing
+window.GK5ART = {}; for (const [k, f] of [['home', 'home'], ['ta', 'trees-a'], ['tb', 'trees-b'], ['vault', 'vault']]) { try { window.GK5ART[k] = await import('/rooms5art-' + f + '.js'); } catch (e) { console.error('room art ' + f + ' failed, those rooms stay plain', e); } }
+try { window.GK5ART.merge = (await import('three/addons/utils/BufferGeometryUtils.js')).mergeGeometries; } catch (e) { console.error('mergeGeometries failed', e); }
 try { window.GKTAGS = await import('/client/ui/tags.js'); } catch (e) { console.error('tags failed, name tags use plain sprites', e); } // name tag + health bar atlas
 await import('/game.js');
 await import('/menu.js');

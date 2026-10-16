@@ -274,10 +274,10 @@ module.exports = function create(S) {
     const A = m.act = { rng, L: ACT.limit.make(), log: {}, trees: {}, vault: ACT.init('vault', rng, now), H: VB5.create({ cells: VB_CELLS, doors: VB_DOOR, rng, now }),
       t: 0, sent: {}, crownSig: '', crownT: 0, alarm: false, alarmAdded: [], npcs: new Map(), rfSig: '', rfT: 0 };
     TREE_CELLS.forEach((c, i) => { A.trees[c] = { type: types[i], st: ACT.init(types[i], rng, now) }; });
-    m.trees = treeMap(m); m.vb = VB5.layoutView(A.H, null).vb;
+    m.trees = treeMap(m); if (m.layout) m.layout.trees = m.trees; m.vb = VB5.layoutView(A.H, null).vb;
   }
   const treeMap = m => { const o = {}; for (const c of TREE_CELLS) o[c] = m.act.trees[c].type; return o; };
-  function setTree(m, cell, type, now) { m.act.trees[cell] = { type, st: ACT.init(type, m.act.rng, now) }; m.trees = treeMap(m); S.bcast(m, { trees: m.trees }); }
+  function setTree(m, cell, type, now) { m.act.trees[cell] = { type, st: ACT.init(type, m.act.rng, now) }; m.trees = treeMap(m); if (m.layout) m.layout.trees = m.trees; S.bcast(m, { trees: m.trees }); }
 
   function viewOf(m, key, now) {
     const A = m.act, kd = kindOfKey(key);

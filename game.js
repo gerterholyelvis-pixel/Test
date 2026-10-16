@@ -665,6 +665,7 @@ const LAMPS = (() => {
     for (const q of pool) {
       if (q.want !== q.key) { q.k -= dt / FADE; if (q.k <= 0) { q.k = 0; q.key = q.want; const r = WORLD.roomRect(q.key); if (r) { const v = r.kind === 'vault'; q.l.position.set(r.cx, H - (v ? 1.2 : 0.7), r.cz); q.l.color.setHex(v ? 0xfff0dc : 0xfff6ea); } } }
       else if (q.k < 1) q.k = Math.min(1, q.k + dt / FADE);
+      { const hp = q.want === q.key && q.key && q.key[0] === 'c' && GK.r5 && GK.r5.lampAt(q.key); if (hp) q.l.position.set(hp[0], hp[1], hp[2]); }   // ROOMS5ART: a home's lamp hangs under its false ceiling
       const r = q.key && WORLD.roomRect(q.key); q.l.intensity = r ? base(r) * q.k : 0;
     }
   }
@@ -1634,6 +1635,7 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
   function buildHome(slot) {   // the home's normal workbench and its 50% recycler (server stationAt), positions shared with world.js HOME_LAYOUT (their footprints are solid)
     const g = slot.inner, cr = slot.cr, L = WORLD.HOME_LAYOUT;
     buildWorkbench(g, L.bench[0], L.bench[1], L.bench[2], cr.id); buildRecycler(g, L.recycler[0], L.recycler[1], L.recycler[2], cr.id);
+    if (window.GK5ART && window.GK5ART.home) { buildElixirProps(g, cr); g.visible = false; return; }   // ROOMS5ART: the art home draws the furniture; these kits stay as invisible E-prompt targets (Raycaster ignores visibility)
     nameplate(g, 'HOME', 0, 5.7, -(cr.size / 2 - T / 2) + 0.4, 1.8, '#ffe9a8'); buildElixirProps(g, cr);
   }
   function buildStationRoom(slot) {   // Master Forge: a workbench (master type on the server); Grand Recycler: a recycler at 100%
@@ -4272,6 +4274,7 @@ const handleMsg0 = d => {
   if (d.emote || d.token || d.resumed || d.resumeFail) SOC.onMsg(d);   // SOCIAL
   if (d.fix) NETC.fix = d.fix;
   /* FEEL-BEGIN */ if (GK.feel) GK.feel.onMsg(d); /* FEEL-END */
+  if (GK.r5) GK.r5.onMsg(d);   // ROOMS5ART: trees / vb / treasury / crown / breach fields and the match start / end
   if (d.layout) applyLayout(d.layout, d.mystery);
   if (d.chestKeys || d.chests) applyChests(d.chestKeys || d.chests);   // item keys like 'w:axe' (new), or legacy indices
   if (d.drops) applyDrops(d.drops);
@@ -5682,6 +5685,7 @@ function renderWorld(t) {
   LAMPS.tick(t);   // 5x5: the 9 pooled lamps follow the camera
   if (cam.position.y < H) ROOMART.near(WORLD.roomKeyOf(cam.position.x, cam.position.z));   // 5x5: lazy room dressing, the camera's room and its neighbours first
   fxCullBegin();
+  R5.tick(t);   // ROOMS5ART: lazy room art queue + update() of the visible art rooms (needs the cull set of this frame)
   const tm = renderer.toneMapping, te = renderer.toneMappingExposure;
   renderer.toneMapping = FX_TONE; renderer.toneMappingExposure = FX_EXPOSURE;
   if (fx && GK.settings.fx && fxQ().post) { fx.final.material.uniforms.uTime.value = t; fx.composer.render(); }
@@ -6133,7 +6137,7 @@ const fxBlob = { mesh: null };
 function fxBuildBlobs() {
   const boxes = [], bb = new THREE.Box3(), ws = new Set(worldStatic), actorGroups = new Set([...actors.values()].map(a => a.group));
   for (const o of scene.children) {
-    if (ws.has(o) || actorGroups.has(o) || o === fxBlob.mesh || o.name === 'fxMerged' || o.matrixAutoUpdate !== false) continue;
+    if (ws.has(o) || actorGroups.has(o) || o === fxBlob.mesh || o.name === 'fxMerged' || o.userData.r5 || o.matrixAutoUpdate !== false) continue;   // ROOMS5ART wrappers carry their own grime
     o.updateMatrixWorld(true);
     o.traverseVisible(c => {
       const m = c.material; if (!c.isMesh || c.isInstancedMesh || !m || Array.isArray(m) || m.transparent || !m.isMeshStandardMaterial) return;
@@ -6845,6 +6849,7 @@ const ROOMART = (() => {
     try {
       if (key[0] === 'c') {
         const cr = CHEST_ROOMS[+key.slice(1)]; dispose(key); attSig.set(key, sigOf(cr));
+        if (cr.type === 'home' && window.GK5ART && window.GK5ART.home) { built.set(key, []); return; }   // ROOMS5ART: the home art brings its own floor, walls and props
         const S = cr.size || WORLD.CS, IN = S / 2 - T / 2, big = S > WORLD.CS, r = mkRoom(key, cr.cx, cr.cz, Math.atan2(-cr.dx, -cr.dz), IN, IN, { kind: 'chest', type: cr.type, mkind: cr.mystery && cr.mystery.kind, cid: cr.id, panels: big ? [[0, -2.2], [0, 1.8]] : [[0, -1.8], [0, 1.4]], xBeams: big ? [-2.0, 2.0] : [-1.6, 1.6] });
         built.set(key, buildRoom(r));
       } else {
@@ -6879,6 +6884,155 @@ const ROOMART = (() => {
 })();
 ROOMART.init(); GK.roomart = ROOMART;   // test hook: ROOMART.story = room key -> [x, z, theme] of its story corner
 // ROOMART-END
+// ROOMS5ART-BEGIN (docs/reports/room-art-integration.md): the art modules rooms5art-home / trees-a / trees-b / vault (window.GK5ART, loaded by index.html) built into the real arena.
+// 8 homes (c0, c2 .. c14), 4 tree rooms (cells 6 8 16 18), 4 vaultbreaker rooms (7 11 13 17) and the vault dressing (12) are built lazily, nearest first (the camera's room and its 2-hop
+// neighbours at one room per frame, the rest in idle time), each inside a frozen wrapper group so the FX room culling hides it with its room; update() runs only for rooms in the cull set.
+// Server state is read from GK.state (trees, vb, vbNext, breach, treasury, crown, alarm, bars, homes) when it exists, else from the same fields of the messages seen here, else a placeholder
+// roll derived from the match (visual only). No PointLights: a home's lamp position is handed to the pooled lamps (GK.r5.lampAt). Everything is disposed when the match ends.
+const R5 = (() => {
+  const ART = window.GK5ART || {};
+  const hashStr = s => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
+  const mul = seed => { let s = seed >>> 0; return () => { s = (s + 0x6D2B79F5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+  const TREE_ART = { well: ['ta', 'well'], press: ['ta', 'press'], spring: ['ta', 'spring'], seer: ['ta', 'seer'], graft: ['ta', 'graft'], thorn: ['tb', 'thorn'], gambler: ['tb', 'gambler'], memory: ['tb', 'memory'], oak: ['tb', 'hollow'], elder: ['tb', 'elder'] };
+  const TREE_W = { well: 22, press: 16, spring: 14, seer: 12, graft: 10, thorn: 8, gambler: 7, memory: 5, oak: 4, elder: 2 }, VB_TYPES = ['ram', 'locksmith', 'counting', 'keystone'];
+  const HOME_COL = ['#ff8a78', '#ffb54a', '#ffe36a', '#98e46c', '#4ad8c2', '#6fb0ff', '#ab94ff', '#ff82cc'];   // the owner's colour: one per home slot (nameplate text)
+  const VBS = WORLD.VB_CELLS;
+  const ALL = [...WORLD.HOME_IDS.map(i => 'c' + i), ...WORLD.TREE_CELLS.map(String), ...Object.values(VBS).map(String), WORLD.VAULT_KEY];
+  const st = { seed: 'offline', trees: null, vb: null, vbNext: null, breach: null, treasury: null, crown: null, alarm: null, bars: null };   // fields seen on the wire
+  const S = k => (GK.state && GK.state[k] != null ? GK.state[k] : st[k]);
+  const lite = () => GK.settings.gfx === 'low';
+  const entries = new Map(), failed = new Set(), stats = { built: 0, ms: 0, last: 0 };
+  // ---- placeholder rolls (visual only; the server's roll replaces them the moment it arrives)
+  const ph = {};
+  const phTrees = () => ph.t && ph.ts === st.seed ? ph.t : (ph.ts = st.seed, ph.t = (() => { const r = mul(hashStr('trees:' + st.seed)), left = Object.keys(TREE_W), out = {}; for (const c of WORLD.TREE_CELLS) { let tot = 0; for (const k of left) tot += TREE_W[k]; let x = r() * tot, j = 0; for (; j < left.length - 1; j++) { x -= TREE_W[left[j]]; if (x < 0) break; } out[c] = left.splice(j, 1)[0]; } return out; })());
+  const phVb = () => ph.v && ph.vs === st.seed ? ph.v : (ph.vs = st.seed, ph.v = (() => { const r = mul(hashStr('vb:' + st.seed)), a = VB_TYPES.slice(), out = {}; for (let i = a.length - 1; i > 0; i--) { const j = (r() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; } Object.values(VBS).forEach((c, i) => { out[c] = a[i]; }); return out; })());
+  let tmSrc = null, tmVal = null;
+  function treeMap() {   // { cell: server tree type }: the server's roll (array in cell order, or { cell: type }) once all 4 are valid, else the placeholder
+    const src = S('trees'); if (tmVal && src === tmSrc && (src || ph.ts === st.seed)) return tmVal;
+    const out = {}; if (src) WORLD.TREE_CELLS.forEach((c, i) => { const k = WORLD.treeKind(Array.isArray(src) ? src[i] : src[c]); if (k) out[c] = k; });
+    tmSrc = src; return (tmVal = Object.keys(out).length === WORLD.TREE_CELLS.length ? out : phTrees());
+  }
+  function vbMap(src) {   // { cell: vaultbreaker type } or null when the field is missing or partial
+    const out = {}; if (src) for (const c of Object.values(VBS)) { const t = src[c]; if (VB_TYPES.includes(t)) out[c] = t; }
+    return Object.keys(out).length === 4 ? out : null;
+  }
+  const vbNow = () => vbMap(S('vb')) || phVb();
+  // ---- helpers
+  const ADJ = {}; for (const d of WORLD.DOORS) { (ADJ[d.a] = ADJ[d.a] || []).push(d.b); (ADJ[d.b] = ADJ[d.b] || []).push(d.a); }
+  const hopsFrom = from => { const h = { [from]: 0 }, q = [from]; for (let i = 0; i < q.length; i++) for (const k of ADJ[q[i]] || []) if (h[k] === undefined) { h[k] = h[q[i]] + 1; q.push(k); } return h; };
+  const wrapAt = (key, x, z, ry, art, sx = 1, sz = 1) => { const w = new THREE.Group(); w.name = 'r5:' + key; w.userData.r5 = key; w.position.set(x, 0, z); w.rotation.y = ry; w.scale.set(sx, 1, sz); w.add(art); w.matrixAutoUpdate = false; w.updateMatrix(); scene.add(w); return w; };
+  const colorOf = id => { const a = actors.get(id); return a && a.goblin != null ? [0xffd75e, 0xff9a5e, 0x9ae06e, 0x6fc8ff, 0xc89aff][a.goblin % 5] : 0xffd75e; };
+  function homeState(key) {   // GK.state.homes[key] = { pump 0..1, alert, dead, lv: { lock, alarm, sentry, lockbox } }; the own home also reads the pump tank
+    const hs = (GK.state && GK.state.homes && GK.state.homes[key]) || {}, lv = hs.lv || {}, tank = GK.myHome === key && GK.state && GK.state.tankCap ? GK.state.tank / GK.state.tankCap : null;
+    return { pump: Math.max(0, Math.min(1, hs.pump != null ? hs.pump : tank != null ? tank : 0.55)), alert: !!hs.alert, dead: !!hs.dead, lock: lv.lock | 0, alarm: lv.alarm | 0, sentry: lv.sentry | 0, lockbox: lv.lockbox | 0 };
+  }
+  const BUILD = {
+    home(key) {
+      const c = CHEST_ROOMS[+key.slice(1)], hd = WORLD.DOORS.find(d => d.kind === 'hatch' && d.b === key), dw = hd ? 2 * (hd.hw - 0.2) : DW, ry = Math.atan2(-c.dx, -c.dz), cs = Math.cos(ry), sn = Math.sin(ry), K = WORLD.HOME_K;   // K: the art's walls (+-4.98) are scaled onto the real wall faces (+-4.7)
+      let owner = homeOwner(c.id); const col = HOME_COL[(c.id >> 1) % 8];
+      const home = ART.home.buildHomeRoom(THREE, {}, { doorSide: 'S', seed: c.id + 1, owner, colour: col, size: c.size, doorW: dw / K, doorH: 2.9, outZ: (c.size / 2 + T / 2 + 0.06) / K, outY: 5.25 });   // the doorway matches the hatch in WORLD.DOORS
+      const wrap = wrapAt(key, c.cx, c.cz, ry, home.group, K, K), la = home.anchors.lamp, e = { key, kind: 'home', api: home, wrap, sig: 'H', hs: '' };
+      e.lamp = [c.cx + (la.x * cs + la.z * sn) * K, 3.1, c.cz + (-la.x * sn + la.z * cs) * K];   // under the false ceiling: the pooled lamp of this room moves here
+      e.sync = () => {
+        const nm = homeOwner(c.id); if (nm !== owner) { owner = nm; home.setOwner(owner, col); }
+        const s = homeState(key), sig = [s.pump.toFixed(2), s.alert ? 1 : 0, s.dead ? 1 : 0, s.lock, s.alarm, s.sentry, s.lockbox].join();
+        if (sig === e.hs) return; e.hs = sig;
+        home.setPumpLevel(s.pump); home.setPumpAlert(s.alert); home.setScreenPower(!s.dead); home.setUpgrade('lock', s.lock); home.setUpgrade('alarm', s.alarm); home.setUpgrade('sentry', s.sentry); home.setUpgrade('lockbox', s.lockbox);
+      };
+      e.update = (dt, t) => home.update(t); e.dispose = () => home.dispose();
+      return e;
+    },
+    tree(key) {
+      const cell = +key, type = treeMap()[cell], [mod, name] = TREE_ART[type], [cx, cz] = rc(cell), seed = cell * 7 + 1, M = ART[mod];
+      if (!M) return null;
+      const g = mod === 'ta' ? M.buildTreeRoom(THREE, { mergeGeometries: ART.merge }, name, { seed }) : M.buildTreeRoom(THREE, {}, name, { height: H, size: WORLD.W, seed, lite: lite() });
+      if (!g) return null; const api = mod === 'ta' ? g.api : g.userData.api, wrap = wrapAt(key, cx, cz, 0, g);
+      if (api.snap) api.snap();
+      return { key, kind: 'tree', api, type, wrap, sig: 'T' + type + (lite() ? 'l' : ''), update: mod === 'ta' ? (dt, t) => api.update(dt, t) : (dt, t) => api.update(t, dt), dispose: () => api.dispose() };
+    },
+    vb(key) {
+      const cell = +key, [cx, cz] = rc(cell), [vx, vz] = rc(WORLD.VAULT), ry = Math.atan2(-Math.sign(vx - cx) || 0, -Math.sign(vz - cz) || 0), type = vbNow()[cell];   // local north (the vault door wall) faces the vault
+      const room = ART.vault.buildVaultbreaker(THREE, { glowTex }, type, { lazy: true, H });   // the group is scaled by VB_SCALE so the art walls (at the cell boundary) land on the real wall faces; the door cracks then sit on the door face
+      const wrap = wrapAt(key, cx, cz, ry, room.group, WORLD.VB_SCALE[0], WORLD.VB_SCALE[1]), vd = WORLD.DOORS.find(d => d.kind === 'vault' && (d.a === key || d.b === key)), cr = room.group.getObjectByName('doorCracks');
+      return { key, kind: 'vb', api: room, type, wrap, sig: 'V', door: vd && vd.id, cracks: cr && cr.parent, update: (dt, t) => room.update(dt, t), dispose: () => room.dispose() };
+    },
+    vault(key) {
+      const dress = ART.vault.buildVaultDressing(THREE, { glowTex }, { half: WORLD.V / 2 - T / 2, H, claimR: 2.45 }), [cx, cz] = rc(WORLD.VAULT);
+      return { key, kind: 'vault', api: dress, wrap: wrapAt(key, cx, cz, 0, dress.group), sig: 'D', update: (dt, t) => dress.update(dt, t), dispose: () => dress.group.traverse(o => { if (o.geometry) o.geometry.dispose(); }) };
+    },
+  };
+  const kindOfKey = k => k[0] === 'c' ? 'home' : k === WORLD.VAULT_KEY ? 'vault' : WORLD.TREE_CELLS.includes(+k) ? 'tree' : 'vb';
+  const avail = k => { const kd = kindOfKey(k); if (kd === 'home') return !!ART.home; if (kd === 'tree') { const m = TREE_ART[treeMap()[+k]][0]; return !!ART[m] && (m !== 'ta' || !!ART.merge); } return !!ART.vault; };
+  const sigFor = k => { const kd = kindOfKey(k); return kd === 'home' ? 'H' : kd === 'tree' ? 'T' + treeMap()[+k] + (lite() ? 'l' : '') : kd === 'vb' ? 'V' : 'D'; };
+  const stale = k => { if (failed.has(k) || !avail(k)) return false; const e = entries.get(k); return !e || e.sig !== sigFor(k); };
+  function drop(k) { const e = entries.get(k); if (!e) return; entries.delete(k); try { e.dispose(); } catch (x) {} scene.remove(e.wrap); }
+  function make(k) {
+    drop(k); const t0 = performance.now();
+    try { const e = BUILD[kindOfKey(k)](k); if (!e) failed.add(k); else { entries.set(k, e); applyState(e); } }
+    catch (x) { console.warn('room art skipped', k, x); failed.add(k); }
+    stats.built++; stats.last = performance.now() - t0; stats.ms += stats.last;
+  }
+  // ---- server state to art (cheap, idempotent setters)
+  function applyState(e) {
+    if (e.kind === 'home') { e.sync(); return; }
+    if (e.kind === 'vb') {
+      const cell = +e.key, t = vbNow()[cell]; if (t && t !== e.type) { e.api.setSkin(t); e.type = t; }
+      const b = S('breach'); e.api.setBreach((b && b[cell]) | 0); return;
+    }
+    if (e.kind === 'vault') {
+      const d = e.api, T = S('treasury'), tv = T == null ? 0.4 : (+T <= 1 ? +T : Math.min(1, +T / 100)); d.setTreasury(tv); for (let i = 0; i < 4; i++) d.setCoffer(i, tv);
+      const cw = S('crown'), al = S('alarm'); d.setClaim(cw && cw.p != null ? cw.p : 0, cw ? colorOf(cw.id) : 0xffd75e); d.setContested(!!(cw && cw.contested)); d.setAlarm(al != null ? !!al : !!(cw && cw.alarm));
+      const bars = S('bars'), b = S('breach'); for (const s in VBS) { d.setDoorBar(s, !!(bars && bars[s]), true); d.setBreach(s, (b && b[VBS[s]]) | 0); }
+    }
+  }
+  const syncAll = () => { for (const e of entries.values()) try { applyState(e); } catch (x) {} };
+  // ---- queue: nearest first by door hops from the camera's room
+  let nearKey = null, order = ALL.slice(), hops = {}, idleOn = false;
+  function near(key) { if (!key || key === nearKey || !WORLD.roomRect(key)) return; nearKey = key; hops = hopsFrom(key); order = ALL.slice().sort((a, b) => (hops[a] === undefined ? 99 : hops[a]) - (hops[b] === undefined ? 99 : hops[b])); }
+  const later = () => { idleOn = true; if (window.requestIdleCallback) requestIdleCallback(idle, { timeout: 600 }); else setTimeout(idle, 40); };
+  function idle() { idleOn = false; const k = order.find(stale); if (k) make(k); if (order.some(stale)) later(); }
+  function pump() {
+    const k = order.find(stale); if (!k) return;
+    if ((hops[k] === undefined ? 99 : hops[k]) <= 2) make(k);   // the camera's room and its 2-hop neighbours: one room per frame
+    else if (!idleOn) later();                                   // everything else: one room per idle slot
+  }
+  let lastT = -1, ended = false, started = false;
+  function tick(t) {
+    const dt = lastT < 0 ? 0.016 : Math.max(0, Math.min(0.1, t - lastT)); lastT = t;
+    if (ended) return;   // after the match nothing is rebuilt (the art was disposed)
+    const play = GK.mode === 'play';
+    if (play && cam.position.y < H) near(WORLD.roomKeyOf(cam.position.x, cam.position.z)); else if (!play && started && GK.myHome) near(GK.myHome);   // during the wheel / countdown the own home and its neighbours are built behind the screen
+    if (play || started) pump();   // the menu backdrop of an idle title builds nothing
+    const vis = fxCull.active ? fxCull.vis : null;
+    for (const e of entries.values()) {
+      if (vis && !vis.has(e.key)) continue;   // update() only for rooms that are drawn this frame
+      if (e.sync) e.sync();
+      if (e.cracks) { const d = doors[e.door]; e.cracks.visible = !(d && (d.open || d.p > 0.02)); }   // the cracks belong on the closed vault door
+      e.update(dt, t);
+    }
+  }
+  function reset() { for (const k of [...entries.keys()]) drop(k); failed.clear(); nearKey = null; hops = {}; order = ALL.slice(); lastT = -1; tmVal = null; }
+  function onMsg(d) {
+    if (d.matchStart || d.resumed) {
+      const m = d.matchStart || d, ps = m.players || d.players || []; if (d.matchStart) reset(); ended = false; started = true;
+      st.seed = ps.map(p => p.id + ':' + (p.name || '')).join('|') || 'match'; for (const k of ['breach', 'treasury', 'crown', 'alarm', 'bars']) st[k] = null;
+      st.trees = m.trees || d.trees || null; st.vb = m.vb || d.vb || null; st.vbNext = m.vbNext || d.vbNext || null; tmVal = null;
+    }
+    let ch = false;
+    if (d.trees) { st.trees = d.trees; ch = true; }
+    for (const k of ['vb', 'vbNext', 'breach', 'treasury', 'alarm', 'bars']) if (d[k] !== undefined) { st[k] = d[k]; ch = true; }
+    if (d.crown !== undefined) { st.crown = d.crown; ch = true; }
+    if (ch) syncAll();
+    if (d.matchEnd) { reset(); ended = true; started = false; }
+  }
+  window.addEventListener('pagehide', reset);
+  return {
+    entries, st, near, tick, onMsg, reset, stats, make, hopsFrom, treeMap, vbNow, syncAll, art: ART, room: key => entries.get(key) || null, pending: () => ALL.filter(stale),
+    homeArt: () => !!ART.home, lampAt: key => { const e = key[0] === 'c' && entries.get(key); return e && e.lamp || null; },
+  };
+})();
+GK.r5 = R5;
+// ROOMS5ART-END
 let orbit = 0.4;
 function uiScale() { document.documentElement.style.setProperty('--uis', Math.max(1, Math.min(1.5, innerHeight / 720)).toFixed(3)); }   // HUD cards, hotbar, scoreboard, inventory and shop grow on tall screens (1080p: x1.5); 720p stays as designed
 function resize() { uiScale(); renderer.setSize(innerWidth, innerHeight); fxResize(); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); }
