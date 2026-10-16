@@ -98,7 +98,7 @@ process.on('uncaughtException', e => console.error('uncaught', e));   // one bad
 process.on('unhandledRejection', e => console.error('unhandled', e));
 // SECURITY-END
 const wss = new WebSocketServer({ server: srv, maxPayload: 512, verifyClient }); // oversize frames close the socket
-setInterval(() => { for (const ws of wss.clients) { if (ws.alive === false) { try { ws.terminate(); } catch (e) {} continue; } ws.alive = false; try { ws.ping(); } catch (e) {} } }, 30000).unref();   // SECURITY: heartbeat, a socket that answers no ping for 30 s is dead (frees its per-IP slot, starts the reconnect grace)
+setInterval(() => { for (const ws of wss.clients) { if (ws.alive === false || ws.bufferedAmount > 262144) { try { ws.terminate(); } catch (e) {} continue; }   /* ROBUST: also drop a socket that is not reading (256 KB queued) */ ws.alive = false; try { ws.ping(); } catch (e) {} } }, 30000).unref();   // SECURITY: heartbeat, a socket that answers no ping for 30 s is dead (frees its per-IP slot, starts the reconnect grace)
 const LIM = WORLD.LIM + 1; // world half-extent: the room grid plus the 8 m chest rooms around it (+1 m slack)
 const clamp = v => Math.max(-LIM, Math.min(LIM, v));
 // ---- doors and rounds (door ids and room keys must match game.js) ----
@@ -166,18 +166,21 @@ function findMatch(wins) {
 function leave(m, ws) { // remove a player from their match; empty matches disappear
   const gone = m.players.get(ws);
   if (!m.players.delete(ws)) return;
+  if (gone && gone.token) socTokens.delete(gone.token);   // ROBUST: a player who left for good can never resume, free the token now
   m.dirty = true;
   if (gone && m.sel[gone.room] != null && ![...m.players.values()].some(q => q.room === gone.room)) { delete m.sel[gone.room]; if (m.selBy) delete m.selBy[gone.room]; broadcastRound(m); } // an empty room's door vote no longer counts
   if (!humans(m) && (m.ended || !m.specs.size || m.phase === 'queue')) matches.delete(m.id);   // FUN: spectators keep a match with only bots alive until it is decided
   else if (m.phase === 'queue') broadcastQueue(m); else { broadcastMatch(m); sendBoard(m); checkWin(m); }
 }
+const TS = { n: 0, sum: 0, max: 0, over: 0 };   // tick timing (GK_DEBUG {botstat:1} -> tick), see tests/tickbench.js
 setInterval(() => { // one global timer steps every match
-  const now = Date.now();
-  for (const m of matches.values()) {
+  const now = Date.now(), tick0 = DBG ? process.hrtime.bigint() : 0n;
+  for (const m of matches.values()) { try {   // ROBUST: a throwing match must not stop the matches after it (see the catch below)
+    if (DBG && m.boom) throw new Error('boom (test hook)');
     /* MATCH-BEGIN */ if (matchTick(m, now)) continue; /* MATCH-END */
     if (now - m.formedAt > MATCH_LIFE_MS) {   // SECURITY: hard match lifetime (20 min): decided by the round-10 rule; a match that is still open a minute later is closed
       if (!m.ended && m.started) timeLimit(m);
-      else if (now - m.formedAt > MATCH_LIFE_MS + 60000) { for (const w of [...m.players.keys(), ...m.specs.keys()]) try { w.close(); } catch (e) {} matches.delete(m.id); continue; }
+      else if (now - m.formedAt > MATCH_LIFE_MS + 60000) { for (const w of [...m.players.keys(), ...m.specs.keys()]) try { w.close(); } catch (e) {} for (const q of m.players.values()) if (q.token) socTokens.delete(q.token); matches.delete(m.id); continue; }
     }
     socGrace(m, now);   // SOCIAL: disconnected players whose grace period ran out die now
     botTick(m, now);   // BOTS: brains of bots and mystery enemies (~10 Hz)
@@ -192,8 +195,13 @@ setInterval(() => { // one global timer steps every match
     // COMBAT-END
     if (m.dirty) { m.dirty = false; bcast(m, { players: [...m.players.values()].map(pub) }); } // slow state: only when something other than movement changed
     snapshots(m); // NETCODE: positions of players who moved go out at 20 Hz as compact snapshots
-  }
+    m.errs = 0;
+  } catch (e) {   // ROBUST: log it (the first few), and close a match that keeps failing, so one broken match cannot flood the log or starve the others
+    m.errs = (m.errs || 0) + 1; if (m.errs <= 3) console.error('tick match=' + m.id + ' phase=' + m.phase, e);
+    if (m.errs >= 40) { console.error('closing match ' + m.id + ' after repeated tick errors'); for (const w of [...m.players.keys(), ...m.specs.keys()]) try { w.close(); } catch (e2) {} for (const q of m.players.values()) if (q.token) socTokens.delete(q.token); matches.delete(m.id); }
+  } }
   botSweepEnd();
+  if (DBG) { const ms = Number(process.hrtime.bigint() - tick0) / 1e6; TS.n++; TS.sum += ms; if (ms > TS.max) TS.max = ms; if (ms > 25) TS.over++; }
 }, 50);
 
 // 0 small 30%, 1 medium 30%, 2 big 30%, 3 wizard 9%, 4 king 1%
@@ -557,14 +565,13 @@ function snapshots(m) {   // {s:[t, id,x,z,yaw,speed,age, ...]} with the players
   let moved = null;
   for (const p of m.players.values()) if (p.sd) { p.sd = false; (moved = moved || []).push(p); }
   if (!moved) return;
-  const t = srvT();
+  const t = srvT(), chunk = moved.map(p => p.id + ',' + r2(p.x) + ',' + r2(p.z) + ',' + r3(p.yaw) + ',' + jumpV(p) + ',' + Math.min(255, Math.max(0, t - (p.mvT || t))));   // PERF: each mover is formatted once, every receiver just joins the strings (same JSON as before: {"s":[t,id,x,z,yaw,v,age,...]})
   for (const [ws, q] of m.players) {
-    if (q.bot || q.npc) continue;
-    const out = [t]; for (const p of moved) if (p !== q) out.push(p.id, r2(p.x), r2(p.z), r3(p.yaw), jumpV(p), Math.min(255, Math.max(0, t - (p.mvT || t))));
-    if (out.length > 1) sendTo(ws, { s: out });
+    if (q.bot || q.npc || ws.readyState !== 1) continue;
+    let s = '{"s":[' + t; for (let i = 0; i < moved.length; i++) if (moved[i] !== q) s += ',' + chunk[i];
+    if (s.length > 6 + ('' + t).length) ws.send(s + ']}');
   }
-  const all = [t]; for (const p of moved) all.push(p.id, r2(p.x), r2(p.z), r3(p.yaw), jumpV(p), Math.min(255, Math.max(0, t - (p.mvT || t))));   // FUN: spectators get every mover
-  if (all.length > 1) for (const ws of m.specs.keys()) sendTo(ws, { s: all });
+  if (m.specs.size) { const all = '{"s":[' + t + ',' + chunk.join(',') + ']}'; for (const ws of m.specs.keys()) sendTo(ws, all); }   // FUN: spectators get every mover
 }
 // NET-END
 
@@ -1097,7 +1104,7 @@ function socGrace(m, now) {   // after GRACE_MS without a socket the goblin dies
 }
 function socResume(ws, token) {   // the player of this token, now bound to the new socket, or null
   const p = socTokens.get(token), m = p && p.match;
-  if (!p || p.dead || !m || m.ended || m.phase === 'queue' || !m.players.has(p.ws)) return null;
+  if (!p || p.dead || !m || m.ended || m.phase === 'queue' || !m.players.has(p.ws) || matches.get(m.id) !== m) return null;
   const old = p.ws; m.players.delete(old); m.players.set(ws, p); p.ws = ws; p.dc = 0; m.dirty = true;
   place(p, p.x, p.z);   // fresh speed budget: the time offline must not bank movement
   if (old !== ws) { try { old.terminate(); } catch (e) {} }
@@ -1115,7 +1122,7 @@ function socEmote(m, ws, p, n, now) {   // {emote:n}: relayed to everyone else (
   for (const w of m.players.keys()) if (w !== ws && w.readyState === 1) w.send(msg);
   for (const w of m.specs.keys()) if (w !== ws && w.readyState === 1) w.send(msg);
 }
-setInterval(() => { for (const [t, p] of socTokens) if (p.dead || !p.match || !p.match.players.has(p.ws)) socTokens.delete(t); }, 60000).unref();
+setInterval(() => { for (const [t, p] of socTokens) if (p.dead || !p.match || !p.match.players.has(p.ws) || matches.get(p.match.id) !== p.match) socTokens.delete(t); }, 60000).unref();   // ROBUST: also forget the tokens of a match that was closed (lifetime, repeated errors)
 // SOCIAL-END
 wss.on('connection', (ws, req) => {
   { const ip = ipOf(req); ipCount.set(ip, (ipCount.get(ip) || 0) + 1); ws.once('close', () => { const n = (ipCount.get(ip) || 1) - 1; if (n > 0) ipCount.set(ip, n); else ipCount.delete(ip); }); }   // SECURITY: per-IP socket count
@@ -1150,7 +1157,7 @@ wss.on('connection', (ws, req) => {
     tokens--;
     let d; try { d = JSON.parse(raw.toString()); } catch { return; }
     if (p.dead && d && typeof d.ping === 'number' && Number.isFinite(d.ping)) return sendTo(ws, { pong: d.ping, t: srvT() });
-    if (p.dead && d && d.botstat && process.env.GK_DEBUG) return sendTo(ws, { botstat: { n: BS.n, sum: BS.sum, max: BS.max, calls: BS.calls, bad: BS.bad } });   // debug stats still answer a dead human (bots can kill the test client)
+    if (p.dead && d && d.botstat && process.env.GK_DEBUG) return sendTo(ws, { botstat: { n: BS.n, sum: BS.sum, max: BS.max, calls: BS.calls, bad: BS.bad, tick: TS, heap: process.memoryUsage().heapUsed, matches: matches.size, tokens: socTokens.size, ips: ipCount.size } });   // debug stats still answer a dead human (bots can kill the test client)
     if (p.dead || !d || typeof d !== 'object' || Array.isArray(d)) return;
     const dbg = !!process.env.GK_DEBUG;
     /* MATCH-BEGIN */ if (d.cancel === 1) { if (m.phase === 'queue') { leave(m, ws); ws.close(); } return; }
@@ -1160,7 +1167,9 @@ wss.on('connection', (ws, req) => {
     if (Array.isArray(d.m) && (d.m.length === 3 || d.m.length === 4) && d.m.every(v => typeof v === 'number' && Number.isFinite(v))) { applyMove(m, ws, p, d.m[0], d.m[1], d.m[2], now, d.m[3]);
     } else if (typeof d.ping === 'number' && Number.isFinite(d.ping)) { sendTo(ws, { pong: d.ping, t: srvT() });
     } else if (d.emote !== undefined) { socEmote(m, ws, p, d.emote, now);   // SOCIAL
-    } else if (dbg && d.botstat) { sendTo(ws, { botstat: { n: BS.n, sum: BS.sum, max: BS.max, calls: BS.calls, bad: BS.bad } });
+    } else if (dbg && d.botstat) { sendTo(ws, { botstat: { n: BS.n, sum: BS.sum, max: BS.max, calls: BS.calls, bad: BS.bad, tick: TS, heap: process.memoryUsage().heapUsed, matches: matches.size, tokens: socTokens.size, ips: ipCount.size } });
+    } else if (dbg && d.boom === 1) { m.boom = true;   // test hook: this match's tick throws from now on (tests/robust.test.js)
+    } else if (dbg && d.quit === 1) { process.exit(0);   // lets tests/tickbench.js flush a --cpu-prof profile
     } else if (dbg && d.kill) { die(ws, p);   // test hooks, only with GK_DEBUG=1
     } else if (dbg && d.win) { win(ws, p);
     } else if (dbg && typeof d.give === 'string') { giveItem(p, d.give);
