@@ -497,7 +497,7 @@ const jumpV = p => r1(p.spd || 0) + 100 * (p.jy | 0);   // snapshot speed slot c
 // NET-BEGIN (movement validation, 20 Hz snapshots, position history for lag compensation; see docs/reports/netcode.md)
 const T0 = Date.now(), srvT = () => Date.now() - T0;   // server clock in ms, sent with every snapshot and pong
 const RSCALE = process.env.GK_DEBUG && +process.env.GK_REGEN_SCALE > 0 ? +process.env.GK_REGEN_SCALE : 1;   // GK_DEBUG only: speeds regeneration up for the tests
-const MAXV = 7.5 * Math.max(...G.SPEED) * 1.1, BUDGET = 1.0, SLACK = 0.3, MOVE_SLACK = 0.3;   // BALANCE: the fastest class multiplier comes from items.js SPEED (shared with the client)   // fastest goblin sprint (game.js) x 1.1; the distance a client may bank while idle; SLACK: bounds tolerance in m; MOVE_SLACK: extra distance per move (SECURITY: was 1.25 / 1.2 / 0.3 per move)
+const MAXV = 7.5 * Math.max(...G.SPEED) * G.MAX_ARMOR_SPEED * 1.1, BUDGET = 1.0, SLACK = 0.3, MOVE_SLACK = 0.3;   // BALANCE: the fastest class multiplier comes from items.js SPEED (shared with the client)   // fastest goblin sprint (game.js) x 1.1; the distance a client may bank while idle; SLACK: bounds tolerance in m; MOVE_SLACK: extra distance per move (SECURITY: was 1.25 / 1.2 / 0.3 per move)
 const HIST_MS = 1000, REWIND_MAX = 200;
 const r1 = v => Math.round(v * 10) / 10, r2 = v => Math.round(v * 100) / 100, r3 = v => Math.round(v * 1000) / 1000;
 function inBounds(x, z) {   // inside a room of the grid, or inside one of the 12 chest rooms (not the void around them)
@@ -687,7 +687,7 @@ const noticed = (p, q, now) => !p.bot || !q.roomAt || now - q.roomAt >= BOT_NOTI
 // AI-BEGIN (human-like bots: perception, player-like movement, personality, target judgement; see docs/reports/bots-2.md). Bots only; mystery enemies (p.npc) keep the plain brain.
 const SPRINT = 7.5, WALK = 4.6, COS_FOV = Math.cos(75 * Math.PI / 180), SEE_FAR = 12, SEE_NEAR = 2.5, SEE_HIT_MS = 3000, SEE_MEM_MS = 4000;   // vision: 150 degree cone to 12 m, 2.5 m all round, 3 s after a hit, 4 s of memory
 const BOT_EMOTE_P = DBG && process.env.GK_BOT_EMOTE_P !== undefined ? +process.env.GK_BOT_EMOTE_P : 0.3;   // chance of an emote after a kill (GK_DEBUG only override, for the tests)
-const sprintOf = p => SPRINT * G.SPEED[p.goblin | 0], walkOf = p => WALK * G.SPEED[p.goblin | 0];   // the human speeds of this goblin class
+const sprintOf = p => SPRINT * G.SPEED[p.goblin | 0] * G.armorSpeed(p.inv.armor), walkOf = p => WALK * G.SPEED[p.goblin | 0] * G.armorSpeed(p.inv.armor);   // the human speeds of this goblin class
 const hpFrac = q => q.stats.health / Math.max(1, q.stats.maxHealth);
 const power = q => Math.sqrt(Math.max(1, q.stats.health) * Math.max(1, q.stats.attack));   // how dangerous a goblin looks: health bar x weapon
 const angNorm = a => { a %= 2 * Math.PI; return a > Math.PI ? a - 2 * Math.PI : a < -Math.PI ? a + 2 * Math.PI : a; };

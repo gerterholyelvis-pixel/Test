@@ -3235,6 +3235,57 @@ const A_EARS = {};
       B.add(new THREE.SphereGeometry(1, 26, 10, 0, TAU, 0.55, 0.9), { p: [0, 0.44, 0], s: [0.45 * b, 0.3, 0.38 * b], c: 0xf7f3ea, m: HR, uv: 3 }); B.tor(0, 0.44 + 0.3 * Math.cos(1.45), 0, 0.45 * b * Math.sin(1.45), 0.025, Math.PI / 2, 0, 0, trim, GD, { s: [1, 1, 0.84] });
     }
   }
+  // ARMOUR2-BEGIN: overlays for the nine families added in items.js (light, bone, fur, scrap, spiked, lamellar, bulwark, gilded). Same torso space and helpers as gaArmor above.
+  const ARMOUR2_FAMS = { light: 1, bone: 1, fur: 1, scrap: 1, spiked: 1, lamellar: 1, bulwark: 1, gilded: 1 };
+  function gaArmor2(B, type, fam, trim, b) {
+    const R = [[0.2, 0.58], [0.335, 0.5], [0.365, 0.4], [0.36, 0.26], [0.365, 0.14], [0.35, 0.0], [0.33, -0.07]];
+    if (fam === 'light') {   // a thin dyed wrap: one sash across the chest, a belt and a trailing tail, nothing heavy
+      garment(B, R.slice(2), b, 0x3f7f6a, CL, { fold: [8, 0.02, -0.1, 0.3] });
+      strap(B, 0.32 * b, 0.56, -0.2 * b, 0.0, 0.31 * b, 0.07, 0xd8c890, CL); bandAt(B, 0.06, 0.36 * b, 0.03, 0xd8c890, CL);
+      B.box(-0.1 * b, -0.12, 0.3 * b, 0.07, 0.3, 0.012, 0xd8c890, CL, { r: [0.12, 0, 0.1] }); B.es(0.1 * b, 0.07, 0.355 * b, 0.025, 0.025, 0.015, trim, GD);
+    }
+    if (fam === 'bone') {   // curved ribs over the chest, a vertebra spine and skull-bone pauldrons
+      for (let i = 0; i < 5; i++) for (const s of [-1, 1]) B.tube([[s * 0.03, 0.46 - i * 0.075, 0.37 * b], [s * 0.2 * b, 0.47 - i * 0.075, 0.33 * b], [s * 0.34 * b, 0.43 - i * 0.075, 0.12 * b]], 0.02, 0.013, 0xe8dec0, BN, { rad: 6 });
+      for (let i = 0; i < 6; i++) B.es(0, 0.52 - i * 0.08, 0.38 * b, 0.026, 0.03, 0.022, 0xd8cfb0, BN);
+      bandAt(B, 0.06, 0.37 * b, 0.02, 0x4a3a28, LT); for (const s of [-1, 1]) { B.e(s * 0.42 * b, 0.55, 0, 0.14, 0.09, 0.15, 0xe8dec0, BN, { r: [0, 0, -s * 0.3] }); B.k(s * 0.44 * b, 0.63, 0, 0.04, 0.12, 0, -s * 0.25, 0xd8cfb0, BN); }
+    }
+    if (fam === 'fur') {   // shaggy hide over the shoulders and a pelt hem, belted
+      garment(B, R, b, 0x6b5238, HR, { uv: 3, fold: [14, 0.05, -0.1, 0.5] }); ringTeeth(B, 0.5, 0.35 * b, 18, 0.07, 0.15, 0x8c6c48, HR); ringTeeth(B, -0.04, 0.35 * b, 20, 0.065, 0.17, 0x7a5c3c, HR);
+      B.add(new THREE.TorusGeometry(0.29 * b, 0.07, 8, 26), { p: [0, 0.56, 0.0], r: [Math.PI / 2, 0, 0], c: 0x9a7a52, m: HR, uv: 3 }); bandAt(B, 0.14, 0.375 * b, 0.025, 0x2e1c10, LT); B.box(0, 0.14, 0.375 * b, 0.07, 0.06, 0.02, trim, MT);
+    }
+    if (fam === 'scrap') {   // mismatched riveted patches of salvaged metal on a hide base
+      garment(B, R, b, 0x4a3a2a, LT, { uv: 2.6 });
+      const pl = [[-0.17, 0.4, 0.2, 0.2, 0.2], [0.14, 0.44, 0.17, 0.15, -0.1], [-0.04, 0.2, 0.22, 0.26, 0.05], [0.2, 0.2, 0.15, 0.2, 0.12], [-0.22, 0.12, 0.17, 0.13, -0.15]];
+      pl.forEach(([x, y, w, h, rz], i) => { const a = x / 0.36; B.box(x * b, y, Math.cos(a) * 0.36 * b + 0.02, w, h, 0.022, i % 2 ? 0x8a6a4a : 0x7d8590, MT, { r: [0.08, a, rz] }); for (const [dx, dy] of [[-1, -1], [1, 1]]) stud(B, x * b + dx * w * 0.38, y + dy * h * 0.36, Math.cos(a) * 0.37 * b + 0.04, 0xb0b8c0, 0.012); });
+      B.e(-0.42 * b, 0.56, 0, 0.17, 0.1, 0.17, 0x6a6e76, MT, { r: [0, 0, 0.3] }); B.box(0.43 * b, 0.55, 0, 0.14, 0.17, 0.16, 0x8a6a4a, MT, { r: [0, 0, -0.3] }); bandAt(B, 0.02, 0.37 * b, 0.02, 0x2e1c10, LT);
+    }
+    if (fam === 'spiked') {   // dark hide harness bristling with spikes on the shoulders and across the chest
+      for (const s of [-1, 1]) strap(B, s * 0.3 * b, 0.56, -s * 0.22 * b, 0.0, 0.31 * b, 0.05, 0x22160e);
+      garment(B, R.slice(3), b, 0x2e2018, LT, { uv: 2.6 }); bandAt(B, 0.1, 0.375 * b, 0.034, 0x14100c, LT);
+      for (let i = 0; i < 6; i++) { const a = -0.75 + i * 0.3; B.k(Math.sin(a) * 0.375 * b, 0.1, Math.cos(a) * 0.35 * b + 0.03, 0.022, 0.1, 0.9, -a, 0xa0a8b0, MT); }
+      for (const s of [-1, 1]) { B.e(s * 0.43 * b, 0.55, 0, 0.15, 0.09, 0.15, 0x3a3a40, MT, { r: [0, 0, -s * 0.3] }); for (let i = 0; i < 3; i++) B.k(s * (0.43 + 0.04 * i) * b, 0.62 + 0.02 * i, 0, 0.026, 0.15, 0, -s * (0.3 + i * 0.45), 0xa0a8b0, MT); }
+    }
+    if (fam === 'lamellar') {   // rows of small laced plates, each row a little wider than the one above
+      for (let r = 0; r < 7; r++) { const y = 0.5 - r * 0.08, rad = interp(R, y) * b + 0.008, n = Math.max(12, Math.round(rad * 2 * Math.PI / 0.075));
+        for (let i = 0; i < n; i++) { const a = (i + (r % 2) * 0.5) / n * TAU; B.box(Math.sin(a) * rad, y, Math.cos(a) * rad * 0.93 + 0.02, 0.06, 0.1, 0.012, r % 2 ? 0x8a5a3a : 0x6e4a34, LT, { r: [0.12, a, 0] }); } }
+      bandAt(B, 0.55, 0.22 * b, 0.02, 0x2e1c10, LT); bandAt(B, 0.14, 0.38 * b, 0.014, trim, GD); B.tor(0, 0.57, 0.01, 0.2 * b, 0.034, Math.PI / 2, 0, 0, 0x6e4a34, LT);
+    }
+    if (fam === 'bulwark') {   // slab plate: tall front shield-plate, one huge slab pauldron, heavy waist band
+      garment(B, R, b, 0x6a727c, MT, { uv: 1, segs: 40 });
+      B.box(0, 0.3, 0.37 * b, 0.26, 0.5, 0.045, 0x8a929c, MT); B.box(0, 0.3, 0.395 * b, 0.07, 0.42, 0.02, trim, GD); B.box(0, 0.3, 0.395 * b, 0.2, 0.07, 0.02, trim, GD);
+      for (const [x, y] of [[-0.1, 0.5], [0.1, 0.5], [-0.1, 0.1], [0.1, 0.1]]) stud(B, x, y, 0.4 * b, 0xc9d2dc, 0.014);
+      bandAt(B, 0.04, 0.38 * b, 0.04, 0x4a525c, MT); B.tor(0, 0.57, 0.01, 0.2 * b, 0.045, Math.PI / 2, 0, 0, 0x6a727c, MT);
+      B.e(-0.45 * b, 0.54, 0, 0.24, 0.17, 0.26, 0x8a929c, MT, { r: [0, 0, 0.28] }); B.tor(-0.45 * b, 0.52, 0, 0.25, 0.022, Math.PI / 2, 0, 0.28, trim, GD); B.e(0.43 * b, 0.55, 0, 0.17, 0.1, 0.17, 0x6a727c, MT, { r: [0, 0, -0.3] });
+    }
+    if (fam === 'gilded') {   // vault plate: polished steel breastplate with gold edging, a gem, gold pauldrons
+      garment(B, R, b, 0xa6aeb8, MT, { uv: 1, segs: 40 });
+      B.box(0, 0.38, 0.365 * b, 0.035, 0.34, 0.03, 0xf2c14a, GD); for (let i = 0; i < 3; i++) bandAt(B, 0.14 - i * 0.07, (0.375 - i * 0.012) * b, 0.024, i % 2 ? 0xf2c14a : 0xc9d2dc, i % 2 ? GD : MT);
+      B.tor(0, 0.57, 0.01, 0.2 * b, 0.04, Math.PI / 2, 0, 0, 0xf2c14a, GD); B.es(0, 0.3, 0.385 * b, 0.032, 0.04, 0.02, 0xd02a4a, GEM);
+      for (const s of [-1, 1]) { const px = s * 0.43 * b; B.add(new THREE.SphereGeometry(1, 20, 10, 0, TAU, 0, Math.PI / 2), { p: [px, 0.54, 0], r: [0, 0, -s * 0.3], s: [0.21, 0.15, 0.21], c: 0xf2c14a, m: GD }); B.tor(px, 0.54, 0, 0.21, 0.018, Math.PI / 2, 0, -s * 0.3, 0xc9d2dc, MT); stud(B, px, 0.69, 0, 0xd02a4a, 0.02); }
+      for (let i = 0; i < 7; i++) { const a = -0.85 + i * 0.28; stud(B, Math.sin(a) * 0.37 * b, 0.26, Math.cos(a) * 0.35 * b + 0.03, 0xf2c14a, 0.012); }
+    }
+  }
+  // ARMOUR2-END
   // ---- assemble one goblin
   function buildGoblin(type, demo) {
     const C = CFG[type], b = C.b, P = GAT[type], root = new THREE.Group(), rig = new THREE.Group(); root.add(rig); rig.scale.setScalar(SCALE[type]);
@@ -3289,7 +3340,7 @@ const A_EARS = {};
       const it = key && itemsData().ITEMS[key], fam = it && it.family;
       if (!fam || fam === P.fam) { if (u.armMesh) u.armMesh.visible = false; return; }
       const tier = it.tierN || 0, ck = type + ':ar:' + fam + ':' + tier; let geo = A.cache[ck];
-      if (!geo) { const B = new GB(); gaArmor(B, type, fam, GA_TIER[tier], b); geo = A.cache[ck] = B.finish(); }
+      if (!geo) { const B = new GB(); try { (ARMOUR2_FAMS[fam] ? gaArmor2 : gaArmor)(B, type, fam, GA_TIER[tier], b); } catch (e) { console.error(e); } geo = A.cache[ck] = B.finish(); }
       if (!u.armMesh) { u.armMesh = new THREE.Mesh(geo, uber(type)); u.armMesh.userData.keep = 1; u.armMesh.scale.setScalar(1.015); torso.add(u.armMesh); }
       u.armMesh.geometry = geo; u.armMesh.visible = true;
     };
@@ -3490,7 +3541,7 @@ const itemName = k => { const it = infoOf(k); return it ? it.name : String(k); }
 const TIER_COL = { common: '#9aa0a8', uncommon: '#4fc35b', rare: '#4a9bff', mythic: '#b06bff', legendary: '#ffb02e', transcendent: '#7ff4ff', class: '#ffd75e' };
 const tierN = k => { const it = infoOf(k); return it && it.tierN != null ? it.tierN : null; };   // null for brains
 const tierTxt = k => tierN(k) != null ? 'Tier ' + tierN(k) : '';
-const statTxt = k => { const it = infoOf(k); if (!it) return ''; return [tierTxt(k), it.type === 'weapon' ? 'Attack ' + it.attack : it.type === 'armor' ? 'Health ' + it.health : it.gain != null ? '+' + fmtN(it.gain) + ' knowledge' : ''].filter(Boolean).join(' · '); };
+const statTxt = k => { const it = infoOf(k); if (!it) return ''; return [tierTxt(k), it.type === 'weapon' ? 'Attack ' + it.attack : it.type === 'armor' ? 'Health ' + it.health + (it.speed ? (it.speed > 1 ? ' · Speed +' : ' · Speed -') + Math.round(Math.abs(it.speed - 1) * 100) + '%' : '') : it.gain != null ? '+' + fmtN(it.gain) + ' knowledge' : ''].filter(Boolean).join(' · '); };
 const fmtN = n => Number.isInteger(+n) ? String(n) : String(+(+n).toFixed(1));   // keys -> names (plain names from an older server pass through)
 const emptyInv = () => ({ backpack: Array(9).fill(null), quick: Array(3).fill(null), weapon: null, armor: null });
 function startInv(goblin) { const inv = emptyInv(), s = itemsData().START[goblin]; if (s) { inv.weapon = s.weapon || null; inv.armor = s.armor || null; } return inv; }
@@ -6580,7 +6631,7 @@ function frame(now) {
   if (mine && spawned && GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked) {
     const f = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
     const s = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
-    const sp = (keys.has('ShiftLeft') || keys.has('ShiftRight') ? 7.5 : 4.6) * ((itemsData().SPEED || [])[mine.goblin] || (0.85 + 0.15 * SCALE[mine.goblin]));   // BALANCE: class speed table (items.js SPEED, shared with the server): small fastest, big slowest
+    const sp = (keys.has('ShiftLeft') || keys.has('ShiftRight') ? 7.5 : 4.6) * ((itemsData().SPEED || [])[mine.goblin] || (0.85 + 0.15 * SCALE[mine.goblin])) * (invReady && itemsData().armorSpeed ? itemsData().armorSpeed(myInv.armor) : 1);   // ARMOUR-2: worn armour speed   // BALANCE: class speed table (items.js SPEED, shared with the server): small fastest, big slowest
     let mx = -Math.sin(P.yaw) * f + Math.cos(P.yaw) * s, mz = -Math.cos(P.yaw) * f - Math.sin(P.yaw) * s;
     const len = Math.hypot(mx, mz) || 1; mx = mx / len * sp * dt * (f || s ? 1 : 0); mz = mz / len * sp * dt * (f || s ? 1 : 0);
     const ox = P.x, oz = P.z;

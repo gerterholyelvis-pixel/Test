@@ -16,6 +16,11 @@
     ['chain', 'Chainmail Shirt', 'mail', 5.5, 76], ['harness', 'Warlord Harness', 'harness', 5, 80], ['scale', 'Scale Mail', 'mail', 4.5, 90], ['brigandine', 'Brigandine', 'mail', 4, 100],
     ['cuirass', 'Iron Cuirass', 'plate', 3.5, 112], ['banded', 'Banded Mail', 'plate', 3, 125], ['knight', "Knight's Plate", 'plate', 2.5, 140], ['dwarven', 'Dwarven Plate', 'plate', 2, 160],
     ['obsidian', 'Obsidian Armour', 'plate', 1.5, 185], ['dragon', 'Dragonscale Mail', 'mail', 1, 215], ['mythril', 'Mythril Hauberk', 'mail', 0.6, 250], ['aegis', "Titan's Aegis", 'plate', 0.4, 300],
+    // ARMOUR-2: nine more pieces with their own look (families light, bone, fur, scrap, spiked, lamellar, bulwark, gilded). The optional 6th value is a movement multiplier:
+    // Swiftwrap trades health for speed, Tower Plate trades speed for health. Their chances come on top of the 100 above (drops are weighted, so the lists are relative).
+    ['swiftwrap', 'Swiftwrap', 'light', 8, 26, 1.12], ['bonemail', 'Bone Plate', 'bone', 7, 52], ['furmantle', 'Fur Mantle', 'fur', 6, 60], ['scrapplate', 'Scrap Plate', 'scrap', 5, 70],
+    ['reaver', 'Reaver Harness', 'spiked', 4.2, 88], ['lamellar', 'Lamellar Vest', 'lamellar', 3.4, 108], ['tower', 'Tower Plate', 'bulwark', 1.8, 175, 0.92],
+    ['vaultbrig', 'Vaultguard Brigandine', 'gilded', 1.2, 205], ['gilded', 'Gilded Plate', 'gilded', 0.7, 235],
   ];
   // Tiers 0-5 are named: 0 common, 1 uncommon, 2 rare, 3 mythic, 4 legendary, 5 transcendent. Dropped items are tiers 1-5 (by drop chance); tier 0 is the base items the crafting bench can make.
   const TIER_NAMES = ['common', 'uncommon', 'rare', 'mythic', 'legendary', 'transcendent'];
@@ -27,9 +32,10 @@
     WEAPONS[k] = { name, attack, family, chance, tier: tierOf(chance) };
     ITEMS['w:' + k] = { key: 'w:' + k, type: 'weapon', name, attack, family, chance, tier: tierOf(chance), tierN: TIER_N[tierOf(chance)], price: Math.round((attack * 3 + 20) / 5) * 5 };
   }
-  for (const [k, name, family, chance, health] of A) {
+  for (const [k, name, family, chance, health, speed] of A) {
     ARMOR[k] = { name, health, family, chance, tier: tierOf(chance) };
     ITEMS['a:' + k] = { key: 'a:' + k, type: 'armor', name, health, family, chance, tier: tierOf(chance), tierN: TIER_N[tierOf(chance)], price: Math.round((health * 1.4 + 10) / 5) * 5 };
+    if (speed) ARMOR[k].speed = ITEMS['a:' + k].speed = speed;   // ARMOUR-2: movement multiplier while worn (missing = 1)
   }
   // ---- TIER 0 base items: what the crafting bench can make for everyone without unlocking anything from the knowledge tree. Never dropped (chance 0).
   const BASE = [   // [key, type, name, family, stat, cost in parts]
@@ -42,7 +48,10 @@
     (type === 'weapon' ? WEAPONS : ARMOR)[key.slice(2)] = { name, [type === 'weapon' ? 'attack' : 'health']: stat, family, chance: 0, tier: 'common' };
     RECIPES.push({ id: 'r:' + key, out: key, tier: 0, cost, needs: 0 });
   }
-  // Higher-tier recipes unlock through the knowledge tree (tier N needs KNOWLEDGE_TIERS[N-1] knowledge); they will be added later.
+  // Higher-tier recipes unlock through the knowledge tree (tier N needs KNOWLEDGE_TIERS[N-1] knowledge).
+  // ARMOUR-2: some of the new armours can be built at the workbench (the rest are loot, merchant stock and the vault relic).
+  for (const [key, tier, cost] of [['a:swiftwrap', 1, { cloth: 3, string: 2 }], ['a:bonemail', 1, { bone: 5, string: 2 }], ['a:furmantle', 1, { leather: 3, cloth: 2, string: 1 }], ['a:scrapplate', 2, { metal: 4, leather: 2, string: 1 }], ['a:lamellar', 3, { metal: 5, leather: 3, string: 2 }]])
+    RECIPES.push({ id: 'r:' + key, out: key, tier, cost, needs: [20, 40, 60, 80, 100][tier - 1] });   // the values of KNOWLEDGE_TIERS below
   // class items (start-only, never dropped)
   WEAPONS.staff = { name: 'Gnarled Staff', attack: 0, family: 'staff', chance: 0, tier: 'rare' };
   WEAPONS.scepter = { name: 'Royal Scepter', attack: 20, family: 'scepter', chance: 0, tier: 'rare' };
@@ -134,6 +143,8 @@
     const w = weaponKey && ITEMS[weaponKey], fam = w ? w.family : null, ranged = fam === 'bow' || fam === 'crossbow';
     return { dmg: w ? Math.max(1, w.attack) : COMBAT.unarmed, range: ranged ? COMBAT.ranged : COMBAT.melee, cd: w ? (SWING_CD[fam] || 600) : 500, ranged };
   }
-  root.GKITEMS = { randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, START, KNOWLEDGE, SPEED, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info };
+  const armorSpeed = key => { const it = key && ITEMS[key]; return (it && it.speed) || 1; };   // ARMOUR-2: movement multiplier of the worn armour
+  const MAX_ARMOR_SPEED = Math.max(1, ...Object.values(ITEMS).map(i => i.speed || 1));
+  root.GKITEMS = { armorSpeed, MAX_ARMOR_SPEED, randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, START, KNOWLEDGE, SPEED, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.GKITEMS;
 })(typeof window !== 'undefined' ? window : globalThis);
