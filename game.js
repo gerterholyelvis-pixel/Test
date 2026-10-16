@@ -4537,7 +4537,7 @@ function showVictory(info) {
   const from = GK.charId;
   let c = null; try { c = window.GKSAVE.recordWin({ charId: from, goblin: type, items, parts: (info && info.parts) || {}, token: info && info.ctoken, name: GK.fun && GK.fun.myName && GK.fun.myName() }); if (c && c.id != null) GK.charId = c.id; } catch (e) { c = null; }
   const wins = c && c.wins != null ? c.wins : (GK.wins | 0) + 1;
-  closeInv(true); closeShop(true); GK.mode = 'win'; inside = false; keys.clear(); hideHotbar(); GK.social.clear();   // SOCIAL: match won, nothing to resume
+  closeInv(true); closeShop(true); GK.mode = 'win'; inside = false; { const sd = document.getElementById('gkSudTag'); if (sd) sd.remove(); } keys.clear(); hideHotbar(); GK.social.clear();   // SOCIAL: match won, nothing to resume
   try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
   for (const id of ['hint', 'dot', 'rr', 'roundHud', 'hud', 'gkLeft']) { const el = $(id); if (el) el.style.display = 'none'; }
   if (statsEl) statsEl.style.display = 'none';
@@ -6691,7 +6691,7 @@ const JUMP = (() => {
 function frame(now) {
   const dt = clamp((now - last) / 1000, 0.001, 0.05); last = now; const t = now / 1000;
   if (GK.mode !== 'play' && GK.mode !== 'dead' && GK.mode !== 'win') { vmHide(); GK.menu && GK.menu.render(now, dt); requestAnimationFrame(frame); return; }
-  if (GK.mode === 'win' && WINSTAGE.on) { winStageRender(now, dt); requestAnimationFrame(frame); return; }   // MENU2: the victory stage replaces the world view
+  if (GK.mode === 'win' && WINSTAGE.on) { if (GK.feel) GK.feel.tick(dt, now); winStageRender(now, dt); requestAnimationFrame(frame); return; }   // MENU2: the victory stage replaces the world view
   panelTick();
   /* FEEL-BEGIN */ if (GK.feel) GK.feel.tick(dt, now); /* FEEL-END */
   const mine = actors.get(me);
@@ -6910,7 +6910,7 @@ function mqResume() {   // the welcome of a resumed match is applied (world, pla
 }
 GK.start = (opts) => { return new Promise(res => { MQ.resolve = res; connect(opts); if (window.GK_OFFLINE) mqOffline(); }); };   // connects and joins the queue; resolves with my goblin type (the wheel result)
 // MATCH-END
-GK.enter = () => { run.t0 = performance.now(); run.n0 = GK.roundInfo ? GK.roundInfo().n : 0; run.dist = 0; GK.mode = 'play'; net.send({ enter: 1 }); GK.showStats(); GK.applySettings(); if (window.GK_OFFLINE) $('rr').style.display = 'block'; lockNow(); };   // call from a click; 'enter' starts the match's round timer
+GK.enter = () => { if (GK.howTo) GK.howTo.close(); run.t0 = performance.now(); run.n0 = GK.roundInfo ? GK.roundInfo().n : 0; run.dist = 0; GK.mode = 'play'; net.send({ enter: 1 }); GK.showStats(); GK.applySettings(); if (window.GK_OFFLINE) $('rr').style.display = 'block'; lockNow(); };   // call from a click; 'enter' starts the match's round timer
 GK.applySettings = () => { renderer.setPixelRatio(fxPixelRatio()); fxApplyQuality(); resize(); };
 GK.doors = doors;
 GK.fxDebug = { get fx() { return fx; }, cam };   // test hook: post-effects state and the world camera
