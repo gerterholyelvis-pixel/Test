@@ -67,3 +67,15 @@ The increase is about +5 per room (+26 in the vault, which includes the sprites 
 - Marble veining is subtle by design.
 - The glint sprites are always drawn when they are in the frustum (they are not in the culling system). They animate from their own `requestAnimationFrame`.
 - Test setup: the worktree had no `node_modules`, so I made a junction to the main repo's `node_modules` (gitignored, not committed).
+
+## Art pass 2 (hand-made, not generated)
+Before/after: `docs/screens/art-rooms2-{before,after}-{spawn,vault,corner}.jpg` (same cameras, High preset, offline).
+
+- **Story corner per room.** Each grid room (not the vault) reserves one corner first and the older props flow around it. Three seeded themes: goblin camp (bedroll, cold campfire with a tripod pot, log seats, gnawed bone pile, tipped barrel with spilled coins, crate stack), hoard corner (tipped barrel, two standing barrels, broken crate with straw, sacks, coins) and gaol corner (ceiling hook with a chain and open cuffs, bone pile, bucket, broken crate). Chest rooms get one or two door-side pieces; the vault gets a pair of shackles. The campfire embers are an emissive-only mesh (no light).
+- **Graffiti.** Three hand-drawn styles in the atlas (scratched into the paint, red paint with drips, smudged charcoal): a big "KING ME" with a crude crown, a charcoal goblin face, scratched tally gates, "VAULT" wall arrows that point toward the vault side, plus the older marks. Widths are 2 to 4.5 m (readable from the room centre), with per-decal opacity (vertex colour, patched into the decal shader) and a slight tilt.
+- **Wear.** Grime gradient up the walls, boot scuffs, a cracked tile cluster on the floor (away from doorways) and dried water stains on the ceiling.
+- **Panel seams** are two thin ridges (light and shadow side) instead of one flat line.
+- All seeded from the room key (`roomart2:` stream), visual only, no collision.
+
+Cost: lights unchanged (9 PointLight + 1 Hemisphere). Draw calls: the new props, decals and stains reuse the existing per-room merged meshes; the only new mesh is one ember mesh in camp rooms (+1 to +4 draw calls in the whole level, and culling still applies). Triangles: static art grows 140k to 199k (whole scene 272k to 332k). Not measured: real GPU frame time (software GL only).
+Test hook: `GK.roomart.story` (room key to [x, z, theme]).
