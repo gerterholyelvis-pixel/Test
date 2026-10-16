@@ -35,6 +35,15 @@ const roomKeyOf = WORLD.roomKeyOf, boxOf = WORLD.roomAt;
 // ---- matches: independent games, players are queued with similar victory counts ----
 // MATCH-BEGIN (matchmaking: players wait in a queue match (phase 'queue'); it closes at CAP players, or after QUEUE_MS with >= 2; then everyone loads in together. See docs/reports/matchmaking.md)
 const DBG = !!process.env.GK_DEBUG;
+// RULES-BEGIN (experimental rule toggles, all OFF unless the server is started with GK_RULES=crown,doorclose,staffbolt,bribe; see docs/reports/rules-experimental.md)
+const RULE_NAMES = ['crown', 'doorclose', 'staffbolt', 'bribe'];
+const RULES = new Set((process.env.GK_RULES || '').split(',').map(s => s.trim().toLowerCase()).filter(s => RULE_NAMES.includes(s)));
+const rule = n => RULES.has(n);
+const CROWN_MS = DBG && +process.env.GK_CROWN_MS > 0 ? +process.env.GK_CROWN_MS : 20000, DAIS_R = 2.2;   // stand on the vault dais this long, unhurt, to be crowned (GK_CROWN_MS only with GK_DEBUG=1)
+const DOOR_LIFE = 2, KLAXON_MS = 5000;   // doorclose: a door stays open this many rounds; the warning comes this long before the round ends
+const BOLT = { dmg: 6, range: 12, speed: 10, cd: 1200, radius: 0.6 };   // staffbolt
+const BRIBE = { cost: 50, max: 3 };   // bribe: gold per +1 weight, and the most bribes one room can stack per round
+// RULES-END
 const CAP = DBG && /^[1-8]$/.test(process.env.GK_MATCH_SIZE || '') ? +process.env.GK_MATCH_SIZE : 8;   // GK_MATCH_SIZE only works with GK_DEBUG=1
 const QUEUE_MS = process.env.GK_QUEUE_MS && +process.env.GK_QUEUE_MS >= 0 ? +process.env.GK_QUEUE_MS : 15000, MIN_START = 1;   // after QUEUE_MS the match starts even with ONE human, the rest are bots
 const READY_MS = DBG && process.env.GK_READY_MS && +process.env.GK_READY_MS >= 0 ? +process.env.GK_READY_MS : 8000, COUNT_MS = DBG && process.env.GK_COUNTDOWN_MS !== undefined && +process.env.GK_COUNTDOWN_MS >= 0 ? +process.env.GK_COUNTDOWN_MS : 3000;   // debug-only overrides for tests
@@ -57,8 +66,8 @@ function newMatch() {
   matches.set(m.id, m); return m;
 }
 const VAULT = ROOM_DOORS['4'] || []; // the 4 doors touching the middle vault room
-const vaultVotes = m => new Set(Object.keys(m.sel).filter(k => VAULT.includes(m.sel[k]))).size; // distinct rooms selecting a vault door
-const roundState = m => ({ round: { n: m.round, left: Math.max(0, m.endsAt - Date.now()), dur: m.dur }, sel: m.sel, selBy: m.selBy || {}, lastSel: m.lastSel || {}, open: m.open, vaultVotes: vaultVotes(m), fizzled: m.fizzled || [], relic: m.relicKey && !m.relicTaken ? m.relicKey : null, ...(m.sudden ? { sudden: 1 } : null) });
+const vaultVotes = m => { const rooms = Object.keys(m.sel).filter(k => VAULT.includes(m.sel[k])); return rule('bribe') ? rooms.reduce((n, k) => n + 1 + ((m.bribes && m.bribes[k]) || 0), 0) : rooms.length; }; // distinct rooms selecting a vault door (bribe rule: each room weighs 1 + its bribes)
+const roundState = m => ({ round: { n: m.round, left: Math.max(0, m.endsAt - Date.now()), dur: m.dur }, sel: m.sel, selBy: m.selBy || {}, lastSel: m.lastSel || {}, open: m.open, vaultVotes: vaultVotes(m), fizzled: m.fizzled || [], relic: m.relicKey && !m.relicTaken ? m.relicKey : null, ...(m.sudden ? { sudden: 1 } : null), ...ruleState(m) });
 const broadcastRound = m => bcast(m, roundState(m));
 const matchInfo = m => { let lo = Infinity, hi = -Infinity, n = 0, alive = 0; for (const p of m.players.values()) { if (p.npc) continue; n++; lo = Math.min(lo, p.wins); hi = Math.max(hi, p.wins); if (p.entered && !p.dead) alive++; } return { size: n, minWins: n ? lo : 0, maxWins: n ? hi : 0, alive }; };   // mystery enemies never count
 const broadcastMatch = m => bcast(m, { match: matchInfo(m) });
@@ -86,10 +95,11 @@ setInterval(() => { // one global timer steps every match
     /* MATCH-BEGIN */ if (matchTick(m, now)) continue; /* MATCH-END */
     socGrace(m, now);   // SOCIAL: disconnected players whose grace period ran out die now
     botTick(m, now);   // BOTS: brains of bots and mystery enemies (~10 Hz)
+    ruleTick(m, now);   // RULES: experimental rules (no-op unless GK_RULES is set)
     if (!m.started) m.endsAt = now + m.dur;   // round 1 waits until someone has left the wheel and entered the rooms
     if (now >= m.endsAt) {
       const picked = [...new Set(Object.values(m.sel))], ok = vaultVotes(m) >= 2; // vault doors need 2 different rooms
-      m.open = picked.filter(d => ok || !VAULT.includes(d)); m.fizzled = ok ? [] : picked.filter(d => VAULT.includes(d)); m.lastSel = { ...m.sel }; m.sel = {}; m.selBy = {}; m.round++; m.dur = NEXT_MS; m.endsAt = now + m.dur; suddenCheck(m); lootRound(m); broadcastRound(m); m.lastRound = now; }
+      const fresh = picked.filter(d => ok || !VAULT.includes(d)); m.open = ruleOpen(m, fresh); m.fizzled = ok ? [] : picked.filter(d => VAULT.includes(d)); m.lastSel = { ...m.sel }; m.sel = {}; m.selBy = {}; m.bribes = {}; m.round++; m.dur = NEXT_MS; m.endsAt = now + m.dur; suddenCheck(m); lootRound(m); broadcastRound(m); m.lastRound = now; }
     else if (now - m.lastRound >= 1000) { m.lastRound = now; broadcastRound(m); }
     // COMBAT-BEGIN regen: 1 HP every 4 s once a player has not been hit for 6 s
     for (const p of m.players.values()) if (!m.sudden && p.entered && !p.dead && p.stats && p.stats.health < p.stats.maxHealth && now - (p.hurtAt || 0) >= C.regenIdle * RSCALE && now - (p.regenAt || 0) >= C.regenEvery * RSCALE) { p.regenAt = now; p.stats.health = Math.min(p.stats.maxHealth, p.stats.health + C.regenAmt); m.dirty = true; }
@@ -236,7 +246,7 @@ function endMatch(m, winner) {   // once per match: {matchEnd:{winner, top, long
   const places = order.map((p, i) => ({ id: p.id, name: p.name, goblin: p.goblin, bot: p.bot ? 1 : 0, place: i + 1, kills: p.kills || 0, secs: secs(p) }));
   const top = places.slice().sort((a, b) => b.kills - a.kills || a.place - b.place)[0] || null;
   const run = places.filter(r => r.place > 1).sort((a, b) => b.secs - a.secs || a.place - b.place)[0] || null;   // longest survivor besides the winner (who survived by definition)
-  const w = places[0] || null, msg = JSON.stringify({ matchEnd: { ...(m.timeLimit ? { timeLimit: 1 } : null), winner: w && { id: w.id, name: w.name, goblin: w.goblin, bot: w.bot, kills: w.kills }, top, longest: run, places, size: places.length } });
+  const w = places[0] || null, msg = JSON.stringify({ matchEnd: { ...(m.timeLimit ? { timeLimit: 1 } : null), ...(m.crownWin ? { crown: 1 } : null), winner: w && { id: w.id, name: w.name, goblin: w.goblin, bot: w.bot, kills: w.kills }, top, longest: run, places, size: places.length } });
   bcast(m, msg);
   if (!m.specs.size && !humans(m)) matches.delete(m.id);
 }
@@ -246,7 +256,7 @@ const SUDDEN_ROUND = DBG && +process.env.GK_SUDDEN_ROUND > 0 ? +process.env.GK_S
 const NEXT_MS = DBG && +process.env.GK_NEXT_ROUND_MS > 0 ? +process.env.GK_NEXT_ROUND_MS : 45000;   // length of rounds 2 and up (GK_DEBUG only override)
 function suddenCheck(m) {   // right after m.round++ (the round that just ended is m.round - 1)
   if (m.ended) return;
-  if (m.round > SUDDEN_ROUND) { m.sudden = true; m.open = Array.from({ length: nDoors }, (_, i) => i); m.fizzled = []; }
+  if (m.round > SUDDEN_ROUND) { m.sudden = true; m.open = Array.from({ length: nDoors }, (_, i) => i); m.openLeft = {}; m.fizzled = []; }
   if (m.round > MAX_ROUND) timeLimit(m);
 }
 function timeLimit(m) {
@@ -267,9 +277,11 @@ function checkWin(m) {   // DEFAULT RULE (owner has not decided): >= 2 players e
 }
 function attack(m, ws, p, now, rt) {   // {atk:1, rt}: rate limit by weapon, nearest valid target in range, in the 70 degree cone, same room key; targets are rewound to server time rt (what the attacker saw), at most 200 ms
   if (!p.entered || p.dead) return;
-  let cb = G.combat(p.inv.weapon); if (p.npc) cb = { ...cb, dmg: p.npcDmg, cd: p.npcCd };   // mystery enemies have their own damage and cooldown
+  let cb = G.combat(p.inv.weapon); if (p.npc) cb = { ...cb, dmg: p.npcDmg, cd: p.npcCd };
+  const bolt = boltWeapon(p); if (bolt) cb = { ...cb, cd: BOLT.cd };   // staffbolt: staves and scepters throw a slow bolt instead of a melee bonk   // mystery enemies have their own damage and cooldown
   if (now - (p.atkAt || 0) < cb.cd * 0.9) return;   // 10% jitter allowance
   p.atkAt = now; bcast(m, { swing: p.id });
+  if (bolt) return fireBolt(m, p, now);
   const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw), reach = cb.range + C.slack;   // forward vector, same as the client's movement
   let best = null, bd = Infinity;
   const T = srvT(), at = typeof rt === 'number' && Number.isFinite(rt) ? Math.max(T - REWIND_MAX, Math.min(T, rt)) : T;   // lag compensation: look at the world as the attacker saw it
@@ -282,12 +294,84 @@ function attack(m, ws, p, now, rt) {   // {atk:1, rt}: rate limit by weapon, nea
     if (d < bd) { bd = d; best = [tws, t]; }
   }
   if (!best) return;
-  const [tws, t] = best, hp = Math.max(0, t.stats.health - cb.dmg);
-  t.stats.health = hp; t.hurtAt = now; m.dirty = true;
-  bcast(m, { hit: { from: p.id, to: t.id, dmg: cb.dmg, hp, max: t.stats.maxHealth, dead: hp <= 0 } });
-  if (hp <= 0) { p.kills = (p.kills || 0) + 1; t.killedBy = p.id; { const kw = p.npc ? null : p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; t.killer = { name: p.name || 'Goblin', npc: !!p.npc, w: kw ? kw.name : (p.npc ? '' : 'Fists') }; } sendTo(ws, { kills: p.kills }); sendFeed(m, p, t); die(tws, t); }
+  const [tws, t] = best; hitTarget(m, ws, p, tws, t, cb.dmg, now);
 }
 // COMBAT-END
+// RULES-LOGIC-BEGIN (the four experimental rules; every function is a no-op unless its rule is on)
+const ruleState = m => RULES.size ? { rules: [...RULES], ...(rule('bribe') ? { bribes: m.bribes || {} } : null), ...(rule('doorclose') ? { openLeft: Object.fromEntries((m.open || []).filter(d => m.openLeft && m.openLeft[d]).map(d => [d, m.openLeft[d]])) } : null) } : null;
+function ruleOpen(m, fresh) {   // doorclose: the doors stay open for DOOR_LIFE rounds (m.openLeft counts the rounds still to go), a door picked again is refreshed
+  if (!rule('doorclose')) return fresh;
+  const left = m.openLeft || {}, next = {}, keep = [];
+  for (const d of m.open || []) if ((left[d] || 1) - 1 > 0) { next[d] = left[d] - 1; keep.push(d); }
+  for (const d of fresh) { next[d] = DOOR_LIFE; if (!keep.includes(d)) keep.push(d); }
+  m.openLeft = next; return keep;
+}
+function hitTarget(m, ws, p, tws, t, dmg, now) {   // damage, hit broadcast, kill bookkeeping (melee and bolts share it)
+  const hp = Math.max(0, t.stats.health - dmg);
+  t.stats.health = hp; t.hurtAt = now; m.dirty = true;
+  bcast(m, { hit: { from: p.id, to: t.id, dmg, hp, max: t.stats.maxHealth, dead: hp <= 0 } });
+  if (hp <= 0) { p.kills = (p.kills || 0) + 1; t.killedBy = p.id; { const kw = p.npc ? null : p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; t.killer = { name: p.name || 'Goblin', npc: !!p.npc, w: kw ? kw.name : (p.npc ? '' : 'Fists') }; } sendTo(ws, { kills: p.kills }); sendFeed(m, p, t); die(tws, t); }
+}
+function boltWeapon(p) { if (!rule('staffbolt')) return false; const w = p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; return !!w && (w.family === 'staff' || w.family === 'scepter'); }
+function fireBolt(m, p, now) {   // staffbolt: a slow projectile straight ahead, 12 m range, never leaves the room it was fired in
+  m.bolts = m.bolts || []; m.boltN = (m.boltN || 0) + 1;
+  const b = { id: m.boltN, by: p, x: p.x, z: p.z, vx: -Math.sin(p.yaw) * BOLT.speed, vz: -Math.cos(p.yaw) * BOLT.speed, dist: 0, room: p.room, t: now };
+  m.bolts.push(b); bcast(m, { bolt: { id: b.id, by: p.id, x: +p.x.toFixed(2), z: +p.z.toFixed(2), vx: +b.vx.toFixed(2), vz: +b.vz.toFixed(2), range: BOLT.range } });
+}
+function boltTick(m, now) {
+  if (!m.bolts || !m.bolts.length) return;
+  const dt = Math.min(0.1, (now - (m.boltAt || now)) / 1000); m.boltAt = now;
+  m.bolts = m.bolts.filter(b => {
+    b.x += b.vx * dt; b.z += b.vz * dt; b.dist += BOLT.speed * dt;
+    let hit = null;
+    for (const [tws, t] of m.players) { if (t === b.by || t.dead || !t.entered || t.room !== b.room) continue; if (Math.hypot(t.x - b.x, t.z - b.z) < BOLT.radius) { hit = [tws, t]; break; } }
+    if (hit) { hitTarget(m, b.by.ws, b.by, hit[0], hit[1], BOLT.dmg, now); bcast(m, { boltEnd: { id: b.id, hit: 1 } }); return false; }
+    if (b.dist >= BOLT.range || roomKeyOf(b.x, b.z) !== b.room) { bcast(m, { boltEnd: { id: b.id } }); return false; }
+    return true;
+  });
+}
+function bribe(m, p) {   // bribe: pay gold at your room's panel for +1 weight on its pick this round (counts for the vault's 2-vote rule); returns a failure reason or null
+  if (!/^[0-8]$/.test(p.room || '') || m.phase !== 'play') return 'room';
+  if (m.sel[p.room] == null) return 'pick';
+  m.bribes = m.bribes || {};
+  if ((m.bribes[p.room] || 0) >= BRIBE.max) return 'max';
+  if (p.gold < BRIBE.cost) return 'gold';
+  p.gold -= BRIBE.cost; m.bribes[p.room] = (m.bribes[p.room] || 0) + 1; sendGold(p); broadcastRound(m);
+  return null;
+}
+function crownTick(m, now) {   // crown: stand on the vault dais for CROWN_MS without being hurt and you win the match
+  let lead = null;
+  for (const [ws, p] of m.players) {
+    if (p.npc || p.dead || !p.entered) continue;
+    const on = p.room === '4' && Math.hypot(p.x, p.z) < DAIS_R;
+    if (!on) { p.crownAt = 0; continue; }
+    if (!p.crownAt || (p.hurtAt || 0) > p.crownAt) p.crownAt = now;   // damage starts the count again
+    const prog = (now - p.crownAt) / CROWN_MS;
+    if (prog >= 1) { crownWin(m, ws, p); return; }
+    if (!lead || prog > lead.prog) lead = { p, prog };
+  }
+  if (lead) {
+    if (m.crownBy !== lead.p.id) { m.crownBy = lead.p.id; bcast(m, { feed: { k: lead.p.name || 'Goblin', msg: ' is claiming the crown!' } }); }
+    if (now - (m.crownSent || 0) >= 250) { m.crownSent = now; bcast(m, { crown: { id: lead.p.id, name: lead.p.name || 'Goblin', p: +lead.prog.toFixed(3), ms: CROWN_MS } }); }
+  } else if (m.crownBy != null) { m.crownBy = null; bcast(m, { crown: null }); }
+}
+function crownWin(m, ws, p) {
+  m.crownWin = true; bcast(m, { crown: null, feed: { k: p.name || 'Goblin', msg: ' was crowned Goblin King!' } });
+  const live = [...m.players.entries()].filter(([, q]) => !q.npc && q.entered && !q.dead && q !== p);
+  if (isHum(p)) win(ws, p); else endMatch(m, p);
+  for (const [w2, q] of live) if (isHum(q)) die(w2, q);   // the beaten humans become spectators
+}
+function ruleTick(m, now) {   // called from the 50 ms match loop
+  if (m.phase !== 'play' || m.ended) return;
+  if (RULES.size === 0) return;
+  if (rule('crown')) crownTick(m, now);
+  if (rule('staffbolt')) boltTick(m, now);
+  if (rule('doorclose') && !m.sudden && m.klaxonRound !== m.round && m.endsAt - now <= KLAXON_MS && m.open && m.open.length) {   // 5 s before the round ends: warn about the doors that close with it
+    m.klaxonRound = m.round; const going = m.open.filter(d => m.openLeft && m.openLeft[d] === 1);
+    if (going.length) bcast(m, { klaxon: { doors: going, ms: Math.max(0, m.endsAt - now) } });
+  }
+}
+// RULES-LOGIC-END
 function eatBrain(p, key) { // applies a brain's knowledge gain, returns the gain
   const gain = G.brainGain(key);
   p.stats.knowledge = Math.round((p.stats.knowledge + gain) * 100) / 100; p.brains = (p.brains || 0) + 1;
@@ -583,7 +667,7 @@ function pickDest(m, p, now) {   // idle: where to go next (claimable rooms, the
       else if (L === 'merchant' || (L === 'mystery' && my && my.kind === 'stations')) s += !b.done[key] && botNeedsStation(p) ? 3 : -1;   // LOOT: junk to recycle
       else if (L === 'mystery' && my && my.kind === 'enemy') s += m.round > 2 && p.stats.health > p.stats.maxHealth * 0.7 ? 0.5 : -3;
       else s -= 1;
-    } else if (key === '4') s += (m.round > 3 ? 4 : -1) + (relicFree(m) && p.inv.backpack.indexOf(null) >= 0 ? 14 : 0);   // LOOT: bots want the vault relic
+    } else if (key === '4') s += (rule('crown') ? 9 : 0) + (m.round > 3 ? 4 : -1) + (relicFree(m) && p.inv.backpack.indexOf(null) >= 0 ? 14 : 0);   // LOOT: bots want the vault relic
     else s += (b.seen[key] ? 0 : 1);
     if (m.round >= 3 && hunt[key]) s += m.sudden ? 0.6 : 2.5;   // in sudden death everyone converges on the vault (and its relic), not on whoever is in the next room
     if (m.sudden && key === '4') s += 7;
@@ -622,7 +706,7 @@ function botThink(m, p, now, dt) {
   }
   if (b.mode === 'flee') { if (!b.route.length) b.mode = ''; else { follow(m, p, dt, now); return; } }
   if (t) {   // fight: close in, face, swing (attack() enforces cooldown, range and cone like for players)
-    const cb = G.combat(p.inv.weapon), ranged = cb.ranged, want = ranged ? (p.npc === 'archer' ? 7 : 5) : 1.4, d = Math.hypot(t.x - p.x, t.z - p.z);
+    const cb = G.combat(p.inv.weapon), ranged = cb.ranged || boltWeapon(p), want = ranged ? (p.npc === 'archer' ? 7 : 5) : 1.4, d = Math.hypot(t.x - p.x, t.z - p.z);
     b.route = [];
     if (d > want + 0.4) { const [tx, tz] = clampIn(p.room, t.x, t.z, 0.5); stepTo(m, p, tx, tz, dt, now); }
     else if (ranged && d < want - 2.5) { const [tx, tz] = clampIn(p.room, p.x + (p.x - t.x) * 3, p.z + (p.z - t.z) * 3, 0.8); stepTo(m, p, tx, tz, dt, now); }
@@ -634,6 +718,7 @@ function botThink(m, p, now, dt) {
     if (Math.hypot(p.x - p.home[0], p.z - p.home[1]) > 0.6) stepTo(m, p, p.home[0], p.home[1], dt, now);
     return;
   }
+  if (rule('crown') && p.bot && p.room === '4') { if (Math.hypot(p.x, p.z) > 1.0) stepTo(m, p, 0, 0, dt, now); return; }   // RULES crown: bots go and stand on the dais, and fight whoever is on it
   if (b.route.length) { follow(m, p, dt, now); return; }
   if (lootNearby(m, p, dt, now)) return;
   if (p.bot && relicGoal(m, p, dt, now)) return;   // LOOT
@@ -816,7 +901,7 @@ wss.on('connection', (ws, req) => {
     const dbg = !!process.env.GK_DEBUG;
     /* MATCH-BEGIN */ if (d.cancel === 1) { if (m.phase === 'queue') { leave(m, ws); ws.close(); } return; }
     if (d.ready === 1) { p.ready = true; if (m.phase === 'loading') { const all = [...m.players.values()]; bcast(m, { readyN: { n: all.filter(q => q.ready).length, size: all.length } }); if (all.every(q => q.ready)) beginCountdown(m); } return; }   // readyN: how many goblins are ready (the loading screen shows it)
-    if (!m.goAt || now < m.goAt) { if (d.m || d.atk === 1 || d.claim === 1 || d.sel !== undefined) return; }   // movement, attacks, claims and door picks are locked until GO
+    if (!m.goAt || now < m.goAt) { if (d.m || d.atk === 1 || d.claim === 1 || d.bribe === 1 || d.sel !== undefined) return; }   // movement, attacks, claims and door picks are locked until GO
     /* MATCH-END */
     if (Array.isArray(d.m) && d.m.length === 3 && d.m.every(v => typeof v === 'number' && Number.isFinite(v))) { applyMove(m, ws, p, d.m[0], d.m[1], d.m[2], now);
     } else if (typeof d.ping === 'number' && Number.isFinite(d.ping)) { sendTo(ws, { pong: d.ping, t: srvT() });
@@ -831,6 +916,7 @@ wss.on('connection', (ws, req) => {
     } else if (typeof d.throw === 'string') { throwPlushie(m, p, d.throw, now);   // LOOT
     } else if (dbg && d.botlab) { botLab(m, ws, p, d.botlab);
     } else if (d.atk === 1) { attack(m, ws, p, now, d.rt);
+    } else if (d.bribe === 1) { if (rule('bribe')) { const why = bribe(m, p); if (why) sendTo(ws, { bribeFail: why }); }   // RULES
     } else if (d.enter === 1) { /* legacy: the match start (GO) replaced it */
     } else if (typeof d.eat === 'string') { eat(p, d.eat);
     } else if (Array.isArray(d.loot)) { const why = loot(m, p, d.loot); if (why) sendTo(ws, { lootFail: why });
