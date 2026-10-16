@@ -58,7 +58,7 @@ const ready = c => c.send({ ready: 1 });
     const a = await connectRaw(srv.port); await sleep(400); assert(!a.state.matchStart, 'must wait for the queue time first');
     const b = await connectRaw(srv.port);
     await a.until(x => x.state.matchStart, 2500, 'timeout start'); await b.until(x => x.state.matchStart, 500, 'b start'); eq(a.state.matchStart.players.length, 8); eq(a.state.matchStart.players.filter(p => p.bot).length, 6);
-    await a.until(x => x.state.countdown, 2000, 'countdown after the ready timeout (nobody sent ready)'); eq(a.state.countdown.at, b.state.countdown.at);
+    await a.until(x => x.state.countdown, 2000, 'countdown after the ready timeout (nobody sent ready)'); await b.until(x => x.state.countdown, 500, 'b countdown'); eq(a.state.countdown.at, b.state.countdown.at);
     await a.close(); await b.close();
   });
   await run('cancel removes the player from the queue', { GK_MATCH_SIZE: '3', GK_QUEUE_MS: '60000' }, async srv => {

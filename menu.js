@@ -65,7 +65,7 @@ addEventListener('keydown', e => {   // F in play (no other handler in game.js /
 });
 GK.fullscreen = { on: fsOn, set: fsSet };
 // FULLSCREEN-END
-$('s-gfx').onchange = e => { GK.settings.gfx = e.target.value; GK.settings.fx = e.target.value !== 'low'; syncUI(); GK.applySettings(); save(); };   // the preset also switches post effects (Low = none)
+$('s-gfx').onchange = e => { try { localStorage.setItem('gk.gfxAuto', 'user'); } catch (er) {} GK.settings.gfx = e.target.value; GK.settings.fx = e.target.value !== 'low'; syncUI(); GK.applySettings(); save(); };   // the preset also switches post effects (Low = none)
 $('s-reset').onclick = () => { Object.assign(GK.settings, DEFAULTS); syncUI(); GK.applySettings(); save(); };
 syncUI(); GK.applySettings();
 

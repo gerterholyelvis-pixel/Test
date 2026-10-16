@@ -40,6 +40,8 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.15;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.body.prepend(renderer.domElement);
+// PERF: three renders transparent double-sided materials in two passes and sets needsUpdate on both, so every such object re-hashed its shader program key twice per frame. Materials that do not write depth do not need the split.
+Object.defineProperty(THREE.Material.prototype, 'forceSinglePass', { get() { return this.depthWrite === false; }, set() {}, configurable: true });
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0b0b0e);
 const cam = new THREE.PerspectiveCamera(75, 1, 0.05, 190);
@@ -3792,14 +3794,24 @@ function showStats(p, type) {   // small stat panel, bottom-left
   GK.myStats = { knowledge: st.knowledge, attack: st.attack, health: st.health, maxHealth: st.maxHealth || st.health };   // read by the knowledge tree tiers
   const packN = invReady ? myInv.backpack.filter(Boolean).length : 0;
   const max = st.maxHealth || st.health || 1;
-  statsEl.innerHTML = '<div style="color:#ffd75e;letter-spacing:.06em;margin-bottom:4px">' + NAMES[type].toUpperCase() + '</div>'
-    + '<div style="display:flex;justify-content:space-between"><span>Attack</span><span>' + st.attack + '</span></div>'
-    + '<div style="display:flex;justify-content:space-between"><span>Knowledge</span><span id="hudKnow">' + fmtN(st.knowledge) + '</span></div>'
-    + '<div style="display:flex;justify-content:space-between;align-items:center"><span>Gold</span><span><i class="gkcoin"></i> <b style="color:#ffd75e">' + myGold + '</b></span></div>'
-    + '<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,.12);font-weight:500;color:#cfd3dc"><div>Weapon: <b style="color:#f2efe6">' + gear.weapon + '</b> <small>(' + (tierN(myInv.weapon) != null ? 'Tier ' + tierN(myInv.weapon) + ', ' : '') + st.attack + ' dmg)</small></div>'
-    + '<div>Armour: <b style="color:#f2efe6">' + gear.armor + '</b> <small>(' + (tierN(myInv.armor) != null ? 'Tier ' + tierN(myInv.armor) + ', ' : '') + max + ' HP)</small></div>'
-    + (partsTotal() ? '<div>Materials: <b style="color:#f2efe6">' + partsTotal() + '</b> <small>(Tab)</small></div>' : '')
-    + '<div>Backpack: <b style="color:#f2efe6">' + packN + ' / 9</b> <small>(Tab)</small></div></div>';
+  if (!statsEl._f) {   // PERF: the card is built once; each refresh only sets the text of the fields whose value changed
+    statsEl.innerHTML = '<div style="color:#ffd75e;letter-spacing:.06em;margin-bottom:4px"></div>'
+      + '<div style="display:flex;justify-content:space-between"><span>Attack</span><span></span></div>'
+      + '<div style="display:flex;justify-content:space-between"><span>Knowledge</span><span id="hudKnow"></span></div>'
+      + '<div style="display:flex;justify-content:space-between;align-items:center"><span>Gold</span><span><i class="gkcoin"></i> <b style="color:#ffd75e"></b></span></div>'
+      + '<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,.12);font-weight:500;color:#cfd3dc"><div>Weapon: <b style="color:#f2efe6"></b> <small></small></div>'
+      + '<div>Armour: <b style="color:#f2efe6"></b> <small></small></div>'
+      + '<div>Materials: <b style="color:#f2efe6"></b> <small>(Tab)</small></div>'
+      + '<div>Backpack: <b style="color:#f2efe6"></b> <small>(Tab)</small></div></div>';
+    const c = statsEl.children, g = c[3], gl = c[4].children;
+    statsEl._f = { name: c[0], atk: c[1].lastChild, know: c[2].lastChild, gold: g.querySelector('b'), wep: gl[0].querySelector('b'), wepS: gl[0].querySelector('small'), arm: gl[1].querySelector('b'), armS: gl[1].querySelector('small'), mat: gl[2], matB: gl[2].querySelector('b'), pack: gl[3].querySelector('b') };
+  }
+  const F = statsEl._f, setT = (e, s) => { if (e._t !== s) { e._t = s; e.textContent = s; } };
+  setT(F.name, NAMES[type].toUpperCase()); setT(F.atk, '' + st.attack); setT(F.know, fmtN(st.knowledge)); setT(F.gold, '' + myGold);
+  setT(F.wep, '' + gear.weapon); setT(F.wepS, '(' + (tierN(myInv.weapon) != null ? 'Tier ' + tierN(myInv.weapon) + ', ' : '') + st.attack + ' dmg)');
+  setT(F.arm, '' + gear.armor); setT(F.armS, '(' + (tierN(myInv.armor) != null ? 'Tier ' + tierN(myInv.armor) + ', ' : '') + max + ' HP)');
+  const pt = partsTotal(); if (F.mat._h !== !pt) { F.mat._h = !pt; F.mat.style.display = pt ? '' : 'none'; } setT(F.matB, '' + pt);
+  setT(F.pack, packN + ' / 9');
   statsEl.style.display = GK.mode === 'play' ? 'block' : 'none';
 }
 // ---- loot: what a dead goblin leaves behind (weapon, armour and everything in the inventory) ----
@@ -3911,12 +3923,12 @@ GK.fun = (() => {
   function paintBoard() {
     const b = S.board; if (!S.sb) S.sb = el('gkBoard', 'position:fixed;left:50%;top:14vh;transform:translateX(-50%);z-index:55;width:min(560px,94vw);padding:16px 20px 14px;border-radius:14px;background:rgba(10,10,16,.86);border:1px solid rgba(255,215,94,.45);box-shadow:0 10px 50px rgba(0,0,0,.7);color:#f2efe6;font:600 14px system-ui,sans-serif;pointer-events:none;display:none');
     const rows = b ? b.rows.slice().sort((x, y) => y[4] - x[4] || y[3] - x[3] || x[0] - y[0]) : [];
-    S.sb.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px"><span style="color:' + GOLDC + ';font-weight:800;letter-spacing:.14em">SCOREBOARD</span><span style="color:#cfd3dc">Goblins left <b style="color:' + GOLDC + ';font-size:20px">' + (b ? b.left : '-') + '</b></span></div>'
+    const html = '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px"><span style="color:' + GOLDC + ';font-weight:800;letter-spacing:.14em">SCOREBOARD</span><span style="color:#cfd3dc">Goblins left <b style="color:' + GOLDC + ';font-size:20px">' + (b ? b.left : '-') + '</b></span></div>'
       + '<div style="display:grid;grid-template-columns:1.4fr 1.3fr .5fr .7fr .8fr;gap:4px 10px;font-variant-numeric:tabular-nums">'
       + ['Goblin', 'Type', 'Kills', 'Status', 'Victories'].map(h => '<span style="color:#8d887f;font-size:11px;letter-spacing:.1em;text-transform:uppercase">' + h + '</span>').join('')
       + rows.map(r => { const you = r[0] === me, c = r[4] ? '#f2efe6' : '#7d7871'; return '<span style="color:' + (you ? GOLDC : c) + ';' + (you ? 'font-weight:800;' : '') + '">' + esc(r[1]) + (r[6] ? ' <small style="margin-left:4px;padding:1px 5px;border-radius:5px;background:rgba(255,255,255,.12);color:#b9b4ae;font-size:10px;letter-spacing:.08em;vertical-align:middle">BOT</small>' : '') + '</span>'
         + '<span style="color:' + c + '">' + esc(gname(r[2])) + '</span><span style="color:' + c + '">' + r[3] + '</span><span style="color:' + (r[4] ? '#8be28b' : '#ff6a5a') + '">' + (r[4] ? 'Alive' : 'Dead') + '</span><span style="color:' + c + '">' + r[5] + '</span>'; }).join('')
-      + (rows.length ? '' : '<span style="grid-column:1/-1;color:#8d887f">The scoreboard fills in when the match starts.</span>') + '</div>';
+      + (rows.length ? '' : '<span style="grid-column:1/-1;color:#8d887f">The scoreboard fills in when the match starts.</span>') + '</div>'; if (S.sbH !== html) { S.sbH = html; S.sb.innerHTML = html; }   // PERF: repaint only when the rows changed
   }
   function showBoard(on) { if (on === S.sbOn) return; S.sbOn = on; if (on) paintBoard(); if (S.sb) S.sb.style.display = on ? 'block' : 'none'; }
   // ---- spectating
@@ -3925,7 +3937,7 @@ GK.fun = (() => {
   function cycle(dir) { const l = alive(); if (!l.length) return; const i = l.indexOf(S.tgt); S.tgt = l[i < 0 ? (dir > 0 ? 0 : l.length - 1) : (i + dir + l.length) % l.length]; S.ang = 0; barPaint(); }
   function barPaint() {
     if (!S.bar) return; const l = alive(), a = S.tgt != null && actors.get(S.tgt);
-    S.bar.querySelector('.who').innerHTML = a ? 'Spectating <b style="color:' + GOLDC + '">' + esc(nameOfId(S.tgt)) + '</b>' : 'Nobody left to watch';
+    const wh = a ? 'Spectating <b style="color:' + GOLDC + '">' + esc(nameOfId(S.tgt)) + '</b>' : 'Nobody left to watch'; if (S.whoH !== wh) { S.whoH = wh; S.bar.querySelector('.who').innerHTML = wh; }
     S.bar.querySelector('.hint').textContent = l.length > 1 || (l.length === 1 && l[0] !== S.tgt) ? '← → switch goblin · drag to look' : 'drag to look around';
   }
   function startSpec(info) {
@@ -3939,6 +3951,12 @@ GK.fun = (() => {
     }
     S.bar.style.display = 'flex'; barPaint();
   }
+  function roomClamp(p, tx, tz) {   // keep the orbit camera inside the walls of the room the followed goblin is in (it used to sit outside them)
+    const k = WORLD.roomKeyOf(tx, tz), M = 0.7; let x0, x1, z0, z1;
+    if (k[0] === 'c') { const c = WORLD.CHEST[+k.slice(1)], h = WORLD.CS / 2; x0 = c.cx - h; x1 = c.cx + h; z0 = c.cz - h; z1 = c.cz + h; }
+    else { const i = +k, r = WORLD.rc(i), hw = WORLD.roomW(i) / 2, hd = WORLD.roomD(i) / 2; x0 = r[0] - hw; x1 = r[0] + hw; z0 = r[1] - hd; z1 = r[1] + hd; }
+    p.x = Math.min(Math.max(p.x, x0 + M), x1 - M); p.z = Math.min(Math.max(p.z, z0 + M), z1 - M);
+  }
   function camera(c, dt) {   // third-person orbit around the followed goblin; returns true when it placed the camera
     if (!S.spec) return false;
     let a = S.tgt != null ? actors.get(S.tgt) : null;
@@ -3948,7 +3966,7 @@ GK.fun = (() => {
     S.yaw += wrapPi(a.yaw - S.yaw) * Math.min(1, dt * 2.5);
     const ang = S.yaw + S.ang, d = 4.4 * sc + 1.2, px = a.x + Math.sin(ang) * d, pz = a.z + Math.cos(ang) * d, py = 2.5 * sc + 0.8;
     if (!S.cp) S.cp = new THREE.Vector3(px, py, pz); const k = Math.min(1, dt * 6); S.cp.x += (px - S.cp.x) * k; S.cp.y += (py - S.cp.y) * k; S.cp.z += (pz - S.cp.z) * k;
-    c.fov = 68; c.position.copy(S.cp); c.lookAt(a.x, 1.15 * sc, a.z); return true;
+    roomClamp(S.cp, a.x, a.z); c.fov = 68; c.position.copy(S.cp); c.lookAt(a.x, 1.15 * sc, a.z); return true;
   }
   // ---- match summary
   function matchEnd(e) {
@@ -3959,6 +3977,7 @@ GK.fun = (() => {
     const box = S.end = el('gkEnd', 'position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);font-family:system-ui,sans-serif;color:#f2efe6');
     box.innerHTML = '<div style="width:min(500px,92vw);padding:24px 28px 22px;border-radius:16px;background:rgba(14,12,8,.92);border:1px solid rgba(255,215,94,.55);box-shadow:0 10px 60px rgba(0,0,0,.75);animation:gkFeedIn .3s ease-out">'
       + '<div style="text-align:center;color:' + GOLDC + ';font-weight:900;font-size:clamp(26px,5vw,40px);letter-spacing:.12em;text-shadow:0 0 22px rgba(255,190,50,.45)">MATCH OVER</div>'
+      + (e.timeLimit ? '<div style="text-align:center;color:#ff8a7a;font-size:12px;letter-spacing:.14em;margin-top:2px">TIME LIMIT REACHED: MOST KILLS, THEN MOST HP</div>' : '')
       + (mine ? '<div style="text-align:center;margin:6px 0 14px;font-size:clamp(30px,6vw,46px);font-weight:900;color:' + (mine.place === 1 ? '#8be28b' : '#f2efe6') + '">#' + mine.place + ' <small style="font-size:.4em;color:#aaa59d;letter-spacing:.1em">OF ' + e.size + '</small></div>' : '<div style="height:12px"></div>')
       + '<div style="display:grid;grid-template-columns:auto 1fr;gap:7px 20px;font-size:15px">'
       + (w ? line('Winner', esc(w.name) + ' <small style="color:#aaa59d">' + esc(gname(w.goblin)) + '</small>') : '')
@@ -3969,10 +3988,19 @@ GK.fun = (() => {
       + '<div style="display:flex;gap:10px;margin-top:18px"><button class="gkFunBtn o" id="gkEndX" style="flex:1">CLOSE</button><button class="gkFunBtn g" id="gkEndQ" style="flex:1">REQUEUE</button><button class="gkFunBtn w" id="gkEndM" style="flex:1">MAIN MENU</button></div></div>';
     $('gkEndX').onclick = () => { box.remove(); S.end = null; }; $('gkEndQ').onclick = requeue; $('gkEndM').onclick = () => location.reload();
   }
+  function suddenBanner() {   // after round 8 (server rule): all doors open, no healing
+    S.sudden = true; css();
+    const b = el('gkSudden', 'position:fixed;left:50%;top:34%;transform:translate(-50%,-50%);z-index:60;pointer-events:none;text-align:center;font-family:system-ui,sans-serif;font-weight:900;color:#ff4a3a;text-shadow:0 0 22px #a00,0 3px 10px #000');
+    b.innerHTML = '<div style="font-size:clamp(34px,7vw,76px);letter-spacing:.14em">SUDDEN DEATH</div><div style="font-size:clamp(14px,2.4vw,24px);letter-spacing:.1em;color:#ffd75e;margin-top:6px">All doors are open. No more healing.</div>';
+    b.animate([{ opacity: 0, transform: 'translate(-50%,-50%) scale(.7)' }, { opacity: 1, transform: 'translate(-50%,-50%) scale(1.06)', offset: 0.1 }, { opacity: 1, transform: 'translate(-50%,-50%) scale(1)', offset: 0.8 }, { opacity: 0, transform: 'translate(-50%,-50%) scale(1)' }], { duration: 4500, fill: 'forwards' });
+    const t = el('gkSudTag', 'position:fixed;left:50%;top:84px;transform:translateX(-50%);z-index:29;pointer-events:none;padding:2px 12px;border-radius:8px;background:rgba(40,6,6,.72);border:1px solid #ff4a3a;color:#ff6a5a;font:800 12px system-ui,sans-serif;letter-spacing:.14em');
+    t.textContent = 'SUDDEN DEATH';
+  }
   function onMsg(d) {
     if (d.players) { const m = d.players.find(p => p.id === me); if (m && m.name) S.myName = m.name; for (const p of d.players) if (p.name) S.names[p.id] = p.name; }
     if (d.feed) feed(d.feed);
     if (d.board) { S.board = d.board; for (const r of d.board.rows) S.names[r[0]] = r[1]; if (S.sbOn) paintBoard(); if (S.spec) barPaint(); }
+    if (d.sudden && !S.sudden) suddenBanner();
     if (d.matchEnd) matchEnd(d.matchEnd);
   }
   function deathButton(info) {
@@ -4623,7 +4651,7 @@ function fxApplyQuality(force) {
     gtao._overrideVisibility = function () {
       const c = this._visibilityCache;
       if (fxCull.active) {   // AO only for the camera's room and its open neighbours (far rooms seen through doors get none: half the normal-pass draw calls)
-        for (const o of this.scene.children) { const k = o.visible && fxCull.cls.get(o); if (k && !k.some(x => fxCull.near.has(x))) c.push(o); }
+        for (const o of this.scene.children) { const k = o.visible && fxCull.cls.get(o); if (k && !fxAny(k, fxCull.near)) c.push(o); }
         for (const a of actors.values()) { const g = a.group; if (g && g.visible && !fxCull.near.has(WORLD.roomKeyOf(a.x, a.z))) c.push(g); }
       }
       this.scene.traverseVisible(o => { const m = o.material; if (o.isPoints || o.isLine || o.isSprite || (m && !Array.isArray(m) && ((m.transparent && !m.depthWrite) || m.blending === THREE.AdditiveBlending))) c.push(o); });
@@ -4812,6 +4840,7 @@ function fxPrepActors() {
   }
 }
 // ---- GFX2 room culling: from inside a room only that room, rooms reachable through open (or moving) doors, and the goblins in them are drawn
+const fxAny = (k, set) => { for (let i = 0; i < k.length; i++) if (set.has(k[i])) return true; return false; };   // PERF: replaces k.some(closure) in the per-frame culling loops
 const fxCull = { on: true, active: false, cls: new WeakMap(), adj: null, vis: new Set(), near: new Set(), hidden: [] };
 const _fxB = new THREE.Box3();
 function fxClassify(o) {   // room keys a static top-level object belongs to (1 or 2 for walls between rooms), null = always drawn
@@ -4834,13 +4863,13 @@ function fxCullBegin() {
   if (!fxCull.adj) fxCull.adj = doors.map(d => [WORLD.roomKeyOf(d.gx + d.az[0] * 1.2, d.gz + d.az[1] * 1.2), WORLD.roomKeyOf(d.gx - d.az[0] * 1.2, d.gz - d.az[1] * 1.2)]);
   const vis = fxCull.vis, here = WORLD.roomKeyOf(p.x, p.z); vis.clear(); vis.add(here); fxCull.active = true;
   const near = fxCull.near; near.clear(); near.add(here);
-  for (let i = 0; i < doors.length; i++) { const d = doors[i], [a, b] = fxCull.adj[i]; if ((d.p > 0.001 || d.open) && (a === here || b === here)) { near.add(a); near.add(b); } }
-  for (let grow = true; grow;) { grow = false; for (let i = 0; i < doors.length; i++) { const d = doors[i]; if (d.p <= 0.001 && !d.open) continue; const [a, b] = fxCull.adj[i]; if (vis.has(a) !== vis.has(b)) { vis.add(a); vis.add(b); grow = true; } } }
+  for (let i = 0; i < doors.length; i++) { const d = doors[i], ad = fxCull.adj[i], a = ad[0], b = ad[1]; if ((d.p > 0.001 || d.open) && (a === here || b === here)) { near.add(a); near.add(b); } }
+  for (let grow = true; grow;) { grow = false; for (let i = 0; i < doors.length; i++) { const d = doors[i]; if (d.p <= 0.001 && !d.open) continue; const ad = fxCull.adj[i], a = ad[0], b = ad[1]; if (vis.has(a) !== vis.has(b)) { vis.add(a); vis.add(b); grow = true; } } }
   const hid = fxCull.hidden;
   for (const o of scene.children) {
     if (!o.visible) continue;
     let k = fxCull.cls.get(o); if (k === undefined) { k = fxClassify(o); if (k !== undefined) fxCull.cls.set(o, k); }
-    if (k && !k.some(x => vis.has(x))) { o.visible = false; hid.push(o); }
+    if (k && !fxAny(k, vis)) { o.visible = false; hid.push(o); }
   }
   for (const a of actors.values()) { const g = a.group; if (g && g.visible && !vis.has(WORLD.roomKeyOf(a.x, a.z))) { g.visible = false; hid.push(g); } }
 }
@@ -5765,12 +5794,13 @@ function frame(now) {
     else {
       const bolt = Math.min(d.p / 0.3, 1), swing = Math.max((d.p - 0.3) / 0.7, 0);
       d.leaf.rotation.y = -d.sgn * swing * 1.75;
-      d.wheels.forEach(w => w.rotation.z = d.p * Math.PI * 3);
-      d.rings.forEach(w => w.rotation.z = -d.p * Math.PI * 2);
-      d.bolts.forEach(b => b.position.x = b.userData.x0 + b.userData.sx * 0.38 * (1 - bolt));
+      for (let i = 0; i < d.wheels.length; i++) d.wheels[i].rotation.z = d.p * Math.PI * 3;   // PERF: plain loops, no closure per door per frame
+      for (let i = 0; i < d.rings.length; i++) d.rings[i].rotation.z = -d.p * Math.PI * 2;
+      for (let i = 0; i < d.bolts.length; i++) { const b = d.bolts[i]; b.position.x = b.userData.x0 + b.userData.sx * 0.38 * (1 - bolt); }
       const lf = Math.max(0, 1 - d.p / 0.25); d.laserM.opacity = 0.5 * lf * (0.8 + 0.2 * Math.sin(t * 40));
-      d.lasers.forEach(l => l.visible = lf > 0.01);
-      d.scan.forEach(l => { l.visible = lf > 0.01; l.position.y = 0.4 + (Math.sin(t * 1.6) * 0.5 + 0.5) * (d.dh - 0.8); });
+      for (let i = 0; i < d.lasers.length; i++) d.lasers[i].visible = lf > 0.01;
+      const sy = 0.4 + (Math.sin(t * 1.6) * 0.5 + 0.5) * (d.dh - 0.8);
+      for (let i = 0; i < d.scan.length; i++) { const l = d.scan[i]; l.visible = lf > 0.01; l.position.y = sy; }
     }
     const moving = d.p > 0.02 && d.p < 0.98, flash = d.flash > 0, hex = flash ? 0x20ff60 : moving ? 0xffa020 : d.p >= 0.98 ? 0x20ff60 : 0xff1a1a;
     d.light.emissive.setHex(hex);
@@ -5781,7 +5811,7 @@ function frame(now) {
     d.beamM.opacity += (bt - d.beamM.opacity) * Math.min(1, dt * 8); d.beamM.color.setHex(bc);
     d.domeM.emissive.setHex(bc); d.domeM.emissiveIntensity = moving ? 2.5 : vault ? 1.4 : 0.35;
     const rs = moving ? 10 : vault ? 1.8 : 0;
-    if (rs) d.rots.forEach(r => r.rotation.z += dt * rs * r.userData.dir);
+    if (rs) for (let i = 0; i < d.rots.length; i++) { const r = d.rots[i]; r.rotation.z += dt * rs * r.userData.dir; }
     if (d.eyeM) d.eyeM.opacity = 0.65 + 0.3 * Math.sin(t * 2.4 + d.id);
   }
   dfxUpdate(dt);
@@ -5805,7 +5835,7 @@ function frame(now) {
   UNIQUE.tick();   // UNIQUE: panel flash
   combatTick(dt);   // COMBAT
   // camera
-  ceilings.forEach(c => c.visible = inside);
+  for (let i = 0; i < ceilings.length; i++) ceilings[i].visible = inside;
   if (GK.fun && GK.fun.camera(cam, dt)) { /* FUN: spectator camera */ } else if (inside && mine && spawned) {
     const eye = 1.5 * SCALE[mine.goblin];
     cam.fov = GK.settings.fov; cam.position.set(P.x, eye + (GK.settings.bob === false ? 0 : Math.sin(mine.phase) * 0.035 * clamp(P.speed / 3.5, 0, 1)), P.z);   // FEEL: head bob can be switched off in Settings
@@ -5858,6 +5888,33 @@ function mqShow(text, last) {
   el.style.animation = 'none'; void el.offsetWidth; el.style.animation = 'gkCountPop ' + (last ? '.9s' : '1s') + ' ease-out forwards';
   if (last) el.style.color = '#fff3c0';
 }
+// PERF-BEGIN (first run only: pick the quality preset from a 2 s FPS probe after GO; a preset the player chose is never touched; see docs/reports/perf.md)
+const GFX_ORDER = ['low', 'medium', 'high', 'ultra'];
+function gfxAutoProbe() {
+  let st; try { st = localStorage.getItem('gk.gfxAuto'); const s = JSON.parse(localStorage.getItem('gk.settings') || 'null'); if (!st && s && s.gfx && s.gfx !== 'high') st = 'user'; } catch (e) { return; }   // a saved non-default preset counts as chosen
+  if (st || GK.gfxProbe) return; GK.gfxProbe = { fps: 0 };
+  const mark = v => { try { localStorage.setItem('gk.gfxAuto', v); } catch (e) {} };
+  setTimeout(() => {
+    let n = 0, t0 = 0, dead = false; const onVis = () => { dead = true; };   // a hidden tab throttles rAF: no verdict then, try again next match
+    document.addEventListener('visibilitychange', onVis);
+    const tick = now => {
+      if (dead) { document.removeEventListener('visibilitychange', onVis); GK.gfxProbe = null; return; }
+      if (!t0) t0 = now; n++;
+      if (now - t0 < 2000) { requestAnimationFrame(tick); return; }
+      document.removeEventListener('visibilitychange', onVis);
+      const fps = (n - 1) * 1000 / (now - t0), cur = GK.settings.gfx, i = GFX_ORDER.indexOf(cur); GK.gfxProbe = { fps, from: cur };
+      if (localStorage.getItem('gk.gfxAuto') === 'user') return;
+      mark('auto');
+      if (fps < 40 && i > 0) {   // too slow: one preset down
+        const to = GFX_ORDER[i - 1]; GK.settings.gfx = to; GK.settings.fx = to !== 'low'; GK.gfxProbe.to = to;
+        try { const s = JSON.parse(localStorage.getItem('gk.settings') || '{}'); s.gfx = to; s.fx = GK.settings.fx; localStorage.setItem('gk.settings', JSON.stringify(s)); } catch (e) {}
+        GK.applySettings(); toastMsg('Graphics set to ' + to[0].toUpperCase() + to.slice(1) + ' for smoother play (Settings > Graphics quality)', true);
+      } else if (fps > 100 && cur === 'high') toastMsg('Running at ' + Math.round(fps) + ' fps: Ultra graphics are available in Settings > Graphics quality', true);
+    };
+    requestAnimationFrame(tick);
+  }, 600);
+}
+// PERF-END
 function mqCountdown(c) {   // {at: server ms of GO, now: server ms when sent} -> 3, 2, 1, GO
   if (!c || !Number.isFinite(c.at) || MQ.at) return; MQ.at = c.at; MQ.offset = Number.isFinite(c.now) ? c.now - Date.now() : 0;
   mqEnterWorld(); GK.locked = true;
@@ -5865,7 +5922,7 @@ function mqCountdown(c) {   // {at: server ms of GO, now: server ms when sent} -
     const rem = MQ.at - (Date.now() + MQ.offset);
     if (rem <= 0) {
       clearInterval(MQ.timer); GK.locked = false; MQ.went = true;
-      mqShow('GO!', true); snd('gong'); run.t0 = performance.now(); run.n0 = GK.roundInfo ? GK.roundInfo().n : 0;
+      mqShow('GO!', true); snd('gong'); gfxAutoProbe(); run.t0 = performance.now(); run.n0 = GK.roundInfo ? GK.roundInfo().n : 0;
       if (window.GK_OFFLINE) net.send({ enter: 1 });   // the offline simulation starts its round timer on this; the real server ignores it
       setTimeout(() => { if (MQ.el) MQ.el.style.display = 'none'; }, 900); return;
     }
