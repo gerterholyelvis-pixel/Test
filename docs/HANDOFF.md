@@ -13,7 +13,7 @@ Screenshots are in `docs/screens/`.
 `npm install && npm start`, then open http://localhost:3000.
 - Press **Start**. You queue on the goblin wheel. After 15 s, empty slots fill with server bots, so you get a full 8-goblin match even alone.
 - Offline demo: `?offline=1`.
-- Tests: `npm test` (13 files, about 12 s).
+- Tests: `npm test` (17 files, about 12-28 s).
 - Debug env vars, only with `GK_DEBUG=1`: `GK_MATCH_SIZE`, `GK_QUEUE_MS`, `GK_ROUND_MS`, `GK_COUNTDOWN_MS`, `GK_READY_MS`, `GK_REGEN_SCALE`.
 
 ## What exists now (all on main)
@@ -41,6 +41,30 @@ Screenshots are in `docs/screens/`.
   - Wall maps show last round's picks.
   - Knowledge glow and brain aura on goblins.
   - King crown marker.
+
+## Added since the first overnight update
+- **Loot economy:**
+  - a vault relic (a guaranteed tier 3+ item on a pedestal)
+  - merchant prices rise each round after round 2, shown on a price board
+  - a throwable plushie lure
+  - bots use stations
+- **Interface and onboarding:**
+  - HUD minimap with fog of war (M opens the full map)
+  - contextual first-match tips and a How to Play screen
+  - menu redesign: grouped Settings, model portraits, tier-framed stash, a victory stage
+  - the HUD scales at 1080p
+- **Social:** 15 s reconnect grace, and emotes on keys 4-7.
+- **Fairness and polish:**
+  - one name per goblin
+  - "Killed by" on the death card
+  - bots spread their targets and go for the vault in sudden death
+  - outer room interiors dressed per type
+- **Try the undecided rules before deciding** (all OFF by default; see `docs/reports/rules-experimental.md`):
+  `GK_RULES=crown,doorclose,staffbolt,bribe npm start`
+  - `crown`: hold the vault dais for 20 s to win
+  - `doorclose`: doors stay open 2 rounds
+  - `staffbolt`: wizard magic bolt
+  - `bribe`: press B at a panel, 50 gold for +1 vote
 
 ## Defaults I set that need the OWNER's decision (marked in FEATURES.md)
 1. **Win condition.** Default: last goblin standing. Sudden death after round 8 (all doors open, no regen). After round 10, most kills wins, then most HP. Alternative proposal: a "Crown win", where you hold the vault dais for 20 s (DESIGN-core-loop §2).
