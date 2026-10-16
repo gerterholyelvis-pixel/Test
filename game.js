@@ -5738,7 +5738,8 @@ const ROOMART = (() => {
 ROOMART.init(); GK.roomart = ROOMART;   // test hook: ROOMART.story = room key -> [x, z, theme] of its story corner
 // ROOMART-END
 let orbit = 0.4;
-function resize() { renderer.setSize(innerWidth, innerHeight); fxResize(); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); }
+function uiScale() { document.documentElement.style.setProperty('--uis', Math.max(1, Math.min(1.5, innerHeight / 720)).toFixed(3)); }   // HUD cards, hotbar, scoreboard, inventory and shop grow on tall screens (1080p: x1.5); 720p stays as designed
+function resize() { uiScale(); renderer.setSize(innerWidth, innerHeight); fxResize(); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); }
 addEventListener('resize', resize); resize();
 
 // ---------- simulation ----------
