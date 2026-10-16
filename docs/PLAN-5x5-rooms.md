@@ -525,3 +525,15 @@ All props are procedural (`bx`, `inst`, `GK.stations` materials), emissive only,
 7. **Timing mini-games** (windlass, ratchet, pins) on a 30-60 ms network: windows are 180-300 ms with latency compensation. Is a skill press acceptable in this game, or should those become plain channels?
 8. **The Elder Tree** wakes 3 times, then withers. Or once per match only, as before?
 9. **The ram lane**: a goblin standing in it takes 25 and halves the strike. Is body-blocking the defence you want?
+
+---
+
+## Owner decisions (2026-10-16)
+
+Answers to the open questions in the room-activity plan. Where not listed, the plan's own recommendation stands.
+
+- **Q1 crown claim:** the crown claim decides the match at the time limit only. There is NO instant win at 45 s.
+- **Q2 door bars:** vault occupants can bar a door shut again, as planned.
+- **Q9 ram defence:** defenders stop the Ram with a placeable BARRICADE in the ram lane (spent materials or elixir; the implementer sets the cost, cooldown and hit points and documents them), not by body-blocking. Body-blocking the lane no longer stops it.
+- **Q3-Q8:** the plan's recommendations stand (tree knowledge caps 24 per round and 80 per match; Gambler's Root and Thorn Shrine risk as designed; counter-votes with a strongbox fed by half of every door bribe; vaultbreaker sudden-death roles kept; timing presses; Elder Tree wakes three times).
+- **Earlier (5x5 plan):** 16 attached rooms; home rooms open to raiders unless locked; match decided after round 7 with sudden death after round 5.
