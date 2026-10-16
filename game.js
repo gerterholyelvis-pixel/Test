@@ -847,6 +847,11 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
     const lidWrap = new THREE.Group(); lidWrap.position.z = 0.45; hinge.add(lidWrap); lidWrap.add(lid);
     for (const sx of [-0.52, 0, 0.52]) { const b = new THREE.Mesh(lidGeo(0.47, 0.12, false), ironM); b.position.x = sx; lidWrap.add(b); }
     bx(hinge, 1.38, 0.03, 0.8, 0, 0.0, 0.45, clothM, 1);
+    for (const sx of [-0.46, 0.46]) {   // iron hinge barrels and plates at the back so the lid reads as hinged
+      const hb = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.26, 14), ironM); hb.rotation.z = Math.PI / 2; hb.position.set(sx, 1.0, -0.47); g.add(hb);
+      bx(g, 0.24, 0.025, 0.22, sx, 0.99, -0.36, ironM, 1); bx(hinge, 0.24, 0.03, 0.24, sx, 0.045, 0.12, ironM, 1);
+      for (const rz of [-0.06, 0.06]) { const rv = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 6), goldM); rv.position.set(sx + rz * 1.4, 1.015, -0.36 + rz); g.add(rv); }
+    }
   }
   // ----- weapons: built along +y, centred, ~1.2-1.5 long -----
   const bladeM = M(0xdfe5ec, { metalness: 0.95, roughness: 0.2, envMapIntensity: 1.8 });
@@ -5129,8 +5134,8 @@ const ROOMART = (() => {
   const goldVM = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 1, envMapIntensity: 1.4, emissive: 0x3a2000, emissiveIntensity: 0.6 });
   const MOOD = { chest: 0xffb02e, mystery: 0xa04dff, merchant: 0x22e0cc };
   const moodM = {}; for (const k in MOOD) moodM[k] = new THREE.MeshStandardMaterial({ color: 0x15110c, emissive: MOOD[k], emissiveIntensity: 2.3, roughness: 0.55 });
-  const AW = 1024, AH = 1536;
-  const CELLS = { gob: [0, 0, 512, 256], crown: [512, 0, 256, 256], tally: [768, 0, 256, 256], arrow: [0, 256, 256, 256], mine: [256, 256, 256, 256], king: [512, 256, 512, 256], haz: [0, 512, 1024, 128], kingme: [0, 640, 512, 256], face: [512, 640, 256, 256], scr: [768, 640, 256, 256], grime: [0, 896, 512, 128], scuff: [512, 896, 256, 128], crack: [768, 896, 256, 128], warrR: [0, 1024, 512, 256], warrL: [512, 1024, 512, 256], path: [0, 1280, 256, 256], drag: [256, 1280, 256, 256] };
+  const AW = 1024, AH = 1792;
+  const CELLS = { gob: [0, 0, 512, 256], crown: [512, 0, 256, 256], tally: [768, 0, 256, 256], arrow: [0, 256, 256, 256], mine: [256, 256, 256, 256], king: [512, 256, 512, 256], haz: [0, 512, 1024, 128], kingme: [0, 640, 512, 256], face: [512, 640, 256, 256], scr: [768, 640, 256, 256], grime: [0, 896, 512, 128], scuff: [512, 896, 256, 128], crack: [768, 896, 256, 128], warrR: [0, 1024, 512, 256], warrL: [512, 1024, 512, 256], path: [0, 1280, 256, 256], drag: [256, 1280, 256, 256], claw: [0, 1536, 256, 256], scorch: [256, 1536, 256, 256], sawdust: [512, 1536, 512, 128] };
   const SIZES = { gob: [1.5, 0.75], crown: [0.75, 0.75], tally: [0.7, 0.7], arrow: [0.95, 0.95], mine: [0.8, 0.8], king: [1.5, 0.75], warr: [1.6, 0.8], kingme: [2.0, 1.0], face: [0.9, 0.9], scr: [0.9, 0.9], warrR: [1.6, 0.8], warrL: [1.6, 0.8] };
   const GW = { gob: 4.0, crown: 2.0, tally: 2.0, mine: 2.2, king: 4.2, kingme: 4.5, face: 2.6, scr: 2.4, warr: 3.4 };   // wall graffiti widths in metres (readable from across the room)
   const uvr = k => { const [x, y, w, h] = CELLS[k]; return [(x + 2) / AW, 1 - (y + h - 2) / AH, (x + w - 2) / AW, 1 - (y + 2) / AH]; };
@@ -5239,6 +5244,20 @@ const ROOMART = (() => {
       g.lineCap = 'round'; for (const ox of [-20, 22]) { g.strokeStyle = 'rgba(70,58,46,0.32)'; g.lineWidth = 16; g.shadowColor = 'rgba(70,58,46,0.6)'; g.shadowBlur = 10; g.beginPath(); for (let y = 0; y <= ch; y += 16) { const x = 128 + ox + Math.sin(y * 0.04 + ox) * 14; y ? g.lineTo(x, y) : g.moveTo(x, y); } g.stroke(); }
       g.shadowBlur = 0; for (let i = 0; i < 14; i++) { const x = 70 + rnd() * 116, y = rnd() * ch; g.strokeStyle = 'rgba(40,34,28,0.2)'; g.lineWidth = 1 + rnd() * 2; g.beginPath(); g.moveTo(x, y); g.lineTo(x + (rnd() - 0.5) * 6, y + 20 + rnd() * 40); g.stroke(); }
       fadeEnds(cw, ch);
+    }, false);
+    cell('claw', () => {   // four parallel gouges ripped across the wall
+      for (let k = 0; k < 4; k++) {
+        const x0 = 46 + k * 40, y0 = 14 + (k % 2) * 8, x1 = x0 + 36 + rnd() * 10, y1 = 238 - (k % 2) * 10;
+        for (let p = 0; p < 3; p++) { g.strokeStyle = p === 2 ? 'rgba(255,255,255,0.35)' : p === 1 ? 'rgba(40,30,36,0.55)' : 'rgba(20,14,18,0.9)'; g.lineWidth = p === 0 ? 9 - k * 0.6 : p === 1 ? 14 : 3; g.lineCap = 'round'; g.beginPath(); g.moveTo(x0 + (p === 2 ? 3 : 0), y0); g.quadraticCurveTo((x0 + x1) / 2 + (rnd() - 0.5) * 14, (y0 + y1) / 2, x1 + (p === 2 ? 3 : 0), y1); g.stroke(); }
+        for (let c = 0; c < 6; c++) { const t = rnd(); g.fillStyle = 'rgba(30,24,28,0.7)'; g.fillRect(x0 + (x1 - x0) * t + (rnd() - 0.5) * 8, y0 + (y1 - y0) * t, 3, 6); }
+      }
+    }, false);
+    cell('scorch', (cw, ch) => {   // soft burnt patch
+      const gr = g.createRadialGradient(cw / 2, ch / 2, 6, cw / 2, ch / 2, cw / 2); gr.addColorStop(0, 'rgba(20,14,12,0.7)'); gr.addColorStop(0.5, 'rgba(30,22,18,0.35)'); gr.addColorStop(1, 'rgba(30,22,18,0)'); g.fillStyle = gr; g.fillRect(0, 0, cw, ch);
+      for (let i = 0; i < 26; i++) { g.fillStyle = `rgba(24,18,14,${0.15 + rnd() * 0.3})`; g.beginPath(); g.arc(cw / 2 + (rnd() - 0.5) * cw * 0.7, ch / 2 + (rnd() - 0.5) * ch * 0.7, 2 + rnd() * 7, 0, 7); g.fill(); }
+    }, false);
+    cell('sawdust', (cw, ch) => {   // shavings and dust drifts
+      for (let i = 0; i < 700; i++) { const x = cw * (0.5 + (rnd() + rnd() + rnd() - 1.5) * 0.36), y = ch * (0.5 + (rnd() + rnd() - 1) * 0.5); g.fillStyle = `rgba(${196 + rnd() * 30 | 0},${160 + rnd() * 30 | 0},${100 + rnd() * 30 | 0},${0.25 + rnd() * 0.55})`; g.fillRect(x, y, 2 + rnd() * 5, 1 + rnd() * 2); }
     }, false);
     cell('haz', (cw, ch) => {   // yellow/black safety stripes, 8:1, worn
       g.fillStyle = '#17171a'; g.fillRect(0, 0, cw, ch); g.fillStyle = '#e1ad1c';
@@ -5515,9 +5534,10 @@ const ROOMART = (() => {
       }
     }
     for (let i = 0, n = 1 + ((r2() * 2) | 0); i < n; i++) waterStain(A, (r2() < 0.5 ? -1 : 1) * (hx - 1.1 - r2() * 1.4), (r2() < 0.5 ? -1 : 1) * (hz - 1.1 - r2() * 1.4), r2);
-    if (r.kind === 'chest') moodAccents(r, E, S, C, rnd);
+    if (r.kind === 'chest') { moodAccents(r, E, S, C, rnd); outerDress(r, A, D, mul(hashStr('roomart4:' + r.key))); }
     const out = [], add = (acc, mat, isCeil, name) => { if (!acc.cnt) return; const m = new THREE.Mesh(acc.geometry(), mat); m.name = name; m.matrixAutoUpdate = false; m.updateMatrix(); scene.add(m); out.push(m); if (isCeil) ceilings.push(m); };
     add(S, solidM, false, 'roomartSolid'); add(G, goldVM, false, 'roomartGold'); add(C, solidM, true, 'roomartCeil'); add(D, decalM, false, 'roomartDecal'); add(E, r.kind === 'chest' ? (moodM[r.type] || solidM) : emberM, false, 'roomartMood');
+    if (r.kind === 'chest' && r.type === 'merchant') { const bm = makeBoard(r); scene.add(bm); out.push(bm); }   // price board with the real prices
     return out;
   }
 
@@ -5573,6 +5593,109 @@ const ROOMART = (() => {
     requestAnimationFrame(tick);
   }
 
+  // ---- art pass 4: set dressing for the 12 outer rooms (chest, each mystery kind, merchant). Visual only, merged into the room's meshes, seeded per room.
+  const TRIG = (() => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute([-0.5, 0, 0, 0.5, 0, 0, 0, -1, 0], 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1], 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0.5, 1], 2)); g.setIndex([0, 1, 2]); return g; })();
+  const GEMC = [0xe0203a, 0x20c860, 0x3a7bff, 0xb04cff, 0x30e0e0], PARTY = [0xff5a8a, 0xffc933, 0x38d6b4, 0x7a5cff, 0xff8a30];
+  const STEEL = 0xa9b3be, DARKW = 0x4a3422;
+  function outerDress(r, A, D, rd) {
+    const hx = r.hx, S = A.S, G = A.G, E = A.M, mk = r.mkind;
+    if (r.type === 'mystery') for (let i = 0; i < 38; i++) put(E, OCTG, (rd() - 0.5) * (hx * 2 - 1), 0.5 + rd() * 3.4, (rd() - 0.5) * (hx * 2 - 1), rd() * 3, rd() * 3, 0, 0.022 + rd() * 0.02, 0.03 + rd() * 0.03, 0.022 + rd() * 0.02, WHITE);   // floating dust motes (emissive, the room's mood colour)
+    if (r.type === 'chest') {
+      for (let i = 0; i < 34; i++) { const a = (rd() - 0.5) * 2.2, d = 0.6 + rd() * 1.9; coin(A, Math.sin(a) * d, 0.012 + (rd() < 0.2 ? 0.012 : 0), -1.9 + Math.cos(a) * d * 0.8, rd, 0.4); }   // coins spilled in a fan from the chest toward the rug
+      for (let i = 0; i < 7; i++) put(S, OCTG, (rd() - 0.5) * 3.2, 0.05, -1.3 - rd() * 1.2, rd() * 3, rd() * 6, rd() * 3, 0.05, 0.075, 0.05, cv(GEMC[i % 5], rd, 0.1));
+      for (const sx of [-1, 1]) for (let i = 0; i < 3; i++) put(G, BOXG, sx * 2.15, 0.07 + i * 0.12, -3.0, 0, (rd() - 0.5) * 0.3 + i * 0.1, 0, 0.44 - i * 0.05, 0.11, 0.2, cv(GOLD[(i + 1) % 4], rd, 0.06));   // ingot stacks beside the dais
+      sack(A, -2.8, -2.4, rd); sack(A, 2.75, -2.5, rd); sack(A, 2.45, -2.9, rd);
+    } else if (r.type === 'mystery' && mk === 'weapon') {
+      put(S, BOXG, -hx + 0.1, 1.9, 0, 0, 0, 0, 0.12, 1.5, 2.5, cv(DARKW, rd, 0.1));
+      for (let i = 0; i < 4; i++) {   // a rack of blades and spears
+        const z = -0.9 + i * 0.6, sp = i % 2 === 0;
+        put(S, CYLG, -hx + 0.26, 1.9, z, 0, 0, 0, sp ? 0.028 : 0.02, sp ? 1.7 : 1.1, sp ? 0.028 : 0.02, cv(sp ? 0x7a5634 : STEEL, rd, 0.06));
+        if (sp) put(S, CONEG, -hx + 0.26, 2.9, z, 0, 0, 0, 0.07, 0.3, 0.07, cv(STEEL, rd, 0.05)); else { put(S, BOXG, -hx + 0.26, 1.4, z, 0, 0, 0, 0.09, 0.05, 0.3, cv(0xc8962e, rd, 0.05)); put(S, BOXG, -hx + 0.26, 1.2, z, 0, 0, 0, 0.05, 0.3, 0.05, cv(DARKW, rd, 0.05)); }
+      }
+      put(S, CYLG, hx - 0.12, 2.2, -0.6, 0, 0, PI / 2, 0.55, 0.07, 0.55, cv(0x8a1424, rd, 0.06)); put(G, CYLG, hx - 0.17, 2.2, -0.6, 0, 0, PI / 2, 0.14, 0.06, 0.14, cv(0xf0b02a, rd, 0.05));   // round shield with a gold boss
+    } else if (r.type === 'mystery' && mk === 'armor') {
+      for (const sx of [-1, 1]) {   // two mannequins in mail
+        const x = sx * 2.75, z = -2.5, steel = cv(STEEL, rd, 0.06);
+        put(S, CYLG, x, 0.04, z, 0, 0, 0, 0.32, 0.08, 0.32, cv(DARKW, rd, 0.08)); put(S, CYLG, x, 0.7, z, 0, 0, 0, 0.04, 1.4, 0.04, cv(DARKW, rd, 0.08));
+        put(S, SPHG, x, 1.25, z, 0, 0, 0, 0.3, 0.38, 0.2, steel); put(S, SPHG, x, 1.7, z, 0, 0, 0, 0.16, 0.18, 0.16, steel); put(S, BOXG, x, 1.7, z + 0.13, 0, 0, 0, 0.18, 0.03, 0.02, cv(0x20242a, rd, 0.05));
+        for (const s2 of [-1, 1]) put(S, SPHG, x + s2 * 0.3, 1.45, z, 0, 0, 0, 0.14, 0.12, 0.14, steel);
+      }
+      put(S, BOXG, 0, 3.4, -hx + 0.08, 0, 0, 0, 1.3, 0.05, 0.04, cv(0xc8962e, rd, 0.05));
+    } else if (r.type === 'mystery' && mk === 'gold') {
+      for (const [x, z] of [[-2.7, -2.9], [2.7, -2.9], [-2.9, 1.2], [2.9, 1.0]]) coinPile(A, x, z, 0.5 + rd() * 0.25, 0.22 + rd() * 0.15, rd);
+      for (let i = 0; i < 6; i++) put(G, BOXG, 2.7 - (i % 3) * 0.46, 0.07 + Math.floor(i / 3) * 0.12, 2.4, 0, 0.1 * (i % 2), 0, 0.42, 0.11, 0.2, cv(GOLD[i % 4], rd, 0.06));
+    } else if (r.type === 'mystery' && mk === 'stations') {
+      put(S, BOXG, -hx + 0.08, 2.0, 0.2, 0, 0, 0, 0.08, 1.5, 2.3, cv(0x3a2a1c, rd, 0.1));   // pegboard with tools
+      const tool = cv(STEEL, rd, 0.08), wood = cv(0x7a5634, rd, 0.08);
+      put(S, CYLG, -hx + 0.16, 2.5, -0.6, 0, 0, 0, 0.03, 0.5, 0.03, wood); put(S, BOXG, -hx + 0.16, 2.78, -0.6, 0, 0, 0, 0.1, 0.1, 0.24, tool);   // hammer
+      put(S, BOXG, -hx + 0.16, 2.2, 0.35, 0, 0, 0, 0.02, 0.18, 0.8, tool); for (let i = 0; i < 9; i++) put(S, CONEG, -hx + 0.16, 2.11, -0.02 + i * 0.09, 0, 0, PI, 0.012, 0.04, 0.012, tool);   // saw with teeth
+      put(S, TRIG, -hx + 0.15, 2.0, 1.05, 0, -PI / 2, 0, 0.4, 0.5, 1, tool);   // a flat blade
+      for (let i = 0; i < 3; i++) { const z = -0.6 + i * 0.7; put(S, BOXG, -hx + 0.2, 1.5, z, 0, 0, 0, 0.05, 0.05, 0.4, cv(0x2a2a30, rd, 0.1)); }
+      for (let i = 0; i < 3; i++) { const z = -1.2 + i * 1.1, ore = [0x8a5a2b, 0xa9b4be, 0x3a7bff][i]; put(S, BOXG, 3.0, 0.3, z, 0, 0, 0, 0.7, 0.6, 0.9, cv(0x4a3a2a, rd, 0.1)); for (let k = 0; k < 6; k++) put(S, SPHG, 3.0 + (rd() - 0.5) * 0.4, 0.62 + rd() * 0.1, z + (rd() - 0.5) * 0.6, 0, 0, 0, 0.11, 0.09, 0.11, cv(ore, rd, 0.1)); }   // bins of ore, metal and gems
+      const cx = -1.2, cz = 1.4; put(C0(A), TORG, cx, 4.7, cz, PI / 2, 0, 0, 0.42, 0.42, 0.42, cv(0x6a6e74, rd, 0.06)); for (let i = 0; i < 10; i++) { const a = i * PI / 5; put(C0(A), BOXG, cx + Math.cos(a) * 0.44, 4.7 + Math.sin(a) * 0.44, cz, 0, 0, a, 0.12, 0.12, 0.1, cv(0x6a6e74, rd, 0.06)); }   // a cog hung from the ceiling
+      const u = uvr('sawdust'); D.quad(new V3(-2.3, 0.008, 1.9), new V3(0, 1, 0), new V3(0, 0, 1), 1.1, 0.9, u, new THREE.Color(0.9, 0.9, 0.9));
+    } else if (r.type === 'mystery' && mk === 'enemy') {
+      bonePile(A, -2.6, -2.7, rd); bonePile(A, 2.5, 1.4, rd);
+      for (const [w, t, y, hw, op] of [[2, -1.4, 1.9, 1.0, 1], [3, 1.2, 2.1, 1.1, 0.9], [2, 2.2, 1.5, 0.8, 0.8]]) {   // claw marks on the side walls
+        const x = w === 2 ? -hx + 0.012 : hx - 0.012; D.quad(new V3(x, y, t), new V3(w === 2 ? 1 : -1, 0, 0), new V3(0, 1, 0).applyAxisAngle(new V3(w === 2 ? 1 : -1, 0, 0), (rd() - 0.5) * 0.5), hw, hw, uvr('claw'), new THREE.Color(op, op, op));
+      }
+      D.quad(new V3(0, 0.009, 0.4), new V3(0, 1, 0), new V3(0, 0, 1), 1.5, 1.5, uvr('scorch'), new THREE.Color(0.9, 0.9, 0.9));   // the lair floor is scorched under the enemy
+      shackles(A, -2.9, 0.8, rd); shackles(A, 2.9, -1.0, rd);
+    } else if (r.type === 'mystery' && mk === 'plushie') {
+      for (const [z, y0] of [[-1.4, 4.9], [1.3, 4.6]]) {   // two strings of bunting across the room
+        put(C0(A), BOXG, 0, y0 - 0.25, z, 0, 0, 0, 7.2, 0.012, 0.012, cv(0x6a4a2e, rd, 0.05));
+        for (let i = 0; i < 14; i++) { const t = i / 13, x = -3.4 + 6.8 * t, y = y0 - 0.1 - 0.5 * Math.sin(PI * t); put(C0(A), TRIG, x, y, z, 0, 0, (rd() - 0.5) * 0.25, 0.4, 0.5, 1, cv(PARTY[i % 5], rd, 0.06)); }
+      }
+      for (let i = 0; i < 7; i++) {   // balloons tied to the floor
+        const a = i / 7 * PI * 2 + 0.4, x = Math.cos(a) * 2.7, z = Math.sin(a) * 2.5 - 0.3, y = 2.7 + rd() * 1.3;
+        put(S, SPHG, x, y, z, 0, 0, 0, 0.27, 0.34, 0.27, cv(PARTY[i % 5], rd, 0.05)); put(S, CONEG, x, y - 0.36, z, PI, 0, 0, 0.04, 0.06, 0.04, cv(PARTY[i % 5], rd, 0.05)); put(S, CYLG, x, (y - 0.36) / 2 + 0.02, z, 0, 0, 0, 0.006, y - 0.36, 0.006, cv(0xe8e0d0, rd, 0.04));
+      }
+      for (let i = 0; i < 70; i++) put(S, BOXG, (rd() - 0.5) * 6.6, 0.006 + rd() * 0.004, (rd() - 0.5) * 6.6, 0, rd() * 6, 0, 0.07, 0.004, 0.045, cv(PARTY[(rd() * 5) | 0], rd, 0.05));   // confetti
+      for (const [x, z, y, c] of [[2.6, -2.6, 0.15, 0], [2.6, -2.6, 0.45, 1], [2.55, -2.62, 0.75, 2], [-2.7, -2.5, 0.15, 3]]) put(S, BOXG, x, y, z, 0, rd() * 0.5, 0, 0.3, 0.3, 0.3, cv(PARTY[c], rd, 0.05));   // toy blocks
+    } else if (r.type === 'merchant') {
+      const beamY = H - 0.55;   // goods hang from a rope along the door-side beam
+      put(C0(A), BOXG, 0, beamY - 0.05, 1.6, 0, 0, 0, 7.0, 0.02, 0.02, cv(0x6a4a2e, rd, 0.05));
+      for (let i = 0; i < 9; i++) {
+        const x = -3.1 + i * 0.77, len = 0.9 + rd() * 1.3, y = beamY - len, kind = i % 5, z = 1.6;
+        put(C0(A), BOXG, x, beamY - len / 2, z, 0, 0, 0, 0.012, len, 0.012, cv(0x8a6a44, rd, 0.05));
+        if (kind === 0) { put(S, SPHG, x, y - 0.2, z, 0, 0, 0, 0.2, 0.26, 0.2, cv(0xb09a6e, rd, 0.08)); put(S, CYLG, x, y, z, 0, 0, 0, 0.06, 0.06, 0.06, cv(0x6a5a3a, rd, 0.05)); }
+        else if (kind === 1) { put(S, SPHG, x, y - 0.1, z, 0, 0, 0, 0.1, 0.34, 0.04, cv(0x8f9aa6, rd, 0.06)); put(S, TRIG, x, y - 0.4, z, 0, 0, PI, 0.18, 0.2, 1, cv(0x7f8a96, rd, 0.06)); }
+        else if (kind === 2) { put(S, HEMG, x, y - 0.1, z, PI, 0, 0, 0.22, 0.2, 0.22, cv(0xb8734a, rd, 0.06)); put(S, ARCG, x, y + 0.02, z, 0, 0, 0, 0.2, 0.2, 0.2, cv(0x6a3a22, rd, 0.05)); }
+        else if (kind === 3) { put(S, CYLG, x, y - 0.14, z, 0, 0, 0, 0.07, 0.24, 0.07, cv(0x2c9a8a, rd, 0.08)); put(S, CYLG, x, y + 0.02, z, 0, 0, 0, 0.03, 0.1, 0.03, cv(0x2c9a8a, rd, 0.08)); put(S, SPHG, x, y + 0.09, z, 0, 0, 0, 0.035, 0.035, 0.035, cv(0xb08a5a, rd, 0.05)); }
+        else { put(S, BOXG, x, y - 0.15, z, 0, 0, 0, 0.18, 0.04, 0.18, cv(0x23262b, rd, 0.05)); put(S, BOXG, x, y - 0.02, z, 0, 0, 0, 0.18, 0.04, 0.18, cv(0x23262b, rd, 0.05)); put(E, BOXG, x, y - 0.085, z, 0, 0, 0, 0.14, 0.14, 0.14, WHITE); }   // teal lantern: glass is the emissive mood mesh
+      }
+      for (const sx of [-1, 1]) for (let i = 0; i < 4; i++) put(S, CYLG, sx * 3.1, 0.14 + i * 0.28, 2.2, 0, 0, PI / 2, 0.15, 0.7, 0.15, cv([0x7a3a30, 0x2c6a8a, 0xd8b955, 0x5a8a3a][i], rd, 0.06));   // bolts of cloth
+    }
+  }
+  const C0 = A => A.C, TORG = new THREE.TorusGeometry(1, 0.2, 6, 14);
+  // ---- the merchant's price board: real (scaled) prices from the server, redrawn when they change
+  const boards = new Set();
+  function makeBoard(r) {
+    const cv2 = document.createElement('canvas'); cv2.width = 512; cv2.height = 420; const tex = new THREE.CanvasTexture(cv2); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 1.56), new THREE.MeshBasicMaterial({ map: tex, toneMapped: false })); m.name = 'roomartBoard';
+    const Mx = new THREE.Matrix4().compose(new V3(1.8, 4.15, -r.hz + 0.07), new THREE.Quaternion().setFromAxisAngle(new V3(0, 1, 0), 0), new V3(1, 1, 1)).premultiply(r.R);
+    m.matrixAutoUpdate = false; m.matrix.copy(Mx); m.matrixWorldNeedsUpdate = true;
+    const b = { id: r.cid, cv: cv2, tex, sig: '', mesh: m }; m.userData.board = b; boards.add(b); drawBoard(b); return m;
+  }
+  function drawBoard(b) {
+    const shop = (GK.shops && GK.shops[b.id]) || [], n = GK.roundInfo ? GK.roundInfo().n : 1, sig = n + '|' + shop.map(s => s.key + ':' + s.price + ':' + (s.sold ? 1 : 0)).join(',');
+    if (sig === b.sig) return; b.sig = sig;
+    const g = b.cv.getContext('2d'), w = 512, h = 420; g.clearRect(0, 0, w, h);
+    g.fillStyle = '#2a1c10'; g.fillRect(0, 0, w, h); g.strokeStyle = '#d9a93a'; g.lineWidth = 10; g.strokeRect(8, 8, w - 16, h - 16); g.lineWidth = 2; g.strokeRect(24, 24, w - 48, h - 48);
+    g.textBaseline = 'middle'; g.fillStyle = '#ffd75e'; g.font = '700 46px "Barlow Condensed",Impact,sans-serif'; g.textAlign = 'center'; g.fillText("TODAY'S GOODS", w / 2, 54);
+    const up = Math.max(0, n - 2) * 10; g.font = '600 20px "Barlow Condensed",sans-serif'; g.fillStyle = up ? '#ff9a7a' : '#8fe0d0'; g.fillText(up ? 'Round ' + n + ': prices +' + up + '%' : 'Fair prices', w / 2, 84);
+    g.textAlign = 'left';
+    shop.slice(0, 5).forEach((s, i) => {
+      const y = 128 + i * 52, nm = (typeof itemName === 'function' ? itemName(s.key) : s.key), sold = !!s.sold;
+      g.fillStyle = sold ? '#7a7468' : '#f2efe6'; g.font = '600 33px "Barlow Condensed",sans-serif'; g.fillText(nm.length > 17 ? nm.slice(0, 16) + '…' : nm, 44, y);
+      g.textAlign = 'right'; g.fillStyle = sold ? '#7a7468' : '#ffd75e'; g.font = '700 36px "Barlow Condensed",sans-serif'; g.fillText(sold ? 'SOLD' : s.price + ' g', w - 44, y); g.textAlign = 'left';
+      if (sold) { g.strokeStyle = '#7a7468'; g.lineWidth = 2; g.beginPath(); g.moveTo(44, y); g.lineTo(44 + Math.min(300, g.measureText(nm).width), y); g.stroke(); }
+      g.strokeStyle = 'rgba(217,169,58,.25)'; g.lineWidth = 1; g.beginPath(); g.moveTo(44, y + 26); g.lineTo(w - 44, y + 26); g.stroke();
+    });
+    if (!shop.length) { g.fillStyle = '#a9a493'; g.font = '600 24px "Barlow Condensed",sans-serif'; g.textAlign = 'center'; g.fillText('Stock arriving…', w / 2, 220); }
+    b.tex.needsUpdate = true;
+  }
+  setInterval(() => { for (const b of boards) { if (!b.mesh.parent) { boards.delete(b); try { b.tex.dispose(); } catch (e) {} continue; } try { drawBoard(b); } catch (e) {} } }, 800);
   // ---- rooms
   const story = new Map(), built = new Map(), doorsByRoom = new Map();   // room key -> meshes; room key -> doors touching it
   const mkRoom = (key, cx, cz, rotY, hx, hz, extra) => {
@@ -5599,12 +5722,12 @@ const ROOMART = (() => {
         if (vault) { built.get(r.key).push(vaultFloor()); vaultGlints(r.piles); }
       }
     }
-    const sig = CHEST_ROOMS.map(c => c.type).join();
+    const sig = CHEST_ROOMS.map(c => c.type + (c.mystery ? ':' + c.mystery.kind : '')).join();
     if (sig !== chestSig) {
       chestSig = sig;
       for (const cr of CHEST_ROOMS) {
         const key = 'c' + cr.id; dispose(key);
-        const IN = WORLD.CS / 2 - T / 2, r = mkRoom(key, cr.cx, cr.cz, Math.atan2(-cr.dx, -cr.dz), IN, IN, { kind: 'chest', type: cr.type, panels: [[0, -1.8], [0, 1.4]], xBeams: [-1.6, 1.6] });
+        const IN = WORLD.CS / 2 - T / 2, r = mkRoom(key, cr.cx, cr.cz, Math.atan2(-cr.dx, -cr.dz), IN, IN, { kind: 'chest', type: cr.type, mkind: cr.mystery && cr.mystery.kind, cid: cr.id, panels: [[0, -1.8], [0, 1.4]], xBeams: [-1.6, 1.6] });
         built.set(key, buildRoom(r));
       }
       if (typeof fxCull !== 'undefined') fxCull.cls = new WeakMap();
@@ -5615,7 +5738,8 @@ const ROOMART = (() => {
 ROOMART.init(); GK.roomart = ROOMART;   // test hook: ROOMART.story = room key -> [x, z, theme] of its story corner
 // ROOMART-END
 let orbit = 0.4;
-function resize() { renderer.setSize(innerWidth, innerHeight); fxResize(); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); }
+function uiScale() { document.documentElement.style.setProperty('--uis', Math.max(1, Math.min(1.5, innerHeight / 720)).toFixed(3)); }   // HUD cards, hotbar, scoreboard, inventory and shop grow on tall screens (1080p: x1.5); 720p stays as designed
+function resize() { uiScale(); renderer.setSize(innerWidth, innerHeight); fxResize(); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); }
 addEventListener('resize', resize); resize();
 
 // ---------- simulation ----------

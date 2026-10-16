@@ -25,6 +25,9 @@ body.menu #hud,body.menu #dot,body.menu #hint{display:none!important}
 #rr{position:fixed;top:2vh;right:2vw;display:none;padding:8px 14px;font:600 14px system-ui;color:#15151c;background:#ffd75e;border:0;border-radius:16px;cursor:pointer}
 body.menu #rr{display:none!important}
 
+/* HUD scale (--uis is set by game.js from the window height) */
+#hud,#gkLeft,#hint,#gkHot,#gkBoard,#gkInv,#gkShop,#gkRec,#gkCraft{zoom:var(--uis,1)}
+
 /* ---------- title menu ---------- */
 /* FULLSCREEN-BEGIN */
 #fsbtn{position:fixed;top:clamp(12px,2.4vh,24px);right:clamp(12px,2.4vw,28px);z-index:8;width:40px;height:40px;display:none;align-items:center;justify-content:center;padding:0;cursor:pointer;color:var(--gold);background:linear-gradient(180deg,rgba(18,15,12,.82),rgba(10,8,8,.82));border:1px solid rgba(245,196,81,.35);transition:color .2s,background .2s,border-color .2s,box-shadow .2s}
