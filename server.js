@@ -148,7 +148,7 @@ function newMatch() {
   matches.set(m.id, m); return m;
 }
 const VAULT = ROOM_DOORS['4'] || []; // the 4 doors touching the middle vault room
-const vaultVotes = m => { const rooms = Object.keys(m.sel).filter(k => VAULT.includes(m.sel[k])); return rule('bribe') ? rooms.reduce((n, k) => n + 1 + ((m.bribes && m.bribes[k]) || 0), 0) : rooms.length; }; // distinct rooms selecting a vault door (bribe rule: each room weighs 1 + its bribes)
+const vaultVotes = m => { const rooms = Object.keys(m.sel).filter(k => VAULT.includes(m.sel[k])); return (rule('bribe') ? rooms.reduce((n, k) => n + 1 + ((m.bribes && m.bribes[k]) || 0), 0) : rooms.length) + rooms.filter(k => m.picked && m.picked[k]).length; }; // distinct rooms selecting a vault door (bribe rule: each room weighs 1 + its bribes)
 const roundState = m => ({ round: { n: m.round, left: Math.max(0, m.endsAt - Date.now()), dur: m.dur }, sel: m.sel, selBy: m.selBy || {}, lastSel: m.lastSel || {}, open: m.open, vaultVotes: vaultVotes(m), fizzled: m.fizzled || [], relic: m.relicKey && !m.relicTaken ? m.relicKey : null, ...(m.sudden ? { sudden: 1 } : null), ...(m.showdown && !m.sudden ? { showdown: 1 } : null), ...ruleState(m) });
 const broadcastRound = m => bcast(m, roundState(m));
 const matchInfo = m => { let lo = Infinity, hi = -Infinity, n = 0, alive = 0; for (const p of m.players.values()) { if (p.npc) continue; n++; lo = Math.min(lo, p.wins); hi = Math.max(hi, p.wins); if (p.entered && !p.dead) alive++; } return { size: n, minWins: n ? lo : 0, maxWins: n ? hi : 0, alive }; };   // mystery enemies never count
@@ -181,11 +181,12 @@ setInterval(() => { // one global timer steps every match
     }
     socGrace(m, now);   // SOCIAL: disconnected players whose grace period ran out die now
     botTick(m, now);   // BOTS: brains of bots and mystery enemies (~10 Hz)
+    useTick(m, now);   // UTILITY: bombs, smoke, mushroom regeneration
     ruleTick(m, now);   // RULES: experimental rules (no-op unless GK_RULES is set)
     if (!m.started) m.endsAt = now + m.dur;   // round 1 waits until someone has left the wheel and entered the rooms
     if (now >= m.endsAt) {
       const picked = [...new Set(Object.values(m.sel))], ok = vaultVotes(m) >= 2; // vault doors need 2 different rooms
-      const fresh = paceNoDoor(m, picked.filter(d => ok || !VAULT.includes(d))); m.open = ruleOpen(m, fresh); m.fizzled = ok ? [] : picked.filter(d => VAULT.includes(d)); m.lastSel = { ...m.sel }; m.sel = {}; m.selBy = {}; m.bribes = {}; m.round++; m.dur = NEXT_MS; m.endsAt = now + m.dur; suddenCheck(m); paceRound(m); lootRound(m); broadcastRound(m); m.lastRound = now; }
+      const fresh = paceNoDoor(m, picked.filter(d => ok || !VAULT.includes(d))); m.open = useOpen(m, ruleOpen(m, fresh)); m.fizzled = ok ? [] : picked.filter(d => VAULT.includes(d)); m.lastSel = { ...m.sel }; m.sel = {}; m.selBy = {}; m.bribes = {}; m.round++; m.dur = NEXT_MS; m.endsAt = now + m.dur; suddenCheck(m); paceRound(m); lootRound(m); broadcastRound(m); m.lastRound = now; }
     else if (now - m.lastRound >= 1000) { m.lastRound = now; broadcastRound(m); }
     // COMBAT-BEGIN regen: 1 HP every 4 s once a player has not been hit for 6 s. SUDDEN DEATH: only inside THE VAULT (the sanctuary everyone converges on), nowhere else.
     for (const p of m.players.values()) if ((!m.sudden || p.room === '4') && p.entered && !p.dead && p.stats && p.stats.health < p.stats.maxHealth && now - (p.hurtAt || 0) >= C.regenIdle * RSCALE && now - (p.regenAt || 0) >= C.regenEvery * RSCALE) { p.regenAt = now; p.stats.health = Math.min(p.stats.maxHealth, p.stats.health + C.regenAmt); m.dirty = true; }
@@ -397,6 +398,7 @@ function attack(m, ws, p, now, rt) {   // {atk:1, rt}: rate limit by weapon, nea
     const [tx, tz] = at < T ? posAt(t, at) : [t.x, t.z]; if (roomKeyOf(tx, tz) !== p.room) continue;
     const dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz);
     if (d > reach) continue;
+    if (d > 2.5 && inSmoke(m, t, now)) continue;   // UTILITY: nobody shoots into a smoke cloud from beyond melee range
     if (d > 0.05 && (dx * fx + dz * fz) / d < Math.cos(C.cone)) continue;
     if (d < bd) { bd = d; best = [tws, t]; }
   }
@@ -413,11 +415,11 @@ function ruleOpen(m, fresh) {   // doorclose: the doors stay open for DOOR_LIFE 
   for (const d of fresh) { next[d] = DOOR_LIFE; if (!keep.includes(d)) keep.push(d); }
   m.openLeft = next; return keep;
 }
-function hitTarget(m, ws, p, tws, t, dmg, now) {   // damage, hit broadcast, kill bookkeeping (melee and bolts share it)
+function hitTarget(m, ws, p, tws, t, dmg, now, wname) {   // damage, hit broadcast, kill bookkeeping (melee and bolts share it)
   const hp = Math.max(0, t.stats.health - dmg);
   t.stats.health = hp; t.hurtAt = now; t.hitBy = p.id; m.dirty = true;   // hitBy: a bot notices whoever hurt it at once
   bcast(m, { hit: { from: p.id, to: t.id, dmg, hp, max: t.stats.maxHealth, dead: hp <= 0 } });
-  if (hp <= 0) { p.kills = (p.kills || 0) + 1; const bounty = paceBounty(p, t); t.killedBy = p.id; { const kw = p.npc ? null : p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; t.killer = { name: p.name || 'Goblin', npc: !!p.npc, w: kw ? kw.name : (p.npc ? '' : 'Fists') }; } sendTo(ws, { kills: p.kills, ...(bounty ? { bounty } : null) }); sendFeed(m, p, t); die(tws, t); }
+  if (hp <= 0) { p.kills = (p.kills || 0) + 1; const bounty = paceBounty(p, t); t.killedBy = p.id; { const kw = p.npc ? null : p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; t.killer = { name: p.name || 'Goblin', npc: !!p.npc, w: wname || (kw ? kw.name : (p.npc ? '' : 'Fists')) }; } sendTo(ws, { kills: p.kills, ...(bounty ? { bounty } : null) }); sendFeed(m, p, t); die(tws, t); }
 }
 function boltWeapon(p) { if (!rule('staffbolt')) return false; const w = p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; return !!w && (w.family === 'staff' || w.family === 'scepter'); }
 function fireBolt(m, p, now) {   // staffbolt: a slow projectile straight ahead, 12 m range, never leaves the room it was fired in
@@ -431,7 +433,7 @@ function boltTick(m, now) {
   m.bolts = m.bolts.filter(b => {
     b.x += b.vx * dt; b.z += b.vz * dt; b.dist += BOLT.speed * dt;
     let hit = null;
-    for (const [tws, t] of m.players) { if (t === b.by || t.dead || !t.entered || t.room !== b.room) continue; if (Math.hypot(t.x - b.x, t.z - b.z) < BOLT.radius) { hit = [tws, t]; break; } }
+    for (const [tws, t] of m.players) { if (t === b.by || t.dead || !t.entered || t.room !== b.room) continue; if (Math.hypot(t.x - b.x, t.z - b.z) < BOLT.radius && !(Math.hypot(t.x - b.by.x, t.z - b.by.z) > 2.5 && inSmoke(m, t, now))) { hit = [tws, t]; break; } }
     if (hit) { hitTarget(m, b.by.ws, b.by, hit[0], hit[1], BOLT.dmg, now); bcast(m, { boltEnd: { id: b.id, hit: 1 } }); return false; }
     if (b.dist >= BOLT.range || roomKeyOf(b.x, b.z) !== b.room) { bcast(m, { boltEnd: { id: b.id } }); return false; }
     return true;
@@ -546,7 +548,7 @@ function place(p, x, z) {   // hard set (spawn, debug teleport): resets speed bu
 function applyMove(m, ws, p, x, z, yaw, now, jy) {   // {m:[x,z,yaw]}: accept, or keep the old position and answer {fix:[x,z]}
   x = clamp(x); z = clamp(z); yaw = Math.max(-1e3, Math.min(1e3, yaw));
   const dt = p.mvAt ? Math.min(0.5, (now - p.mvAt) / 1000) : 0.066; p.mvAt = now; const prevRoom = p.room;
-  p.budget = Math.min(BUDGET, (p.budget == null ? BUDGET : p.budget) + dt * MAXV);
+  p.budget = Math.min(BUDGET, (p.budget == null ? BUDGET : p.budget) + dt * MAXV * (now < (p.tonicUntil || 0) + 500 ? G.ITEMS['x:tonic'].n : 1));   // UTILITY: a speed tonic raises the movement allowance
   const dist = Math.hypot(x - p.x, z - p.z);
   if (dist > 0.0005 && (dist > p.budget + MOVE_SLACK || !pathOk(m, p.x, p.z, x, z))) {
     if (now - (p.fixAt || 0) > 150) { p.fixAt = now; sendTo(ws, { fix: [r2(p.x), r2(p.z)] }); if (secFix(p, ws, now)) return false; }
@@ -702,6 +704,7 @@ function npcLoot(kind) {
     let k = null; for (let t = 0; t < 40; t++) { k = (i % 2 ? G.randomArmorKey : G.randomWeaponKey)(); if (G.ITEMS[k].tierN >= S.loot[1]) break; }
     out.push(k);
   }
+  if (Math.random() < 0.4) out.push(G.pickUtil());   // UTILITY: a mystery-room enemy sometimes carries a utility item
   return out;
 }
 function dieNpc(m, p) {   // loot by type, counts as a kill for the attacker (done in attack()), not as a death
@@ -738,6 +741,7 @@ function mv(m, p, x, z, yaw, now) {   // the one place a brain moves: applyMove 
 function startJump(p, now) { const b = p.brain; if (b.jump || now < b.jumpAt) return; b.jump = { t0: now, dur: rnd(480, 620), h: rnd(55, 90) }; b.jumpAt = now + rnd(30000, 60000); }   // at most 1-2 a minute
 function inView(p, q) {   // 2.5 m all round, or inside the 150 degree cone in front of the yaw within 12 m
   const dx = q.x - p.x, dz = q.z - p.z, d = Math.hypot(dx, dz);
+  if (d > 2.5 && p.match && p.match.smokes && p.match.smokes.length && inSmoke(p.match, q, Date.now())) return false;   // UTILITY: bots cannot see into a smoke cloud
   return d <= SEE_NEAR || (d <= SEE_FAR && (dx * -Math.sin(p.yaw) + dz * -Math.cos(p.yaw)) / d >= COS_FOV);
 }
 function canSee(p, q, now) { return inView(p, q) || (p.hitBy === q.id && now - (p.hurtAt || 0) < SEE_HIT_MS && now >= (p.brain.blindUntil || 0)); }   // a hit from behind is only understood after the turn-around delay
@@ -885,7 +889,7 @@ function voteDoor(m, p, now, except) {   // weighted pick of a door of this room
   if (!doors.length || tot <= 0) return;
   let r = Math.random() * tot, pick = null; for (let i = 0; i < doors.length; i++) if (ws[i] > 0 && (r -= ws[i]) < 0) { pick = doors[i]; break; }
   if (pick == null) pick = doors.find(d => d !== except && ws[doors.indexOf(d)] > 0); if (pick == null) return;
-  if (m.sel[p.room] !== pick) { m.sel[p.room] = pick; (m.selBy || (m.selBy = {}))[p.room] = p.id; broadcastRound(m); }
+  if (m.sel[p.room] !== pick && !(m.sealed && m.sealed[p.room])) { m.sel[p.room] = pick; (m.selBy || (m.selBy = {}))[p.room] = p.id; broadcastRound(m); }
 }
 function lootNearby(m, p, dt, now) {   // walk to useful loot piles in this room and take/eat what helps; returns true while busy with it
   const b = p.brain; let best = null, bd = 8 + 12 * b.greed;   // AI: greedy bots walk further for loot
@@ -1015,6 +1019,87 @@ function botTick(m, now) {   // ~10 Hz per match
 }
 // BOTS-END
 
+// USE-BEGIN (utility items: bandage, mushroom, tonic, smoke bomb, powder bomb, door wedge, sealing wax, vault lockpick; see docs/reports/utility-items.md)
+// {use: slot} from a quick slot or the backpack. The item is only spent when the effect applies; a refused use answers {useFail: reason}. Success answers {used: {key, slot, ...}} to the user.
+const USE_CD = 500, TOSS_FLY = 600, BOMB_FUSE = 1000, MAX_CLOUDS = 6;
+const inSmoke = (m, q, now) => { for (const s of m.smokes || []) if (s.room === q.room && now >= s.from && now <= s.until && Math.hypot(q.x - s.x, q.z - s.z) <= s.r) return true; return false; };
+function useOpen(m, open) {   // a round ends: wedged doors stay open for the next round, seals and lockpicks are spent
+  const keep = (m.wedged || []).filter(d => !open.includes(d));
+  m.wedged = []; m.sealed = {}; m.picked = {};
+  return keep.length ? open.concat(keep) : open;
+}
+function toss(m, p, kind, now) {   // thrown items land 6 m ahead of the thrower, inside his room; the server decides, everyone gets the arc
+  const [lx, lz] = clampIn(p.room, p.x - Math.sin(p.yaw) * 6, p.z - Math.cos(p.yaw) * 6, 0.7), id = (m.tossId = (m.tossId || 0) + 1);
+  bcast(m, { toss: { id, kind, by: p.id, from: [+p.x.toFixed(2), +p.z.toFixed(2)], to: [+lx.toFixed(2), +lz.toFixed(2)], ms: TOSS_FLY, room: p.room } });
+  return { id, x: lx, z: lz, room: p.room, from: now + TOSS_FLY };
+}
+function useItem(m, p, slot, now) {   // returns null or a failure reason
+  if (m.phase !== 'play' || !m.goAt || now < m.goAt || m.ended || p.dead || !p.entered || !RB[p.room]) return 'now';
+  if (typeof slot !== 'string' || !/^(q[0-2]|b[0-8])$/.test(slot)) return 'item';
+  const key = getSlot(p.inv, slot), it = key && G.ITEMS[key]; if (!it || !it.use) return 'item';
+  if (now - (p.useAt || 0) < USE_CD) return 'busy';
+  const hp = p.stats.health, max = p.stats.maxHealth, grid = /^[0-8]$/.test(p.room);
+  let extra = null;
+  switch (it.use) {
+    case 'heal':
+      if (m.sudden) return 'sudden'; if (hp >= max) return 'full'; if (now < (p.healAt || 0)) return 'busy';
+      p.stats.health = Math.min(max, hp + it.n); p.healAt = now + 4000; extra = { hp: p.stats.health - hp }; break;
+    case 'regen':
+      if (m.sudden) return 'sudden'; if (hp >= max) return 'full'; if (p.regen && p.regen.until > now) return 'busy';
+      p.regen = { until: now + it.ms, next: now + 1000, since: now, n: it.n }; extra = { ms: it.ms }; break;
+    case 'speed':
+      if (now < (p.tonicUntil || 0)) return 'busy';
+      p.tonicUntil = now + it.ms; extra = { ms: it.ms, n: it.n }; break;
+    case 'smoke': {
+      m.smokes = (m.smokes || []).filter(s => s.until > now); if (m.smokes.length >= MAX_CLOUDS) return 'busy';
+      const t = toss(m, p, 'smoke', now); m.smokes.push({ ...t, until: t.from + it.ms, r: it.r }); break;
+    }
+    case 'bomb': {
+      m.bombs = m.bombs || []; if (m.bombs.length >= MAX_CLOUDS) return 'busy';
+      const t = toss(m, p, 'bomb', now); m.bombs.push({ ...t, at: t.from + BOMB_FUSE, by: p, n: it.n, r: it.r }); break;
+    }
+    case 'wedge': {
+      if (m.sudden) return 'sudden';
+      let best = null, bd = it.r; m.wedged = m.wedged || [];
+      for (const e of ADJ[p.room] || []) { if (!m.open.includes(e.door) || VAULT.includes(e.door) || m.wedged.includes(e.door)) continue; const d = Math.hypot(e.w1[0] - p.x, e.w1[1] - p.z); if (d <= bd) { bd = d; best = e; } }
+      if (!best) return 'door';
+      m.wedged.push(best.door); extra = { door: best.door }; break;
+    }
+    case 'seal':
+      if (!grid) return 'room'; if (m.sel[p.room] == null) return 'pick'; m.sealed = m.sealed || {}; if (m.sealed[p.room]) return 'busy';
+      m.sealed[p.room] = p.id; for (const q of m.players.values()) if (q.room === p.room && q.ws) sendTo(q.ws, { sealed: { room: p.room, by: p.name || 'Goblin' } }); break;
+    case 'pick':
+      if (!grid) return 'room'; if (!VAULT.includes(m.sel[p.room])) return 'pick'; m.picked = m.picked || {}; if (m.picked[p.room]) return 'busy';
+      m.picked[p.room] = p.id; broadcastRound(m); break;
+    default: return 'item';
+  }
+  setSlot(p.inv, slot, null); p.useAt = now; recalc(p); sendInv(p); m.dirty = true;
+  sendTo(p.ws, { used: { key, slot, ...extra } });
+  return null;
+}
+function explode(m, b, now) {
+  bcast(m, { boom: { id: b.id, x: b.x, z: b.z, r: b.r, room: b.room } });
+  const hit = [...m.players].filter(([, t]) => t !== b.by && !t.dead && t.entered && t.room === b.room && Math.hypot(t.x - b.x, t.z - b.z) <= b.r);
+  for (const [tws, t] of hit) if (!t.dead) hitTarget(m, b.by.ws, b.by, tws, t, Math.max(1, Math.round(b.n * (1 - 0.5 * Math.hypot(t.x - b.x, t.z - b.z) / b.r))), now, 'Powder Bomb');
+}
+function useTick(m, now) {   // from the 50 ms match loop
+  if (m.bombs && m.bombs.length) { const due = m.bombs.filter(b => now >= b.at); if (due.length) { m.bombs = m.bombs.filter(b => now < b.at); for (const b of due) explode(m, b, now); } }
+  if (m.smokes && m.smokes.length && m.smokes[0].until < now - 1000) m.smokes = m.smokes.filter(s => s.until > now);
+  for (const p of m.players.values()) {   // mushroom regeneration: 1 s beats, ended by a hit
+    const r = p.regen; if (!r) continue;
+    if (p.dead || m.sudden || (p.hurtAt || 0) > r.since) { p.regen = null; continue; }
+    while (r.next <= now && r.next <= r.until && p.stats.health < p.stats.maxHealth) { r.next += 1000; p.stats.health = Math.min(p.stats.maxHealth, p.stats.health + r.n); m.dirty = true; }
+    if (now > r.until || p.stats.health >= p.stats.maxHealth) p.regen = null;
+  }
+  if (now - (m.useBotAt || 0) >= 1000) {   // bots patch themselves up with a bandage or mushroom when badly hurt and left alone
+    m.useBotAt = now;
+    for (const p of m.players.values()) if (p.bot && !p.dead && p.entered && p.stats.health < p.stats.maxHealth * 0.5 && now - (p.hurtAt || 0) > 3000) {
+      const s = BOT_USE_SLOTS.find(sl => { const k = getSlot(p.inv, sl); return k === 'x:bandage' || k === 'x:mushroom'; }); if (s) useItem(m, p, s, now);
+    }
+  }
+}
+const BOT_USE_SLOTS = [...Array.from({ length: 9 }, (_, i) => 'b' + i), 'q0', 'q1', 'q2'];
+// USE-END
 // LOOT-BEGIN (vault relic, merchant price scaling, throwable plushie, bots at stations; see docs/reports/loot.md)
 const RELIC_POS = (() => { const [vx, vz] = WORLD.rc(WORLD.VAULT); return { x: vx + 2.4, z: vz }; })();   // the pedestal on the dais edge (the game.js LOOT block uses the same offset)
 const priceAt = (base, round) => Math.max(5, Math.round(base * (1 + 0.1 * Math.max(0, round - 2)) / 5) * 5);   // +10 % per round after round 2, rounded to 5 gold
@@ -1065,7 +1150,7 @@ function botStations(m, p) {   // in a merchant room or a stations mystery room:
   if (hasStation(m, p, 'recycler')) for (const s of BOT_SLOTS) { const k = getSlot(p.inv, s); if (k && isJunkW(p, k) && !recycle(m, p, s)) BS.rec = (BS.rec || 0) + 1; }
   if (hasStation(m, p, 'workbench')) {
     let best = null, bv = -1;
-    for (const r of G.RECIPES) { if (r.tier !== 0 || !Object.keys(r.cost).every(k => (p.parts[k] || 0) >= r.cost[k])) continue; const o = G.ITEMS[r.out], v = o.attack || o.health || 0; if (v > bv) { bv = v; best = r; } }
+    for (const r of G.RECIPES) { if (r.tier !== 0 || !Object.keys(r.cost).every(k => (p.parts[k] || 0) >= r.cost[k])) continue; const o = G.ITEMS[r.out], v = o.attack || o.health || 0; if (!v) continue; if (v > bv) { bv = v; best = r; } }
     if (best && !craft(m, p, best.id)) BS.cra = (BS.cra || 0) + 1;
   }
 }
@@ -1216,8 +1301,10 @@ wss.on('connection', (ws, req) => {
     } else if (dbg && typeof d.give === 'string') { giveItem(p, d.give);
     } else if (dbg && Array.isArray(d.tp) && d.tp.length === 2 && d.tp.every(v => typeof v === 'number' && Number.isFinite(v))) {
       { const pr = p.room; place(p, clamp(d.tp[0]), clamp(d.tp[1])); noteRoom(m, p, pr); } m.dirty = true;
+    } else if (dbg && Number.isFinite(d.hp)) { p.stats.health = Math.max(1, Math.min(p.stats.maxHealth, Math.floor(d.hp))); p.hurtAt = now; m.dirty = true;   // test hook (utility items)
     } else if (dbg && Number.isFinite(d.gold)) { p.gold = Math.max(0, Math.floor(d.gold)); sendGold(p);
     } else if (typeof d.throw === 'string') { throwPlushie(m, p, d.throw, now);   // LOOT
+    } else if (typeof d.use === 'string') { const why = useItem(m, p, d.use, now); if (why) sendTo(ws, { useFail: why });   // UTILITY
     } else if (dbg && d.botlab) { botLab(m, ws, p, d.botlab);
     } else if (d.atk === 1) { attack(m, ws, p, now, d.rt);
     } else if (d.bribe === 1) { if (rule('bribe')) { const why = bribe(m, p); if (why) sendTo(ws, { bribeFail: why }); }   // RULES
@@ -1239,7 +1326,8 @@ wss.on('connection', (ws, req) => {
         addDrop(m, p, [key]); sendInv(p); m.dirty = true;
       }
     } else if (Number.isInteger(d.sel) && d.sel >= 0 && d.sel < nDoors && (ROOM_DOORS[p.room] || []).includes(d.sel)) {
-      if (m.sel[p.room] !== d.sel) { m.sel[p.room] = d.sel; (m.selBy || (m.selBy = {}))[p.room] = p.id; broadcastRound(m); }
+      if (m.sealed && m.sealed[p.room]) sendTo(ws, { sealBlock: 1 });   // UTILITY: sealing wax
+      else if (m.sel[p.room] !== d.sel) { m.sel[p.room] = d.sel; (m.selBy || (m.selBy = {}))[p.room] = p.id; broadcastRound(m); }
     }
   }
   ws.on('close', () => { try { if (socClose(m, ws, p)) return; m.specs.delete(ws); leave(m, ws); if (!humans(m) && !m.specs.size) matches.delete(m.id); } catch (e) { console.error('close id=' + p.id, e); } });

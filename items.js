@@ -67,6 +67,25 @@
 
   // LOOT: the mystery-room goblin plushie is a one-use throwable (quick slot key = throw). Never dropped by chance, only found in plushie mystery rooms. The server decides where it lands; bots and mystery enemies within 8 m run to it for 3 s.
   ITEMS['x:plushie'] = { key: 'x:plushie', type: 'consumable', name: 'Goblin Plushie', family: 'plushie', chance: 0, tier: 'common', tierN: 0, price: 15, desc: 'Press its quick key to throw it. It squeaks, and bots within 8 m run to it for 3 s. One use.' };
+  // UTILITY ITEMS (docs/reports/utility-items.md): eight one-use consumables. Press the quick-slot key to use one (server: useItem() in server.js). `use` names the effect; n/ms/r are its numbers.
+  // `shop` is the merchant weight, `scrap` is what the recycler returns, `craft` = [tier, cost] puts it on the crafting bench (tier N needs 20 * N knowledge, the same numbers as KNOWLEDGE_TIERS).
+  const UTIL = [
+    ['bandage', 'Bandage', 'bandage', 'common', 20, 'heal', { n: 12 }, 'Heals 12 HP at once. Useless in sudden death.', 4, { cloth: 1 }, [0, { cloth: 2 }]],
+    ['mushroom', 'Healing Mushroom', 'mushroom', 'common', 25, 'regen', { n: 2, ms: 8000 }, 'Heals 2 HP a second for 8 s. A hit ends it. Useless in sudden death.', 4, { wood: 1 }, [0, { wood: 1, cloth: 1 }]],
+    ['tonic', 'Speed Tonic', 'tonic', 'uncommon', 35, 'speed', { n: 1.25, ms: 8000 }, '25% faster for 8 s.', 3, { bone: 1 }, [1, { bone: 1, string: 1, crystal: 1 }]],
+    ['smoke', 'Smoke Bomb', 'smoke', 'uncommon', 30, 'smoke', { r: 3, ms: 6000 }, 'Thrown. For 6 s nobody can see or shoot into the cloud from beyond 2.5 m.', 3, { cloth: 1, bone: 1 }, [1, { cloth: 2, bone: 1 }]],
+    ['bomb', 'Powder Bomb', 'bomb', 'rare', 55, 'bomb', { n: 22, r: 2.5 }, 'Thrown. Blows up after 1 s: 22 damage close, half at the edge of 2.5 m. Spares the thrower.', 2, { metal: 1, bone: 1 }, [2, { metal: 2, bone: 1, string: 1 }]],
+    ['wedge', 'Door Wedge', 'wedge', 'uncommon', 30, 'wedge', { r: 4 }, 'Use beside an open door (not the Vault): it stays open one more round.', 3, { wood: 2 }, [1, { wood: 3, metal: 1 }]],
+    ['wax', 'Sealing Wax', 'wax', 'common', 20, 'seal', {}, "Use at your room's panel: its pick is sealed for the rest of the round.", 3, { string: 1 }, [0, { string: 1, bone: 1 }]],
+    ['lockpick', 'Vault Lockpick', 'lockpick', 'mythic', 90, 'pick', {}, 'Use in a room whose pick is a Vault door: it counts as a second vote this round.', 1, { metal: 2, gem: 1 }, [3, { metal: 3, gem: 2, string: 1 }]],
+  ];
+  const UTIL_KEYS = [];
+  for (const [k, name, family, tier, price, use, num, desc, shop, scrap, craft] of UTIL) {
+    const key = 'x:' + k; UTIL_KEYS.push(key);
+    ITEMS[key] = { key, type: 'consumable', name, family, chance: 0, tier, tierN: TIER_N[tier], price, use, ...num, desc, shop, scrap };
+    RECIPES.push({ id: 'r:' + key, out: key, tier: craft[0], cost: craft[1], needs: craft[0] * 20 });
+  }
+  const pickUtil = () => { let r = Math.random() * UTIL_KEYS.reduce((a, k) => a + ITEMS[k].shop, 0); for (const k of UTIL_KEYS) { if ((r -= ITEMS[k].shop) < 0) return k; } return UTIL_KEYS[0]; };   // weighted by `shop`
   const START = [   // starting gear per goblin type: 0 small, 1 medium, 2 big, 3 wizard, 4 king
     { weapon: 'w:dagger', armor: 'a:rags' }, { weapon: 'w:club', armor: 'a:vest' }, { weapon: 'w:mace', armor: 'a:harness' },
     { weapon: 'w:staff', armor: 'a:robe' }, { weapon: 'w:scepter', armor: 'a:royal' },
@@ -93,7 +112,8 @@
     crossbow: { wood: 3, metal: 2, string: 2 }, flail: { metal: 3, wood: 2, leather: 1 }, halberd: { wood: 3, metal: 3, cloth: 1 }, hammer: { metal: 4, wood: 2 }, staff: { wood: 3, crystal: 1, cloth: 1 }, scepter: { gold: 3, gem: 1 } };
   const TIER_MULT = { common: 0.5, uncommon: 1, rare: 1.5, mythic: 2, legendary: 3, transcendent: 5 };
   function recycleYield(key) {   // -> { part: amount } for a weapon key, or null if the item cannot be recycled (armour is not recyclable yet)
-    const it = ITEMS[key]; if (!it || it.type !== 'weapon') return null;
+    const it = ITEMS[key]; if (it && it.scrap) return { ...it.scrap };   // UTILITY: utility items break down into one or two parts
+    if (!it || it.type !== 'weapon') return null;
     const base = FAMILY_PARTS[it.family] || { metal: 2 }, m = TIER_MULT[it.tier] || 1, out = {};
     for (const k in base) out[k] = Math.max(1, Math.round(base[k] * m));
     if (it.tier === 'mythic') out.gold = (out.gold || 0) + 1;
@@ -112,6 +132,7 @@
   function randomShop() {
     const pool = weaponKeys.concat(armorKeys), out = [];
     while (out.length < 5) { const k = pickWeighted(pool); if (!out.some(o => o.key === k)) out.push({ key: k, price: Math.max(5, Math.round(ITEMS[k].price * (0.8 + Math.random() * 0.4) / 5) * 5) }); }
+    if (Math.random() < 0.75) { const k = pickUtil(); out[Math.floor(Math.random() * 5)] = { key: k, price: Math.max(5, Math.round(ITEMS[k].price * (0.8 + Math.random() * 0.4) / 5) * 5) }; }   // UTILITY: most shops stock one utility item in place of a gear slot
     return out;
   }
   // Random room layout for one match: the types of the 12 rooms behind the outer doors, in CHEST_ROOMS order (game.js).
@@ -152,6 +173,6 @@
   }
   const armorSpeed = key => { const it = key && ITEMS[key]; return (it && it.speed) || 1; };   // ARMOUR-2: movement multiplier of the worn armour
   const MAX_ARMOR_SPEED = Math.max(1, ...Object.values(ITEMS).map(i => i.speed || 1));
-  root.GKITEMS = { armorSpeed, MAX_ARMOR_SPEED, randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, WEAPON_TUNE, START, KNOWLEDGE, SPEED, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info };
+  root.GKITEMS = { UTIL_KEYS, pickUtil, armorSpeed, MAX_ARMOR_SPEED, randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, WEAPON_TUNE, START, KNOWLEDGE, SPEED, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.GKITEMS;
 })(typeof window !== 'undefined' ? window : globalThis);
