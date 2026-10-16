@@ -40,6 +40,7 @@ body.menu #fsbtn{display:flex}
 /* FULLSCREEN-END */
 #menu{position:fixed;inset:0;z-index:5;display:flex;align-items:center;padding:0 clamp(20px,7vw,110px);pointer-events:none;transition:opacity .5s,transform .5s}
 #menu.gone{opacity:0;transform:translateX(-40px);visibility:hidden}
+html.gkResume #menu{visibility:hidden}   /* SOCIAL: a reload during a match: no title flash while the resume connects (class set by save.js) */
 #menu>*{pointer-events:auto}
 #menu.sub .foot,#menu.sub .tag,#menu.sub .eyebrow{display:none}
 #menu.sub h1.title{font-size:clamp(30px,min(6vw,9vh),64px);margin-bottom:clamp(10px,2.4vh,22px)}

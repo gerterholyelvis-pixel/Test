@@ -36,3 +36,5 @@
     clearAll() { store(blank()); },
   };
 })();
+// SOCIAL: a reload during a match (token stored < 15 s ago, see game.js SOCIAL block) resumes it: keep the title hidden from the first paint
+try { if (sessionStorage.getItem('gk.token') && Date.now() - +sessionStorage.getItem('gk.tokenT') < 15000) document.documentElement.classList.add('gkResume'); } catch (e) {}
