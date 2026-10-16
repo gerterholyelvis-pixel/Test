@@ -2378,7 +2378,7 @@ function cpDraw(p) {
     g.font = '700 ' + Math.min(26, b.h * 0.22) + 'px system-ui, sans-serif';
     g.fillStyle = sel ? '#7a1200' : opn ? '#6dff9f' : hov ? '#cfe8ff' : '#7fa4cc';
     const vlt = L.kind === 'vault', dy = vlt ? 4 : fs * 0.72;
-    g.fillText(sel ? 'SELECTED · OPENS AT 0:00' : opn ? 'OPEN THIS ROUND' : 'Click to select', tx, iy + dy);
+    g.fillText(sel ? 'SELECTED · OPENS AT 0:00' : opn ? 'OPEN THIS ROUND' : 'Press E to select', tx, iy + dy);
     if (vlt) { g.font = '800 ' + Math.min(21, b.h * 0.18) + 'px system-ui, sans-serif'; g.fillStyle = sel ? (RS.votes < 2 ? '#8a0a00' : '#1a5a10') : '#ffb347'; g.fillText('NEEDS 2 PLAYERS · Vault votes: ' + RS.votes + '/2', tx, iy + dy + Math.min(27, b.h * 0.24)); }
     if (opn) { g.fillStyle = '#18c25e'; cpRR(g, b.x + b.w - 100, iy - 20, 84, 40, 20); g.fill(); g.fillStyle = '#04200f'; g.textAlign = 'center'; g.font = '800 24px system-ui, sans-serif'; g.fillText('OPEN', b.x + b.w - 58, iy + 1); }
   });
@@ -2435,10 +2435,10 @@ function panelTick() {
   const cur = CP[roomKeyAt(P.x, P.z)];   // redraw dirty panels: the one in front of us first, one other per frame
   if (cur && cur.dirty) cpDraw(cur); else { const o = cpList.find(q => q.dirty); if (o) cpDraw(o); }
 }
-renderer.domElement.addEventListener('click', () => {
-  const a = cpComputeAim(); if (!a) return;
-  net.send({ sel: a.p.buttons[a.i].id });
-});
+function cpInteract() {   // E while aiming at a control-panel button picks that door; true if it did
+  const a = cpComputeAim(); if (!a) return false;
+  net.send({ sel: a.p.buttons[a.i].id }); return true;
+}
 GK.panelClick = (room, idx) => { const ids = ROOM_DOORS[String(room)]; if (ids && ids[idx] !== undefined) net.send({ sel: ids[idx] }); };   // test helper: same message as a click
 GK.roundInfo = () => ({ n: RS.n, left: roundLeft(), dur: RS.dur, sel: RS.sel, open: RS.open, votes: RS.votes, fizzled: RS.fizzled });
 GK._applyRound = applyRound;   // test hook
@@ -2996,6 +2996,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
   const net = {
     onmessage: null,
     send(m) {
+      if (m.enter === 1 && !rs.started) { rs.started = true; rs.endsAt = performance.now() + rs.dur; botPlan(); emitRound(); }
       if (Number.isInteger(m.sel) && meP) { const k = roomKeyAt(meP.x, meP.z); if ((ROOM_DOORS[k] || []).includes(m.sel) && rs.sel[k] !== m.sel) { rs.sel[k] = m.sel; emitRound(); } }
       if (m.m && meP) { [meP.x, meP.z, meP.yaw] = m.m; meP.box = roomAt(meP.x, meP.z); } if (m.reroll) { const o = list.indexOf(meP); seq++; meP = mk(false); meP.id = list[o].id; list[o] = meP; sendInv(); sendGold(); sendParts(); emit(); }
       if (Array.isArray(m.mv) && meP) { invMove(meP.inv, m.mv[0], m.mv[1]); sendInv(); emit(); }   // same rules as the server; always answer with the real inventory
@@ -3052,6 +3053,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
   botPlan();
   setInterval(() => {
     const now = performance.now();
+    if (!rs.started) { rs.endsAt = now + rs.dur; return; }   // round 1 waits for Enter, as on the server
     if (now >= rs.endsAt) { const picked = [...new Set(Object.values(rs.sel))], ok = votes() >= 2; rs.open = picked.filter(d => ok || !isVault(d)); rs.fizzled = ok ? [] : picked.filter(isVault); rs.sel = {}; rs.n++; rs.dur = 45000; rs.endsAt = now + rs.dur; botPlan(); emitRound(); return; }
     for (const b of list) if (b.bot && b.selAt && now >= b.selAt) { b.selAt = 0; const k = roomKeyAt(b.x, b.z), ids = ROOM_DOORS[k]; if (ids && rs.sel[k] === undefined) { const vs = ids.filter(isVault), pool = vs.length && Math.random() < 0.5 ? vs : ids; rs.sel[k] = pool[Math.floor(Math.random() * pool.length)]; emitRound(); } }
   }, 200);
@@ -3390,7 +3392,7 @@ GK.getInv = () => JSON.parse(JSON.stringify(myInv));
 GK.openInventory = openInv; GK.closeInventory = closeInv;
 addEventListener('keydown', e => {
   if (GK.mode !== 'play') return;
-  if (shopOpen) { if (e.code === 'Escape' || e.code === 'Tab' || (e.code === 'KeyE' && panelKind === 'loot')) { e.preventDefault(); closeShop(); } return; }
+  if (shopOpen) { if (e.code === 'Escape' || e.code === 'Tab' || (e.code === 'KeyE' && !e.repeat)) { e.preventDefault(); closeShop(); } return; }
   if (!invOpen && !e.repeat && window.GK_OFFLINE && (e.code === 'KeyT' || e.code === 'KeyY') && spawned) {   // demo: T = into the first merchant room, Y = back to the start room
     const i = (GK.layout || []).indexOf('merchant');
     if (e.code === 'KeyT' && i >= 0) { const C = CHEST_ROOMS[i]; P.x = C.cx - C.dx * 2.2; P.z = C.cz - C.dz * 2.2; P.yaw = Math.atan2(-C.dx, -C.dz); P.pitch = 0; }
@@ -3405,7 +3407,11 @@ addEventListener('keydown', e => {
     if (i === qSel && k != null && infoOf(k) && infoOf(k).family === 'brain') eatSlot('q' + i); else setSel(i);   // pressing the selected slot's key eats a brain
     return;
   }
-  if (e.code === 'KeyE' && !invOpen) { if (nearestPile()) { openStation('loot', nearestPile().id); } return; }
+  if (e.code === 'KeyE' && !invOpen) {   // one interact key: control panel, then merchant / station, then a loot pile underfoot
+    if (cpInteract() || stationInteract()) return;
+    if (nearestPile()) openStation('loot', nearestPile().id);
+    return;
+  }
   if (window.GK_OFFLINE && e.code === 'KeyG' && netReal && netReal.demoGive) netReal.demoGive();
   if (window.GK_OFFLINE && e.code === 'KeyL' && actors.get(me)) showVictory({ items: invAll(myInv), gold: myGold, parts: myParts });   // demo only: L = win
 });
@@ -3520,7 +3526,7 @@ function setHover(id, kind) {
   if (id === hoverRoom && (kind || '') === hoverKind) return; hoverRoom = id; hoverKind = kind || '';
   const dot = $('dot'); if (dot) { dot.style.transition = 'transform .12s'; dot.style.transform = id >= 0 ? 'scale(3)' : ''; dot.style.opacity = id >= 0 ? 1 : ''; }
   if (!hoverTip) { hoverTip = document.createElement('div'); hoverTip.style.cssText = 'position:fixed;left:50%;top:calc(50% + 24px);transform:translateX(-50%);z-index:25;pointer-events:none;padding:4px 12px;border-radius:8px;background:rgba(10,8,6,.8);border:1px solid rgba(255,215,94,.55);color:' + GOLD + ';font:700 13px system-ui,sans-serif;letter-spacing:.08em;display:none;white-space:nowrap'; document.body.appendChild(hoverTip); }
-  hoverTip.textContent = hoverKind === 'r' ? 'Click to recycle' : hoverKind === 'w' ? 'Click to craft' : 'Click to trade'; hoverTip.style.display = id >= 0 ? 'block' : 'none';
+  hoverTip.innerHTML = 'Press <b style="padding:1px 6px;border-radius:4px;background:#ffd75e;color:#1a1405">E</b> to ' + (hoverKind === 'r' ? 'recycle' : hoverKind === 'w' ? 'craft' : 'trade'); hoverTip.style.display = id >= 0 ? 'block' : 'none';
 }
 function merchantHoverTick() {
   const T = [...(GK.merchantTargets || []), ...(GK.stationTargets || []).filter(o => o && o.userData && (o.userData.station === 'recycler' || o.userData.station === 'workbench'))];
@@ -3532,10 +3538,11 @@ function merchantHoverTick() {
   setHover(id, kind);
 }
 GK.hover = () => ({ room: hoverRoom, kind: hoverKind });
-document.addEventListener('click', e => {
-  if (e.target !== renderer.domElement || hoverRoom < 0 || !lockOk() || invOpen || shopOpen || GK.mode !== 'play') return;
+function stationInteract() {   // E while looking at a merchant, recycler or workbench opens it; true if it did
+  if (hoverRoom < 0 || invOpen || shopOpen || GK.mode !== 'play') return false;
   if (hoverKind === 'r') openStation('recycle', hoverRoom); else if (hoverKind === 'w') openStation('craft', hoverRoom); else openShop(hoverRoom);
-});
+  return true;
+}
 // ---------- materials (parts), recycler, workbench, loot piles, eating ----------
 let panelKind = '', myParts = {}, knowOv = null, recSel = null, lootId = -1, lootOpen = false, lootPromptEl = null;
 const PART_DRAW = {   // simple canvas glyphs for the 9 crafting parts, drawn in a 0..1 box
@@ -3979,11 +3986,14 @@ requestAnimationFrame(frame);
 const lockNow = () => { try { const r = canvas.requestPointerLock(); r && r.catch && r.catch(() => {}); } catch (e) {} };
 GK.renderer = renderer; GK.scene = scene; GK.build = buildGoblin; GK.NAMES = NAMES; GK.SCALE = SCALE; GK.glowTex = glowTex; GK.textTex = textTex;
 GK.start = (opts) => { connect(opts); return new Promise(res => { if (assigned) res(actors.get(me).goblin); else { const prev = GK.onAssigned; GK.onAssigned = g => { GK.onAssigned = prev; res(g); }; } }); }; // connects and resolves with my goblin type
-GK.enter = () => { run.t0 = performance.now(); run.n0 = GK.roundInfo ? GK.roundInfo().n : 0; run.dist = 0; GK.mode = 'play'; GK.showStats(); GK.applySettings(); if (window.GK_OFFLINE) $('rr').style.display = 'block'; lockNow(); };   // call from a click
+GK.enter = () => { run.t0 = performance.now(); run.n0 = GK.roundInfo ? GK.roundInfo().n : 0; run.dist = 0; GK.mode = 'play'; net.send({ enter: 1 }); GK.showStats(); GK.applySettings(); if (window.GK_OFFLINE) $('rr').style.display = 'block'; lockNow(); };   // call from a click; 'enter' starts the match's round timer
 GK.applySettings = () => { renderer.setPixelRatio(Math.min(devicePixelRatio, 2) * GK.settings.scale); resize(); };
 GK.doors = doors;
 GK.fxDebug = { get fx() { return fx; }, cam };   // test hook: post-effects state and the world camera
 GK.setDoorsOpen = ids => { const set = new Set(ids); doors.forEach(d => d.open = set.has(d.id)); };   // ids of doors that are open right now
-GK.skipMenu = () => { connect(); GK.mode = 'play'; };   // for tests
+GK.skipMenu = () => {   // for tests: straight into the rooms, with the title menu hidden as a real Enter would
+  const mn = $('menu'); if (mn) mn.classList.add('gone'); document.body.classList.remove('menu');
+  GK.mode = 'play'; GK.start().then(() => { net.send({ enter: 1 }); GK.showStats(); });
+};
 window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw, pitch) { P.x = x; P.z = z; P.yaw = yaw; P.pitch = pitch || 0; spawned = true; }, toggleOverview() { inside = !inside; }, build: buildGoblin };
 })();

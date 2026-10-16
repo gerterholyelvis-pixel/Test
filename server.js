@@ -40,7 +40,7 @@ const bcast = (m, o) => { const msg = typeof o === 'string' ? o : JSON.stringify
 const avgWins = m => { let s = 0; for (const p of m.players.values()) s += p.wins; return m.players.size ? s / m.players.size : 0; };
 const tolerance = w => w <= 5 ? 1 : Math.ceil(w * 0.25);
 function newMatch() {
-  const m = { id: nextMatch++, players: new Map(), round: 1, dur: 30000, endsAt: Date.now() + 30000, sel: {}, open: [], drops: [], nextDrop: 1, dirty: false, lastRound: 0,
+  const m = { id: nextMatch++, players: new Map(), round: 1, dur: 30000, endsAt: Date.now() + 30000, started: false, sel: {}, open: [], drops: [], nextDrop: 1, dirty: false, lastRound: 0,
     chests: Array.from({ length: 12 }, () => Math.floor(Math.random() * 6)), chestKeys: Array.from({ length: 12 }, () => GKITEMS.randomWeaponKey()), layout: GKITEMS.randomLayout() };
   m.shops = m.layout.map(x => x === 'merchant' ? GKITEMS.randomShop() : null);   // each merchant's 5 items with gold prices, rolled once per match
   m.mystery = m.layout.map(x => x === 'mystery' ? GKITEMS.randomMystery() : null);   // what is inside each mystery room, rolled once per match // weapon index per chest room
@@ -70,6 +70,7 @@ function leave(m, ws) { // remove a player from their match; empty matches disap
 setInterval(() => { // one global timer steps every match
   const now = Date.now();
   for (const m of matches.values()) {
+    if (!m.started) m.endsAt = now + m.dur;   // round 1 waits until someone has left the wheel and entered the rooms
     if (now >= m.endsAt) {
       const picked = [...new Set(Object.values(m.sel))], ok = vaultVotes(m) >= 2; // vault doors need 2 different rooms
       m.open = picked.filter(d => ok || !VAULT.includes(d)); m.fizzled = ok ? [] : picked.filter(d => VAULT.includes(d)); m.sel = {}; m.round++; m.dur = 45000; m.endsAt = now + m.dur; broadcastRound(m); m.lastRound = now; }
@@ -236,6 +237,7 @@ wss.on('connection', (ws, req) => {
     } else if (dbg && Array.isArray(d.tp) && d.tp.length === 2 && d.tp.every(v => typeof v === 'number' && Number.isFinite(v))) {
       p.x = clamp(d.tp[0]); p.z = clamp(d.tp[1]); p.box = boxOf(p.x, p.z); p.room = roomKeyOf(p.x, p.z); m.dirty = true;
     } else if (dbg && Number.isFinite(d.gold)) { p.gold = Math.max(0, Math.floor(d.gold)); sendGold(p);
+    } else if (d.enter === 1) { if (!m.started) { m.started = true; m.endsAt = now + m.dur; broadcastRound(m); }
     } else if (typeof d.eat === 'string') { eat(p, d.eat);
     } else if (Array.isArray(d.loot)) { const why = loot(m, p, d.loot); if (why) sendTo(ws, { lootFail: why });
     } else if (typeof d.craft === 'string') {

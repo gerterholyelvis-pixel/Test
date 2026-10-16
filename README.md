@@ -15,4 +15,5 @@ Push to GitHub, then in Render choose New > Blueprint (uses `render.yaml`) or Ne
 with build command `npm install` and start command `npm start`. Render sets `PORT`; clients use `wss://` automatically.
 
 ## Controls
-WASD move, mouse look (click to capture, Esc to release), Shift sprint, V overview.
+WASD move, mouse look (click to capture, Esc to release; if the browser refuses capture, the view still follows the cursor and turns at the screen edges),
+E interact (control panel doors, merchant, crafting bench, recycler, loot), Tab / I inventory, 1-3 quick slots, Shift sprint, V overview.
