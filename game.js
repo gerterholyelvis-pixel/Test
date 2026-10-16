@@ -4166,7 +4166,7 @@ function funUrl(u) {   // add the saved character's name to the join query
 }
 GK.fun = (() => {
   const GOLDC = '#ffd75e', esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const VERB = { dagger: 'stabbed', spear: 'stabbed', sword: 'sliced', axe: 'sliced', halberd: 'sliced', club: 'smashed', mace: 'smashed', hammer: 'smashed', flail: 'smashed', bow: 'shot', crossbow: 'shot', staff: 'zapped', scepter: 'zapped', fist: 'punched' };
+  const VERB = { dagger: 'stabbed', spear: 'stabbed', sword: 'sliced', axe: 'sliced', halberd: 'sliced', club: 'smashed', mace: 'smashed', hammer: 'smashed', flail: 'smashed', bow: 'shot', crossbow: 'shot', staff: 'zapped', scepter: 'zapped', wand: 'zapped', whip: 'lashed', sling: 'shot', fist: 'punched' };
   const NPCV = { Archer: 'was shot down by', Speedy: 'was shredded by' };
   const an = w => /^[aeiou]/i.test(w) ? 'an ' : 'a ';
   const S = { board: null, myName: '', feed: null, sb: null, sbOn: false, spec: false, tgt: null, ang: 0, yaw: 0, bar: null, end: null, cp: null, names: {} };
@@ -6218,14 +6218,14 @@ function combatMsg(d) {   // server messages: swing, hit, kills, match (goblins 
   if (d.hit) {
     const h = d.hit, v = actors.get(h.to), f = actors.get(h.from); if (h.from === me) vmHit(h);
     if (v) {
-      v.hp = h.hp; v.maxHp = h.max; v.hitT = CB.HIT;
+      v.hp = h.hp; v.maxHp = h.max; v.hitT = h.bleed ? 0 : CB.HIT;   /* WEAPONS3: a bleed tick is just a number, no lean or flash */
       const dx = f ? v.x - f.x : 0, dz = f ? v.z - f.z : 1, l = Math.hypot(dx, dz) || 1; v.kx = dx / l; v.kz = dz / l;
       const y = (h.to === me ? 1.4 : 2.0) * (SCALE[v.goblin] || 1);
       combatFloat('-' + h.dmg, new THREE.Vector3(v.x, y, v.z), h.from === me ? '#ffd75e' : '#ffffff', 0.5);
-      const burst = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff3a2a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.9 }));   // red hit flash on the victim (sprite only, no lights)
-      burst.scale.set(1.3, 1.3, 1); burst.position.set(v.x, 1.0 * (SCALE[v.goblin] || 1), v.z); scene.add(burst); CB.floats.push({ sp: burst, t: 0, flash: true });
+      if (!h.bleed) { const burst = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff3a2a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.9 }));   // red hit flash on the victim (sprite only, no lights)
+      burst.scale.set(1.3, 1.3, 1); burst.position.set(v.x, 1.0 * (SCALE[v.goblin] || 1), v.z); scene.add(burst); CB.floats.push({ sp: burst, t: 0, flash: true }); }
     }
-    { const fam = f && f.vmFam, ak = h.to === me ? (invReady ? myInv.armor : null) : (v && v.gArm !== undefined ? vmArmKey(v.gArm) : null), ait = ak && itemsData().ITEMS[ak], armor = ait && ait.family; /* FEEL3: weapon and armour families pick the hit sound */
+    if (!h.bleed) { const fam = f && f.vmFam, ak = h.to === me ? (invReady ? myInv.armor : null) : (v && v.gArm !== undefined ? vmArmKey(v.gArm) : null), ait = ak && itemsData().ITEMS[ak], armor = ait && ait.family; /* FEEL3: weapon and armour families pick the hit sound */
       if (h.to === me) { combatHurtFx(h.dmg, h.max); snd('hit', { fam, armor, vol: 0.7 }); snd('hurt'); try { GK.feel.hurt(h.dmg, h.max); } catch (e) {} if (f) feel2Arc(f); /* FEEL2 */ } else if (v) snd('hit', h.from === me ? { fam, armor } : { x: v.x, z: v.z, fam, armor }); }
   }
   if (d.kills != null) { CB.kills = d.kills; toastMsg('Goblin defeated!  Kills: ' + d.kills + (d.bounty ? '   +' + d.bounty + ' gold' : ''), true); }   /* PACE: bounty */
@@ -6293,11 +6293,11 @@ GK.attack = combatSwing; GK.combatState = CB; GK.combatHurtFx = combatHurtFx;
 // VIEWMODEL-BEGIN (first-person weapon + goblin hands, per-family attack clips, third-person weapon socket + family swings; see docs/reports/viewmodel.md)
 // Rules: no lights, no render passes. The camera is a scene child so the viewmodel is lit by the environment map and emissive only. Hooks elsewhere: vmUpdate/vmHide (frame), vmSwing/vmHit (combat), vmGear (player list), vmSw/vmPose3 (combatTick).
 const VM = { root: new THREE.Group(), rp: new THREE.Group(), lp: new THREE.Group(), wm: new THREE.Group(), key: undefined, fam: 'fist', model: null, hand: [], t: -1, dur: 0.4, clip: null, side: 0, stop: 0, kick: 0, shake: 0, eq: 1, want: undefined, lyaw: 0, lpit: 0, lagX: 0, lagY: 0, fired: false, shook: false, tip: new THREE.Vector3(0, 0.9, 0), tracers: [], active: false };
-const VM_FAM_MELEE = { sword: 1, dagger: 1, club: 1, mace: 1, axe: 1, flail: 1, hammer: 1, halberd: 1, spear: 1 };
-const VM_CLASS = { sword: 'slash', dagger: 'slash', spear: 'thrust', axe: 'smash', mace: 'smash', club: 'smash', flail: 'smash', hammer: 'smash', halberd: 'smash', bow: 'bow', crossbow: 'bow', staff: 'cast', scepter: 'cast' };
-const VM_SC = { sword: 0.34, dagger: 0.34, spear: 0.24, axe: 0.3, mace: 0.28, club: 0.33, flail: 0.28, hammer: 0.29, halberd: 0.23, bow: 0.34, crossbow: 0.3, staff: 0.28, scepter: 0.32 };   // model units -> first-person metres
-const VM_GRIP = { sword: -0.3, dagger: -0.4, spear: -0.3, axe: -0.5, mace: -0.55, club: -0.35, flail: -0.5, hammer: -0.4, halberd: -0.4, bow: 0, crossbow: -0.2, staff: -0.3, scepter: -0.4 };   // grip point along the model's +y
-const VM_TILT = { sword: -0.35, dagger: -0.35, spear: -1.05, axe: -0.3, mace: -0.3, club: -0.3, flail: -0.3, hammer: -0.3, halberd: -0.8, bow: 0, crossbow: -1.45, staff: -0.25, scepter: -0.3 };   // base pitch of the weapon in the hand
+const VM_FAM_MELEE = { whip: 1, sword: 1, dagger: 1, club: 1, mace: 1, axe: 1, flail: 1, hammer: 1, halberd: 1, spear: 1 };
+const VM_CLASS = { sword: 'slash', dagger: 'slash', spear: 'thrust', axe: 'smash', mace: 'smash', club: 'smash', flail: 'smash', hammer: 'smash', halberd: 'smash', bow: 'bow', crossbow: 'bow', staff: 'cast', scepter: 'cast', whip: 'slash', sling: 'slash', wand: 'cast' };
+const VM_SC = { sword: 0.34, dagger: 0.34, spear: 0.24, axe: 0.3, mace: 0.28, club: 0.33, flail: 0.28, hammer: 0.29, halberd: 0.23, bow: 0.34, crossbow: 0.3, staff: 0.28, scepter: 0.32, whip: 0.3, sling: 0.38, wand: 0.4 };   // model units -> first-person metres
+const VM_GRIP = { sword: -0.3, dagger: -0.4, spear: -0.3, axe: -0.5, mace: -0.55, club: -0.35, flail: -0.5, hammer: -0.4, halberd: -0.4, bow: 0, crossbow: -0.2, staff: -0.3, scepter: -0.4, whip: -0.45, sling: -0.15, wand: -0.15 };   // grip point along the model's +y
+const VM_TILT = { sword: -0.35, dagger: -0.35, spear: -1.05, axe: -0.3, mace: -0.3, club: -0.3, flail: -0.3, hammer: -0.3, halberd: -0.8, bow: 0, crossbow: -1.45, staff: -0.25, scepter: -0.3, whip: -0.5, sling: -0.5, wand: -0.45 };   // base pitch of the weapon in the hand
 // first-person only (third person keeps VM_SC): bigger bow, spear and a slightly smaller axe so the limb and string, the spear head and the whole axe head read on screen
 const VM_FPX = { bow: 1.82, spear: 2.5, axe: 0.87 };
 const VM_ADJ = { bow: { rot: [0, 0.5, 0.12] }, crossbow: { rot: [-1.2, -0.7, 0.2], pos: [-0.05, 0, 0] }, spear: { rot: [-0.7, 0, 0] }, axe: { rot: [-0.1, 0, 0] } };   // per-family overrides of the weapon's pose in the hand: { rot: [x, y, z], pos: [x, y, z] } (applied after the tables above)

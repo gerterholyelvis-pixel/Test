@@ -185,6 +185,7 @@ setInterval(() => { // one global timer steps every match
     socGrace(m, now);   // SOCIAL: disconnected players whose grace period ran out die now
     botTick(m, now);   // BOTS: brains of bots and mystery enemies (~10 Hz)
     useTick(m, now);   // UTILITY: bombs, smoke, mushroom regeneration
+    weapons3Tick(m, now);   // WEAPONS3: bleeds, and bolts of tuned wands when the staffbolt rule is off
     ruleTick(m, now);   // RULES: experimental rules (no-op unless GK_RULES is set)
     if (!m.started) m.endsAt = now + m.dur;   // round 1 waits until someone has left the wheel and entered the rooms
     if (now >= m.endsAt) {
@@ -394,10 +395,11 @@ function checkWin(m) {   // DEFAULT RULE (owner has not decided): >= 2 players e
 function attack(m, ws, p, now, rt) {   // {atk:1, rt}: rate limit by weapon, nearest valid target in range, in the 70 degree cone, same room key; targets are rewound to server time rt (what the attacker saw), at most 200 ms
   if (!p.entered || p.dead) return;
   let cb = G.combat(p.inv.weapon); if (p.npc) cb = { ...cb, dmg: p.npcDmg, cd: p.npcCd };
-  const bolt = boltWeapon(p); if (bolt) cb = { ...cb, cd: BOLT.cd };   // staffbolt: staves and scepters throw a slow bolt instead of a melee bonk   // mystery enemies have their own damage and cooldown
+  const bolt = boltWeapon(p); if (bolt && !cb.bolt) cb = { ...cb, cd: BOLT.cd };   // WEAPONS3: a tuned wand/staff keeps its own cd and bolt damage
+    // staffbolt: staves and scepters throw a slow bolt instead of a melee bonk   // mystery enemies have their own damage and cooldown
   if (now - (p.atkAt || 0) < cb.cd * 0.9) return;   // 10% jitter allowance
   p.atkAt = now; bcast(m, { swing: p.id });
-  if (bolt) return fireBolt(m, p, now);
+  if (bolt) return fireBolt(m, p, now, cb.bolt);
   const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw), reach = cb.range + C.slack;   // forward vector, same as the client's movement
   let best = null, bd = Infinity;
   const T = srvT(), at = typeof rt === 'number' && Number.isFinite(rt) ? Math.max(T - REWIND_MAX, Math.min(T, rt)) : T;   // lag compensation: look at the world as the attacker saw it
@@ -413,8 +415,23 @@ function attack(m, ws, p, now, rt) {   // {atk:1, rt}: rate limit by weapon, nea
   }
   if (!best) return;
   const [tws, t] = best; hitTarget(m, ws, p, tws, t, cb.dmg, now);
+  if (cb.bleed && t.stats.health > 0) t.bleed = { by: p, dmg: cb.bleed[0], left: cb.bleed[1], next: now + BLEED_MS, w: p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon] ? G.ITEMS[p.inv.weapon].name : '' };   // WEAPONS3: whips and tridents leave a bleed
 }
 // COMBAT-END
+// WEAPONS3-BEGIN (bleed from whips and tridents, tuned magic bolts; weapon numbers live in items.js WEAPON_TUNE)
+const BLEED_MS = +process.env.GK_BLEED_MS || 1000;   // one bleed tick a second (tests shorten it)
+function weapons3Tick(m, now) {
+  if (m.phase !== 'play' || m.ended) return;
+  for (const [tws, t] of m.players) {
+    const bl = t.bleed; if (!bl) continue;
+    if (t.dead || !t.entered || bl.left <= 0) { t.bleed = null; continue; }
+    if (now < bl.next) continue;
+    bl.next = now + BLEED_MS; bl.left--; if (bl.left <= 0) t.bleed = null;
+    hitTarget(m, bl.by.ws, bl.by, tws, t, bl.dmg, now, bl.w, { bleed: true });
+  }
+  if (!rule('staffbolt') && m.bolts && m.bolts.length) boltTick(m, now);   // ruleTick handles bolts when the rule is on
+}
+// WEAPONS3-END
 // RULES-LOGIC-BEGIN (the four experimental rules; every function is a no-op unless its rule is on)
 const ruleState = m => RULES.size ? { rules: [...RULES], ...(rule('bribe') ? { bribes: m.bribes || {} } : null), ...(rule('doorclose') ? { openLeft: Object.fromEntries((m.open || []).filter(d => m.openLeft && m.openLeft[d]).map(d => [d, m.openLeft[d]])) } : null) } : null;
 function ruleOpen(m, fresh) {   // doorclose: the doors stay open for DOOR_LIFE rounds (m.openLeft counts the rounds still to go), a door picked again is refreshed
@@ -424,16 +441,16 @@ function ruleOpen(m, fresh) {   // doorclose: the doors stay open for DOOR_LIFE 
   for (const d of fresh) { next[d] = DOOR_LIFE; if (!keep.includes(d)) keep.push(d); }
   m.openLeft = next; return keep;
 }
-function hitTarget(m, ws, p, tws, t, dmg, now, wname) {   // damage, hit broadcast, kill bookkeeping (melee and bolts share it)
+function hitTarget(m, ws, p, tws, t, dmg, now, wname, opts) {   // damage, hit broadcast, kill bookkeeping (melee and bolts share it)
   const hp = Math.max(0, t.stats.health - dmg);
   t.stats.health = hp; t.hurtAt = now; t.hitBy = p.id; m.dirty = true;   // hitBy: a bot notices whoever hurt it at once
-  bcast(m, { hit: { from: p.id, to: t.id, dmg, hp, max: t.stats.maxHealth, dead: hp <= 0 } });
+  bcast(m, { hit: { from: p.id, to: t.id, dmg, hp, max: t.stats.maxHealth, dead: hp <= 0, ...(opts && opts.bleed ? { bleed: 1 } : null) } });
   if (hp <= 0) { p.kills = (p.kills || 0) + 1; const bounty = paceBounty(p, t); t.killedBy = p.id; { const kw = p.npc ? null : p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; t.killer = { name: p.name || 'Goblin', npc: !!p.npc, w: wname || (kw ? kw.name : (p.npc ? '' : 'Fists')) }; } sendTo(ws, { kills: p.kills, ...(bounty ? { bounty } : null) }); sendFeed(m, p, t); die(tws, t); }
 }
-function boltWeapon(p) { if (!rule('staffbolt')) return false; const w = p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; return !!w && (w.family === 'staff' || w.family === 'scepter'); }
-function fireBolt(m, p, now) {   // staffbolt: a slow projectile straight ahead, 12 m range, never leaves the room it was fired in
+function boltWeapon(p) { const w = p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; if (w && G.combat(p.inv.weapon).bolt) return true; if (!rule('staffbolt')) return false; return !!w && (w.family === 'staff' || w.family === 'scepter'); }
+function fireBolt(m, p, now, dmg) {   // staffbolt: a slow projectile straight ahead, 12 m range, never leaves the room it was fired in
   m.bolts = m.bolts || []; m.boltN = (m.boltN || 0) + 1;
-  const b = { id: m.boltN, by: p, x: p.x, z: p.z, vx: -Math.sin(p.yaw) * BOLT.speed, vz: -Math.cos(p.yaw) * BOLT.speed, dist: 0, room: p.room, t: now };
+  const b = { id: m.boltN, by: p, x: p.x, z: p.z, vx: -Math.sin(p.yaw) * BOLT.speed, vz: -Math.cos(p.yaw) * BOLT.speed, dist: 0, room: p.room, t: now, dmg: dmg || BOLT.dmg };
   m.bolts.push(b); bcast(m, { bolt: { id: b.id, by: p.id, x: +p.x.toFixed(2), z: +p.z.toFixed(2), vx: +b.vx.toFixed(2), vz: +b.vz.toFixed(2), range: BOLT.range } });
 }
 function boltTick(m, now) {
@@ -444,7 +461,7 @@ function boltTick(m, now) {
     let hit = null;
     for (const [tws, t] of m.players) { if (t === b.by || t.dead || !t.entered || t.room !== b.room) continue; if (Math.hypot(t.x - b.x, t.z - b.z) < BOLT.radius && !(Math.hypot(t.x - b.by.x, t.z - b.by.z) > 2.5 && inSmoke(m, t, now))) { hit = [tws, t]; break; } }
     if (hit && WORLD.segBlocked(b.x - b.vx * dt, b.z - b.vz * dt, hit[1].x, hit[1].z, m.layout)) hit = null;   // SOLID: a prop between the bolt and the goblin shields him
-    if (hit) { hitTarget(m, b.by.ws, b.by, hit[0], hit[1], BOLT.dmg, now); bcast(m, { boltEnd: { id: b.id, hit: 1 } }); return false; }
+    if (hit) { hitTarget(m, b.by.ws, b.by, hit[0], hit[1], b.dmg || BOLT.dmg, now); bcast(m, { boltEnd: { id: b.id, hit: 1 } }); return false; }
     if (WORLD.inProp(b.x, b.z, 0.08, m.layout)) { bcast(m, { boltEnd: { id: b.id } }); return false; }   // SOLID: the bolt dies on a crate, barrel or urn
     if (b.dist >= BOLT.range || roomKeyOf(b.x, b.z) !== b.room) { bcast(m, { boltEnd: { id: b.id } }); return false; }
     return true;
