@@ -35,6 +35,8 @@ const botOf = c => c.state.matchStart.players.find(p => p.bot);
       ['a mystery enemy spawns at GO, fights back, drops loot when killed and does not count for goblins left or the win', async () => {
         const c = await connectWith(srv1.port, s => (s.mystery || []).some(m => m && m.kind === 'enemy') && s.layout.some((x, i) => x === 'mystery' && s.mystery[i].kind === 'enemy'));
         const id = c.state.mystery.findIndex(m => m && m.kind === 'enemy'), kind = c.state.mystery[id].enemy, ch = W.CHEST[id];
+        await sleep(400); eq((c.state.players || []).some(p => p.npc), false, 'no enemy before anyone entered its room');   // spawns on first entry now, not at GO
+        for (let i = 0; i < 30 && !(c.state.players || []).some(p => p.npc); i++) { c.send({ tp: [ch.cx, ch.cz + 2] }); await sleep(100); }
         await c.until(x => x.state.players && x.state.players.some(p => p.npc), 2000, 'npc in the players list');
         const npc = c.state.players.find(p => p.npc); eq(npc.npc, kind); assert(npc.name && npc.stats.health > 0, 'npc stats'); eq(W.roomKeyOf(npc.x, npc.z), 'c' + id);
         eq(c.state.match.size, 1); eq(c.state.match.alive, 1);

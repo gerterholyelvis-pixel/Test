@@ -3342,7 +3342,7 @@ function invAll(inv) { return [inv.weapon, inv.armor, ...inv.backpack, ...inv.qu
 // ---------- networking (real server, or a local simulation for the offline demo) ----------
 function makeNet(opts) {   // opts.goblin: play this goblin type (a saved character) instead of rolling one
   if (!window.GK_OFFLINE) {
-    const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + (opts && opts.goblin != null ? '/?goblin=' + (opts.goblin | 0) + '&wins=' + (Math.max(0, (opts.wins | 0))) : (opts && opts.wins ? '/?wins=' + (opts.wins | 0) : '')));
+    const ws = new WebSocket(funUrl((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + (opts && opts.goblin != null ? '/?goblin=' + (opts.goblin | 0) + '&wins=' + (Math.max(0, (opts.wins | 0))) : (opts && opts.wins ? '/?wins=' + (opts.wins | 0) : ''))));
     let lastM = '', lastMT = 0;   // NET: my position goes out only when it changed (plus a 1 s keepalive); attacks carry the server time I was seeing
     const net = { send: m => {
       if (ws.readyState !== 1) return;
@@ -3628,6 +3628,7 @@ const handleMsg0 = d => {
   if (d.craftFail) stationFail('craft', d.craftFail);
   if (d.ate) ateFx(d.ate);
   if (d.lootFail) lootFailFx(d.lootFail);
+  if (GK.fun) GK.fun.onMsg(d);   // FUN: kill feed, board, match summary
   if (d.died) showDeathScreen(d.died);
   if (d.won) showVictory(d.won);
   if (d.swing != null || d.hit || d.kills != null || d.match) combatMsg(d);   // COMBAT
@@ -3640,7 +3641,7 @@ const handleMsg0 = d => {
     let a = actors.get(p.id);
     if (a && a.goblin !== p.goblin) { dropGoblin(a.group); actors.delete(p.id); a = null; }
     if (!a) {
-      const group = buildGoblin(p.goblin); scene.add(group); if (p.npc) npcLook(group, p.npc);   // BOTS: bots look like normal goblins; mystery enemies get a hostile tint (and the troll is big)
+      const group = buildGoblin(p.goblin); scene.add(group); if (p.npc) { npcLook(group, p.npc); GK.fun && GK.fun.hideDecoy(p.x, p.z); }   // BOTS: bots look like normal goblins; mystery enemies get a hostile tint (and the troll is big)
       a = { group, goblin: p.goblin, x: p.x, z: p.z, yaw: p.yaw, phase: Math.random() * 6, speed: 0, seq: p.seq };
       actors.set(p.id, a);
       if (p.id === me) spawned = false;
@@ -3741,6 +3742,7 @@ function showDeathScreen(info) {
   document.body.appendChild(deathEl); requestAnimationFrame(() => { deathEl.style.opacity = 1; });
   $('deathQueue').onclick = () => { try { sessionStorage.setItem('gk.requeue', '1'); } catch (e) {} location.reload(); };   // fresh connection, new wheel roll
   $('deathMenu').onclick = () => location.reload();
+  if (GK.fun) GK.fun.deathButton(info);   // FUN: SPECTATE
   if (window.GK_OFFLINE) {   // demo: come back as a new goblin right here; the loot pile stays and can be looted
     const b = document.createElement('button'); b.id = 'deathAgain'; b.textContent = 'NEW GOBLIN (DEMO)';
     b.style.cssText = 'flex:1;padding:13px 10px;border-radius:10px;border:1px solid rgba(255,215,94,.5);background:transparent;color:#ffd75e;font:700 14px system-ui,sans-serif;letter-spacing:.06em;cursor:pointer';
@@ -3754,6 +3756,127 @@ function showDeathScreen(info) {
   $('deathQueue').focus();
 }
 GK.showDeathScreen = showDeathScreen;
+// FUN-BEGIN (kill feed, scoreboard on `, spectating after death, match summary; see docs/reports/fun.md)
+function funUrl(u) {   // add the saved character's name to the join query
+  try { const c = GK.charId != null && window.GKSAVE ? GKSAVE.getCharacter(+GK.charId) : null; if (c && c.name) return u + (u.indexOf('?') < 0 ? '/?' : '&') + 'name=' + encodeURIComponent(String(c.name).slice(0, 14)); } catch (e) {}
+  return u;
+}
+GK.fun = (() => {
+  const GOLDC = '#ffd75e', esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const VERB = { dagger: 'stabbed', spear: 'stabbed', sword: 'sliced', axe: 'sliced', halberd: 'sliced', club: 'smashed', mace: 'smashed', hammer: 'smashed', flail: 'smashed', bow: 'shot', crossbow: 'shot', staff: 'zapped', scepter: 'zapped', fist: 'punched' };
+  const NPCV = { Archer: 'was shot down by', Speedy: 'was shredded by' };
+  const an = w => /^[aeiou]/i.test(w) ? 'an ' : 'a ';
+  const S = { board: null, myName: '', feed: null, sb: null, sbOn: false, spec: false, tgt: null, ang: 0, yaw: 0, bar: null, end: null, cp: null, names: {} };
+  const css = () => {
+    if (document.getElementById('gkFunCss')) return;
+    const st = document.createElement('style'); st.id = 'gkFunCss';
+    st.textContent = '@keyframes gkFeedIn{from{transform:translateX(30px);opacity:0}to{transform:none;opacity:1}}'
+      + '#gkFeed{position:fixed;top:12px;right:12px;z-index:31;display:flex;flex-direction:column;align-items:flex-end;gap:5px;pointer-events:none;font:600 14px/1.25 system-ui,sans-serif}'
+      + '#gkFeed div{padding:6px 12px;border-radius:9px;background:rgba(10,10,16,.66);border:1px solid rgba(255,215,94,.3);color:#e9e5da;text-shadow:0 1px 3px #000;animation:gkFeedIn .25s ease-out;transition:opacity .6s;max-width:min(520px,70vw);box-shadow:0 2px 10px rgba(0,0,0,.4)}'
+      + '#gkFeed div.me{border-color:' + GOLDC + ';box-shadow:0 0 14px rgba(255,215,94,.35)}#gkFeed div.fade{opacity:0}#gkFeed b{color:' + GOLDC + '}#gkFeed b.v{color:#ff8a7a}#gkFeed i{color:#fff;font-style:normal}'
+      + '.gkFunBtn{padding:11px 18px;border-radius:10px;font:800 14px system-ui,sans-serif;letter-spacing:.08em;cursor:pointer;pointer-events:auto}'
+      + '.gkFunBtn.g{border:0;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405}.gkFunBtn.o{border:1px solid rgba(255,215,94,.5);background:rgba(10,10,16,.5);color:' + GOLDC + '}.gkFunBtn.w{border:1px solid rgba(255,255,255,.3);background:transparent;color:#f2efe6}';
+    document.head.appendChild(st);
+  };
+  const el = (id, css0) => { let e = document.getElementById(id); if (!e) { e = document.createElement('div'); e.id = id; e.style.cssText = css0; document.body.appendChild(e); } return e; };
+  const gname = t => (typeof NAMES !== 'undefined' && NAMES[t]) || 'Goblin';
+  const requeue = () => { try { sessionStorage.setItem('gk.requeue', '1'); } catch (e) {} location.reload(); };
+  // ---- kill feed
+  function feed(f) {
+    css(); const box = S.feed || (S.feed = el('gkFeed', '')), row = document.createElement('div');
+    if (S.myName && (f.k === S.myName || f.v === S.myName)) row.className = 'me';
+    row.innerHTML = f.npc ? '<b class="v">' + esc(f.v) + '</b> ' + (NPCV[f.k] || 'was mauled by') + ' ' + an(f.k) + esc(f.k)
+      : '<b>' + esc(f.k) + '</b> ' + (VERB[f.f] || 'killed') + ' <b class="v">' + esc(f.v) + '</b>' + (f.w ? ' with ' + an(f.w) + '<i>' + esc(f.w) + '</i>' : '');
+    box.appendChild(row); while (box.children.length > 5) box.removeChild(box.firstChild);
+    setTimeout(() => row.classList.add('fade'), 5400); setTimeout(() => row.remove(), 6000);
+  }
+  // ---- scoreboard (hold `)
+  function paintBoard() {
+    const b = S.board; if (!S.sb) S.sb = el('gkBoard', 'position:fixed;left:50%;top:14vh;transform:translateX(-50%);z-index:55;width:min(560px,94vw);padding:16px 20px 14px;border-radius:14px;background:rgba(10,10,16,.86);border:1px solid rgba(255,215,94,.45);box-shadow:0 10px 50px rgba(0,0,0,.7);color:#f2efe6;font:600 14px system-ui,sans-serif;pointer-events:none;display:none');
+    const rows = b ? b.rows.slice().sort((x, y) => y[4] - x[4] || y[3] - x[3] || x[0] - y[0]) : [];
+    S.sb.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px"><span style="color:' + GOLDC + ';font-weight:800;letter-spacing:.14em">SCOREBOARD</span><span style="color:#cfd3dc">Goblins left <b style="color:' + GOLDC + ';font-size:20px">' + (b ? b.left : '-') + '</b></span></div>'
+      + '<div style="display:grid;grid-template-columns:1.4fr 1.3fr .5fr .7fr .8fr;gap:4px 10px;font-variant-numeric:tabular-nums">'
+      + ['Goblin', 'Type', 'Kills', 'Status', 'Victories'].map(h => '<span style="color:#8d887f;font-size:11px;letter-spacing:.1em;text-transform:uppercase">' + h + '</span>').join('')
+      + rows.map(r => { const you = r[0] === me, c = r[4] ? '#f2efe6' : '#7d7871'; return '<span style="color:' + (you ? GOLDC : c) + ';' + (you ? 'font-weight:800;' : '') + '">' + esc(r[1]) + (r[6] ? ' <small style="margin-left:4px;padding:1px 5px;border-radius:5px;background:rgba(255,255,255,.12);color:#b9b4ae;font-size:10px;letter-spacing:.08em;vertical-align:middle">BOT</small>' : '') + '</span>'
+        + '<span style="color:' + c + '">' + esc(gname(r[2])) + '</span><span style="color:' + c + '">' + r[3] + '</span><span style="color:' + (r[4] ? '#8be28b' : '#ff6a5a') + '">' + (r[4] ? 'Alive' : 'Dead') + '</span><span style="color:' + c + '">' + r[5] + '</span>'; }).join('')
+      + (rows.length ? '' : '<span style="grid-column:1/-1;color:#8d887f">The scoreboard fills in when the match starts.</span>') + '</div>';
+  }
+  function showBoard(on) { if (on === S.sbOn) return; S.sbOn = on; if (on) paintBoard(); if (S.sb) S.sb.style.display = on ? 'block' : 'none'; }
+  // ---- spectating
+  const alive = () => S.board ? S.board.rows.filter(r => r[4] && r[0] !== me && actors.has(r[0])).map(r => r[0]) : [];
+  const nameOfId = id => S.names[id] || 'a goblin';
+  function cycle(dir) { const l = alive(); if (!l.length) return; const i = l.indexOf(S.tgt); S.tgt = l[i < 0 ? (dir > 0 ? 0 : l.length - 1) : (i + dir + l.length) % l.length]; S.ang = 0; barPaint(); }
+  function barPaint() {
+    if (!S.bar) return; const l = alive(), a = S.tgt != null && actors.get(S.tgt);
+    S.bar.querySelector('.who').innerHTML = a ? 'Spectating <b style="color:' + GOLDC + '">' + esc(nameOfId(S.tgt)) + '</b>' : 'Nobody left to watch';
+    S.bar.querySelector('.hint').textContent = l.length > 1 || (l.length === 1 && l[0] !== S.tgt) ? '← → switch goblin · drag to look' : 'drag to look around';
+  }
+  function startSpec(info) {
+    css(); if (S.spec) return; S.spec = true; if (deathEl) deathEl.style.display = 'none';
+    S.tgt = info && info.by != null && actors.has(info.by) ? info.by : (alive()[0] != null ? alive()[0] : null);
+    if (!S.bar) {
+      S.bar = el('gkSpecBar', 'position:fixed;left:50%;bottom:3vh;transform:translateX(-50%);z-index:58;display:flex;align-items:center;gap:14px;padding:10px 16px;border-radius:14px;background:rgba(10,10,16,.78);border:1px solid rgba(255,215,94,.45);box-shadow:0 6px 30px rgba(0,0,0,.6);color:#f2efe6;font:600 15px system-ui,sans-serif;max-width:96vw;flex-wrap:wrap;justify-content:center');
+      S.bar.innerHTML = '<button class="gkFunBtn o" id="gkSpL" style="padding:6px 12px">◀</button><div style="min-width:190px;text-align:center"><div class="who"></div><div class="hint" style="font-size:11px;color:#8d887f;letter-spacing:.06em"></div></div><button class="gkFunBtn o" id="gkSpR" style="padding:6px 12px">▶</button>'
+        + '<button class="gkFunBtn g" id="gkSpQ">REQUEUE</button><button class="gkFunBtn w" id="gkSpM">MAIN MENU</button>';
+      $('gkSpL').onclick = () => cycle(-1); $('gkSpR').onclick = () => cycle(1); $('gkSpQ').onclick = requeue; $('gkSpM').onclick = () => location.reload();
+    }
+    S.bar.style.display = 'flex'; barPaint();
+  }
+  function camera(c, dt) {   // third-person orbit around the followed goblin; returns true when it placed the camera
+    if (!S.spec) return false;
+    let a = S.tgt != null ? actors.get(S.tgt) : null;
+    const deadNow = S.tgt != null && S.board && S.board.rows.some(r => r[0] === S.tgt && !r[4]);
+    if (!a || deadNow) { const l = alive(); if (l.length) { S.tgt = l[0]; a = actors.get(S.tgt); S.ang = 0; barPaint(); } else if (!a) return false; }
+    const sc = (typeof SCALE !== 'undefined' && SCALE[a.goblin]) || 1;
+    S.yaw += wrapPi(a.yaw - S.yaw) * Math.min(1, dt * 2.5);
+    const ang = S.yaw + S.ang, d = 4.4 * sc + 1.2, px = a.x + Math.sin(ang) * d, pz = a.z + Math.cos(ang) * d, py = 2.5 * sc + 0.8;
+    if (!S.cp) S.cp = new THREE.Vector3(px, py, pz); const k = Math.min(1, dt * 6); S.cp.x += (px - S.cp.x) * k; S.cp.y += (py - S.cp.y) * k; S.cp.z += (pz - S.cp.z) * k;
+    c.fov = 68; c.position.copy(S.cp); c.lookAt(a.x, 1.15 * sc, a.z); return true;
+  }
+  // ---- match summary
+  function matchEnd(e) {
+    css(); if (S.end) S.end.remove();
+    const mine = e.places.find(p => p.id === me), mmss = s => Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    const line = (k, v) => '<span style="color:#aaa59d">' + k + '</span><b style="text-align:right;font-weight:600">' + v + '</b>';
+    const w = e.winner, t = e.top, l = e.longest;
+    const box = S.end = el('gkEnd', 'position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);font-family:system-ui,sans-serif;color:#f2efe6');
+    box.innerHTML = '<div style="width:min(500px,92vw);padding:24px 28px 22px;border-radius:16px;background:rgba(14,12,8,.92);border:1px solid rgba(255,215,94,.55);box-shadow:0 10px 60px rgba(0,0,0,.75);animation:gkFeedIn .3s ease-out">'
+      + '<div style="text-align:center;color:' + GOLDC + ';font-weight:900;font-size:clamp(26px,5vw,40px);letter-spacing:.12em;text-shadow:0 0 22px rgba(255,190,50,.45)">MATCH OVER</div>'
+      + (mine ? '<div style="text-align:center;margin:6px 0 14px;font-size:clamp(30px,6vw,46px);font-weight:900;color:' + (mine.place === 1 ? '#8be28b' : '#f2efe6') + '">#' + mine.place + ' <small style="font-size:.4em;color:#aaa59d;letter-spacing:.1em">OF ' + e.size + '</small></div>' : '<div style="height:12px"></div>')
+      + '<div style="display:grid;grid-template-columns:auto 1fr;gap:7px 20px;font-size:15px">'
+      + (w ? line('Winner', esc(w.name) + ' <small style="color:#aaa59d">' + esc(gname(w.goblin)) + '</small>') : '')
+      + (t ? line('Top killer', esc(t.name) + ' <small style="color:#aaa59d">' + t.kills + (t.kills === 1 ? ' kill' : ' kills') + '</small>') : '')
+      + (l ? line('Longest survivor', esc(l.name) + ' <small style="color:#aaa59d">' + mmss(l.secs) + '</small>') : '') + '</div>'
+      + '<div style="margin-top:14px;padding-top:10px;border-top:1px solid rgba(255,255,255,.12);display:grid;grid-template-columns:auto 1fr auto auto;gap:3px 12px;font-size:13px;font-variant-numeric:tabular-nums">'
+      + e.places.map(p => { const c = p.id === me ? GOLDC : '#cfd3dc'; return '<span style="color:#8d887f">#' + p.place + '</span><span style="color:' + c + '">' + esc(p.name) + '</span><span style="color:' + c + '">' + p.kills + ' K</span><span style="color:#8d887f">' + mmss(p.secs) + '</span>'; }).join('') + '</div>'
+      + '<div style="display:flex;gap:10px;margin-top:18px"><button class="gkFunBtn o" id="gkEndX" style="flex:1">CLOSE</button><button class="gkFunBtn g" id="gkEndQ" style="flex:1">REQUEUE</button><button class="gkFunBtn w" id="gkEndM" style="flex:1">MAIN MENU</button></div></div>';
+    $('gkEndX').onclick = () => { box.remove(); S.end = null; }; $('gkEndQ').onclick = requeue; $('gkEndM').onclick = () => location.reload();
+  }
+  function onMsg(d) {
+    if (d.players) { const m = d.players.find(p => p.id === me); if (m && m.name) S.myName = m.name; for (const p of d.players) if (p.name) S.names[p.id] = p.name; }
+    if (d.feed) feed(d.feed);
+    if (d.board) { S.board = d.board; for (const r of d.board.rows) S.names[r[0]] = r[1]; if (S.sbOn) paintBoard(); if (S.spec) barPaint(); }
+    if (d.matchEnd) matchEnd(d.matchEnd);
+  }
+  function deathButton(info) {
+    if (window.GK_OFFLINE) return;
+    css(); const q = $('deathQueue'); if (!q) return;
+    const b = document.createElement('button'); b.id = 'deathSpec'; b.className = 'gkFunBtn o'; b.textContent = 'SPECTATE'; b.style.cssText = 'display:block;width:100%;margin-top:18px;padding:12px 10px;font-size:16px';
+    q.parentNode.parentNode.insertBefore(b, q.parentNode); q.parentNode.style.marginTop = '12px'; b.onclick = () => startSpec(info);
+  }
+  function hideDecoy(x, z) {   // the room's static decoy enemy model is replaced by the real NPC
+    const v = new THREE.Vector3(); scene.traverse(o => { if (o.name === 'mystery-enemy' && o.visible) { o.getWorldPosition(v); if (Math.hypot(v.x - x, v.z - z) < 6) o.visible = false; } });
+  }
+  addEventListener('keydown', e => {
+    if (e.code === 'Backquote' && (GK.mode === 'play' || GK.mode === 'dead')) { e.preventDefault(); showBoard(true); return; }
+    if (S.spec && !e.repeat && GK.mode === 'dead') { if (e.code === 'ArrowLeft' || e.code === 'KeyA') cycle(-1); else if (e.code === 'ArrowRight' || e.code === 'KeyD') cycle(1); }
+  });
+  addEventListener('keyup', e => { if (e.code === 'Backquote') showBoard(false); });
+  addEventListener('blur', () => showBoard(false));
+  addEventListener('mousemove', e => { if (S.spec && (e.buttons & 1)) S.ang -= e.movementX * 0.006; });
+  return { onMsg, deathButton, camera, hideDecoy, state: S, debugKill: () => net.send({ kill: 1 }) };   // debugKill only works against GK_DEBUG=1 servers
+})();
+// FUN-END
 
 // ---------- inventory UI: hotbar (3 quick slots), inventory screen, lobby line ----------
 let myInv = emptyInv(), invReady = false, invOpen = false, qSel = 0, held = null;
@@ -5529,7 +5652,7 @@ function frame(now) {
   combatTick(dt);   // COMBAT
   // camera
   ceilings.forEach(c => c.visible = inside);
-  if (inside && mine && spawned) {
+  if (GK.fun && GK.fun.camera(cam, dt)) { /* FUN: spectator camera */ } else if (inside && mine && spawned) {
     const eye = 1.5 * SCALE[mine.goblin];
     cam.fov = GK.settings.fov; cam.position.set(P.x, eye + (GK.settings.bob === false ? 0 : Math.sin(mine.phase) * 0.035 * clamp(P.speed / 3.5, 0, 1)), P.z);   // FEEL: head bob can be switched off in Settings
     cam.rotation.set(P.pitch, P.yaw, 0);

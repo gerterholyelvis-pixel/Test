@@ -42,14 +42,14 @@ const READY_MS = DBG && process.env.GK_READY_MS && +process.env.GK_READY_MS >= 0
 const matches = new Map(); // id -> match
 let nextId = 1, nextMatch = 1;
 const sendTo = (ws, o) => { if (ws && ws.readyState === 1) ws.send(typeof o === 'string' ? o : JSON.stringify(o)); };
-const bcast = (m, o) => { const msg = typeof o === 'string' ? o : JSON.stringify(o); for (const ws of m.players.keys()) if (ws.readyState === 1) ws.send(msg); };
+const bcast = (m, o) => { const msg = typeof o === 'string' ? o : JSON.stringify(o); for (const ws of m.players.keys()) if (ws.readyState === 1) ws.send(msg); if (m.specs) for (const ws of m.specs.keys()) if (ws.readyState === 1) ws.send(msg); };   // FUN: spectators (dead players who stay subscribed) get everything the match broadcasts
 const isHum = p => !p.bot && !p.npc;
 const humans = m => { let n = 0; for (const p of m.players.values()) if (isHum(p)) n++; return n; };   // bots and mystery enemies are not humans
 const avgWins = m => { let s = 0; for (const p of m.players.values()) s += p.wins; return m.players.size ? s / m.players.size : 0; };
 const tolerance = w => w <= 5 ? 1 : Math.ceil(w * 0.25);
 function newMatch() {
   const R1 = process.env.GK_DEBUG && +process.env.GK_ROUND_MS > 0 ? +process.env.GK_ROUND_MS : 30000; // GK_DEBUG only: shorter round 1 so the tests run fast
-  const m = { id: nextMatch++, players: new Map(), round: 1, dur: R1, endsAt: Date.now() + R1, started: false, phase: 'queue', formedAt: Date.now(), goAt: 0, sel: {}, open: [], drops: [], nextDrop: 1, dirty: false, lastRound: 0,
+  const m = { id: nextMatch++, players: new Map(), round: 1, dur: R1, endsAt: Date.now() + R1, started: false, phase: 'queue', formedAt: Date.now(), goAt: 0, sel: {}, open: [], drops: [], nextDrop: 1, dirty: false, lastRound: 0, specs: new Map(), dead: [], npcSpawned: new Set(),
     chests: Array.from({ length: 12 }, () => Math.floor(Math.random() * 6)), chestKeys: Array.from({ length: 12 }, () => GKITEMS.randomWeaponKey()), layout: GKITEMS.randomLayout() };
   m.shops = m.layout.map(x => x === 'merchant' ? GKITEMS.randomShop() : null);   // each merchant's 5 items with gold prices, rolled once per match
   m.mystery = m.layout.map(x => x === 'mystery' ? GKITEMS.randomMystery() : null);   // what is inside each mystery room, rolled once per match // weapon index per chest room
@@ -76,7 +76,8 @@ function leave(m, ws) { // remove a player from their match; empty matches disap
   if (!m.players.delete(ws)) return;
   m.dirty = true;
   if (gone && m.sel[gone.room] != null && ![...m.players.values()].some(q => q.room === gone.room)) { delete m.sel[gone.room]; broadcastRound(m); } // an empty room's door vote no longer counts
-  if (!humans(m)) matches.delete(m.id); else if (m.phase === 'queue') broadcastQueue(m); else { broadcastMatch(m); checkWin(m); }
+  if (!humans(m) && (m.ended || !m.specs.size || m.phase === 'queue')) matches.delete(m.id);   // FUN: spectators keep a match with only bots alive until it is decided
+  else if (m.phase === 'queue') broadcastQueue(m); else { broadcastMatch(m); sendBoard(m); checkWin(m); }
 }
 setInterval(() => { // one global timer steps every match
   const now = Date.now();
@@ -187,7 +188,7 @@ function move(p, from, to) { // inventory move/swap, strictly validated
   setSlot(p.inv, to, a); setSlot(p.inv, from, b == null ? null : b);
   recalc(p); return true;
 }
-const pub = p => ({ ...(p.bot ? { bot: 1, name: p.name } : p.npc ? { npc: p.npc, name: p.name } : null), kills: p.kills || 0, id: p.id, goblin: p.goblin, wins: p.wins, box: p.box, room: p.room, x: p.x, z: p.z, yaw: p.yaw, stats: p.stats, gear: p.gear }); // never includes the inventory
+const pub = p => ({ ...(p.bot ? { bot: 1, name: p.name } : p.npc ? { npc: p.npc, name: p.name } : { name: p.name }), kills: p.kills || 0, id: p.id, goblin: p.goblin, wins: p.wins, box: p.box, room: p.room, x: p.x, z: p.z, yaw: p.yaw, stats: p.stats, gear: p.gear }); // never includes the inventory
 function addDrop(m, p, items) {
   if (!items.length) return;
   m.drops.push({ id: m.nextDrop++, x: +p.x.toFixed(2), z: +p.z.toFixed(2), items }); if (m.drops.length > 60) m.drops.shift();
@@ -206,15 +207,42 @@ function die(ws, p) { // a dead player drops everything where they fell and leav
   const m = p.match; if (p.dead || !m) return;
   if (p.npc) return dieNpc(m, p);
   const items = allItems(p.inv), brain = G.brainKey(p.stats.knowledge); // the brain carries the victim's CURRENT knowledge
-  m.deaths = (m.deaths || 0) + 1; p.dead = true; leave(m, ws); // the client goes back to the menu or requeues with a new connection
+  m.deaths = (m.deaths || 0) + 1; p.dead = true; p.diedAt = Date.now(); m.dead.push(p);
+  if (ws && ws.readyState === 1) m.specs.set(ws, p);   // FUN: a dead human stays subscribed as a spectator (snapshots, hits, feed) until the socket closes
   addDrop(m, p, [...items, brain]);
   sendTo(ws, { died: { items, brain, by: p.killedBy || null } });
+  leave(m, ws);
 }
+// FUN-BEGIN (kill feed, board, spectators, match summary; see docs/reports/fun.md)
+function sendFeed(m, killer, victim) {   // {feed:{k,v,w,f}}: killer name, victim name, weapon name, weapon family (the client picks the verb); mystery-enemy kills carry npc:1
+  const w = killer.npc ? null : killer.inv && killer.inv.weapon && G.ITEMS[killer.inv.weapon];
+  bcast(m, { feed: { k: killer.name || 'Goblin', v: victim.name || 'Goblin', w: w ? w.name : '', f: killer.npc ? '' : w ? w.family : 'fist', ...(killer.npc ? { npc: 1 } : null) } });
+}
+function boardRows(m) {   // [id, name, goblin, kills, alive, wins, bot]
+  const rows = []; for (const p of m.players.values()) if (!p.npc) rows.push(p); for (const p of m.dead) rows.push(p);
+  return rows.map(p => [p.id, p.name, p.goblin, p.kills || 0, p.dead ? 0 : 1, p.wins, p.bot ? 1 : 0]);
+}
+function sendBoard(m) { if (m.phase === 'play') bcast(m, { board: { left: matchInfo(m).alive, rows: boardRows(m) } }); }
+function endMatch(m, winner) {   // once per match: {matchEnd:{winner, top, longest, places, size}} to everyone, spectators included
+  if (m.ended) return; m.ended = true;
+  const now = Date.now(), goAt = m.goAt || now, dead = m.dead.filter(p => !p.npc);
+  const living = [...m.players.values()].filter(p => !p.npc && p.entered && !p.dead && p !== winner).sort((a, b) => (b.kills || 0) - (a.kills || 0));
+  const order = [...(winner ? [winner] : []), ...living, ...dead.filter(p => p !== winner).reverse()];   // best first: the winner, other survivors by kills, then the dead, last to die first
+  const secs = p => Math.max(0, Math.round(((p.dead ? p.diedAt : now) - goAt) / 1000));
+  const places = order.map((p, i) => ({ id: p.id, name: p.name, goblin: p.goblin, bot: p.bot ? 1 : 0, place: i + 1, kills: p.kills || 0, secs: secs(p) }));
+  const top = places.slice().sort((a, b) => b.kills - a.kills || a.place - b.place)[0] || null;
+  const run = places.filter(r => r.place > 1).sort((a, b) => b.secs - a.secs || a.place - b.place)[0] || null;   // longest survivor besides the winner (who survived by definition)
+  const w = places[0] || null, msg = JSON.stringify({ matchEnd: { winner: w && { id: w.id, name: w.name, goblin: w.goblin, bot: w.bot, kills: w.kills }, top, longest: run, places, size: places.length } });
+  bcast(m, msg);
+  if (!m.specs.size && !humans(m)) matches.delete(m.id);
+}
+// FUN-END
 // COMBAT-BEGIN (server-authoritative melee/ranged attacks, kills and the DEFAULT win rule: last goblin standing; see docs/FEATURES.md)
 function checkWin(m) {   // DEFAULT RULE (owner has not decided): >= 2 players entered the rooms, at least one died, exactly one living entered player is left -> that player wins
   if (!m.deaths || (m.enteredEver || 0) < 2) return;
   const living = [...m.players.entries()].filter(([, q]) => !q.npc && q.entered && !q.dead);
   if (living.length === 1 && isHum(living[0][1])) win(living[0][0], living[0][1]);   // a bot standing last wins nothing (the match is dropped when no human is left)
+  else if (!humans(m) && living.length <= 1 && m.specs.size) endMatch(m, null);   // FUN: only spectators are left: the last bot decides the match
 }
 function attack(m, ws, p, now, rt) {   // {atk:1, rt}: rate limit by weapon, nearest valid target in range, in the 70 degree cone, same room key; targets are rewound to server time rt (what the attacker saw), at most 200 ms
   if (!p.entered || p.dead) return;
@@ -236,7 +264,7 @@ function attack(m, ws, p, now, rt) {   // {atk:1, rt}: rate limit by weapon, nea
   const [tws, t] = best, hp = Math.max(0, t.stats.health - cb.dmg);
   t.stats.health = hp; t.hurtAt = now; m.dirty = true;
   bcast(m, { hit: { from: p.id, to: t.id, dmg: cb.dmg, hp, max: t.stats.maxHealth, dead: hp <= 0 } });
-  if (hp <= 0) { p.kills = (p.kills || 0) + 1; t.killedBy = p.id; sendTo(ws, { kills: p.kills }); die(tws, t); }
+  if (hp <= 0) { p.kills = (p.kills || 0) + 1; t.killedBy = p.id; sendTo(ws, { kills: p.kills }); sendFeed(m, p, t); die(tws, t); }
 }
 // COMBAT-END
 function eatBrain(p, key) { // applies a brain's knowledge gain, returns the gain
@@ -267,7 +295,7 @@ function loot(m, p, a) { // {loot:[dropId, index, 'take'|'eat', expectedKey?]}; 
 function win(ws, p) { // everything carried goes home with the winner, nothing is dropped
   const m = p.match; if (p.dead || !m) return;
   const items = allItems(p.inv);
-  p.dead = true; leave(m, ws);
+  p.dead = true; p.diedAt = Date.now(); endMatch(m, p); leave(m, ws);
   sendTo(ws, { won: { items, gold: p.gold, parts: p.parts } });
 }
 
@@ -300,7 +328,7 @@ function place(p, x, z) {   // hard set (spawn, debug teleport): resets speed bu
 }
 function applyMove(m, ws, p, x, z, yaw, now) {   // {m:[x,z,yaw]}: accept, or keep the old position and answer {fix:[x,z]}
   x = clamp(x); z = clamp(z); yaw = Math.max(-1e3, Math.min(1e3, yaw));
-  const dt = p.mvAt ? Math.min(0.5, (now - p.mvAt) / 1000) : 0.066; p.mvAt = now;
+  const dt = p.mvAt ? Math.min(0.5, (now - p.mvAt) / 1000) : 0.066; p.mvAt = now; const prevRoom = p.room;
   p.budget = Math.min(BUDGET, (p.budget == null ? BUDGET : p.budget) + dt * MAXV);
   const dist = Math.hypot(x - p.x, z - p.z);
   if (dist > 0.0005 && (dist > p.budget + SLACK || !pathOk(m, p.x, p.z, x, z))) {
@@ -317,7 +345,7 @@ function applyMove(m, ws, p, x, z, yaw, now) {   // {m:[x,z,yaw]}: accept, or ke
     if (last && t - last[0] > 150) h.push([t - 1, last[1], last[2]]);
     h.push([t, x, z]); while (h.length > 2 && h[1][0] < t - HIST_MS) h.shift();
   }
-  p.x = x; p.z = z; p.yaw = yaw; p.spd = spd; p.mvT = t; p.box = boxOf(x, z); p.room = roomKeyOf(x, z);
+  p.x = x; p.z = z; p.yaw = yaw; p.spd = spd; p.mvT = t; p.box = boxOf(x, z); p.room = roomKeyOf(x, z); noteRoom(m, p, prevRoom);
   return true;
 }
 function posAt(p, T) {   // where p was at server time T (position history, linear interpolation)
@@ -338,6 +366,8 @@ function snapshots(m) {   // {s:[t, id,x,z,yaw,speed,age, ...]} with the players
     const out = [t]; for (const p of moved) if (p !== q) out.push(p.id, r2(p.x), r2(p.z), r3(p.yaw), r1(p.spd || 0), Math.min(255, Math.max(0, t - (p.mvT || t))));
     if (out.length > 1) sendTo(ws, { s: out });
   }
+  const all = [t]; for (const p of moved) all.push(p.id, r2(p.x), r2(p.z), r3(p.yaw), r1(p.spd || 0), Math.min(255, Math.max(0, t - (p.mvT || t))));   // FUN: spectators get every mover
+  if (all.length > 1) for (const ws of m.specs.keys()) sendTo(ws, { s: all });
 }
 // NET-END
 
@@ -396,7 +426,7 @@ function equipBest(m, p) {   // put the best weapon/armour from the backpack on 
 function fillBots(m) {   // up to CAP goblins: bots get the normal goblin odds, START gear, a goblin name and an outer room of their own
   const used = new Set([...m.players.values()].map(p => p.box)), free = [0, 1, 2, 3, 5, 6, 7, 8].filter(b => !used.has(b));
   for (let i = free.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [free[i], free[j]] = [free[j], free[i]]; }
-  const names = BOT_NAMES.slice().sort(() => Math.random() - 0.5); let w = 0, n = 0; for (const p of m.players.values()) { w += p.wins; n++; }
+  const taken = new Set([...m.players.values()].map(p => (p.name || '').toLowerCase())), names = BOT_NAMES.filter(b => !taken.has(b.toLowerCase())).sort(() => Math.random() - 0.5); let w = 0, n = 0; for (const p of m.players.values()) { w += p.wins; n++; }
   while (m.players.size < CAP && free.length) {
     const box = free.pop(), [cx, cz] = WORLD.rc(box), [x, z] = WORLD.randomPoint(box), key = { readyState: 0, bot: true };
     const p = { id: nextId++, wins: n ? Math.round(w / n) : 0, ws: null, key, bot: true, name: names.pop() || 'Grub' + nextId, match: m, box, yaw: Math.atan2(-(cx - x), -(cz - z)), ready: true };
@@ -414,15 +444,18 @@ const NPC = {   // hp, dmg (per hit), cd ms, speed m/s, reaction ms [lo, hi], we
   dumb:    { hp: 50,  dmg: 8,  cd: 900,  speed: 2.6, react: [700, 1100], weapon: 'w:club', loot: [1, 0], look: 1, name: 'Dumb' },
   regular: { hp: 40,  dmg: 10, cd: 700,  speed: 4.2, react: [250, 400], weapon: 'w:sword', loot: [1, 0], look: 1, name: 'Goblin' },
 };
-function spawnNpcs(m) {
-  for (let id = 0; id < m.layout.length; id++) {
-    const my = m.mystery[id]; if (m.layout[id] !== 'mystery' || !my || my.kind !== 'enemy' || !NPC[my.enemy]) continue;
+function spawnNpc(m, id) {   // FUN: the enemy of mystery room c<id> appears when a goblin first walks in
+  if (m.phase !== 'play' || m.npcSpawned.has(id)) return;
+  {
+    const my = m.mystery[id]; if (m.layout[id] !== 'mystery' || !my || my.kind !== 'enemy' || !NPC[my.enemy]) return;
+    m.npcSpawned.add(id); m.dirty = true;
     const S = NPC[my.enemy], c = WORLD.CHEST[id], key = { readyState: 0, npc: true };
     const p = { id: nextId++, wins: 0, ws: null, key, npc: my.enemy, name: S.name, match: m, box: -1, yaw: 0, ready: true, entered: true, npcDmg: S.dmg, npcCd: S.cd };
     equip(p, S.look); p.inv.weapon = S.weapon; p.inv.armor = null; recalc(p); p.stats.maxHealth = S.hp; p.stats.health = S.hp; p.stats.attack = S.dmg; p.gear = { weapon: S.name + "'s weapon", armor: 'None' };
     place(p, c.cx, c.cz); p.home = [c.cx, c.cz]; p.brain = newBrain(p, S.speed); p.brain.react = S.react; m.players.set(key, p);
   }
 }
+function noteRoom(m, p, prev) { if (p.room !== prev && !p.npc && p.entered) { const mm = /^c(\d+)$/.exec(p.room); if (mm) spawnNpc(m, +mm[1]); } }
 function npcLoot(kind) {
   const S = NPC[kind], out = [];
   for (let i = 0; i < S.loot[0]; i++) {
@@ -432,7 +465,7 @@ function npcLoot(kind) {
   return out;
 }
 function dieNpc(m, p) {   // loot by type, counts as a kill for the attacker (done in attack()), not as a death
-  p.dead = true; m.players.delete(p.key); m.dirty = true;
+  p.dead = true; m.players.delete(p.key); m.dirty = true; sendBoard(m);
   addDrop(m, p, npcLoot(p.npc));
 }
 
@@ -589,6 +622,7 @@ function startMatch(m) {   // close the queue match, give everyone their own out
     const box = rooms[i++ % rooms.length], [cx, cz] = WORLD.rc(box), [x, z] = WORLD.randomPoint(box);
     Object.assign(p, { box, yaw: Math.atan2(-(cx - x), -(cz - z)), ready: false }); place(p, x, z);   // place() also resets the netcode speed budget and history
   }
+  { const seen = new Set(); for (const p of m.players.values()) { let n = p.name || 'Goblin'; if (seen.has(n.toLowerCase())) { const free = BOT_NAMES.filter(b => !seen.has(b.toLowerCase())); n = free.length ? free[Math.floor(Math.random() * free.length)] : n + ' ' + p.id; } p.name = n; seen.add(n.toLowerCase()); } }   // unique names inside a match
   fillWithBots(m);
   const players = [...m.players.values()].map(pub);
   for (const [ws, p] of m.players) {
@@ -611,7 +645,7 @@ function matchTick(m, now) {   // returns true when the normal round/combat tick
   if (m.phase === 'countdown' && now >= m.goAt) {   // GO: everyone is in, round 1 starts now
     m.phase = 'play'; m.started = true; m.endsAt = now + m.dur;
     for (const p of m.players.values()) p.entered = true;
-    m.enteredEver = matchInfo(m).size; spawnNpcs(m); broadcastMatch(m); broadcastRound(m); m.dirty = true;
+    m.enteredEver = matchInfo(m).size; broadcastMatch(m); sendBoard(m); broadcastRound(m); m.dirty = true;
   }
   return false;
 }
@@ -620,8 +654,8 @@ wss.on('connection', (ws, req) => {
   let q; try { q = new URL(req.url, 'http://x').searchParams; } catch { q = new URLSearchParams(); }
   const g = q.get('goblin'), goblin = g !== null && /^[0-4]$/.test(g) ? +g : rollGoblin();
   const wq = q.get('wins'), wins = wq !== null && /^\d{1,9}$/.test(wq) ? Math.min(9999, +wq) : 0;
-  const id = nextId++;
-  const p = { id, wins, ws, ...spawn() }; p.room = String(p.box); equip(p, goblin); place(p, p.x, p.z);
+  const id = nextId++, nq = (q.get('name') || '').replace(/[^A-Za-z0-9 '\-]/g, '').trim().slice(0, 14);
+  const p = { id, wins, ws, name: nq || BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)], ...spawn() }; p.room = String(p.box); equip(p, goblin); place(p, p.x, p.z);
   const m = findMatch(wins); p.match = m; m.players.set(ws, p); m.dirty = true;
   ws.on('error', () => {});
   /* MATCH-BEGIN */ sendTo(ws, { queue: queueInfo(m), goblin }); broadcastQueue(m, ws); if (m.players.size >= CAP) startMatch(m); /* MATCH-END */
@@ -632,6 +666,7 @@ wss.on('connection', (ws, req) => {
     if (isBinary || tokens < 1) return;
     tokens--;
     let d; try { d = JSON.parse(raw.toString()); } catch { return; }
+    if (p.dead && d && typeof d.ping === 'number' && Number.isFinite(d.ping)) return sendTo(ws, { pong: d.ping, t: srvT() });
     if (p.dead || !d || typeof d !== 'object') return;
     const dbg = !!process.env.GK_DEBUG;
     /* MATCH-BEGIN */ if (d.cancel === 1) { if (m.phase === 'queue') { leave(m, ws); ws.close(); } return; }
@@ -645,7 +680,7 @@ wss.on('connection', (ws, req) => {
     } else if (dbg && d.win) { win(ws, p);
     } else if (dbg && typeof d.give === 'string') { giveItem(p, d.give);
     } else if (dbg && Array.isArray(d.tp) && d.tp.length === 2 && d.tp.every(v => typeof v === 'number' && Number.isFinite(v))) {
-      place(p, clamp(d.tp[0]), clamp(d.tp[1])); m.dirty = true;
+      { const pr = p.room; place(p, clamp(d.tp[0]), clamp(d.tp[1])); noteRoom(m, p, pr); } m.dirty = true;
     } else if (dbg && Number.isFinite(d.gold)) { p.gold = Math.max(0, Math.floor(d.gold)); sendGold(p);
     } else if (d.atk === 1) { attack(m, ws, p, now, d.rt);
     } else if (d.enter === 1) { /* legacy: the match start (GO) replaced it */
@@ -669,7 +704,7 @@ wss.on('connection', (ws, req) => {
       if (m.sel[p.room] !== d.sel) { m.sel[p.room] = d.sel; broadcastRound(m); }
     }
   });
-  ws.on('close', () => leave(m, ws));
+  ws.on('close', () => { m.specs.delete(ws); leave(m, ws); if (!humans(m) && !m.specs.size) matches.delete(m.id); });
 });
 
 srv.listen(process.env.PORT || 3000, () => console.log('Goblin King on :' + (process.env.PORT || 3000)));
