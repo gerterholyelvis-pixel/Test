@@ -1067,6 +1067,7 @@ function pickDest(m, p, now) {   // idle: where to go next (claimable rooms, the
     let s = Math.random() * 2 - dist[key] * 0.35, mm = /^c(\d+)$/.exec(key);
     if (mm) {
       const id = +mm[1], L = m.layout[id], my = m.mystery[id];
+      if (key === p.home) s += botHomeWant(m, p, now);   // ELIXIR: go home to collect a full pump and spend it
       if (L === 'chest' && !(p.claimed && p.claimed.has(id))) s += 5 + b.greed + (p.stats.health < p.stats.maxHealth * 0.5 ? 2 : 0);   // AI: wounded bots like quiet chest rooms
       else if (L === 'mystery' && my && ['weapon', 'armor', 'gold'].includes(my.kind) && !(p.claimed && p.claimed.has(id))) s += 5;
       else if (L === 'merchant' && !b.done[key] && p.gold >= 20) s += 2 + 4 * b.greed + (p.gold >= 60 ? 2 : 0);   // AI: greed, and rich bots shop
@@ -1659,6 +1660,7 @@ function elixirTick(m, now) {
   botHomes(m, now);
 }
 // ---- bots: when one is in his own home he collects a tank of 12 or more, then buys in a fixed order (pump first, then security), keeping a reserve of 8
+const botHomeWant = (m, p, now) => { const h = homeAt(m, p.home); if (!h || h.dead) return -1; const t = EX.tick(h.pump, now); return t >= 30 ? 9 : t >= 15 ? 4 : -1; };   // pickDest bonus for the bot's own home
 const BOT_BUYS = ['pump', 'alarm', 'pump', 'lock', 'recycler', 'snare', 'lock', 'guard'];
 function botHomes(m, now) {
   if (now - (m.elxBotAt || 0) < 1000) return; m.elxBotAt = now;
@@ -1686,8 +1688,10 @@ function elixirTakeFlask(m, p, dr, di, a) {   // loot(): taking a flask adds its
   if (r.left > 0) dr.items[a[1]] = 'x:flask:' + r.left; else { dr.items.splice(a[1], 1); if (!dr.items.length) m.drops.splice(di, 1); }
   bcast(m, { drops: m.drops }); m.dirty = true; return null;
 }
+function elixirOil(p, bribesSoFar) { const r = EX.oilLock(p, bribesSoFar); if (r.ok) sendElixir(p); return r; }   // for the Counting House (vaultbreaker task): one vault bribe paid in 15 elixir; {ok, reason?} (shares the max of 3 with gold bribes)
 function elixirDbg(m, p, o) {   // GK_DEBUG test hook: {dbgElixir:{n, tank, lv:{id:level}}} sets carried elixir, the own tank and upgrade levels
   const h = homeAt(m, p.home), now = Date.now(); if (!h || typeof o !== 'object') return;
+  if (o.dump) return sendTo(p.ws, { elixirDump: Object.values(m.homes).map(x => ({ name: x.ref.name, bot: !!x.ref.bot, dead: x.dead, lv: x.lv, tank: EX.tick(x.pump, now), elixir: x.ref.elixir | 0, at: x.ref.room })) });
   if (Number.isFinite(o.n)) p.elixir = Math.max(0, Math.min(EX.CARRY_CAP, Math.floor(o.n)));
   if (Number.isFinite(o.tank)) { h.pump.tank = Math.max(0, Math.min(EX.params(h.pump).cap, Math.floor(o.tank))); h.pump.t = now; }
   if (o.lv && typeof o.lv === 'object') { for (const id in o.lv) if (HB.UPGRADES[id]) h.lv[id] = Math.max(0, Math.min(HB.UPGRADES[id].levels.length, o.lv[id] | 0)); EX.setLevel(h.pump, HB.pumpLevel(h), now); if (h.lv.snare) h.snareArmed = true; if (h.lv.sentry) h.ammo = HB.SENTRY.shots; }
