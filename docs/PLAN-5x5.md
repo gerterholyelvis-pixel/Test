@@ -2,6 +2,7 @@
 
 Written 2026-10-16 (Opus, design only). Based on main at `c4e7eaa` (world.js `SCALE 1.25`, doorguard, armour 3).
 Nothing here is implemented yet. Items marked **(owner?)** need the owner's call. Section 11 lists them all.
+**Superseded in part:** sections 2 and 3 and the task rows A, B and C in section 8 are replaced by [PLAN-5x5-rooms.md](PLAN-5x5-rooms.md) (activity rooms built on a shared framework).
 
 ## 0. Summary
 - **Arena:** 5x5 grid, 25 rooms. The middle room is THE VAULT. The inner 3x3 is special:
