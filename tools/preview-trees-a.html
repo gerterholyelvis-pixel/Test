@@ -1,0 +1,38 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Tree rooms A preview</title>
+<style>html,body{margin:0;background:#222;overflow:hidden}#hud{position:fixed;left:8px;top:8px;color:#fff;font:12px monospace;background:#0008;padding:4px 8px}</style>
+<script type="importmap">{"imports":{"three":"/three/three.module.js","three/addons/":"/three/addons/"}}</script></head>
+<body><div id="hud"></div>
+<script type="module">
+// Standalone preview of rooms5art-trees-a.js.
+//   /tools/preview-trees-a.html?type=well|press|spring|seer|graft&view=hero|close|top|ne|nw|se|sw|diag&set=setStage:4,setFruit:1&snap=1
+//   cam=px,py,pz,tx,ty,tz overrides the camera; set= calls room.api methods ("/" separates arguments); snap=1 jumps animated state to its target.
+import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { buildTreeRoom } from '/rooms5art-trees-a.js';
+const q = new URLSearchParams(location.search), type = q.get('type') || 'well', view = q.get('view') || 'hero';
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); renderer.setPixelRatio(1); renderer.setSize(innerWidth, innerHeight); document.body.appendChild(renderer.domElement);
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x1a1a1e);
+// the room shell: 15 x 15 x 6.5 white facility, ceiling with a hole for the trunk
+const white = new THREE.MeshStandardMaterial({ color: 0xeeeae2, roughness: 0.9, side: THREE.DoubleSide }), floorM = new THREE.MeshStandardMaterial({ color: 0xdcd8d0, roughness: 0.95 });
+const fl = new THREE.Mesh(new THREE.PlaneGeometry(15, 15), floorM); fl.rotation.x = -Math.PI / 2; scene.add(fl);
+for (const [x, z, ry] of [[0, -7.5, 0], [0, 7.5, Math.PI], [7.5, 0, -Math.PI / 2], [-7.5, 0, Math.PI / 2]]) { const w = new THREE.Mesh(new THREE.PlaneGeometry(15, 6.5), white); w.position.set(x, 3.25, z); w.rotation.y = ry; scene.add(w); }
+const cs = new THREE.Shape(); cs.moveTo(-7.5, -7.5); cs.lineTo(7.5, -7.5); cs.lineTo(7.5, 7.5); cs.lineTo(-7.5, 7.5); cs.closePath(); const hole = new THREE.Path(); hole.absarc(0, 0, 1.0, 0, Math.PI * 2, true); cs.holes.push(hole);
+const ce = new THREE.Mesh(new THREE.ShapeGeometry(cs), white); ce.rotation.x = Math.PI / 2; ce.position.y = 6.5; scene.add(ce);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x9a9080, 1.1));
+for (const [x, z] of [[-4.5, -4.5], [4.5, -4.5], [-4.5, 4.5], [4.5, 4.5]]) { const l = new THREE.PointLight(0xfff1d8, 38, 16, 1.6); l.position.set(x, 5.2, z); scene.add(l); }
+const room = buildTreeRoom(THREE, { mergeGeometries }, type); scene.add(room);
+for (const kv of (q.get('set') || '').split(',').filter(Boolean)) { const [k, ...v] = kv.split(':'); const args = v.join(':').split('/').filter(a => a !== '').map(a => a === 'true' ? true : a === 'false' ? false : isNaN(+a) ? a : +a); room.api[k](...args); }
+if (q.get('snap')) room.api.snap();
+const cam = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 60);
+const V = { hero: [[0, 1.9, 7.2], [0, 2.9, 0]], close: [[0, 1.8, 4.6], [0, 2.4, 0]], top: [[0, 12, 0.01], [0, 0, 0]], ne: [[1.2, 2.2, -0.6], [4.2, 0.9, -4.2]], nw: [[-1.2, 2.2, -0.6], [-4.2, 0.9, -4.2]], se: [[1.0, 2.0, 1.2], [4.2, 0.9, 4.2]], sw: [[-1.0, 2.0, 1.2], [-4.2, 0.9, 4.2]], diag: [[6.5, 2.6, 6.5], [-0.5, 2.6, -1]], diag2: [[-6.4, 2.4, 6.6], [0.5, 2.4, -1]] };
+const vv = q.get('cam') ? q.get('cam').split(',').map(Number) : null;
+const [cp, ct] = vv ? [vv.slice(0, 3), vv.slice(3, 6)] : (V[view] || V.hero); cam.position.set(...cp); cam.lookAt(...ct);
+if (q.get('fov')) { cam.fov = +q.get('fov'); cam.updateProjectionMatrix(); }
+let t = +(q.get('t') || 3); const clock = new THREE.Clock();
+function frame() { const dt = Math.min(0.05, clock.getDelta()); t += dt; room.api.update(dt, t); renderer.render(scene, cam); document.getElementById('hud').textContent = type + ' / ' + view + ' | calls ' + renderer.info.render.calls + ' tris ' + renderer.info.render.triangles; requestAnimationFrame(frame); }
+window.room = room; window.snap = async name => { renderer.render(scene, cam); const d = renderer.domElement.toDataURL('image/jpeg', 0.9); const r = await fetch('/save/' + name, { method: 'POST', body: d }); return r.status; };
+window.ready = true; frame();
+if (q.get('save')) setTimeout(() => snap(q.get('save')), 600);   // &save=name posts a JPEG to a local helper server that writes docs/screens/<name>.jpg (see the report)
+</script></body></html>
