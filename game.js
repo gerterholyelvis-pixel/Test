@@ -3267,7 +3267,7 @@ const handleMsg = d => {
       actors.set(p.id, a);
       if (p.id === me) spawned = false;
     }
-    a.tx = p.x; a.tz = p.z; a.tyaw = p.yaw; a.box = p.box; combatSync(a, p);
+    a.tx = p.x; a.tz = p.z; a.tyaw = p.yaw; a.box = p.box; combatSync(a, p); vmGear(a, p);
     if (p.id === me && !spawned) { P.x = p.x; P.z = p.z; P.yaw = p.yaw; P.pitch = 0; a.x = p.x; a.z = p.z; spawned = true; }
   }
   const mine = actors.get(me);
@@ -4071,7 +4071,7 @@ function combatSwing() {   // left click: swing animation on my own goblin now, 
   const mine = actors.get(me); if (!mine) return false;
   const cb = itemsData().combat ? itemsData().combat(invReady ? myInv.weapon : null) : { cd: 600 }, now = performance.now();
   if (now - CB.last < cb.cd) return false;
-  CB.last = now; mine.swing = 1e-4; net.send({ atk: 1 }); snd('swing'); return true;
+  CB.last = now; mine.swing = 1e-4; vmSwing(mine, true); net.send({ atk: 1 }); snd('swing'); return true;
 }
 canvas.addEventListener('mousedown', e => { if (e.button === 0 && (lockOk() || lockRefused)) combatSwing(); });   // the click that captures the mouse does not swing
 function combatSync(a, p) { if (p.stats && p.stats.health != null) { a.hp = p.stats.health; a.maxHp = p.stats.maxHealth || p.stats.health; } if (p.kills != null) a.kills = p.kills; }
@@ -4090,9 +4090,9 @@ function combatHurtFx(dmg, max) {   // red vignette + screen number when I am hu
 }
 const snd = (n, o) => { try { window.GKAUDIO && GKAUDIO.play(n, o); } catch (e) {} };   // combat sounds (audio.js)
 function combatMsg(d) {   // server messages: swing, hit, kills, match (goblins left)
-  if (d.swing != null && d.swing !== me) { const a = actors.get(d.swing); if (a) { a.swing = 1e-4; snd('swing', { x: a.x, z: a.z, vol: 0.7 }); } }
+  if (d.swing != null && d.swing !== me) { const a = actors.get(d.swing); if (a) { a.swing = 1e-4; vmSwing(a, false); snd('swing', { x: a.x, z: a.z, vol: 0.7 }); } }
   if (d.hit) {
-    const h = d.hit, v = actors.get(h.to), f = actors.get(h.from);
+    const h = d.hit, v = actors.get(h.to), f = actors.get(h.from); if (h.from === me) vmHit(h);
     if (v) {
       v.hp = h.hp; v.maxHp = h.max; v.hitT = CB.HIT;
       const dx = f ? v.x - f.x : 0, dz = f ? v.z - f.z : 1, l = Math.hypot(dx, dz) || 1; v.kx = dx / l; v.kz = dz / l;
@@ -4144,8 +4144,8 @@ function combatTick(dt) {   // called every frame after the goblin loop: swing, 
   for (const [id, a] of actors) {
     const u = a.group.userData;
     if (a.swing) {   // arm sweep over CB.SW seconds
-      a.swing += dt / CB.SW;
-      if (a.swing >= 1) a.swing = 0; else { const s = Math.sin(a.swing * Math.PI); u.arms[1].rotation.x = -0.15 - 2.3 * s; u.torso.rotation.y += 0.45 * s; }
+      a.swing += dt / vmSw(a);   // VIEWMODEL: duration and pose depend on the weapon family
+      if (a.swing >= 1) { a.swing = 0; vmEnd3(a, u); } else vmPose3(a, u);
     }
     if (a.hitT > 0) {   // knockback + lean, purely visual (the real position never changes)
       a.hitT -= dt; const e = Math.max(0, a.hitT) / CB.HIT, s = Math.sin(Math.PI * (1 - e));
@@ -4165,9 +4165,207 @@ function combatTick(dt) {   // called every frame after the goblin loop: swing, 
 }
 GK.attack = combatSwing; GK.combatState = CB; GK.combatHurtFx = combatHurtFx;
 // COMBAT-END
+// VIEWMODEL-BEGIN (first-person weapon + goblin hands, per-family attack clips, third-person weapon socket + family swings; see docs/reports/viewmodel.md)
+// Rules: no lights, no render passes. The camera is a scene child so the viewmodel is lit by the environment map and emissive only. Hooks elsewhere: vmUpdate/vmHide (frame), vmSwing/vmHit (combat), vmGear (player list), vmSw/vmPose3 (combatTick).
+const VM = { root: new THREE.Group(), rp: new THREE.Group(), lp: new THREE.Group(), wm: new THREE.Group(), key: undefined, fam: 'fist', model: null, hand: [], t: -1, dur: 0.4, clip: null, side: 0, stop: 0, kick: 0, shake: 0, eq: 1, want: undefined, lyaw: 0, lpit: 0, lagX: 0, lagY: 0, fired: false, shook: false, tip: new THREE.Vector3(0, 0.9, 0), tracers: [], active: false };
+const VM_FAM_MELEE = { sword: 1, dagger: 1, club: 1, mace: 1, axe: 1, flail: 1, hammer: 1, halberd: 1, spear: 1 };
+const VM_CLASS = { sword: 'slash', dagger: 'slash', spear: 'thrust', axe: 'smash', mace: 'smash', club: 'smash', flail: 'smash', hammer: 'smash', halberd: 'smash', bow: 'bow', crossbow: 'bow', staff: 'cast', scepter: 'cast' };
+const VM_SC = { sword: 0.34, dagger: 0.34, spear: 0.24, axe: 0.3, mace: 0.28, club: 0.33, flail: 0.28, hammer: 0.29, halberd: 0.23, bow: 0.34, crossbow: 0.3, staff: 0.28, scepter: 0.32 };   // model units -> first-person metres
+const VM_GRIP = { sword: -0.3, dagger: -0.4, spear: -0.3, axe: -0.5, mace: -0.55, club: -0.35, flail: -0.5, hammer: -0.4, halberd: -0.4, bow: 0, crossbow: -0.2, staff: -0.3, scepter: -0.4 };   // grip point along the model's +y
+const VM_TILT = { sword: -0.35, dagger: -0.35, spear: -1.05, axe: -0.3, mace: -0.3, club: -0.3, flail: -0.3, hammer: -0.3, halberd: -0.8, bow: 0, crossbow: -1.45, staff: -0.25, scepter: -0.3 };   // base pitch of the weapon in the hand
+const VM_SECS = { slash: 0.46, thrust: 0.5, smash: 0.7, bow: 0.66, cast: 0.6, fist: 0.32 };   // clip length at most; also capped to 0.85 x the weapon cooldown
+const VM_HITAT = { slash: 0.44, thrust: 0.4, smash: 0.56, bow: 0.64, cast: 0.46, fist: 0.4 };   // when the blow lands inside the clip (fraction)
+const vmSkin = new THREE.MeshStandardMaterial({ color: 0x6fa83a, roughness: 0.62, metalness: 0, emissive: 0x24520f, emissiveIntensity: 0.22, envMapIntensity: 0.9 });
+const vmSkinDeep = new THREE.MeshStandardMaterial({ color: 0x55872b, roughness: 0.7, emissive: 0x1d4010, emissiveIntensity: 0.5 });
+const vmLeather = new THREE.MeshStandardMaterial({ color: 0x6a4524, roughness: 0.85, emissive: 0x2a1608, emissiveIntensity: 0.4 });
+const vmClaw = new THREE.MeshStandardMaterial({ color: 0xe8dfc0, roughness: 0.5, emissive: 0x4a4430, emissiveIntensity: 0.4 });
+const vmSph = new THREE.SphereGeometry(1, 14, 10), vmCap = new THREE.CapsuleGeometry(0.02, 0.07, 4, 10), vmCone = new THREE.ConeGeometry(0.012, 0.035, 6), vmCyl = new THREE.CylinderGeometry(1, 1, 1, 14);
+function vmHandMesh(side) {   // grip axis = local y, palm behind (+z), three chunky fingers wrapped in front (-z), thumb on the near side; forearm runs back toward the camera
+  const g = new THREE.Group(), add = (geo, mat, x, y, z, sx, sy, sz) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); g.add(m); return m; };
+  add(vmSph, vmSkin, 0, 0, 0.03, 0.058, 0.075, 0.05);
+  for (let i = -1; i <= 1; i++) {
+    const f = add(vmCap, vmSkin, 0, i * 0.047, -0.032, 1.05, 1, 1.05); f.rotation.z = Math.PI / 2;   // finger wrapped across the handle
+    add(vmSph, vmSkinDeep, -side * 0.058, i * 0.047, -0.026, 0.024, 0.024, 0.024);                     // knuckle
+    const c = add(vmCone, vmClaw, side * 0.062, i * 0.047, -0.04, 1.1, 1.1, 1.1); c.rotation.z = -side * 1.35; c.rotation.x = 0.5;   // claw
+  }
+  const th = add(vmCap, vmSkin, side * 0.05, 0.062, -0.012, 1.15, 0.85, 1.15); th.rotation.z = side * 0.5; th.rotation.x = 0.2;   // thumb
+  add(vmCone, vmClaw, side * 0.06, 0.1, -0.03, 1.1, 1.1, 1.1).rotation.z = side * 0.4;
+  g.traverse(o => { o.frustumCulled = false; }); return g;
+}
+const vmGlowMat = col => new THREE.SpriteMaterial({ map: glowTex, color: col, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: 0 });
+VM.burst = new THREE.Sprite(vmGlowMat(0x7affd8)); VM.burst.visible = false; VM.burst.renderOrder = 30;
+const vmTrailTex = (() => {   // faint crescent, drawn diagonally from upper right to lower left, brightest at the leading end
+  const c = document.createElement('canvas'); c.width = 256; c.height = 256; const g = c.getContext('2d');
+  const grd = g.createLinearGradient(220, 40, 36, 216); grd.addColorStop(0, 'rgba(255,255,255,0)'); grd.addColorStop(0.55, 'rgba(255,244,214,.55)'); grd.addColorStop(1, 'rgba(255,255,255,.95)');
+  g.strokeStyle = grd; g.lineCap = 'round'; g.lineWidth = 16; g.beginPath(); g.moveTo(214, 38); g.quadraticCurveTo(190, 190, 44, 218); g.stroke();
+  g.lineWidth = 5; g.beginPath(); g.moveTo(206, 54); g.quadraticCurveTo(184, 176, 50, 204); g.stroke();
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+})();
+VM.trail = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: vmTrailTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, opacity: 0, side: THREE.DoubleSide }));
+VM.trail.position.set(0.02, -0.03, -0.62); VM.trail.scale.set(0.8, 0.8, 1); VM.trail.renderOrder = 29; VM.trail.visible = false;
+VM.arrow = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.55, 6), new THREE.MeshStandardMaterial({ color: 0xc9a46a, roughness: 0.7, emissive: 0x3a2a10 })); VM.arrow.rotation.x = Math.PI / 2; VM.arrow.visible = false;
+VM.hand = [vmHandMesh(1), vmHandMesh(-1)]; VM.rp.add(VM.hand[0]); VM.lp.add(VM.hand[1]); VM.rp.add(VM.wm);
+VM.arms = [1, -1].map(side => { const arm = new THREE.Mesh(vmCyl, vmSkin), br = new THREE.Mesh(vmCyl, vmLeather); VM.root.add(arm, br); return { arm, br, side }; });   // forearms are anchored off-screen and stretch to the wrist
+VM.root.add(VM.rp, VM.lp, VM.trail, VM.arrow); VM.root.visible = false; VM.root.traverse(o => { o.frustumCulled = false; });
+cam.add(VM.root); scene.add(cam);   // the camera must be in the scene for its children to render
+const vmV1 = new THREE.Vector3(), vmV2 = new THREE.Vector3(), vmV3 = new THREE.Vector3(), vmY = new THREE.Vector3(0, 1, 0);
+const vmRP = new THREE.Vector3(0.33, -0.3, -0.6), vmLP = new THREE.Vector3(-0.23, -0.27, -0.5);
+const vmFamOf = key => { const it = key && itemsData().ITEMS[key]; return it && it.type === 'weapon' ? it.family : null; };
+const vmSm = x => x * x * (3 - 2 * x), vmRamp = (p, a, b) => Math.min(1, Math.max(0, (p - a) / (b - a)));
+function vmKf(p, K, out) {   // keyframes [[t, v0..v5], ...] eased; fills out[6]
+  let i = 1; while (i < K.length - 1 && p > K[i][0]) i++;
+  const a = K[i - 1], b = K[i], u = vmSm(Math.min(1, Math.max(0, (p - a[0]) / (b[0] - a[0]))));
+  for (let k = 0; k < 6; k++) out[k] = a[k + 1] + (b[k + 1] - a[k + 1]) * u; return out;
+}
+//        t   x      y      z     rx     ry    rz        (offsets from the rest pose of the weapon hand)
+const VM_CLIPS = {
+  slash: [[0, 0, 0, 0, 0, 0, 0], [0.26, 0.1, 0.13, 0.06, 0.4, 0, -1.0], [0.46, -0.2, 0.04, -0.26, -0.75, 0, 1.0], [0.62, -0.22, 0.03, -0.24, -0.8, 0, 1.05], [1, 0, 0, 0, 0, 0, 0]],
+  dagger: [[0, 0, 0, 0, 0, 0, 0], [0.2, 0.07, 0.07, 0.05, 0.25, 0, -0.7], [0.4, -0.15, 0.03, -0.24, -0.7, 0, 0.8], [0.58, -0.16, 0.02, -0.22, -0.75, 0, 0.85], [1, 0, 0, 0, 0, 0, 0]],
+  thrust: [[0, 0, 0, 0, 0, 0, 0], [0.28, 0.02, 0.0, 0.16, 0.15, 0, 0.05], [0.42, -0.02, 0.02, -0.46, -0.1, 0, 0], [0.6, -0.02, 0.02, -0.46, -0.1, 0, 0], [1, 0, 0, 0, 0, 0, 0]],
+  smash: [[0, 0, 0, 0, 0, 0, 0], [0.42, 0.02, 0.3, 0.12, 1.25, 0, 0.1], [0.56, 0, -0.26, -0.3, -1.2, 0, -0.05], [0.7, 0, -0.27, -0.3, -1.2, 0, -0.05], [1, 0, 0, 0, 0, 0, 0]],
+  cast: [[0, 0, 0, 0, 0, 0, 0], [0.22, 0.03, 0.1, 0.1, 0.55, 0, 0.25], [0.46, -0.04, 0.2, -0.28, -0.9, 0, -0.2], [0.7, 0, 0.14, -0.2, -0.6, 0, 0.1], [1, 0, 0, 0, 0, 0, 0]],
+  fist: [[0, 0, 0, 0, 0, 0, 0], [0.18, 0.02, -0.03, 0.12, 0.15, 0, 0], [0.4, -0.04, 0.05, -0.48, -0.1, 0, 0], [0.55, -0.04, 0.05, -0.46, -0.1, 0, 0], [1, 0, 0, 0, 0, 0, 0]],
+};
+const vmPose = [0, 0, 0, 0, 0, 0];
+function vmSetWeapon(key) {   // swap the model in the hand (called at the bottom of the equip dip)
+  if (VM.model) { VM.wm.remove(VM.model); VM.model = null; }
+  VM.key = key; VM.fam = vmFamOf(key) || 'fist';
+  const fist = VM.fam === 'fist'; VM.hand[1].visible = true;
+  if (!fist && GK.chestKit && GK.chestKit.weaponModel) {
+    try {
+      const m = GK.chestKit.weaponModel(key), sc = VM_SC[VM.fam] || 0.35, wrap = new THREE.Group();
+      m.scale.multiplyScalar(sc); m.position.set(0, -VM_GRIP[VM.fam] * sc, 0); wrap.add(m);
+      m.traverse(o => { o.frustumCulled = false; if (o.isSprite) { o.scale.multiplyScalar(0.45); o.renderOrder = 28; } });
+      const box = new THREE.Box3().setFromObject(m); VM.tip.set(0, Math.max(0.3, box.max.y), 0);
+      VM.wm.add(wrap); VM.model = wrap;
+    } catch (e) { VM.model = null; }
+  }
+  VM.wm.visible = !fist; VM.wm.rotation.set(VM_TILT[VM.fam] || 0, 0, 0);
+  const cls = VM_CLASS[VM.fam];
+  VM.wm.position.set(0, 0, 0);
+  if (cls === 'bow') { VM.wm.rotation.set(0, Math.PI / 2, 0); if (VM.fam === 'crossbow') VM.wm.rotation.set(VM_TILT.crossbow, 0, 0); }
+  VM.burst.visible = false; VM.burst.parent && VM.burst.parent.remove(VM.burst);
+  if (cls === 'cast' && VM.model) { VM.burst.material.color.setHex(VM.fam === 'staff' ? 0x7affd8 : 0xffc933); VM.burst.position.copy(VM.tip); VM.model.add(VM.burst); }
+}
+function vmStart(fam, cd, side) {   // begin my own attack clip
+  const cls = fam ? VM_CLASS[fam] || 'slash' : 'fist';
+  VM.clip = fam === 'dagger' ? 'dagger' : cls; VM.cls = cls; VM.t = 0; VM.dur = Math.min(VM_SECS[cls] * (fam === 'dagger' ? 0.78 : fam === 'hammer' || fam === 'halberd' ? 1.2 : 1), (cd || 600) / 1000 * 0.85);
+  VM.fired = false; VM.shook = false; VM.side = side;
+}
+function vmSwing(a, isMe) {   // hook: a.swing was just set (combatSwing for me, {swing} for others)
+  const key = isMe ? (invReady ? myInv.weapon : null) : a.vmKey, fam = vmFamOf(key);
+  a.vmFam = fam; a.punch = !a.punch;
+  if (isMe) { vmStart(fam, itemsData().combat(key).cd, a.punch ? 1 : 0); }
+}
+function vmHit(h) {   // hook: the server confirmed my hit: recoil + hit-stop (heavier for big weapons)
+  const heavy = VM_CLASS[VM.fam] === 'smash' ? 1 : VM_CLASS[VM.fam] === 'thrust' ? 0.7 : 0.5;
+  VM.stop = 0.06 + 0.03 * heavy; VM.kick = 1; VM.shake = Math.max(VM.shake, 0.35 + 0.5 * heavy);
+}
+function vmGear(a, p) { a.vmName = p.gear && p.gear.weapon || null; }   // hook: other goblins' weapon arrives as a name in the player list
+const vmByName = (() => { let m = null; return name => { if (!name) return null; if (!m) { m = {}; const I = itemsData().ITEMS; for (const k in I) if (I[k].type === 'weapon') m[I[k].name] = k; } return m[name] || null; }; })();
+function vmTracer(dir, from) {   // thin arrow streak flying forward in world space (no physics, ~0.3 s)
+  const mat = new THREE.MeshBasicMaterial({ color: 0xfff1c0, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false });
+  const m = new THREE.Mesh(vmTracer.geo || (vmTracer.geo = new THREE.CylinderGeometry(0.012, 0.004, 1.6, 6)), mat); m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir); m.position.copy(from).addScaledVector(dir, 0.9);
+  const sp = new THREE.Sprite(vmGlowMat(0xffe29a)); sp.material.opacity = 0.8; sp.scale.setScalar(0.35); m.add(sp); sp.position.y = 0.8; scene.add(m); VM.tracers.push({ m, dir: dir.clone(), t: 0 });
+}
+function vmUpdate(dt, t, mine) {   // hook: every frame after the actor loop, before the camera is finalised
+  // third person: weapon in the hand socket of every goblin (mine from my inventory, others from the player list)
+  for (const [id, a] of actors) {
+    const key = id === me ? (invReady ? myInv.weapon : null) : vmByName(a.vmName);
+    if (a.vmKey !== key || a.vmMount === undefined) {
+      const u = a.group.userData, hand = u.arms[1].userData.el.userData.hand;
+      if (a.vmMount) hand.remove(a.vmMount);
+      a.vmMount = null; a.vmKey = key; a.vmFam = vmFamOf(key);
+      if (key && GK.chestKit && GK.chestKit.weaponModel) {
+        try {
+          const m = GK.chestKit.weaponModel(key), f = a.vmFam, mnt = new THREE.Group(), sc = (VM_SC[f] || 0.35) * 0.45;
+          m.scale.multiplyScalar(sc); m.position.set(0, -(VM_GRIP[f] || 0) * sc, 0); mnt.add(m); mnt.rotation.set(f === 'bow' || f === 'crossbow' ? 0.2 : 1.35, f === 'bow' ? Math.PI / 2 : 0, 0); mnt.position.set(0, -0.03, 0.05);
+          m.traverse(o => { if (o.isSprite) o.visible = false; });
+          hand.add(mnt); a.vmMount = mnt; a.group.userData.vmSocket = mnt;
+        } catch (e) { a.vmMount = null; }
+      }
+    }
+  }
+  const bad = !(inside && mine && spawned && GK.mode === 'play' && !invOpen && !shopOpen && !(mine.hp != null && mine.hp <= 0));
+  VM.active = !bad; VM.root.visible = !bad; if (bad) { VM.t = -1; VM.burst.visible = false; }
+  for (let i = VM.tracers.length - 1; i >= 0; i--) {
+    const q = VM.tracers[i]; q.t += dt; q.m.position.addScaledVector(q.dir, 48 * dt); q.m.material.opacity = 0.95 * (1 - q.t / 0.32);
+    if (q.t >= 0.32) { scene.remove(q.m); q.m.material.dispose(); q.m.children.forEach(c => c.material.dispose()); VM.tracers.splice(i, 1); }
+  }
+  if (bad) return;
+  // equip: lower, swap, raise
+  const want = invReady ? myInv.weapon : null;
+  if (VM.key === undefined) { vmSetWeapon(want); VM.eq = 1; } else if (want !== VM.key && VM.eq >= 1) { VM.eq = 0; VM.want = want; }
+  if (VM.eq < 1) { const was = VM.eq; VM.eq = Math.min(1, VM.eq + dt / 0.42); if (was < 0.48 && VM.eq >= 0.48) { vmSetWeapon(VM.want); VM.t = -1; } }
+  const eqL = VM.eq < 0.48 ? vmSm(VM.eq / 0.48) : 1 - vmSm((VM.eq - 0.48) / 0.52);   // 0 raised .. 1 lowered
+  // hit-stop freezes the clip for a moment
+  if (VM.stop > 0) VM.stop -= dt; else if (VM.t >= 0) { VM.t += dt; if (VM.t >= VM.dur) VM.t = -1; }
+  const p = VM.t >= 0 ? VM.t / VM.dur : -1, cls = VM.fam === 'fist' ? 'fist' : VM_CLASS[VM.fam], moving = clamp(P.speed / 3.5, 0, 1);
+  // sway, bob, look lag
+  const dyaw = wrapPi(P.yaw - VM.lyaw), dpit = P.pitch - VM.lpit; VM.lyaw = P.yaw; VM.lpit = P.pitch;
+  VM.lagX += (-dyaw * 0.9 - VM.lagX) * Math.min(1, dt * 9) * 0.5 - VM.lagX * Math.min(1, dt * 4); VM.lagY += (dpit * 0.9 - VM.lagY) * Math.min(1, dt * 9) * 0.5 - VM.lagY * Math.min(1, dt * 4);
+  const lx = clamp(VM.lagX, -0.12, 0.12), ly = clamp(VM.lagY, -0.1, 0.1), ph = mine.phase;
+  const ox = Math.sin(t * 1.1) * 0.004 + Math.sin(ph * 0.5) * 0.014 * moving + lx, oy = Math.sin(t * 1.6) * 0.004 + Math.abs(Math.sin(ph)) * 0.02 * moving - 0.01 * moving + ly - eqL * 0.5;
+  VM.kick = Math.max(0, VM.kick - dt * 7);
+  VM.root.position.set(ox, oy, VM.kick * 0.045); VM.root.rotation.set(eqL * 0.7 + VM.kick * 0.05 + Math.sin(t * 1.3) * 0.004 + ly * 0.6, -lx * 1.2, -lx * 0.8 + Math.sin(ph * 0.5) * 0.012 * moving);
+  // clip pose
+  const pose = vmPose; pose.fill(0); let draw = 0, punchSide = VM.side;
+  if (p >= 0) {
+    vmKf(p, VM_CLIPS[VM.clip] || VM_CLIPS.fist, pose);
+    if (cls === 'bow') { draw = vmSm(vmRamp(p, 0, 0.58)) * (1 - vmRamp(p, 0.62, 0.7)); pose.fill(0); pose[2] = 0.0; pose[3] = -0.02 * draw; if (p > 0.62) { pose[2] = 0.05 * (1 - vmRamp(p, 0.62, 0.95)); pose[3] = 0.12 * (1 - vmRamp(p, 0.62, 0.95)); } }
+    if (cls === 'slash') { const tr = vmSm(vmRamp(p, 0.26, 0.5)) * (1 - vmRamp(p, 0.52, 0.8)); VM.trail.visible = tr > 0.01; VM.trail.material.opacity = 0.4 * tr; VM.trail.scale.set(0.4 + 0.3 * vmSm(vmRamp(p, 0.26, 0.5)), 0.4 + 0.3 * vmSm(vmRamp(p, 0.26, 0.5)), 1); VM.trail.rotation.z = VM.fam === 'dagger' ? 0.1 : 0; } else VM.trail.visible = false;
+    if (cls === 'smash' && !VM.shook && p >= 0.56) { VM.shook = true; VM.shake = Math.max(VM.shake, 0.55); }
+    if (cls === 'bow' && !VM.fired && p >= 0.64) {
+      VM.fired = true; const d = new THREE.Vector3(); cam.getWorldDirection(d); const from = new THREE.Vector3(0.18, -0.16, -0.5).applyMatrix4(cam.matrixWorld);
+      vmTracer(d, from); VM.kick = 0.8;
+    }
+    if (cls === 'cast') { const b = vmRamp(p, 0.4, 1); VM.burst.visible = b > 0 && b < 1; VM.burst.material.opacity = Math.sin(b * Math.PI) * 0.95; VM.burst.scale.setScalar(0.18 + 0.7 * vmSm(b)); }
+  } else { VM.trail.visible = false; if (VM.burst.visible) VM.burst.visible = false; }
+  VM.arrow.visible = cls === 'bow' && VM.fam === 'bow' && p >= 0 && draw > 0.02;
+  // place the hands
+  const R = VM.rp, L = VM.lp;
+  R.visible = true; L.visible = cls === 'fist' || (cls === 'bow' && VM.fam === 'bow');
+  if (cls === 'fist') {
+    const rs = punchSide === 1;   // right fist throws on odd swings
+    R.position.copy(vmRP).add(new THREE.Vector3(-0.02, 0.0, 0.02)); L.position.copy(vmLP).add(new THREE.Vector3(0.02, 0, 0.02)); R.rotation.set(-1.0, 0, 0); L.rotation.set(-1.0, 0, 0);
+    const T = rs ? R : L, s = rs ? 1 : -1;
+    T.position.x += s * -0.0 + pose[0] * s * -1; T.position.y += pose[1]; T.position.z += pose[2]; T.rotation.x += pose[3]; T.rotation.y += pose[4] * s; T.position.x += (rs ? -0.12 : 0.12) * Math.sin(Math.min(1, p < 0 ? 0 : p / 0.4) * Math.PI / 2) * (p >= 0 && p < 0.6 ? 1 : 0);
+    const brth = Math.sin(t * 1.5) * 0.006; R.position.y += brth; L.position.y -= brth;
+  } else if (cls === 'bow' && VM.fam === 'bow') {
+    R.position.set(0.2, -0.24, -0.62 + pose[2]); R.rotation.set(pose[3], 0, 0); VM.wm.rotation.set(0, Math.PI / 2, 0); L.rotation.set(-0.2, 0, 0);
+    L.position.set(0.2, -0.24, -0.5 + 0.2 * draw + (p >= 0.64 ? 0.05 * (1 - vmRamp(p, 0.64, 0.8)) : 0)); if (p < 0) L.position.set(0.1, -0.34, -0.42);
+    VM.arrow.position.set(0.2, -0.24, L.position.z - 0.3); L.position.y += Math.sin(t * 1.5) * 0.004;
+  } else {
+    R.position.set(vmRP.x + pose[0], vmRP.y + pose[1] + Math.sin(t * 1.5) * 0.004, vmRP.z + pose[2]); R.rotation.set(pose[3], pose[4], pose[5]);
+    if (VM.fam === 'crossbow') { R.position.set(0.24 + pose[0], -0.28 + pose[1], -0.5 + pose[2]); R.rotation.set(pose[3] * 0.4, 0, 0); if (p >= 0) R.position.z += 0.06 * Math.max(0, 1 - Math.abs(p - 0.64) * 6); L.visible = false; }
+  }
+  for (let i = 0; i < 2; i++) {   // stretch each forearm from its fixed shoulder anchor to the wrist
+    const A = VM.arms[i], P_ = i ? L : R, vis = P_.visible; A.arm.visible = A.br.visible = vis; if (!vis) continue;
+    const wr = vmV1.set(0, -0.02, 0.075).applyEuler(P_.rotation).add(P_.position), an = vmV2.set(A.side * 0.34, -0.62, 0.15), dir = vmV3.copy(wr).sub(an), len = dir.length(); dir.divideScalar(len);
+    A.arm.position.copy(an).addScaledVector(dir, len * 0.5); A.arm.scale.set(0.043, len, 0.043); A.arm.quaternion.setFromUnitVectors(vmY, dir);
+    A.br.position.copy(wr).addScaledVector(dir, -0.07); A.br.scale.set(0.051, 0.14, 0.051); A.br.quaternion.copy(A.arm.quaternion);
+  }
+  // camera shake (after the pose; cam rotation is reset every frame)
+  if (VM.shake > 0.001) { const k = VM.shake; cam.rotation.x += (Math.random() - 0.5) * 0.02 * k; cam.rotation.y += (Math.random() - 0.5) * 0.016 * k; cam.rotation.z += (Math.random() - 0.5) * 0.014 * k; VM.shake *= Math.pow(0.002, dt); }
+}
+function vmHide() { VM.root.visible = false; }   // hook: menu / early-return path of frame()
+// ---- third person: per-family arm clips driven by a.swing (0..1)
+const vmSw = a => { const c = VM_CLASS[a.vmFam] || (a.vmFam ? 'slash' : 'fist'); return Math.max(0.25, VM_SECS[c] * (a.vmFam === 'dagger' ? 0.78 : 1) * 1); };
+function vmPose3(a, u) {   // arm/torso pose for one swing frame; combatTick resets nothing, vmEnd3 clears what these set
+  const p = a.swing, cls = a.vmFam ? VM_CLASS[a.vmFam] || 'slash' : 'fist', arm = u.arms[1], el = arm.userData.el, bell = vmSm(vmRamp(p, 0.1, VM_HITAT[cls])) * (1 - vmSm(vmRamp(p, VM_HITAT[cls] + 0.1, 1)));
+  if (cls === 'slash') { arm.rotation.x = -0.4 - 1.9 * bell; arm.rotation.z = 0.9 * (1 - 2 * vmSm(vmRamp(p, 0.15, 0.5))) * (1 - vmRamp(p, 0.6, 1)); el.rotation.x = -0.4 * bell; u.torso.rotation.y += 0.5 * bell; }
+  else if (cls === 'thrust') { const w = vmSm(vmRamp(p, 0, 0.28)) * (1 - vmSm(vmRamp(p, 0.28, 0.42))), th = vmSm(vmRamp(p, 0.28, 0.42)) * (1 - vmSm(vmRamp(p, 0.62, 1))); arm.rotation.x = -1.35 * Math.max(w, th) ; el.rotation.x = -1.1 * w; u.torso.rotation.x += 0.3 * th - 0.15 * w; u.torso.rotation.y += 0.25 * th; }
+  else if (cls === 'smash') { const up = vmSm(vmRamp(p, 0, 0.42)) * (1 - vmSm(vmRamp(p, 0.42, 0.56))), dn = vmSm(vmRamp(p, 0.42, 0.56)) * (1 - vmSm(vmRamp(p, 0.7, 1))); arm.rotation.x = -3.0 * up - 0.9 * dn; el.rotation.x = -0.5 * up; u.torso.rotation.x += -0.3 * up + 0.4 * dn; }
+  else if (cls === 'bow') { const dr = vmSm(vmRamp(p, 0, 0.58)) * (1 - vmSm(vmRamp(p, 0.64, 0.8))), hold = vmSm(vmRamp(p, 0, 0.2)) * (1 - vmSm(vmRamp(p, 0.8, 1))); u.arms[0].rotation.x = -1.5 * hold; arm.rotation.x = -1.5 * hold; el.rotation.x = -1.3 * dr; u.torso.rotation.y += -0.3 * hold; }
+  else if (cls === 'cast') { const up = vmSm(vmRamp(p, 0, 0.46)) * (1 - vmSm(vmRamp(p, 0.55, 1))); arm.rotation.x = -2.4 * up; arm.rotation.z = 0.5 * Math.sin(p * Math.PI * 2) * up; u.torso.rotation.x += -0.12 * up; }
+  else { const A = a.punch ? u.arms[1] : u.arms[0], s = a.punch ? 1 : -1, pb = vmSm(vmRamp(p, 0.05, 0.4)) * (1 - vmSm(vmRamp(p, 0.4, 0.9))); A.rotation.x = -0.15 - 1.5 * pb; A.userData.el.rotation.x = -0.3 * pb; u.torso.rotation.y += s * -0.4 * pb; if (A !== arm) arm.rotation.x = -0.15; }
+}
+function vmEnd3(a, u) { const arm = u.arms[1]; arm.rotation.z = 0; arm.userData.el.rotation.x = 0; u.arms[0].userData.el.rotation.x = 0; }
+GK.vm = { state: VM, setWeapon(key) { if (typeof myInv === 'object') { myInv.weapon = key; invReady = true; } return key; }, swing: () => combatSwing(), tracers: VM.tracers };   // GK.vm.setWeapon is a test hook: local equip without the server
+// VIEWMODEL-END
 function frame(now) {
   const dt = clamp((now - last) / 1000, 0.001, 0.05); last = now; const t = now / 1000;
-  if (GK.mode !== 'play' && GK.mode !== 'dead' && GK.mode !== 'win') { GK.menu && GK.menu.render(now, dt); requestAnimationFrame(frame); return; }
+  if (GK.mode !== 'play' && GK.mode !== 'dead' && GK.mode !== 'win') { vmHide(); GK.menu && GK.menu.render(now, dt); requestAnimationFrame(frame); return; }
   panelTick();
   /* FEEL-BEGIN */ if (GK.feel) GK.feel.tick(dt, now); /* FEEL-END */
   const mine = actors.get(me);
@@ -4255,6 +4453,7 @@ function frame(now) {
     const dist = innerHeight > innerWidth ? 80 : 60;   // overview orbit radius (the world is +-29 m with the chest rooms)
     cam.fov = 50; cam.position.set(Math.sin(orbit) * dist, dist * 0.7, Math.cos(orbit) * dist); cam.lookAt(0, 0, 0);
   }
+  vmUpdate(dt, t, mine);   // VIEWMODEL
   cam.updateProjectionMatrix();
   merchantHoverTick();
   renderWorld(t);
