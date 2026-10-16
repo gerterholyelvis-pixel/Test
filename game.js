@@ -4869,7 +4869,8 @@ const lockOk = () => document.pointerLockElement === canvas;
 let lockRefused = false;
 const requestLock = () => {
   if (lockOk()) return;
-  const plain = () => { try { const r = canvas.requestPointerLock(); r && r.catch && r.catch(() => { lockRefused = true; }); } catch (e) { lockRefused = true; } };
+  lockRefused = false;   // every click retries the lock: one refusal (e.g. the browser's short cooldown after Esc) must not leave the cursor free for the rest of the session
+  const plain =() => { try { const r = canvas.requestPointerLock(); r && r.catch && r.catch(() => { lockRefused = true; }); } catch (e) { lockRefused = true; } };
   try { const r = canvas.requestPointerLock({ unadjustedMovement: true }); if (r && r.catch) r.catch(plain); } catch (e) { plain(); }
 };
 document.addEventListener('pointerlockchange', () => { if (lockOk()) lockRefused = false; });
@@ -4887,7 +4888,7 @@ addEventListener('mousemove', e => {
 });
 // in play the cursor is hidden (only the centre dot shows); if the lock was dropped (Esc), a click anywhere resumes
 let resumeEl = null;
-addEventListener('mousedown', e => { if (freeLook() && !lockOk() && !lockRefused && e.target !== canvas) requestLock(); });
+addEventListener('mousedown', e => { if (freeLook() && !lockOk() && e.target !== canvas) requestLock(); });
 function cursorTick() {
   const play = freeLook() && !document.body.classList.contains('menu');
   document.body.classList.toggle('nocur', play);
