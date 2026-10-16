@@ -612,14 +612,30 @@ function routeTo(m, p, key, pt) {   // set p.brain.route: waypoints through the 
   const r = []; for (const e of path) r.push(tag(e.w1, e.door), tag(e.w2, e.door));
   r.push(pt || pointIn(key, 1.5)); p.brain.route = r; p.brain.cross = path.length > 0; return true;
 }
+const BN = require('./botnav.js');   // NAV: obstacle steering, stuck detection, stat-based item picks (see docs/reports/bot-nav.md)
+const NO_OBS = [];
+function obstaclesFor(m, room) {   // solid props of a room as [{x, z, hw, hd} | {x, z, r}]: world.js (obstaclesIn(room) or OBSTACLES), else the match (m.obstacles: an array, or a map room -> array). [] when there are none.
+  let o = typeof WORLD.obstaclesIn === 'function' ? WORLD.obstaclesIn(room, m) : null;
+  if (!o && m && m.obstacles) o = Array.isArray(m.obstacles) ? m.obstacles : m.obstacles[room];
+  if (!o && Array.isArray(WORLD.OBSTACLES)) o = WORLD.OBSTACLES;
+  if (!o || !o.length) return NO_OBS;
+  return o.some(q => q.room !== undefined) ? o.filter(q => q.room === undefined || String(q.room) === room) : o;   // a flat list may tag each obstacle with its room
+}
 const betterW = (cur, key) => key && info(key) && info(key).type === 'weapon' && info(key).attack > (cur ? info(cur).attack : -1);
 const betterA = (cur, key) => key && info(key) && info(key).type === 'armor' && info(key).health > (cur ? info(cur).health : 0);
-function equipBest(m, p) {   // put the best weapon/armour from the backpack on (the same inventory rules as the players: move())
-  for (let i = 0; i < p.inv.backpack.length; i++) {
-    const k = p.inv.backpack[i];
-    if (betterW(p.inv.weapon, k)) move(p, 'b' + i, 'weapon'); else if (betterA(p.inv.armor, k)) move(p, 'b' + i, 'armor');
-  }
+function equipBest(m, p) {   // put the best weapon/armour from the backpack and quick slots on, by stats only (the same inventory rules as the players: move())
+  const slots = () => [...p.inv.backpack.map((k, i) => ['b' + i, k]), ...(p.inv.quick || []).map((k, i) => ['q' + i, k])];
+  const w = BN.best(slots().map(s => s[1]), info, BN.weaponValue, p.inv.weapon ? BN.weaponValue(info(p.inv.weapon)) : -1);
+  if (w) move(p, slots().find(s => s[1] === w)[0], 'weapon');
+  const a = BN.best(slots().map(s => s[1]), info, BN.armorValue, p.inv.armor ? BN.armorValue(info(p.inv.armor)) : 0);
+  if (a) move(p, slots().find(s => s[1] === a)[0], 'armor');
   m.dirty = true;
+}
+function botHeal(m, p, now) {   // drink the right healing consumable (any item with a `heal` value) when hurt; bots only, one per 1.2 s
+  if (p.stats.health >= p.stats.maxHealth || now - (p.healAt || 0) < 1200) return false;
+  const slots = [...p.inv.backpack.map((k, i) => ['b' + i, k]), ...(p.inv.quick || []).map((k, i) => ['q' + i, k])].filter(s => s[1]);
+  const k = BN.pickHeal(slots.map(s => s[1]), info, p.stats.health, p.stats.maxHealth); if (!k) return false;
+  setSlot(p.inv, slots.find(s => s[1] === k)[0], null); p.stats.health = Math.min(p.stats.maxHealth, p.stats.health + BN.healValue(info(k))); p.healAt = now; m.dirty = true; return true;
 }
 function fillBots(m) {   // up to CAP goblins: bots get the normal goblin odds, START gear, a goblin name and an outer room of their own
   const used = new Set([...m.players.values()].map(p => p.box)), free = [0, 1, 2, 3, 5, 6, 7, 8].filter(b => !used.has(b));
@@ -775,7 +791,7 @@ function botFight(m, p, t, now, dt) {   // melee: orbit the target at 1.2-1.8 m,
   if (backing) cr = -step;
   else if (err > (ranged ? 3 : 1.5)) cr = Math.min(err, sprintOf(p) * dt);   // far away: sprint at it
   else { cr = Math.abs(err) < 0.25 ? 0 : Math.max(-step, Math.min(step, err * 0.9)); ct = Math.sqrt(Math.max(0, step * step - cr * cr)) * (ranged ? 0.7 : hold ? 0.5 : 0.85) * b.strafe; }
-  const px = p.x + rx * cr - rz * ct, pz = p.z + rz * cr + rx * ct, [nx, nz] = clampIn(p.room, px, pz, 0.5);
+  const px = p.x + rx * cr - rz * ct, pz = p.z + rz * cr + rx * ct, [cx, cz] = clampIn(p.room, px, pz, 0.5), [nx, nz] = BN.slide(p.x, p.z, cx, cz, obstaclesFor(m, p.room));   // NAV: props block the orbit too
   if (Math.abs(nx - px) + Math.abs(nz - pz) > 0.15) b.strafe = -b.strafe;   // a wall in the way: orbit the other way
   if (!mv(m, p, nx, nz, yawTo({ x: nx, z: nz }, t.x, t.z) + (Math.random() - 0.5) * 0.18, now)) { BS.bad++; b.strafe = -b.strafe; return; }
   if (!hold && !backing && Math.hypot(t.x - nx, t.z - nz) <= (ranged ? 10 : 2.0) && Math.random() < 0.85) {
@@ -809,11 +825,17 @@ function face(m, p, x, z, now, jitter) {   // turn toward a point (with aim jitt
   mv(m, p, p.x, p.z, yaw, now);
 }
 function stepTo(m, p, tx, tz, dt, now, free) {   // one validated step toward (tx, tz); returns true when there. `free`: a doorway crossing (no wall margin)
-  const b = p.brain, dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz);
-  if (d < 0.08) return true;
+  const b = p.brain, obs = obstaclesFor(m, p.room), nav = b.nav || (b.nav = {});
+  if (obs.length) { if (BN.hitAt(p.x, p.z, obs)) { const [ox, oz] = BN.pushOut(p.x, p.z, obs); mv(m, p, ox, oz, p.yaw, now); } [tx, tz] = BN.pushOut(tx, tz, obs, BN.BOT_R, p.x, p.z); }   // NAV: a target inside a prop moves out of it; a bot inside one steps out
+  let dx = tx - p.x, dz = tz - p.z; const d = Math.hypot(dx, dz);
+  if (d < 0.08) { BN.untrack(nav); return true; }
+  if (nav.esc && now < nav.esc.until) { dx = nav.esc.x * d; dz = nav.esc.z * d; } else nav.esc = null;   // NAV: a short leg sideways out of a jam
   const st = Math.min(d, b.speed * dt); let nx = p.x + dx / d * st, nz = p.z + dz / d * st;
   if (!free) [nx, nz] = clampIn(p.room, nx, nz, 0.5);
+  if (obs.length) { const r = BN.steer(nav, p.x, p.z, nx, nz, Math.hypot(nx - p.x, nz - p.z) || st, obs, BN.BOT_R, now); if (r) { nx = r[0]; nz = r[1]; } else { nx = p.x; nz = p.z; } }
   b.scan = null;
+  const lvl = obs.length ? BN.track(nav, p.x, p.z, now, tx, tz) : 0;   // NAV: stuck detection (nothing runs while a room has no props)
+  if (lvl) { BS.nav = (BS.nav || 0) + 1; if (lvl === 1) nav.side = -(nav.side || 1); else if (lvl === 2) BN.escape(nav, dx / d, dz / d, now); else { b.route = []; b.idleUntil = now + 300; BN.untrack(nav); nav.side = 0; return false; } }
   if (!mv(m, p, nx, nz, Math.atan2(-dx, -dz), now)) { BS.bad++; if (++b.stuck > 3) { b.route = []; b.stuck = 0; b.idleUntil = now + 300; } return false; }
   b.stuck = 0; return d <= st + 0.05;
 }
@@ -848,7 +870,7 @@ function lootNearby(m, p, dt, now) {   // walk to useful loot piles in this room
   const b = p.brain; let best = null, bd = 8 + 12 * b.greed;   // AI: greedy bots walk further for loot
   for (const dr of m.drops) {
     if (b.skip.has(dr.id) || roomKeyOf(dr.x, dr.z) !== p.room) continue;
-    if (!dr.items.some(k => G.isBrain(k) || betterW(p.inv.weapon, k) || betterA(p.inv.armor, k))) { b.skip.add(dr.id); continue; }
+    if (!dr.items.some(k => G.isBrain(k) || BN.healValue(info(k)) > 0 || betterW(p.inv.weapon, k) || betterA(p.inv.armor, k))) { b.skip.add(dr.id); continue; }
     const d = Math.hypot(dr.x - p.x, dr.z - p.z); if (d < bd) { bd = d; best = dr; }
   }
   if (!best) return false;
@@ -856,7 +878,7 @@ function lootNearby(m, p, dt, now) {   // walk to useful loot piles in this room
   for (let i = best.items.length - 1; i >= 0; i--) {
     const k = best.items[i];
     if (G.isBrain(k)) loot(m, p, [best.id, i, 'eat']);
-    else if (betterW(p.inv.weapon, k) || betterA(p.inv.armor, k)) loot(m, p, [best.id, i, 'take']);
+    else if (BN.healValue(info(k)) > 0 || betterW(p.inv.weapon, k) || betterA(p.inv.armor, k)) loot(m, p, [best.id, i, 'take']);
   }
   b.skip.add(best.id); equipBest(m, p); return true;
 }
@@ -908,6 +930,7 @@ function botThink(m, p, now, dt) {
     else if (b.sdAtSet && b.sdAt && now >= b.sdAt) { b.sdAt = 0; b.idleUntil = Math.min(b.idleUntil, now); }
     if (b.chkAt !== p.roomAt) { b.chkAt = p.roomAt; b.reactAt = 0; b.entering = true; }
   }
+  if (bot) botHeal(m, p, now);   // NAV: healing consumables by stat
   if (now < b.pauseUntil) { if (b.jump) mv(m, p, p.x, p.z, p.yaw, now); return; }
   { const lu = lureFor(m, p, now); if (lu) { b.route = []; b.tgt = null; b.mode = ''; const [lx, lz] = clampIn(p.room, lu.x, lu.z, 0.5); if (Math.hypot(lx - p.x, lz - p.z) > 0.9) stepTo(m, p, lx, lz, dt, now); return; } }   // LOOT: a thrown plushie distracts
   if (b.turnTo && now >= b.blindUntil) {   // AI: turn toward whoever hit us from outside the view
@@ -1027,6 +1050,12 @@ function botStations(m, p) {   // in a merchant room or a stations mystery room:
 }
 function botLab(m, ws, p, cmd) {   // GK_DEBUG only, for tests. 'station': make c0 a merchant and drop a bot with junk into it. {near:[x,z]}: put a bot there. Any command replies with counters and the lab bot's state.
   const bot = [...m.players.values()].find(q => q.bot && !q.dead);
+  if (cmd && cmd.nav && bot) {   // NAV test: {nav:{obs:[{x,z,hw,hd}|{x,z,r}], from:[x,z], to:[x,z]}} synthetic props for this match, the bot walks from `from` to `to`; {nav:{backpack:[keys]}} fills the bot's backpack and runs equipBest
+    const n = cmd.nav, b = bot.brain;
+    if (Array.isArray(n.obs)) m.obstacles = n.obs.slice(0, 40).map(o => ({ x: +o.x, z: +o.z, hw: +o.hw || 0, hd: +o.hd || 0, r: +o.r || 0 }));
+    if (Array.isArray(n.from) && Array.isArray(n.to)) { place(bot, +n.from[0], +n.from[1]); b.route = [[+n.to[0], +n.to[1]]]; b.cross = false; b.idleUntil = Date.now() + 60000; b.mode = ''; b.tgt = null; b.waitUntil = 0; b.pauseUntil = 0; b.nav = {}; m.dirty = true; }
+    if (Array.isArray(n.backpack)) { bot.inv.backpack = n.backpack.slice(0, 9).concat(Array(9).fill(null)).slice(0, 9).map(k => (typeof k === 'string' && G.ITEMS[k] ? k : null)); equipBest(m, bot); }
+  }
   if (cmd === 'station' && bot) {
     m.layout[0] = 'merchant'; m.shops[0] = G.randomShop().map(it => ({ ...it, base: it.price })); bot.inv.weapon = 'w:sword'; bot.inv.backpack[0] = 'w:stick'; bot.inv.backpack[1] = 'w:stick'; bot.gold = 0; recalc(bot);
     const c = WORLD.CHEST[0]; bot.brain.route = []; bot.brain.done = {}; bot.brain.idleUntil = 0; bot.brain.mode = ''; place(bot, c.cx, c.cz); m.dirty = true; BS.rec = 0; BS.cra = 0;
@@ -1036,7 +1065,7 @@ function botLab(m, ws, p, cmd) {   // GK_DEBUG only, for tests. 'station': make 
       if (typeof cmd.yaw === 'number') q.yaw = cmd.yaw; else if (r) q.yaw = yawTo(q, cmd.near[0], cmd.near[1]);   // ring bots face the middle unless {yaw} says otherwise
       q.brain.scanAt = typeof cmd.scanAfter === 'number' ? Date.now() + cmd.scanAfter : 0; q.sd = true; if (cmd.wpn === 'none' || (typeof cmd.wpn === 'string' && G.ITEMS[cmd.wpn])) { q.inv.weapon = cmd.wpn === 'none' ? null : cmd.wpn; recalc(q); } }); m.dirty = true;   // wpn: give the bot that weapon ('none': unarmed, 1 damage, keeps a test human alive). roomAt 0: they count as long-time residents. scanAfter: ms before the idle bot first looks around
   }
-  sendTo(ws, { botlab: { rec: BS.rec || 0, cra: BS.cra || 0, pos: bot ? [bot.x, bot.z] : null, junk: bot ? bot.inv.backpack.filter(k => k === 'w:stick').length : 0, room: bot ? bot.room : null, wpn: bot ? bot.inv.weapon : null, yaw: bot ? bot.yaw : null, ai: bot ? { aggr: bot.brain.aggr, flee: bot.brain.flee, greed: bot.brain.greed, patience: bot.brain.patience } : null } });
+  sendTo(ws, { botlab: { rec: BS.rec || 0, cra: BS.cra || 0, pos: bot ? [bot.x, bot.z] : null, junk: bot ? bot.inv.backpack.filter(k => k === 'w:stick').length : 0, room: bot ? bot.room : null, wpn: bot ? bot.inv.weapon : null, armor: bot ? bot.inv.armor : null, nav: BS.nav || 0, yaw: bot ? bot.yaw : null, ai: bot ? { aggr: bot.brain.aggr, flee: bot.brain.flee, greed: bot.brain.greed, patience: bot.brain.patience } : null } });
 }
 // LOOT-END
 
