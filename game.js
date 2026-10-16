@@ -6455,15 +6455,15 @@ window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw,
   function openHow() {
     if (ov) return;
     ov = document.createElement('div'); ov.id = 'gkHowTo';
-    ov.style.cssText = 'position:fixed;inset:0;z-index:200;background:rgba(8,7,11,.94);overflow:auto;padding:22px 16px;font-family:system-ui,sans-serif;color:#efe9d8';
-    ov.innerHTML = '<div style="max-width:1180px;margin:0 auto"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><h2 style="margin:0;color:#f5c451;letter-spacing:.2em;text-transform:uppercase;font-size:clamp(20px,3vw,30px)">How to play</h2><button id="gkHowX" style="cursor:pointer;background:#f5c451;color:#1a1104;border:0;padding:10px 22px;font:800 15px system-ui;letter-spacing:.14em">SKIP / CLOSE</button></div><div id="gkHowG" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin-top:18px"></div></div>';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:200;background:rgba(8,7,11,.94);overflow:auto;padding:22px 16px;display:flex;font-family:var(--ui,system-ui);color:#efe9d8';
+    ov.innerHTML = '<div style="max-width:1180px;margin:auto;width:100%"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><h2 style="margin:0;color:#f5c451;font-family:var(--disp,Georgia,serif);letter-spacing:.05em;text-transform:uppercase;font-size:var(--t4,30px)">How to play</h2><button id="gkHowX" class="rbtn primary" style="flex:none;padding:0 22px">Skip / close</button></div><div id="gkHowG" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:var(--s2,14px);margin-top:var(--s3,20px)"></div></div>';
     const grid = ov.querySelector('#gkHowG');
     PANELS.forEach((p, i) => {
       const c = document.createElement('canvas'); c.width = 260; c.height = 160; c.style.cssText = 'width:100%;height:auto;display:block;background:#1a150d;border-bottom:2px solid #c8962e';
       const g = c.getContext('2d'); g.textBaseline = 'alphabetic'; p.d(g);
-      const w = document.createElement('div'); w.style.cssText = 'background:#14110b;border:1px solid #c8962e;border-radius:6px;overflow:hidden;box-shadow:0 0 0 1px #000,inset 0 0 0 1px rgba(255,215,94,.15)';
+      const w = document.createElement('div'); w.style.cssText = 'background:#14110b;border:1px solid #a8741a;border-radius:0;overflow:hidden;box-shadow:0 0 0 1px #000,inset 0 0 0 1px rgba(255,215,94,.15)';
       w.appendChild(c); const t = document.createElement('div'); t.style.cssText = 'padding:10px 12px 14px';
-      t.innerHTML = '<div style="color:#f5c451;font-weight:800;letter-spacing:.08em;margin-bottom:5px">' + (i + 1) + '. ' + p.t + '</div><div style="font-size:14px;line-height:1.4;color:#d8d2c0">' + p.x + '</div>';
+      t.innerHTML = '<div style="color:#f5c451;font:700 var(--t3,20px)/1.1 var(--ui,system-ui);letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px">' + (i + 1) + '. ' + p.t + '</div><div style="font-size:var(--t2,16px);line-height:1.25;color:#d8d2c0">' + p.x + '</div>';
       w.appendChild(t); grid.appendChild(w);
     });
     document.body.appendChild(ov); ov.querySelector('#gkHowX').onclick = closeHow; ov.onclick = e => { if (e.target === ov) closeHow(); };
