@@ -404,6 +404,10 @@ function win(ws, p) { // everything carried goes home with the winner, nothing i
   sendTo(ws, { won: { items, gold: p.gold, parts: p.parts } });
 }
 
+// JUMP-BEGIN (server side: the jump is cosmetic; movement, walls and attack ranges stay 2D)
+const JUMP_MAX_CM = 100;   // the client arc peaks at 90 cm; anything above is clamped
+const jumpV = p => r1(p.spd || 0) + 100 * (p.jy | 0);   // snapshot speed slot carries the jump: v = speed + 100 * cm (speed is always < 100)
+// JUMP-END
 // NET-BEGIN (movement validation, 20 Hz snapshots, position history for lag compensation; see docs/reports/netcode.md)
 const T0 = Date.now(), srvT = () => Date.now() - T0;   // server clock in ms, sent with every snapshot and pong
 const RSCALE = process.env.GK_DEBUG && +process.env.GK_REGEN_SCALE > 0 ? +process.env.GK_REGEN_SCALE : 1;   // GK_DEBUG only: speeds regeneration up for the tests
@@ -431,7 +435,7 @@ function pathOk(m, x0, z0, x1, z1) {   // walk the segment in 0.2 m steps: every
 function place(p, x, z) {   // hard set (spawn, debug teleport): resets speed budget and history
   p.x = x; p.z = z; p.box = boxOf(x, z); p.room = roomKeyOf(x, z); p.spd = 0; p.fixAt = 0; p.budget = BUDGET; p.mvAt = Date.now(); p.mvT = srvT(); p.hist = [[p.mvT, x, z]]; p.sd = true;
 }
-function applyMove(m, ws, p, x, z, yaw, now) {   // {m:[x,z,yaw]}: accept, or keep the old position and answer {fix:[x,z]}
+function applyMove(m, ws, p, x, z, yaw, now, jy) {   // {m:[x,z,yaw]}: accept, or keep the old position and answer {fix:[x,z]}
   x = clamp(x); z = clamp(z); yaw = Math.max(-1e3, Math.min(1e3, yaw));
   const dt = p.mvAt ? Math.min(0.5, (now - p.mvAt) / 1000) : 0.066; p.mvAt = now; const prevRoom = p.room;
   p.budget = Math.min(BUDGET, (p.budget == null ? BUDGET : p.budget) + dt * MAXV);
@@ -442,6 +446,7 @@ function applyMove(m, ws, p, x, z, yaw, now) {   // {m:[x,z,yaw]}: accept, or ke
     return false;
   }
   p.budget = Math.max(0, p.budget - dist);
+  { const j = jy > 0 ? Math.min(JUMP_MAX_CM, Math.round(jy)) : 0; if (j !== (p.jy | 0)) { p.jy = j; p.sd = true; } }   // JUMP: cosmetic height in cm, never used for collision or hits
   const t = srvT(), v = dist < 0.004 ? 0 : Math.min(12, dist / Math.max(dt, 0.04));
   const spd = v === 0 ? 0 : p.spd ? p.spd * 0.6 + v * 0.4 : v;
   if (dist > 0.0005 || yaw !== p.yaw || r1(spd) !== r1(p.spd || 0)) p.sd = true;
@@ -468,10 +473,10 @@ function snapshots(m) {   // {s:[t, id,x,z,yaw,speed,age, ...]} with the players
   const t = srvT();
   for (const [ws, q] of m.players) {
     if (q.bot || q.npc) continue;
-    const out = [t]; for (const p of moved) if (p !== q) out.push(p.id, r2(p.x), r2(p.z), r3(p.yaw), r1(p.spd || 0), Math.min(255, Math.max(0, t - (p.mvT || t))));
+    const out = [t]; for (const p of moved) if (p !== q) out.push(p.id, r2(p.x), r2(p.z), r3(p.yaw), jumpV(p), Math.min(255, Math.max(0, t - (p.mvT || t))));
     if (out.length > 1) sendTo(ws, { s: out });
   }
-  const all = [t]; for (const p of moved) all.push(p.id, r2(p.x), r2(p.z), r3(p.yaw), r1(p.spd || 0), Math.min(255, Math.max(0, t - (p.mvT || t))));   // FUN: spectators get every mover
+  const all = [t]; for (const p of moved) all.push(p.id, r2(p.x), r2(p.z), r3(p.yaw), jumpV(p), Math.min(255, Math.max(0, t - (p.mvT || t))));   // FUN: spectators get every mover
   if (all.length > 1) for (const ws of m.specs.keys()) sendTo(ws, { s: all });
 }
 // NET-END
@@ -903,7 +908,7 @@ wss.on('connection', (ws, req) => {
     if (d.ready === 1) { p.ready = true; if (m.phase === 'loading') { const all = [...m.players.values()]; bcast(m, { readyN: { n: all.filter(q => q.ready).length, size: all.length } }); if (all.every(q => q.ready)) beginCountdown(m); } return; }   // readyN: how many goblins are ready (the loading screen shows it)
     if (!m.goAt || now < m.goAt) { if (d.m || d.atk === 1 || d.claim === 1 || d.bribe === 1 || d.sel !== undefined) return; }   // movement, attacks, claims and door picks are locked until GO
     /* MATCH-END */
-    if (Array.isArray(d.m) && d.m.length === 3 && d.m.every(v => typeof v === 'number' && Number.isFinite(v))) { applyMove(m, ws, p, d.m[0], d.m[1], d.m[2], now);
+    if (Array.isArray(d.m) && (d.m.length === 3 || d.m.length === 4) && d.m.every(v => typeof v === 'number' && Number.isFinite(v))) { applyMove(m, ws, p, d.m[0], d.m[1], d.m[2], now, d.m[3]);
     } else if (typeof d.ping === 'number' && Number.isFinite(d.ping)) { sendTo(ws, { pong: d.ping, t: srvT() });
     } else if (d.emote !== undefined) { socEmote(m, ws, p, d.emote, now);   // SOCIAL
     } else if (dbg && d.botstat) { sendTo(ws, { botstat: { n: BS.n, sum: BS.sum, max: BS.max, calls: BS.calls, bad: BS.bad } });

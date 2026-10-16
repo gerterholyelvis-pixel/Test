@@ -104,6 +104,17 @@
       noise(out, t, 0.075, 0.5, 'lowpass', 1500 * p, 380, 0.7, { a: 0.002 });
       noise(out, t + 0.01, 0.04, 0.18, 'highpass', 2600 * p, 3600, 0.6, { a: 0.002 });
     },
+    // JUMP-BEGIN
+    hup(out, t) {   // jump: a short breathy "hup", a rising grunt with a puff of air
+      tone(out, 'triangle', 170, t, 0.1, 0.34, { f1: 300, a: 0.008 });
+      tone(out, 'sine', 340, t + 0.004, 0.07, 0.1, { f1: 520, a: 0.008 });
+      noise(out, t, 0.07, 0.15, 'bandpass', 1200, 1900, 1.2, { a: 0.006 });
+    },
+    thud(out, t) {   // landing: a soft low thud and a scuff
+      tone(out, 'sine', 105, t, 0.14, 0.38, { f1: 48, a: 0.002 });
+      noise(out, t, 0.06, 0.2, 'lowpass', 900, 300, 0.7, { a: 0.002 });
+    },
+    // JUMP-END
     door(out, t) {   // sliding door between rooms: servo whine, air hiss, clunk
       tone(out, 'sawtooth', 90, t, 0.85, 0.12, { f1: 170, a: 0.08 });
       tone(out, 'square', 240, t + 0.02, 0.7, 0.05, { f1: 330, a: 0.1 });
