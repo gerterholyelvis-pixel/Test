@@ -174,7 +174,7 @@
 .gk5-bn b{color:var(--gold,#f5c451);letter-spacing:.2em;margin-right:12px;font-weight:700}
 .gk5-bn i{font-style:normal;margin:0 8px;color:#6a6252}
 .gk5-bn span{font-weight:600;white-space:nowrap;margin:0 9px}
-.gk5-rm{position:absolute;left:50%;bottom:22%;transform:translate(-50%,8px);opacity:0;text-align:center;transition:opacity .5s,transform .5s;max-width:min(92vw,560px)}
+.gk5-rm{position:absolute;left:50%;bottom:22%;transform:translate(-50%,8px);opacity:0;text-align:center;transition:opacity .5s,transform .5s;max-width:min(92vw,560px);padding:10px 34px 12px;background:radial-gradient(ellipse at center,rgba(8,6,6,.6) 0,rgba(8,6,6,.38) 58%,rgba(8,6,6,0) 100%)}
 .gk5-rm.on{opacity:1;transform:translate(-50%,0)}
 .gk5-rm .n{font-family:var(--disp,Georgia,serif);font-weight:700;font-size:clamp(20px,3.6vh,32px);letter-spacing:.1em;text-shadow:0 2px 14px #000,0 0 18px rgba(0,0,0,.8)}
 .gk5-rm .n::after{content:"";display:block;width:64px;height:2px;margin:6px auto 0;background:linear-gradient(90deg,transparent,currentColor,transparent);opacity:.8}
@@ -353,6 +353,6 @@
     return api;
   }
 
-  const HUD5 = { createHud5, mapOps, drawMap, cellAt, ARENA, ATTACHED, INFO, VB_CELLS, TREE_CELLS, LIM, fmt };
+  const HUD5 = { createHud5, mapOps, drawMap, paintIcon, cellAt, ARENA, ATTACHED, INFO, VB_CELLS, TREE_CELLS, LIM, fmt };
   if (typeof module !== 'undefined' && module.exports) module.exports = HUD5; else root.HUD5 = HUD5;
 })(typeof window !== 'undefined' ? window : this);
