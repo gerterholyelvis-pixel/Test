@@ -7,17 +7,16 @@ const SCALE = [0.75, 1, 1.3, 1.1, 1.2];
 // Attack damage comes from the starting weapon and health from the starting armour (the server holds the real values, this is the offline/default display)
 const GEAR = [{ weapon: 'Dagger', armor: 'Ragged Tunic' }, { weapon: 'Nailed Club', armor: 'Studded Vest' }, { weapon: 'Spiked Mace', armor: 'Warlord Harness' }, { weapon: 'Gnarled Staff', armor: 'Starry Robe' }, { weapon: 'Royal Scepter', armor: 'Royal Mantle' }];
 const STATS = [{ knowledge: 60, attack: 10, health: 40 }, { knowledge: 40, attack: 15, health: 50 }, { knowledge: 30, attack: 20, health: 80 }, { knowledge: 80, attack: 0, health: 60 }, { knowledge: 40, attack: 20, health: 100 }];
-const R = 12, H = 6.5, T = 0.6;           // room size, ceiling height, wall thickness
+const WORLD = window.GKWORLD;              // shared geometry (world.js, also used by server.js): room sizes, THE VAULT (middle room, bigger), chest rooms, helpers
+const { H, T, V: VSIZE, rc, roomAt, roomW, roomD } = WORLD;   // ceiling height, wall thickness, vault size, room centre / point -> room / per-room width and depth
 const DW = 4, DHT = 4.4, VW = 4.9, VH = 5; // secure door and vault door openings
 const RAD = 0.45;                          // player radius
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const rc = i => [((i % 3) - 1) * R, (Math.floor(i / 3) - 1) * R];
-const roomAt = (x, z) => clamp(Math.round(x / R), -1, 1) + 1 + (clamp(Math.round(z / R), -1, 1) + 1) * 3;
 const $ = id => document.getElementById(id);
 const GK = window.GK = window.GK || {};
 GK.mode = 'menu';                         // 'menu' (title, settings, wheel) or 'play'
 GK.settings = Object.assign({ sens: 1, fov: 75, scale: 1, invertY: false, tags: true, fx: true }, GK.settings || {});
-const CS = 8;                             // chest room size
+const CS = WORLD.CS;                      // chest room size
 const WEAPONS = ['Rusty Sword', 'Battle Axe', 'War Spear', 'Spiked Mace', 'Short Bow', 'Dagger'];
 // One chest room behind every outer wall: edge rooms get 1, corner rooms get 2 (12 in total)
 // Three kinds of rooms behind the outer doors: 'chest' (a chest with a random weapon), 'mystery' (question mark, contents decided later) and 'merchant' (merchant goblin behind glass, knowledge tree, workbench, recycler).
@@ -25,12 +24,7 @@ const WEAPONS = ['Rusty Sword', 'Battle Axe', 'War Spear', 'Spiked Mace', 'Short
 const ROOM_TYPE_BY_ID = { 1: 'mystery', 4: 'merchant', 7: 'merchant', 10: 'mystery' };   // ids follow the CHEST_ROOMS creation order below
 const CHEST_ROOMS = [];
 const layoutHooks = [];   // functions called with the type array when the match's random room layout is known (room interiors, door emblems, maps and panels are built/updated from it)
-for (let i = 0; i < 9; i++) {
-  if (i === 4) continue;
-  const col = i % 3, row = Math.floor(i / 3), cx0 = (col - 1) * R, cz0 = (row - 1) * R, sides = [];
-  if (row === 0) sides.push(['N', 0, -1]); if (col === 0) sides.push(['W', -1, 0]); if (col === 2) sides.push(['E', 1, 0]); if (row === 2) sides.push(['S', 0, 1]);
-  for (const [side, dx, dz] of sides) CHEST_ROOMS.push({ id: CHEST_ROOMS.length, type: ROOM_TYPE_BY_ID[CHEST_ROOMS.length] || 'chest', parent: i, side, dx, dz, cx: cx0 + dx * (R / 2 + CS / 2), cz: cz0 + dz * (R / 2 + CS / 2), wallX: cx0 + dx * R / 2, wallZ: cz0 + dz * R / 2 });
-}
+for (const c of WORLD.CHEST) CHEST_ROOMS.push({ ...c, type: ROOM_TYPE_BY_ID[c.id] || 'chest' });   // geometry (cx, cz, wallX, wallZ, dx, dz) comes from world.js
 function applyLayout(types, mystery) {   // types: 12 strings in CHEST_ROOMS order; mystery: 12 entries, null or the contents of that mystery room (GKITEMS.randomMystery)
   if (!Array.isArray(types) || types.length !== CHEST_ROOMS.length || !types.every(t => t === 'chest' || t === 'mystery' || t === 'merchant')) return;
   types.forEach((t, i) => { CHEST_ROOMS[i].type = t; CHEST_ROOMS[i].mystery = t === 'mystery' && mystery && mystery[i] ? mystery[i] : null; });
@@ -48,7 +42,7 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.body.prepend(renderer.domElement);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0b0b0e);
-const cam = new THREE.PerspectiveCamera(75, 1, 0.05, 140);
+const cam = new THREE.PerspectiveCamera(75, 1, 0.05, 190);
 cam.rotation.order = 'YXZ';
 
 // ---------- procedural textures ----------
@@ -435,9 +429,9 @@ function statusLights(g, d, y) {
     glowSprite(g, d.halo, 1.3, 0, y, s * (T / 2 + 0.3));
   }
 }
-function wall(px, pz, rot, kind) {
+function wall(px, pz, rot, kind, len) {   // len: length of the room boundary this wall closes (the wall is T longer so it overlaps the corners)
   const g = new THREE.Group(); g.position.set(px, 0, pz); g.rotation.y = rot; scene.add(g);
-  const L = R + T, dw = kind === 'vault' ? VW : DW, dh = kind === 'vault' ? VH : DHT;
+  const L = len + T, dw = kind === 'vault' ? VW : DW, dh = kind === 'vault' ? VH : DHT;
   const solid = (x0, x1, y0, y1) => bx(g, x1 - x0, y1 - y0, T, (x0 + x1) / 2, (y0 + y1) / 2, 0, plaster);
   const base = (x0, x1) => bx(g, x1 - x0, 0.2, T + 0.1, (x0 + x1) / 2, 0.1, 0, trimM);
   if (!kind) { solid(-L / 2, L / 2, 0, H); base(-L / 2, L / 2); addRect(px, pz, rot, -L / 2, L / 2, -T / 2, T / 2); return; }
@@ -594,42 +588,131 @@ function wall(px, pz, rot, kind) {
   }
   doors.push(d);
 }
-// rooms
+// rooms (per-room width/depth from world.js: the middle room is THE VAULT, bigger than the others)
 for (let i = 0; i < 9; i++) {
-  const [cx, cz] = rc(i);
-  bx(scene, R, 0.4, R, cx, -0.2, cz, floorM, 2);
-  ceilings.push(bx(scene, R, 0.3, R, cx, H + 0.15, cz, ceilM));
-  for (const [ox, oz] of [[-2.8, -2.8], [2.8, -2.8], [-2.8, 2.8], [2.8, 2.8]]) {
+  const [cx, cz] = rc(i), rw = roomW(i), rd = roomD(i);
+  bx(scene, rw, 0.4, rd, cx, -0.2, cz, floorM, 2);
+  ceilings.push(bx(scene, rw, 0.3, rd, cx, H + 0.15, cz, ceilM));
+  for (const [ox, oz] of WORLD.panelOffsets(i)) {
     bx(scene, 3, 0.05, 1.4, cx + ox, H - 0.03, cz + oz, panelM);
     bx(scene, 3.24, 0.04, 1.64, cx + ox, H - 0.015, cz + oz, trimM);
   }
   // fake ambient occlusion: darkened floor/ceiling edges and wall corners
-  const hf = R / 2 - T / 2;
-  const fa = new THREE.Mesh(new THREE.PlaneGeometry(2 * hf, 2 * hf), aoM); fa.rotation.x = -Math.PI / 2; fa.position.set(cx, 0.004, cz); scene.add(fa);
-  const ca = new THREE.Mesh(new THREE.PlaneGeometry(2 * hf, 2 * hf), aoM); ca.rotation.x = Math.PI / 2; ca.position.set(cx, H - 0.004, cz); scene.add(ca); ceilings.push(ca);
+  const hw = rw / 2 - T / 2, hd = rd / 2 - T / 2;
+  const fa = new THREE.Mesh(new THREE.PlaneGeometry(2 * hw, 2 * hd), aoM); fa.rotation.x = -Math.PI / 2; fa.position.set(cx, 0.004, cz); scene.add(fa);
+  const ca = new THREE.Mesh(new THREE.PlaneGeometry(2 * hw, 2 * hd), aoM); ca.rotation.x = Math.PI / 2; ca.position.set(cx, H - 0.004, cz); scene.add(ca); ceilings.push(ca);
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) for (const ax of [0, 1]) {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(1.7, H), cornerM);
-    if (ax) { m.rotation.y = Math.PI / 2; m.position.set(cx + sx * (hf - 0.004), H / 2, cz + sz * (hf - 0.85)); }
-    else { m.position.set(cx + sx * (hf - 0.85), H / 2, cz + sz * (hf - 0.004)); }
+    if (ax) { m.rotation.y = Math.PI / 2; m.position.set(cx + sx * (hw - 0.004), H / 2, cz + sz * (hd - 0.85)); }
+    else { m.position.set(cx + sx * (hw - 0.85), H / 2, cz + sz * (hd - 0.004)); }
     m.updateMatrix(); const e = new THREE.Vector3(-0.85, 0, 0).applyMatrix4(m.matrix);
-    if (Math.hypot(e.x - (cx + sx * hf), e.z - (cz + sz * hf)) > 0.3) m.scale.x = -1;
+    if (Math.hypot(e.x - (cx + sx * hw), e.z - (cz + sz * hd)) > 0.3) m.scale.x = -1;
     scene.add(m);
   }
-  const lamp = new THREE.PointLight(i === 4 ? 0xfff0e0 : 0xfff6ea, 9, 0, 1.2); lamp.position.set(cx, H - 0.7, cz); scene.add(lamp);
+  // 9 point lights in total (one per room); the vault is bigger, so its lamp is stronger and a little higher to light the whole hall
+  const big = i === WORLD.VAULT, lamp = new THREE.PointLight(big ? 0xfff0dc : 0xfff6ea, big ? 15 : 9, 0, 1.2); lamp.position.set(cx, H - (big ? 1.2 : 0.7), cz); scene.add(lamp);
 }
 scene.add(new THREE.HemisphereLight(0xffffff, 0xeeebe4, 2.1));
 for (let i = 0; i < 9; i++) {
-  const [cx, cz] = rc(i), col = i % 3, row = Math.floor(i / 3);
+  const [cx, cz] = rc(i), col = i % 3, row = Math.floor(i / 3), rw = roomW(i), rd = roomD(i);
   // east neighbour and south neighbour, or an outer wall on the edge
   const kd = (a, b) => (a === 4 || b === 4) ? 'vault' : 'skull';
   const outerKind = (x, z) => { const c = CHEST_ROOMS.find(r => Math.abs(r.wallX - x) < 0.01 && Math.abs(r.wallZ - z) < 0.01); return 'chest'; };
-  wall(cx + R / 2, cz, Math.PI / 2, col < 2 ? kd(i, i + 1) : outerKind(cx + R / 2, cz));
-  wall(cx, cz + R / 2, 0, row < 2 ? kd(i, i + 3) : outerKind(cx, cz + R / 2));
-  if (col === 0) wall(cx - R / 2, cz, Math.PI / 2, outerKind(cx - R / 2, cz));
-  if (row === 0) wall(cx, cz - R / 2, 0, outerKind(cx, cz - R / 2));
+  wall(cx + rw / 2, cz, Math.PI / 2, col < 2 ? kd(i, i + 1) : outerKind(cx + rw / 2, cz), rd);   // a wall between columns is as long as the row is deep
+  wall(cx, cz + rd / 2, 0, row < 2 ? kd(i, i + 3) : outerKind(cx, cz + rd / 2), rw);            // a wall between rows is as long as the column is wide
+  if (col === 0) wall(cx - rw / 2, cz, Math.PI / 2, outerKind(cx - rw / 2, cz), rd);
+  if (row === 0) wall(cx, cz - rd / 2, 0, outerKind(cx, cz - rd / 2), rw);
 }
 layoutHooks.push(types => { for (const d of doors) { if (!d.setType) continue; const c = CHEST_ROOMS.find(r => Math.abs(r.wallX - d.gx) < 0.01 && Math.abs(r.wallZ - d.gz) < 0.01); if (c) d.setType(c.type); } });
 if (GK.layout) layoutHooks[layoutHooks.length - 1](GK.layout);
+// VAULT-BEGIN (THE VAULT: the big middle room, 18 x 18 m: gold lettering, floor medallion, pillars, dais, chandelier; no extra PointLights)
+{
+  const [vx, vz] = rc(WORLD.VAULT), vh = VSIZE / 2 - T / 2;   // room centre, half size to the inner wall faces
+  const brass = M(0xe0a93a, { metalness: 1, roughness: 0.27, envMapIntensity: 1.7, emissive: 0x4a2800, emissiveIntensity: 0.55 });
+  const goldGlowM = new THREE.MeshStandardMaterial({ color: 0xffd478, emissive: 0xffb22e, emissiveIntensity: 2.2, roughness: 0.4 });
+  const pillarM = M(0x3a414d, { map: steelTex, metalness: 0.8, roughness: 0.34, envMapIntensity: 1.3 });
+  const plinthM = M(0x1d2128, { metalness: 0.7, roughness: 0.4, envMapIntensity: 1.1 });
+  const star = (g, cx, cy, r0, r1, n, rot) => { g.beginPath(); for (let k = 0; k < n * 2; k++) { const a = rot + k * Math.PI / n, r = k % 2 ? r0 : r1; g[k ? 'lineTo' : 'moveTo'](cx + Math.cos(a) * r, cy + Math.sin(a) * r); } g.closePath(); };
+  const goldGrad = (g, x0, y0, x1, y1) => { const gr = g.createLinearGradient(x0, y0, x1, y1); gr.addColorStop(0, '#fff2a8'); gr.addColorStop(0.45, '#f1b92f'); gr.addColorStop(0.55, '#c98a12'); gr.addColorStop(1, '#ffe27a'); return gr; };
+  // lettering: THE VAULT in big gold capitals on a dark plate with brass trim (emissive so it reads from across the room)
+  const letterTex = canvasTex(1024, 256, (g, w, h) => {
+    g.fillStyle = '#12100c'; g.fillRect(0, 0, w, h);
+    g.strokeStyle = goldGrad(g, 0, 0, w, h); g.lineWidth = 10; g.strokeRect(12, 12, w - 24, h - 24); g.lineWidth = 3; g.strokeRect(30, 30, w - 60, h - 60);
+    g.font = '900 150px Georgia, "Times New Roman", serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.lineJoin = 'round'; g.lineWidth = 9; g.strokeStyle = '#3a2204'; g.strokeText('THE VAULT', w / 2, h / 2 + 8);
+    g.fillStyle = goldGrad(g, 0, 70, 0, 200); g.fillText('THE VAULT', w / 2, h / 2 + 8);
+    g.fillStyle = '#ffe9a0'; for (const sx of [70, w - 70]) { star(g, sx, h / 2, 9, 22, 4, 0); g.fill(); }
+  });
+  const letterM = new THREE.MeshStandardMaterial({ map: letterTex, emissiveMap: letterTex, emissive: 0xffffff, emissiveIntensity: 0.9, roughness: 0.45, metalness: 0.3 });
+  const LW = 5.2, LH = LW / 4, LY = 4.3;
+  for (const [wx, wz, rot] of [[0, -1, 0], [0, 1, Math.PI], [-1, 0, Math.PI / 2], [1, 0, -Math.PI / 2]]) {   // four walls, plate faces the room centre
+    const g = new THREE.Group(); g.position.set(vx + wx * vh, 0, vz + wz * vh); g.rotation.y = rot; scene.add(g);   // local +z points into the room
+    if (wz === -1) { /* north wall: the control panel sits on the right, so its plate is only on the left */ }
+    for (const sx of [-1, 1]) {
+      if (wz === -1 && sx === 1) continue;
+      const px = sx * 6.0;
+      bx(g, LW + 0.34, LH + 0.34, 0.08, px, LY, 0.04, brass, 1);
+      const pl = new THREE.Mesh(new THREE.PlaneGeometry(LW, LH), letterM); pl.position.set(px, LY, 0.09); g.add(pl);
+      glowSprite(g, vaultGlowM(), 7.5, px, LY, 0.5);
+    }
+    // brass picture rail at 1 m on both sides of the door and a gold cornice under the ceiling
+    for (const sx of [-1, 1]) bx(g, vh - 3.3, 0.1, 0.1, sx * ((vh - 3.3) / 2 + 3.3), 1.0, 0.05, brass, 1);
+    bx(g, 2 * vh, 0.22, 0.14, 0, H - 0.11, 0.07, brass, 1);
+    bx(g, 2 * vh, 0.05, 0.16, 0, H - 0.24, 0.08, goldGlowM, 1);
+  }
+  function vaultGlowM() { return vaultGlowM.m || (vaultGlowM.m = new THREE.SpriteMaterial({ map: glowTex, color: 0xffb040, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false, fog: false })); }
+  // floor medallion (ring of gold bands, rays and rune ticks) with a raised dais carrying the vault wheel and the goblin crown
+  const ringTex = canvasTex(1024, 1024, (g, w, h) => {
+    const C = w / 2; g.translate(C, C);
+    for (const [r0, r1, lw] of [[496, 496, 12], [468, 468, 4], [430, 430, 7], [345, 345, 10]]) { g.strokeStyle = goldGrad(g, -r0, -r0, r0, r0); g.lineWidth = lw; g.beginPath(); g.arc(0, 0, r1, 0, 7); g.stroke(); }
+    g.fillStyle = goldGrad(g, -440, -440, 440, 440); star(g, 0, 0, 345, 428, 16, -Math.PI / 2); g.fill();
+    g.fillStyle = '#17110a'; star(g, 0, 0, 352, 408, 16, -Math.PI / 2); g.fill();
+    g.fillStyle = goldGrad(g, -300, -300, 300, 300); star(g, 0, 0, 352, 398, 16, -Math.PI / 2 + Math.PI / 16); g.globalAlpha = 0.55; g.fill(); g.globalAlpha = 1;
+    g.strokeStyle = '#e6b52e'; g.lineWidth = 6; g.lineCap = 'round'; for (let k = 0; k < 48; k++) { const a = k / 48 * Math.PI * 2; g.beginPath(); g.moveTo(Math.cos(a) * 440, Math.sin(a) * 440); g.lineTo(Math.cos(a) * (k % 4 ? 458 : 480), Math.sin(a) * (k % 4 ? 458 : 480)); g.stroke(); }
+  });
+  ringTex.wrapS = ringTex.wrapT = THREE.ClampToEdgeWrapping;
+  const wheelTex = canvasTex(512, 512, (g, w, h) => {
+    const C = w / 2; g.translate(C, C);
+    g.fillStyle = '#0e1118'; g.beginPath(); g.arc(0, 0, 250, 0, 7); g.fill();
+    g.strokeStyle = goldGrad(g, -250, -250, 250, 250); g.lineWidth = 14; g.beginPath(); g.arc(0, 0, 240, 0, 7); g.stroke(); g.lineWidth = 5; g.beginPath(); g.arc(0, 0, 214, 0, 7); g.stroke();
+    for (let k = 0; k < 36; k++) { const a = k / 36 * Math.PI * 2; g.lineWidth = k % 3 ? 3 : 6; g.beginPath(); g.moveTo(Math.cos(a) * 196, Math.sin(a) * 196); g.lineTo(Math.cos(a) * 208, Math.sin(a) * 208); g.stroke(); }
+    g.lineWidth = 18; g.beginPath(); g.arc(0, 0, 150, 0, 7); g.stroke();
+    for (let k = 0; k < 6; k++) { const a = k * Math.PI / 3 - Math.PI / 2; g.lineWidth = 16; g.beginPath(); g.moveTo(Math.cos(a) * 40, Math.sin(a) * 40); g.lineTo(Math.cos(a) * 150, Math.sin(a) * 150); g.stroke(); g.fillStyle = goldGrad(g, -40, -40, 40, 40); g.beginPath(); g.arc(Math.cos(a) * 178, Math.sin(a) * 178, 22, 0, 7); g.fill(); }
+    g.fillStyle = '#1b1306'; g.beginPath(); g.arc(0, 0, 66, 0, 7); g.fill(); g.strokeStyle = '#e6b52e'; g.lineWidth = 6; g.stroke();
+    g.fillStyle = goldGrad(g, 0, -40, 0, 40);   // the crown
+    g.beginPath(); g.moveTo(-36, 24); g.lineTo(-40, -22); g.lineTo(-20, -2); g.lineTo(0, -34); g.lineTo(20, -2); g.lineTo(40, -22); g.lineTo(36, 24); g.closePath(); g.fill();
+    g.fillStyle = '#d8281c'; g.beginPath(); g.arc(0, 8, 7, 0, 7); g.fill();
+  });
+  wheelTex.wrapS = wheelTex.wrapT = THREE.ClampToEdgeWrapping;
+  const flat = (tex, size, y, ei) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(size, size), new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: ei, roughness: 0.35, metalness: 0.5, transparent: true, alphaTest: 0.02, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 })); m.rotation.x = -Math.PI / 2; m.position.set(vx, y, vz); scene.add(m); return m; };
+  flat(ringTex, 11.4, 0.012, 0.55);
+  cyl(scene, 3.35, 0.16, plinthM, vx, 0.08, vz);                                       // dais
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(3.35, 0.07, 8, 64), brass); rim.rotation.x = Math.PI / 2; rim.position.set(vx, 0.16, vz); scene.add(rim);
+  flat(wheelTex, 6.2, 0.165, 0.7);
+  // four pillars (steel shaft, brass bands, brass capital and plinth, a glowing gold strip), solid for collision
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    const px = vx + sx * 5.4, pz = vz + sz * 5.4;
+    bx(scene, 1.5, 0.45, 1.5, px, 0.225, pz, plinthM, 1); bx(scene, 1.64, 0.08, 1.64, px, 0.47, pz, brass, 1);
+    cyl(scene, 0.52, H - 1.3, pillarM, px, 0.51 + (H - 1.3) / 2, pz);
+    for (const y of [1.0, 2.6, 4.2]) cyl(scene, 0.58, 0.14, brass, px, y, pz);
+    for (const [ox, oz] of [[0.53, 0], [-0.53, 0], [0, 0.53], [0, -0.53]]) bx(scene, ox ? 0.04 : 0.1, H - 2.0, oz ? 0.04 : 0.1, px + ox, 3.1, pz + oz, goldGlowM, 1);
+    bx(scene, 1.64, 0.08, 1.64, px, H - 0.83, pz, brass, 1); bx(scene, 1.5, 0.45, 1.5, px, H - 0.5, pz, plinthM, 1); bx(scene, 1.64, 0.1, 1.64, px, H - 0.22, pz, brass, 1);
+    rects.push({ x0: px - 0.6, x1: px + 0.6, z0: pz - 0.6, z1: pz + 0.6 });
+    glowSprite(scene, vaultGlowM(), 4.2, px, 0.9, pz);
+  }
+  // chandelier: a brass ring with glowing candles on four chains over the dais (emissive and sprites only)
+  const chy = 4.7, chr = 2.5;
+  const ch = new THREE.Mesh(new THREE.TorusGeometry(chr, 0.09, 10, 64), brass); ch.rotation.x = Math.PI / 2; ch.position.set(vx, chy, vz); scene.add(ch);
+  const ch2 = new THREE.Mesh(new THREE.TorusGeometry(chr * 0.55, 0.06, 8, 48), brass); ch2.rotation.x = Math.PI / 2; ch2.position.set(vx, chy - 0.35, vz); scene.add(ch2);
+  for (let k = 0; k < 12; k++) {
+    const a = k / 12 * Math.PI * 2, x = vx + Math.cos(a) * chr, z = vz + Math.sin(a) * chr;
+    cyl(scene, 0.05, 0.3, brass, x, chy + 0.2, z); const fl = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 8), goldGlowM); fl.scale.y = 1.5; fl.position.set(x, chy + 0.45, z); scene.add(fl);
+    glowSprite(scene, vaultGlowM(), 1.5, x, chy + 0.45, z);
+  }
+  for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2 + Math.PI / 4; bx(scene, 0.03, H - chy, 0.03, vx + Math.cos(a) * chr, chy + (H - chy) / 2, vz + Math.sin(a) * chr, brass, 1); }
+  glowSprite(scene, vaultGlowM(), 9, vx, chy, vz); glowSprite(scene, vaultGlowM(), 12, vx, 0.3, vz);
+}
+// VAULT-END
 // static world never moves: freeze matrices so the per-frame scene graph update skips them
 scene.updateMatrixWorld(true);
 {
@@ -2110,7 +2193,7 @@ if (GK.layout && GK.CHEST_ROOMS) { /* the rooms agent calls buildMysteryContents
 // MYSTERY-END
 // MAP-BEGIN (wall maps in the spawn rooms: owned by the map agent)
 {
-  const MW = 1024, MH = 740, MS = 13.2, MOX = 360, MOY = 372; // canvas size, px per metre, map origin (world 0,0)
+  const MW = 1024, MH = 740, MS = 11.6, MOX = 360, MOY = 372; // canvas size, px per metre (fits the grid plus the chest rooms, +-29 m), map origin (world 0,0)
   const mx = x => MOX + x * MS, my = z => MOY + z * MS;
   const rr = (g, x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
   const chestIcon = (g, x, y, k) => { // gold chest, centred on x,y
@@ -2177,22 +2260,23 @@ if (GK.layout && GK.CHEST_ROOMS) { /* the rooms agent calls buildMysteryContents
     }
     // main rooms
     for (let i = 0; i < 9; i++) {
-      const [cx, cz] = rc(i), x = mx(cx - R / 2), y = my(cz - R / 2), w = R * MS;
-      g.fillStyle = i === 4 ? '#2a3442' : '#dfe8f2'; g.fillRect(x, y, w, w);
-      g.strokeStyle = '#0a1018'; g.lineWidth = 5; g.strokeRect(x, y, w, w);
+      const [cx, cz] = rc(i), x = mx(cx - roomW(i) / 2), y = my(cz - roomD(i) / 2), w = roomW(i) * MS, h = roomD(i) * MS;   // real proportions: the vault is bigger
+      g.fillStyle = i === 4 ? '#2a3442' : '#dfe8f2'; g.fillRect(x, y, w, h);
+      g.strokeStyle = '#0a1018'; g.lineWidth = 5; g.strokeRect(x, y, w, h);
       if (i === 4) { // vault symbol
-        const px = x + w / 2, py = y + w / 2;
-        g.strokeStyle = '#9fb4cc'; g.lineWidth = 6; g.beginPath(); g.arc(px, py, 38, 0, 7); g.stroke();
-        g.lineWidth = 4; g.beginPath(); g.arc(px, py, 10, 0, 7); g.stroke();
-        for (let a = 0; a < 6; a++) { const t = a * Math.PI / 3; g.beginPath(); g.moveTo(px + Math.cos(t) * 12, py + Math.sin(t) * 12); g.lineTo(px + Math.cos(t) * 38, py + Math.sin(t) * 38); g.stroke(); }
-        g.fillStyle = '#9fb4cc'; g.font = 'bold 22px system-ui, sans-serif'; g.textAlign = 'center'; g.fillText('VAULT', px, py + 62);
+        const px = x + w / 2, py = y + h / 2 - 8;
+        g.strokeStyle = '#e6b52e'; g.lineWidth = 3; g.strokeRect(x + 6, y + 6, w - 12, h - 12);
+        g.strokeStyle = '#9fb4cc'; g.lineWidth = 7; g.beginPath(); g.arc(px, py, 50, 0, 7); g.stroke();
+        g.lineWidth = 4; g.beginPath(); g.arc(px, py, 13, 0, 7); g.stroke();
+        for (let a = 0; a < 6; a++) { const t = a * Math.PI / 3; g.beginPath(); g.moveTo(px + Math.cos(t) * 15, py + Math.sin(t) * 15); g.lineTo(px + Math.cos(t) * 50, py + Math.sin(t) * 50); g.stroke(); }
+        g.fillStyle = '#f4c24d'; g.font = 'bold 26px system-ui, sans-serif'; g.textAlign = 'center'; g.fillText('THE VAULT', px, py + 84);
       }
     }
     // doors between rooms and to chest rooms (all closed)
     for (let i = 0; i < 9; i++) {
       const [cx, cz] = rc(i);
-      if (i % 3 < 2) lockMark(g, mx(cx + R / 2), my(cz), true, (i === 4 || i + 1 === 4) ? 'vault' : 'player');
-      if (i < 6) lockMark(g, mx(cx), my(cz + R / 2), false, (i === 4 || i + 3 === 4) ? 'vault' : 'player');
+      if (i % 3 < 2) lockMark(g, mx(cx + roomW(i) / 2), my(cz), true, (i === 4 || i + 1 === 4) ? 'vault' : 'player');
+      if (i < 6) lockMark(g, mx(cx), my(cz + roomD(i) / 2), false, (i === 4 || i + 3 === 4) ? 'vault' : 'player');
     }
     for (const c of CHEST_ROOMS) lockMark(g, mx(c.wallX), my(c.wallZ), c.dx !== 0, 'treasure');
     // legend
@@ -2209,7 +2293,7 @@ if (GK.layout && GK.CHEST_ROOMS) { /* the rooms agent calls buildMysteryContents
     row(6, (x, y) => lockMark(g, x, y, false, 'player'), 'Player door');
     row(7, (x, y) => lockMark(g, x, y, false, 'vault'), 'Vault door');
     row(8, (x, y) => { g.fillStyle = '#dfe8f2'; g.fillRect(x - 14, y - 14, 28, 28); }, 'Room');
-    row(9, (x, y) => { g.fillStyle = '#2a3442'; g.fillRect(x - 14, y - 14, 28, 28); g.strokeStyle = '#9fb4cc'; g.lineWidth = 2; g.strokeRect(x - 14, y - 14, 28, 28); }, 'Vault');
+    row(9, (x, y) => { g.fillStyle = '#2a3442'; g.fillRect(x - 14, y - 14, 28, 28); g.strokeStyle = '#9fb4cc'; g.lineWidth = 2; g.strokeRect(x - 14, y - 14, 28, 28); }, 'THE VAULT');
     row(10, (x, y) => mysteryIcon(g, x, y, 0.95), 'Mystery room');
     row(11, (x, y) => merchantIcon(g, x, y, 0.85), 'Merchant');
     g.fillStyle = '#7f95ad'; g.font = '22px system-ui, sans-serif'; g.fillText('All doors sealed', 722, 692); g.fillText('Random rooms each match', 722, 718);
@@ -2217,13 +2301,13 @@ if (GK.layout && GK.CHEST_ROOMS) { /* the rooms agent calls buildMysteryContents
   drawBase();
   const spawnRooms = [0, 1, 2, 3, 5, 6, 7, 8], panels = [];
   function drawMap(p) {
-    const g = p.ctx, i = p.room, [cx, cz] = rc(i), x = mx(cx - R / 2), y = my(cz - R / 2), w = R * MS;
+    const g = p.ctx, i = p.room, [cx, cz] = rc(i), x = mx(cx - roomW(i) / 2), y = my(cz - roomD(i) / 2), w = roomW(i) * MS, h = roomD(i) * MS;
     const ph = 0.6;
     g.drawImage(base, 0, 0);
-    g.save(); g.fillStyle = 'rgba(255,40,40,' + (0.16 + 0.16 * ph) + ')'; g.fillRect(x, y, w, w);
-    g.shadowColor = '#ff2a2a'; g.shadowBlur = 14 + 14 * ph; g.strokeStyle = '#ff3030'; g.lineWidth = 7; g.strokeRect(x + 3, y + 3, w - 6, w - 6); g.restore();
+    g.save(); g.fillStyle = 'rgba(255,40,40,' + (0.16 + 0.16 * ph) + ')'; g.fillRect(x, y, w, h);
+    g.shadowColor = '#ff2a2a'; g.shadowBlur = 14 + 14 * ph; g.strokeStyle = '#ff3030'; g.lineWidth = 7; g.strokeRect(x + 3, y + 3, w - 6, h - 6); g.restore();
     // label
-    const lx = x + w / 2, ly = y + w / 2 + 6;
+    const lx = x + w / 2, ly = y + h / 2 + 6;
     g.save(); g.font = 'bold 25px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillStyle = '#d81818'; rr(g, lx - 58, ly - 30, 116, 60, 9); g.fill();
     g.strokeStyle = '#ffd0d0'; g.lineWidth = 2; g.stroke();
@@ -2238,7 +2322,7 @@ if (GK.layout && GK.CHEST_ROOMS) { /* the rooms agent calls buildMysteryContents
   const glowGeo = new THREE.PlaneGeometry(4.6, 3.6), backGeo = new THREE.BoxGeometry(2.6, 1.9, 0.06), screenGeo = new THREE.PlaneGeometry(2.5, 2.5 * MH / MW);
   const barH = new THREE.BoxGeometry(2.6, 0.05, 0.09), barV = new THREE.BoxGeometry(0.05, 1.8, 0.09);
   for (const i of spawnRooms) {
-    const [cx, cz] = rc(i), px = cx - 4.5, py = 2.6, pz = cz - R / 2 + T / 2; // pz = wall face
+    const [cx, cz] = rc(i), px = cx - 4.5, py = 2.6, pz = cz - roomD(i) / 2 + T / 2; // pz = wall face
     const grp = new THREE.Group();
     const add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); grp.add(m); return m; };
     const glow = add(glowGeo, new THREE.MeshBasicMaterial({ map: glowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.55, toneMapped: false }), px, py, pz + 0.012);
@@ -2274,17 +2358,13 @@ const chestKeyOf = (i, side) => 'c' + CHEST_ROOMS.findIndex(c => c.parent === i 
   }
   for (const k in ROOM_DOORS) ROOM_DOORS[k].sort((p, q) => { const f = id => PDIRS.indexOf(DINFO[id].a === k ? DINFO[id].da : DINFO[id].db); return f(p) - f(q); });
 }
-const roomKeyAt = (x, z) => {   // grid rooms inside +-18 m, chest rooms beyond
-  const gi = v => clamp(Math.round(v / R), -1, 1) + 1;
-  if (Math.abs(z) > 18) return chestKeyOf(gi(x) + (z < 0 ? 0 : 6), z < 0 ? 'N' : 'S');
-  if (Math.abs(x) > 18) return chestKeyOf(gi(z) * 3 + (x < 0 ? 0 : 2), x < 0 ? 'W' : 'E');
-  return String(gi(x) + 3 * gi(z));
-};
+const roomKeyAt = WORLD.roomKeyOf;   // grid rooms inside +-21 m (the vault spans +-9 m), chest rooms beyond
+
 const roomTypeName = t => (GK.ROOM_TYPE_NAMES && GK.ROOM_TYPE_NAMES[t]) || { chest: 'Treasure room', mystery: 'Mystery room', merchant: 'Merchant' }[t] || 'Treasure room';
 const doorLabel = (key, id) => {
   const d = DINFO[id], mine = d.a === key, other = mine ? d.b : d.a, dir = mine ? d.da : d.db;
   const ck = a => a[0] === 'c' ? (CHEST_ROOMS[+a.slice(1)].type || 'chest') : null, ot = ck(other);
-  const dest = ot ? roomTypeName(ot) : other === '4' ? 'VAULT' : 'Room ' + (+other + 1);
+  const dest = ot ? roomTypeName(ot) : other === '4' ? 'THE VAULT' : 'Room ' + (+other + 1);
   return { dir, dest, kind: ot || d.kind };
 };
 const fmtT = ms => { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
@@ -2359,7 +2439,7 @@ function cpDraw(p) {
   for (let y = 0; y < H; y += 32) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
   g.textBaseline = 'middle'; g.textAlign = 'left'; g.fillStyle = '#e9f3ff'; g.font = 'bold 40px system-ui, sans-serif'; g.fillText('DOOR CONTROL', 24, 38);
   g.textAlign = 'right'; g.fillStyle = '#7fb4e8'; g.font = '600 26px system-ui, sans-serif';
-  g.fillText(p.key[0] === 'c' ? roomTypeName(CHEST_ROOMS[+p.key.slice(1)].type || 'chest').toUpperCase() : p.key === '4' ? 'VAULT' : 'ROOM ' + (+p.key + 1), W - 24, 40);
+  g.fillText(p.key[0] === 'c' ? roomTypeName(CHEST_ROOMS[+p.key.slice(1)].type || 'chest').toUpperCase() : p.key === '4' ? 'THE VAULT' : 'ROOM ' + (+p.key + 1), W - 24, 40);
   g.fillStyle = '#4aa8ff'; g.fillRect(24, 70, W - 48, 4);
   p.buttons.forEach((b, i) => {
     const L = doorLabel(p.key, b.id), sel = selSet.has(b.id), opn = openSet.has(b.id), hov = p.hover === i;
@@ -2379,7 +2459,7 @@ function cpDraw(p) {
     g.fillStyle = sel ? '#7a1200' : opn ? '#6dff9f' : hov ? '#cfe8ff' : '#7fa4cc';
     const vlt = L.kind === 'vault', dy = vlt ? 4 : fs * 0.72;
     g.fillText(sel ? 'SELECTED · OPENS AT 0:00' : opn ? 'OPEN THIS ROUND' : 'Press E to select', tx, iy + dy);
-    if (vlt) { g.font = '800 ' + Math.min(21, b.h * 0.18) + 'px system-ui, sans-serif'; g.fillStyle = sel ? (RS.votes < 2 ? '#8a0a00' : '#1a5a10') : '#ffb347'; g.fillText('NEEDS 2 PLAYERS · Vault votes: ' + RS.votes + '/2', tx, iy + dy + Math.min(27, b.h * 0.24)); }
+    if (vlt) { g.font = '800 ' + Math.min(21, b.h * 0.18) + 'px system-ui, sans-serif'; g.fillStyle = sel ? (RS.votes < 2 ? '#8a0a00' : '#1a5a10') : '#ffb347'; g.fillText('NEEDS 2 PLAYERS · THE VAULT votes: ' + RS.votes + '/2', tx, iy + dy + Math.min(27, b.h * 0.24)); }
     if (opn) { g.fillStyle = '#18c25e'; cpRR(g, b.x + b.w - 100, iy - 20, 84, 40, 20); g.fill(); g.fillStyle = '#04200f'; g.textAlign = 'center'; g.font = '800 24px system-ui, sans-serif'; g.fillText('OPEN', b.x + b.w - 58, iy + 1); }
   });
   p.tex.needsUpdate = true; p.dirty = false;
@@ -2403,7 +2483,7 @@ function cpBuild(key, parent, w, h, x, y, z, rotY) {   // framed emissive screen
 }
 function panelsDirty() { for (const p of cpList) p.dirty = true; }
 for (let i = 0; i < 9; i++) {   // grid rooms: north wall, mirrored against the facility map (x = centre + 4.5)
-  const [cx, cz] = rc(i); cpBuild(String(i), scene, 2.6, 1.9, cx + 4.5, 2.6, cz - R / 2 + T / 2, 0);
+  const [cx, cz] = rc(i); cpBuild(String(i), scene, 2.6, 1.9, cx + 4.5, 2.6, cz - roomD(i) / 2 + T / 2, 0);
 }
 for (const cr of CHEST_ROOMS) {   // chest rooms: 2 m panel on the room's left wall (the far wall is taken by banners and torches)
   const g = new THREE.Group(); g.position.set(cr.cx, 0, cr.cz); g.rotation.y = Math.atan2(-cr.dx, -cr.dz); scene.add(g);
@@ -2454,7 +2534,7 @@ GK.ROOM_DOORS = ROOM_DOORS; GK.roomKeyAt = roomKeyAt;
     '#roundHud .b.f{color:#ff4a3a;font-size:clamp(20px,3.6vw,38px);text-shadow:0 0 16px #a00,0 3px 10px #000}' +
     '@keyframes rhPulse{from{transform:scale(1)}to{transform:scale(1.14)}}@keyframes rhBanner{0%{opacity:0;transform:scale(.7)}12%{opacity:1;transform:scale(1.08)}20%{transform:scale(1)}80%{opacity:1}100%{opacity:0}}';
   document.head.appendChild(css);
-  const hud = document.createElement('div'); hud.id = 'roundHud'; hud.innerHTML = '<div class="t"></div><div class="b">DOORS OPENING</div><div class="b f">VAULT NEEDS 2 PLAYERS - TURN WASTED</div>';
+  const hud = document.createElement('div'); hud.id = 'roundHud'; hud.innerHTML = '<div class="t"></div><div class="b">DOORS OPENING</div><div class="b f">THE VAULT NEEDS 2 PLAYERS - TURN WASTED</div>';
   document.body.appendChild(hud);
   const tEl = hud.children[0], bEl = hud.children[1], fEl = hud.children[2]; let shownBanner = 0, shownFizz = 0, lastTxt = '', lastWarn = null;
   setInterval(() => {
@@ -2971,7 +3051,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
   const myWins = Math.max(0, (opts && opts.wins) | 0);
   const mk = bot => {
     const box = [0, 1, 2, 3, 5, 6, 7, 8][Math.floor(Math.random() * 8)], [cx, cz] = rc(box);
-    const x = cx + (Math.random() - 0.5) * 6, z = cz + (Math.random() - 0.5) * 6;
+    const [x, z] = WORLD.randomPoint(box);
     const goblin = !bot && opts && opts.goblin != null ? opts.goblin | 0 : roll();
     return { id: nid++, goblin, box, x, z, yaw: Math.atan2(-(cx - x), -(cz - z)), bot, tx: cx, tz: cz, wait: Math.random() * 2, seq, inv: startInv(goblin), know: (itemsData().KNOWLEDGE || [])[goblin] != null ? itemsData().KNOWLEDGE[goblin] : STATS[goblin].knowledge, parts: Object.fromEntries((itemsData().PARTS || []).map(p => [p.key, 0])), gold: itemsData().START_GOLD != null ? itemsData().START_GOLD : 100, wins: bot ? Math.max(0, myWins + Math.floor(Math.random() * 3) - 1) : myWins };
   };
@@ -3193,7 +3273,7 @@ function showDeathScreen(info) {
   if (GK.mode !== 'play') return;
   const mine = actors.get(me), type = mine ? mine.goblin : 0, gear = GEAR[type], st = STATS[type];
   const ms = performance.now() - run.t0, secs = Math.floor(ms / 1000), n = GK.roundInfo ? GK.roundInfo().n : 0;
-  const where = Math.abs(P.x) > 18 || Math.abs(P.z) > 18 ? 'Treasure room' : 'Room ' + (roomAt(P.x, P.z) + 1);
+  const where = !WORLD.inGrid(P.x, P.z) ? 'Treasure room' : roomAt(P.x, P.z) === WORLD.VAULT ? 'THE VAULT' : 'Room ' + (roomAt(P.x, P.z) + 1);
   closeInv(true); closeShop(true); GK.mode = 'dead'; inside = false; keys.clear(); hideHotbar();
   try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
   for (const id of ['hint', 'dot', 'rr', 'roundHud']) { const el = $(id); if (el) el.style.display = 'none'; }
@@ -3827,9 +3907,9 @@ scene.traverse(o => { const m = o.isMesh && o.material; if (m && m.isMeshStandar
 {
   const pos = [], seed = [], col = [];
   const rnd = (a, b) => a + Math.random() * (b - a);
-  const addMotes = (cx, cz, half, n, c) => { for (let i = 0; i < n; i++) { pos.push(cx + rnd(-half, half), 0, cz + rnd(-half, half)); seed.push(Math.random(), rnd(0.4, 1), rnd(0.015, 0.035), Math.random()); col.push(...c); } };
-  for (let i = 0; i < 9; i++) { const [cx, cz] = rc(i); addMotes(cx, cz, 5, 38, [0.62, 0.6, 0.58]); }
-  for (const cr of CHEST_ROOMS) addMotes(cr.cx, cr.cz, 3, 11, [1.0, 0.82, 0.5]);
+  const addMotes = (cx, cz, hx, hz, n, c) => { for (let i = 0; i < n; i++) { pos.push(cx + rnd(-hx, hx), 0, cz + rnd(-hz, hz)); seed.push(Math.random(), rnd(0.4, 1), rnd(0.015, 0.035), Math.random()); col.push(...c); } };
+  for (let i = 0; i < 9; i++) { const [cx, cz] = rc(i); addMotes(cx, cz, roomW(i) / 2 - 1, roomD(i) / 2 - 1, Math.round(38 * roomW(i) * roomD(i) / 144), i === WORLD.VAULT ? [0.9, 0.78, 0.5] : [0.62, 0.6, 0.58]); }   // dust scales with the room area (the vault gets golden dust)
+  for (const cr of CHEST_ROOMS) addMotes(cr.cx, cr.cz, 3, 3, 11, [1.0, 0.82, 0.5]);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('aSeed', new THREE.Float32BufferAttribute(seed, 4)); geo.setAttribute('aCol', new THREE.Float32BufferAttribute(col, 3));
   const mat = new THREE.ShaderMaterial({
@@ -3863,7 +3943,7 @@ scene.traverse(o => { const m = o.isMesh && o.material; if (m && m.isMeshStandar
       sp.push(ax, top, az, bx2, top, bz, ax2, bot, az2, bx3, bot, bz3); su.push(0, 1, 1, 1, 0, 0, 1, 0); si.push(base, base + 2, base + 1, base + 1, base + 2, base + 3);
     }
   };
-  for (const [ox, oz] of [[-2.8, -2.8], [2.8, -2.8], [-2.8, 2.8], [2.8, 2.8]]) addShaft(0, 0, 0, ox, oz, 2.6, 1.2);
+  for (const [ox, oz] of WORLD.panelOffsets(WORLD.VAULT)) addShaft(0, 0, 0, ox, oz, 2.6, 1.2);   // shafts under the vault's ceiling panels
   for (const cr of CHEST_ROOMS) for (const z of [-1.8, 1.4]) addShaft(cr.cx, cr.cz, Math.atan2(-cr.dx, -cr.dz), 0, z, 2.1, 1.0);
   const sg = new THREE.BufferGeometry();
   sg.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3)); sg.setAttribute('uv', new THREE.Float32BufferAttribute(su, 2)); sg.setIndex(si);
@@ -3974,7 +4054,7 @@ function frame(now) {
     cam.rotation.set(P.pitch, P.yaw, 0);
   } else {
     if (!inside) orbit += dt * 0.05;
-    const dist = innerHeight > innerWidth ? 60 : 44;
+    const dist = innerHeight > innerWidth ? 80 : 60;   // overview orbit radius (the world is +-29 m with the chest rooms)
     cam.fov = 50; cam.position.set(Math.sin(orbit) * dist, dist * 0.7, Math.cos(orbit) * dist); cam.lookAt(0, 0, 0);
   }
   cam.updateProjectionMatrix();
