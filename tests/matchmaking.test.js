@@ -54,10 +54,10 @@ const ready = c => c.send({ ready: 1 });
     const b = await connectRaw(srv.port); await a.until(x => x.state.matchStart && x.state.matchStart.players.length === 2, 2000, 'match of 2'); await b.until(x => x.state.matchStart, 2000, 'b match');
     await a.close(); await b.close();
   });
-  await run('queue timeout: starts with whoever is there (>= 2), a lone player keeps waiting', { GK_MATCH_SIZE: '8', GK_QUEUE_MS: '900', GK_READY_MS: '500', GK_COUNTDOWN_MS: '300' }, async srv => {
-    const a = await connectRaw(srv.port); await sleep(1300); assert(!a.state.matchStart, 'a single player must not start a match');
+  await run('queue timeout: starts with whoever is there (even ONE human), the rest are bots', { GK_MATCH_SIZE: '8', GK_QUEUE_MS: '900', GK_READY_MS: '500', GK_COUNTDOWN_MS: '300' }, async srv => {
+    const a = await connectRaw(srv.port); await sleep(400); assert(!a.state.matchStart, 'must wait for the queue time first');
     const b = await connectRaw(srv.port);
-    await a.until(x => x.state.matchStart, 2500, 'timeout start'); await b.until(x => x.state.matchStart, 500, 'b start'); eq(a.state.matchStart.players.length, 2);
+    await a.until(x => x.state.matchStart, 2500, 'timeout start'); await b.until(x => x.state.matchStart, 500, 'b start'); eq(a.state.matchStart.players.length, 8); eq(a.state.matchStart.players.filter(p => p.bot).length, 6);
     await a.until(x => x.state.countdown, 2000, 'countdown after the ready timeout (nobody sent ready)'); eq(a.state.countdown.at, b.state.countdown.at);
     await a.close(); await b.close();
   });

@@ -3297,6 +3297,11 @@ function netFixStep(a, dt) {   // the server refused a move ({fix:[x,z]}): blend
 let netReal = null;
 const net = { send: m => netReal && !(GK.locked && (m.atk || m.claim || m.m || m.sel !== undefined)) && netReal.send(m) };   // MATCH: those are locked until GO
 const actors = new Map();
+function npcLook(group, kind) {   // BOTS: hostile mystery enemy = normal goblin model with a type tint (no new geometry, no lights); materials are cloned so the shared ones stay untouched
+  const tint = { troll: 0x6a8a5a, archer: 0x7a5a3a, speedy: 0xff7a3a, dumb: 0xb89a6a, regular: 0xd05a4a }[kind] || 0xd05a4a, c = new THREE.Color(tint);
+  group.traverse(o => { if (o.isMesh && o.material && o.material.color && !Array.isArray(o.material)) { o.material = o.material.clone(); o.material.color.multiply(c).multiplyScalar(1.4); } });
+  group.scale.setScalar(kind === 'troll' ? 1.8 : kind === 'speedy' ? 0.9 : 1.1);
+}
 let me = 0, spawned = false;
 const P = { x: 0, z: 0, yaw: 0, pitch: 0, speed: 0 };
 const handleMsg = d => { handleMsg0(d); /* MATCH */ if (GK.matchOnMsg) GK.matchOnMsg(d); };
@@ -3334,7 +3339,7 @@ const handleMsg0 = d => {
     let a = actors.get(p.id);
     if (a && a.goblin !== p.goblin) { dropGoblin(a.group); actors.delete(p.id); a = null; }
     if (!a) {
-      const group = buildGoblin(p.goblin); scene.add(group);
+      const group = buildGoblin(p.goblin); scene.add(group); if (p.npc) npcLook(group, p.npc);   // BOTS: bots look like normal goblins; mystery enemies get a hostile tint (and the troll is big)
       a = { group, goblin: p.goblin, x: p.x, z: p.z, yaw: p.yaw, phase: Math.random() * 6, speed: 0, seq: p.seq };
       actors.set(p.id, a);
       if (p.id === me) spawned = false;
