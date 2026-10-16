@@ -3514,7 +3514,8 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
   if (!window.GK_OFFLINE) {
     // SECURITY: the server rolls the goblin and owns the victories. A saved character only sends its signed token (empty = an old character without one: the server rolls a new goblin and says so).
     const joinUrl = () => { let tk = ''; try { const c = opts && opts.charId != null && window.GKSAVE ? GKSAVE.getCharacter(+opts.charId) : null; if (c) tk = c.token || ''; else if (opts && opts.charId != null) tk = ''; } catch (e) {} return funUrl((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + (opts && opts.charId != null ? '/?ctoken=' + encodeURIComponent(tk) : '')); };
-    let ws = new WebSocket(joinUrl()), busyRetry = false;
+    const tokUrl = tk => (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/?token=' + encodeURIComponent(tk);   // SOCIAL: resume a player inside the grace period
+    let ws = new WebSocket(opts && opts.resume ? tokUrl(opts.resume) : joinUrl()), busyRetry = false;
     let lastM = '', lastMT = 0;   // NET: my position goes out only when it changed (plus a 1 s keepalive); attacks carry the server time I was seeing
     const net = { send: m => {
       if (ws.readyState !== 1) return;
@@ -3525,7 +3526,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     const ping = () => ws.readyState === 1 && ws.send(JSON.stringify({ ping: performance.now() }));
     setInterval(ping, 2000);   // NET: RTT and clock offset
     const wire = w => { w.onopen = ping; w.onmessage = e => { let d; try { d = JSON.parse(e.data); } catch (err) { return; } if (d.busy) { busyRetry = true; toastMsg('Servers are full — retrying…', false, 3500); setTimeout(() => { busyRetry = false; lastM = ''; ws = new WebSocket(joinUrl()); wire(ws); }, 4000); return; } net.onmessage && net.onmessage(d); }; w.onclose = () => { if (w !== ws || busyRetry) return; onClose(); }; };   // SECURITY: {busy:1} = match cap reached, try again
-    GK.social.attach({ state: () => ws.readyState, drop: () => ws.close(), reopen: tk => { lastM = ''; ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/?token=' + encodeURIComponent(tk)); wire(ws); } });   // SOCIAL: reconnect with the token
+    GK.social.attach({ state: () => ws.readyState, drop: () => ws.close(), reopen: tk => { lastM = ''; ws = new WebSocket(tokUrl(tk)); wire(ws); } });   // SOCIAL: reconnect with the token
     const onClose = () => { if (GK.social.onClose()) return; const m = document.getElementById('me'); if (m) m.textContent = 'Disconnected - reload to rejoin'; /* FEEL-BEGIN */ if (GK.feel) GK.feel.onClose(); /* FEEL-END */ };
     wire(ws);
     return net;
@@ -3924,7 +3925,7 @@ function showDeathScreen(info) {
   const mine = actors.get(me), type = mine ? mine.goblin : 0, gear = GEAR[type], st = STATS[type];
   const ms = performance.now() - run.t0, secs = Math.floor(ms / 1000), n = GK.roundInfo ? GK.roundInfo().n : 0;
   const where = !WORLD.inGrid(P.x, P.z) ? 'Treasure room' : roomAt(P.x, P.z) === WORLD.VAULT ? 'THE VAULT' : 'Room ' + (roomAt(P.x, P.z) + 1);
-  closeInv(true); closeShop(true); GK.mode = 'dead'; inside = false; keys.clear(); hideHotbar();
+  closeInv(true); closeShop(true); GK.mode = 'dead'; inside = false; keys.clear(); hideHotbar(); GK.social.clear();   // SOCIAL: out of the match, nothing to resume
   try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
   for (const id of ['hint', 'dot', 'rr', 'roundHud', 'hud', 'gkLeft']) { const el = $(id); if (el) el.style.display = 'none'; }
   if (statsEl) statsEl.style.display = 'none';
@@ -4452,7 +4453,7 @@ function showVictory(info) {
   const from = GK.charId;
   let c = null; try { c = window.GKSAVE.recordWin({ charId: from, goblin: type, items, parts: (info && info.parts) || {}, token: info && info.ctoken, name: GK.fun && GK.fun.myName && GK.fun.myName() }); if (c && c.id != null) GK.charId = c.id; } catch (e) { c = null; }
   const wins = c && c.wins != null ? c.wins : (GK.wins | 0) + 1;
-  closeInv(true); closeShop(true); GK.mode = 'win'; inside = false; keys.clear(); hideHotbar();
+  closeInv(true); closeShop(true); GK.mode = 'win'; inside = false; keys.clear(); hideHotbar(); GK.social.clear();   // SOCIAL: match won, nothing to resume
   try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
   for (const id of ['hint', 'dot', 'rr', 'roundHud', 'hud', 'gkLeft']) { const el = $(id); if (el) el.style.display = 'none'; }
   if (statsEl) statsEl.style.display = 'none';
@@ -6156,14 +6157,18 @@ GK.vm = { tables: { VM_SC, VM_GRIP, VM_TILT, VM_ADJ, VM_FPX }, rebuild: key => v
 // VIEWMODEL-END
 // SOCIAL-BEGIN (reconnect grace overlay + auto-retry, "disconnected" icon, goblin emotes on keys 4-7; see docs/reports/social.md)
 const SOC = (() => {
-  const S = { token: null, net: null, rc: null, unloading: false, lastEmote: 0 };
+  const S = { token: null, net: null, rc: null, boot: null, unloading: false, lastEmote: 0 };
   const EM = [{ name: 'Taunt', icon: '\u{1F624}', snd: 'emoteTaunt', dur: 1.7 }, { name: 'Laugh', icon: '\u{1F602}', snd: 'emoteLaugh', dur: 1.8 }, { name: 'Point', icon: '\u{1F449}', snd: 'emotePoint', dur: 1.5 }, { name: 'Dance', icon: '\u{1F3B5}', snd: 'emoteDance', dur: 2.6 }];
   const KEYS = { Digit4: 0, Digit5: 1, Digit6: 2, Digit7: 3 }, BUBBLE_S = 2;
   const sm = (a, b, x) => { const k = Math.min(1, Math.max(0, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
   const mx = (o, p, v, e) => { o[p] += (v - o[p]) * e; };   // blend a joint toward the emote pose
   const now = () => performance.now() / 1000;
+  const FRESH_MS = 15000, BOOT_MS = 8000;   // a reload resumes only inside the server's grace period; the resume gets 8 s to answer
+  const stamp = () => { try { sessionStorage.setItem('gk.tokenT', String(Date.now())); sessionStorage.setItem('gk.tokenO', JSON.stringify({ c: GK.charId, w: GK.wins | 0 })); } catch (e) {} };   // 'last seen connected' time + the saved character, next to gk.token
+  function clear() { S.token = null; try { for (const k of ['gk.token', 'gk.tokenT', 'gk.tokenO']) sessionStorage.removeItem(k); } catch (e) {} }   // a clean exit (death, win, cancel, main menu): nothing to resume
   try { S.token = sessionStorage.getItem('gk.token'); } catch (e) {}
-  addEventListener('beforeunload', () => { S.unloading = true; });
+  addEventListener('beforeunload', () => { S.unloading = true; if (S.token && GK.mode === 'play') stamp(); });
+  setInterval(() => { if (S.token && GK.mode === 'play' && S.net && S.net.state() === 1) stamp(); }, 2000);   // so a reload can tell how long ago the socket was alive (also after a crash)
   // ---- icon sprites (one texture per emote, one for the disconnected icon; sprites are created per goblin on demand)
   const texes = {};
   const bubbleTex = (key, draw) => {
@@ -6252,7 +6257,7 @@ const SOC = (() => {
   function overlay(head, text, menu) {
     if (!ov) { ov = document.createElement('div'); ov.id = 'gkLost'; document.body.appendChild(ov); try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {} }
     ov.innerHTML = '<div class="c"><h2></h2><p></p><div class="r"><button class="no" id="gkSocMenu">Main menu</button></div></div>';
-    ov.querySelector('h2').textContent = head; ov.querySelector('p').textContent = text; const b = ov.querySelector('.r'); if (!menu) b.style.display = 'none'; else document.getElementById('gkSocMenu').onclick = () => location.reload();
+    ov.querySelector('h2').textContent = head; ov.querySelector('p').textContent = text; const b = ov.querySelector('.r'); if (!menu) b.style.display = 'none'; else document.getElementById('gkSocMenu').onclick = () => { clear(); location.reload(); };
   }
   function stopRc() { if (S.rc) { clearInterval(S.rc.timer); } if (ov) { ov.remove(); ov = null; } }
   function fail() {
@@ -6269,9 +6274,27 @@ const SOC = (() => {
     };
     rc.timer = setInterval(step, 500); step();
   }
+  function bootFail() {   // the resume was refused or never answered: forget the token and show the normal title
+    if (!S.boot) return; clearTimeout(S.boot.timer); S.boot = null; clear(); location.reload();
+  }
   return {
     attach: n => { S.net = n; },
+    pending() {   // start-up (menu.js): {token, charId, wins} when a match can be resumed (token stored less than 15 s ago), else null
+      try {
+        const tk = sessionStorage.getItem('gk.token'), age = Date.now() - +sessionStorage.getItem('gk.tokenT');
+        if (tk && age >= 0 && age < FRESH_MS) { let o = null; try { o = JSON.parse(sessionStorage.getItem('gk.tokenO')); } catch (e) {} return { token: tk, charId: o && o.c != null ? o.c : null, wins: o ? o.w | 0 : 0 }; }
+      } catch (e) {}
+      clear(); return null;
+    },
+    resume(r) {   // connect with ?token= right away, no title; matchOnMsg enters the match on {resumed:1}
+      S.token = r.token; S.boot = { timer: setTimeout(bootFail, BOOT_MS) };
+      overlay('Rejoining…', 'Getting you back into the match.', false);
+      GK.resume({ resume: r.token, charId: r.charId, wins: r.wins });
+    },
+    booted() { if (!S.boot) return false; clearTimeout(S.boot.timer); S.boot = null; stopRc(); return true; },   // the welcome is applied: the match view takes over
+    clear,
     onClose() {   // makeNet: the socket closed. true = handled here (a reconnect is running)
+      if (S.boot) { bootFail(); return true; }
       if (S.unloading) return true;
       if (S.rc) return true;
       if (!S.token || GK.mode !== 'play') return false;
@@ -6281,6 +6304,7 @@ const SOC = (() => {
       if (d.token) { S.token = d.token; try { sessionStorage.setItem('gk.token', d.token); } catch (e) {} }
       if (d.resumed && S.rc) { stopRc(); S.rc = null; toastMsg && toastMsg('Reconnected', true); }
       if (d.resumeFail && S.rc && !S.rc.done) fail();
+      if (d.resumeFail && S.boot) bootFail();
       if (d.emote) { const a = actors.get(d.emote.id); if (a && d.emote.id !== me) play(a, d.emote.n, false); }
     },
     sync: (a, p) => { a.dc = !!p.dc; },
@@ -6507,6 +6531,7 @@ GK.matchOnMsg = d => {   // called by handleMsg after it has processed a message
   if (d.unverified) toastMsg('Character could not be verified — playing as a new goblin.', false, 6000);   // SECURITY
   if (d.queue) { mqResolve(d.goblin); if (GK.menu && GK.menu.queue) GK.menu.queue(d.queue.n, d.queue.size, d.queue.since); }
   if (d.matchStart) { mqResolve(((d.matchStart.players || []).find(p => p.id === d.matchStart.you) || {}).goblin); mqBegin(false); }
+  if (d.resumed) mqResume();   // SOCIAL: before the countdown that may follow
   if (d.countdown) mqCountdown(d.countdown);
   if (d.readyN && GK.menu && GK.menu.ready) GK.menu.ready(d.readyN.n, d.readyN.size);
 };
@@ -6525,7 +6550,15 @@ function mqOffline() {   // offline mode: hold the simulation's messages back, f
     GK.matchOnMsg({ queue: { n: 8, size: 8, since: 2000 } }); mqBegin(true);
   }, 2100);
 }
-GK.cancelQueue = () => { net.send({ cancel: 1 }); };
+GK.cancelQueue = () => { GK.social.clear(); net.send({ cancel: 1 }); };
+GK.resume = opts => { connect(opts); };   // SOCIAL: a page reload during a match; the {resumed} welcome comes back through matchOnMsg
+function mqResume() {   // the welcome of a resumed match is applied (world, players, round): skip the title, the wheel and the queue and drop straight in
+  if (!GK.social.booted()) return;
+  const mine = actors.get(me); if (mine && MQ.goblin == null) MQ.goblin = mine.goblin;
+  MQ.began = true; GK.locked = false;   // a running countdown message follows and locks it again
+  if (GK.menu && GK.menu.resumed) GK.menu.resumed();
+  mqEnterWorld();
+}
 GK.start = (opts) => { return new Promise(res => { MQ.resolve = res; connect(opts); if (window.GK_OFFLINE) mqOffline(); }); };   // connects and joins the queue; resolves with my goblin type (the wheel result)
 // MATCH-END
 GK.enter = () => { run.t0 = performance.now(); run.n0 = GK.roundInfo ? GK.roundInfo().n : 0; run.dist = 0; GK.mode = 'play'; net.send({ enter: 1 }); GK.showStats(); GK.applySettings(); if (window.GK_OFFLINE) $('rr').style.display = 'block'; lockNow(); };   // call from a click; 'enter' starts the match's round timer

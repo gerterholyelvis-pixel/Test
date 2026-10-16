@@ -546,7 +546,7 @@ function queueStart() {
   qT0 = performance.now(); qDone = false; $('qbox').classList.add('on'); $('qfind').textContent = 'Finding goblins'; $('qtime').textContent = '0:00';
   clearInterval(qTimer); qTimer = setInterval(() => { if (!qDone) $('qtime').textContent = qFmt(performance.now() - qT0); }, 250);
 }
-$('qcancel').onclick = () => { try { GK.cancelQueue && GK.cancelQueue(); } catch (e) {} setTimeout(() => location.reload(), 60); };   // back to the title with a clean connection
+$('qcancel').onclick = () => { try { GK.cancelQueue && GK.cancelQueue(); } catch (e) {} try { GK.social && GK.social.clear(); } catch (e) {} setTimeout(() => location.reload(), 60); };   // back to the title with a clean connection
 function hideWheel() {
   clearInterval(qTimer); body.classList.remove('menu'); $('qbox').classList.remove('on');
   $('roll').classList.add('out'); setTimeout(() => { $('roll').classList.remove('show'); wheelGo = false; }, 700);
@@ -566,6 +566,8 @@ GK.menu = {
   whenRevealed(cb, maxMs, holdMs = 1500) { if (!wheelGo || wh.state === 'idle') return cb(); const t0 = performance.now(), t = setInterval(() => { const now = performance.now(), late = now - t0 > maxMs; if ((wh.shown && now - (wh.shownAt || now) >= holdMs) || late) { clearInterval(t); cb(); } }, 100); },   // the goblin you rolled stays on screen for holdMs before we report ready (the server waits up to its READY_MS)   // wait until the wheel has landed and shown the goblin (but not past maxMs: the server starts the countdown 8 s after the match forms)
   hideWheel,
   /* MATCH-END */
+  resumed() { started = true; $('menu').classList.add('gone'); },   // SOCIAL: a reload resumed the match: the title stays away
 };
+try { const r = GK.social && GK.social.pending(); if (r) { started = true; $('menu').classList.add('gone'); GK.social.resume(r); } } catch (e) { console.error(e); }   // SOCIAL: a match was running less than 15 s ago: reconnect with the token, no title
 window.GKHEAD = headCanvas;   // UNIQUE: panel screens draw the picker's goblin head
 })();

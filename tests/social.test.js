@@ -23,6 +23,22 @@ const pair = srv => Promise.all([connect(srv.port, 'goblin=2&name=Aaa'), connect
         await sleep(1800); assert(b.state.players.some(p => p.id === id), 'still in the match after the grace time');
         await r.close(); await b.close();
       }],
+      ['page reload contract: a fresh socket with the stored token gets {resumed:1} and every welcome field the client needs to enter the match without the title, twice in a row', async () => {
+        const [a, b] = await pair(srv), tok = a.state.token, id = a.state.you;
+        const need = ['you', 'token', 'layout', 'chests', 'chestKeys', 'shops', 'drops', 'round', 'match', 'players', 'fix', 'inv'];
+        a.ws.close();   // the old page unloads
+        const r = await connectRaw(srv.port, 'token=' + tok); await r.until(x => x.state.resumed, 2000, 'resume welcome');
+        for (const k of need) assert(r.state[k] !== undefined, 'welcome lacks ' + k);
+        eq(r.state.token, tok, 'the token stays valid for the next reload'); eq(r.state.you, id);
+        assert(!r.state.queue && !r.state.matchStart && !r.state.resumeFail, 'a resume is not a new join');
+        assert(r.state.players.some(p => p.id === id && !p.dc), 'my goblin is in the list and no longer disconnected');
+        eq(r.state.fix.length, 2, 'fix = where the server has me');
+        await r.close();   // reload again right away (the second page, too, closes before the third connects)
+        const r2 = await connectRaw(srv.port, 'token=' + tok); await r2.until(x => x.state.resumed, 2000, 'second resume'); eq(r2.state.you, id);
+        const r3 = await connectRaw(srv.port, 'token=' + tok); await r3.until(x => x.state.resumed, 2000, 'resume while the old socket is still open');   // the new page can beat the old close
+        eq(r3.state.you, id); await r2.until(x => x.closed, 2000, 'old socket dropped'); assert(!b.state.died && !b.state.won, 'nobody died');
+        await r3.close(); await b.close();
+      }],
       ['reconnect after the grace period fails, the goblin died with drops, and the other player won', async () => {
         const [a, b] = await pair(srv);
         a.send({ give: 'w:slayer' }); await a.until(x => x.state.inv.backpack.includes('w:slayer'), 2000, 'item');
