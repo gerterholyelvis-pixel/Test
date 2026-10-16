@@ -45,13 +45,16 @@ const BOTS = { GK_MATCH_SIZE: '8', GK_QUEUE_MS: '100', GK_ROUND_MS: '500', GK_NE
         if (first) assert(first >= 1300, 'the bot attacked ' + first + ' ms after I arrived, before the 1.5 s notice delay'); else console.log('         (no attack within 6 s, notice delay not measurable this time)');
         await c.close();
       }],
-      ['deliberate misses: over 10 s next to a bot some of its swings hit nothing', async () => {
-        const c = await connect(bots.port, 'wins=4'), pos = track(c), bot = c.state.matchStart.players.find(p => p.bot);
-        await give(c, 'a:aegis', 'armor'); await c.until(x => x.state.round && x.state.round.n >= 2, 4000, 'round 2');
-        const n0 = c.msgs.length, t0 = Date.now();
-        while (Date.now() - t0 < 10000 && !c.state.died) { const q = pos[bot.id] || [bot.x, bot.z], r = W.roomKeyOf(q[0], q[1]); let [x, z] = [q[0] + 1.0, q[1]]; if (W.roomKeyOf(x, z) !== r) [x, z] = [q[0] - 1.0, q[1]]; c.send({ tp: [x, z] }); c.send({ m: [x, z, 0] }); await sleep(120); }
-        const ms = c.msgs.slice(n0), swings = ms.filter(m => m.swing === bot.id).length, hits = ms.filter(m => m.hit && m.hit.from === bot.id).length;
-        assert(swings >= 6, 'the bot barely swung: ' + swings); assert(hits < swings, 'every one of ' + swings + ' swings hit: bots should miss sometimes'); await c.close();
+      ['deliberate misses: next to a bot some of its swings hit nothing (pooled over fresh matches: a strong bot can kill a weak human in three swings)', async () => {
+        let swings = 0, hits = 0;
+        for (let k = 0; k < 6 && swings < 12; k++) {
+          const c = await connect(bots.port, 'wins=4'), pos = track(c), bot = c.state.matchStart.players.find(p => p.bot);
+          await give(c, 'a:aegis', 'armor'); await c.until(x => x.state.round && x.state.round.n >= 2, 4000, 'round 2');
+          const n0 = c.msgs.length, t0 = Date.now();
+          while (Date.now() - t0 < 6000 && !c.state.died) { const q = pos[bot.id] || [bot.x, bot.z], r = W.roomKeyOf(q[0], q[1]); let [x, z] = [q[0] + 1.0, q[1]]; if (W.roomKeyOf(x, z) !== r) [x, z] = [q[0] - 1.0, q[1]]; c.send({ tp: [x, z] }); c.send({ m: [x, z, 0] }); await sleep(120); }
+          const ms = c.msgs.slice(n0); swings += ms.filter(m => m.swing === bot.id).length; hits += ms.filter(m => m.hit && m.hit.from === bot.id).length; await c.close();
+        }
+        assert(swings >= 6, 'the bot barely swung: ' + swings); assert(hits < swings, 'every one of ' + swings + ' swings hit: bots should miss sometimes');
       }],
       ['sudden death: no healing outside the vault, healing inside it', async () => {
         const [a, b] = await Promise.all([connect(sudden.port, 'goblin=2&wins=0'), connect(sudden.port, 'goblin=0&wins=0')]);
