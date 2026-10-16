@@ -4875,6 +4875,7 @@ const requestLock = () => {
 document.addEventListener('pointerlockchange', () => { if (lockOk()) lockRefused = false; });
 document.addEventListener('pointerlockerror', () => { lockRefused = true; });
 canvas.addEventListener('mousedown', requestLock);
+addEventListener('keydown', e => { if (e.code !== 'Escape' && GK.mode === 'play' && !invOpen && !shopOpen && !lockOk() && !lockRefused && !e.repeat && document.fullscreenElement) requestLock(); });   // panel closed by key while fullscreen: take the pointer lock back (keys count as a gesture)
 // look follows the mouse, no button held: raw deltas while the pointer is locked; only if the browser refuses the lock
 // (embedded views, some browsers) does plain cursor movement turn, with the left/right screen edge to keep turning
 let mouseX = -1, edgeT = 0;
