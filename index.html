@@ -295,45 +295,98 @@ table.keys td:last-child{font-size:var(--t2);line-height:1.15;color:#d8d2bf}
 @media (max-width:760px){#roll{flex-direction:column;gap:2vh}#wheelBox{--S:min(58vh,86vw)}#rside{width:min(440px,90vw);border-left:0;border-image:none;padding-left:0;text-align:center}#qpips{justify-content:center}}
 </style>
 <style>
-/* UI-POLISH: one look for the in-match HUD and every panel: gold on dark, square-cut like the title menu, the menu's condensed font, readable greys.
-   game.js builds these with inline styles, so the overrides below need !important. */
-#hud,#gkLeft>div{border-radius:3px!important;background:linear-gradient(180deg,rgba(18,15,12,.84),rgba(10,8,8,.84))!important;border:1px solid rgba(245,196,81,.26)!important;border-left:3px solid var(--gold3)!important;box-shadow:0 6px 18px rgba(0,0,0,.4);font-family:var(--ui)!important;letter-spacing:.03em}
-#gkLeft>div{font-size:16px!important;line-height:1.38!important;padding:8px 14px!important;min-width:208px}
+/* UI-SYSTEM (T14): one design language for the in-match HUD, every panel, tooltips, prompts and the other screens now being added (Elixir screen, room HUD, knowledge workbench).
+   Tokens first; every surface below is built from them. game.js / feel.js still write inline styles, so the shared surface rules need !important.
+   New screens: add class "gk-panel" (surface), "gk-btn" (button), "gk-tip" (tooltip), "gk-lab" (small caps label), "gk-num" (display numeral) and use only the tokens. */
+:root{
+ /* colour */
+ --gk-bg:rgba(12,10,8,.84);--gk-bg-hi:rgba(18,15,12,.94);--gk-bg-solid:rgba(10,8,8,.96);--gk-wash:rgba(255,255,255,.05);
+ --gk-line:rgba(245,196,81,.26);--gk-line-hi:rgba(245,196,81,.5);--gk-accent:var(--gold);--gk-accent-dim:var(--gold3);
+ --gk-txt:var(--txt);--gk-txt-dim:#c9c3b0;--gk-txt-mut:#a39e8e;
+ --gk-ok:#7fcf6a;--gk-warn:#e0b030;--gk-bad:#e0503a;--gk-info:var(--teal);--gk-focus:rgba(255,106,42,.85);
+ /* shape and space (4 px grid) */
+ --gk-r:3px;--gk-s1:4px;--gk-s2:8px;--gk-s3:12px;--gk-s4:16px;--gk-s5:24px;
+ --gk-shadow:0 6px 18px rgba(0,0,0,.4);--gk-shadow-hi:0 10px 36px rgba(0,0,0,.6);
+ /* type: Cinzel for headings and numerals, Barlow Condensed for everything else */
+ --gk-fs-xs:13px;--gk-fs-sm:15px;--gk-fs-md:17px;--gk-fs-lg:clamp(22px,3vw,30px);--gk-track:.04em;--gk-track-lab:.2em;
+}
+/* the surface: dark glass, 1 px gold-alpha border, a 3 px accent edge on the left (the title-menu .sheet look) */
+#hud,#gkLeft>div,#gkHot,#gkMM,#roundHud .t,#gkTip,#gkPrompt,#hint,.gk-panel,#gkLost .c,
+div:is([style*="z-index:75"],[style*="z-index: 75"]),div:is([style*="z-index:25"],[style*="z-index: 25"]){
+ border-radius:var(--gk-r)!important;background:linear-gradient(180deg,var(--gk-bg-hi),var(--gk-bg))!important;border:1px solid var(--gk-line)!important;border-left:3px solid var(--gk-accent-dim)!important;box-shadow:var(--gk-shadow)!important;
+ font-family:var(--ui)!important;letter-spacing:var(--gk-track);color:var(--gk-txt)}
+/* every leftover inline system-ui in the HUD resolves to the UI face */
+body [style*="system-ui"],body [style*="sans-serif"]{font-family:var(--ui)!important}
+#hud{padding:6px 14px 7px!important;line-height:1.25!important;text-shadow:none}
+#gkLeft{gap:var(--gk-s1)!important}
+#gkLeft>div{font-size:var(--gk-fs-md)!important;line-height:1.38!important;padding:var(--gk-s2) 14px!important;min-width:208px}
 #gkLeft>div:is([style*="order:-1"],[style*="order: -1"]){border-left-color:var(--ember)!important}
-#gkLeft{gap:5px!important}
-#gkLeft small{font-size:.82em;color:#b9b4a6;letter-spacing:.06em}
+#gkLeft small{font-size:.82em;color:var(--gk-txt-mut);letter-spacing:.06em}
 #gkLeft>div b{font-weight:700}
-#hud{padding:6px 14px 7px!important;font-family:var(--ui)!important;line-height:1.25!important}
-#me{font-size:clamp(18px,1.9vw,24px)!important;color:var(--gold)!important;text-transform:uppercase;letter-spacing:.08em!important}
-#cnt,.gkLobby{display:inline;font-size:clamp(14px,1.2vw,16px)!important;color:#c9c3b0!important;letter-spacing:.06em;text-transform:uppercase;margin:0!important}
-.gkLobby::before{content:"\00b7";margin:0 .5em;color:var(--gold3)}
-#hint{font-family:var(--ui)!important;font-size:15px!important;font-weight:600!important;letter-spacing:.06em;color:#d6d0be!important}
-#gkHot{border-radius:3px!important;border:1px solid rgba(245,196,81,.26)!important;background:linear-gradient(180deg,rgba(18,15,12,.7),rgba(10,8,8,.7))!important}
-.gks{border-radius:3px!important}
-.gks .kl{font-family:var(--ui)!important;font-size:13px!important;color:var(--gold2)!important}
+#me{font-size:clamp(18px,1.9vw,24px)!important;color:var(--gk-accent)!important;text-transform:uppercase;letter-spacing:.08em!important}
+#cnt,.gkLobby{display:inline;font-size:clamp(14px,1.2vw,16px)!important;color:var(--gk-txt-dim)!important;letter-spacing:.06em;text-transform:uppercase;margin:0!important}
+.gkLobby::before{content:"\00b7";margin:0 .5em;color:var(--gk-accent-dim)}
+/* hint bar: quiet, no accent edge */
+#hint{font-size:var(--gk-fs-sm)!important;font-weight:600!important;letter-spacing:.06em;color:var(--gk-txt-dim)!important;border-left-width:1px!important;border-radius:var(--gk-r)!important;padding:5px 14px!important;box-shadow:none!important;text-shadow:none}
+#gkHot{border-left-width:1px!important;background:linear-gradient(180deg,rgba(18,15,12,.7),rgba(10,8,8,.7))!important}
+.gks{border-radius:var(--gk-r)!important}
+.gks .kl{font-family:var(--ui)!important;font-size:var(--gk-fs-xs)!important;color:var(--gold2)!important}
+/* round timer: the same glass, Cinzel numerals; warning turns the edge and digits red */
+body #roundHud{font-family:var(--ui)!important}
+body #roundHud .t{padding:4px 26px 6px!important;font-family:var(--disp)!important;font-weight:700!important;font-size:clamp(20px,2.8vw,36px)!important;letter-spacing:.1em!important;color:var(--gk-txt)!important;text-shadow:none!important;border-left:1px solid var(--gk-line)!important;border-top:3px solid var(--gk-accent-dim)!important;border-bottom:0!important;border-right:1px solid var(--gk-line)!important}
+body #roundHud .t.warn{color:var(--gk-bad)!important;border-top-color:var(--gk-bad)!important;background:linear-gradient(180deg,rgba(40,10,8,.94),rgba(24,6,6,.86))!important}
+body #roundHud .b{font-family:var(--disp)!important;font-weight:700!important;font-size:clamp(22px,3.6vw,44px)!important}
+/* minimap frame */
+#gkMM{border-left-width:1px!important;border-top:3px solid var(--gk-accent-dim)!important;overflow:hidden}
+#gkMMBig canvas{border:1px solid var(--gk-line-hi)!important;border-radius:var(--gk-r)!important}
+/* the "press E" prompt: the glass plus a gold key cap */
+#gkPrompt{border-left-width:1px!important;font-size:var(--gk-fs-md)!important;font-weight:600!important;padding:6px 15px 6px 8px!important;text-shadow:none!important}
+#gkPrompt b{border-radius:2px!important;background:var(--gk-accent)!important;font-family:var(--ui)!important;box-shadow:0 2px 0 var(--gk-accent-dim)!important}
+#gkBanner div{font-family:var(--disp)!important;font-weight:700!important;letter-spacing:.12em!important}
+/* "New goblin": the title menu's .mbtn.small in miniature */
+#rr{top:2vh!important;right:2vw!important;height:32px;padding:0 20px 0 14px!important;font:700 15px var(--ui)!important;letter-spacing:.16em;text-transform:uppercase;color:var(--gk-txt)!important;background:linear-gradient(90deg,rgba(255,255,255,.07),rgba(255,255,255,.02))!important;border:1px solid var(--gk-line)!important;border-left:3px solid var(--gk-accent-dim)!important;border-radius:0!important;clip-path:polygon(0 0,100% 0,calc(100% - 12px) 100%,0 100%);transition:background .2s,color .2s,border-color .2s}
+#rr:hover{color:#1a1104!important;background:linear-gradient(90deg,var(--gold2),var(--gold))!important;border-color:var(--gold)!important}
 /* the HUD gets out of the way while a panel is open (the panel shows the same numbers) */
 body:has(:is(#gkInv,#gkShop,#gkRec,#gkCraft,#gkLoot)[style*="display: flex"]) :is(#hud,#gkLeft,#gkHot,#hint){visibility:hidden}
 /* panels: inventory, merchant, recycler, workbench, loot */
 #gkInv *,#gkShop *,#gkRec *,#gkCraft *,#gkLoot *{font-family:var(--ui)!important}
-:is(#gkInv,#gkShop,#gkRec,#gkCraft,#gkLoot) :is([style*="font-size:11px"],[style*="font-size: 11px"],[style*=" 11px system"]){font-size:13px!important}
-:is(#gkInv,#gkShop,#gkRec,#gkCraft,#gkLoot) .lab{font-size:13px!important}
+:is(#gkInv,#gkShop,#gkRec,#gkCraft,#gkLoot) :is([style*="font-size:11px"],[style*="font-size: 11px"],[style*=" 11px system"]){font-size:var(--gk-fs-xs)!important}
+:is(#gkInv,#gkShop,#gkRec,#gkCraft,#gkLoot) .lab{font-size:var(--gk-fs-xs)!important}
 :is(#gkInv,#gkShop,#gkRec,#gkCraft,#gkLoot) :is([style*="font-size:12px"],[style*="font-size: 12px"],[style*=" 12px system"]){font-size:14px!important}
-:is(#gkInv,#gkShop,#gkRec,#gkCraft,#gkLoot) :is([style*="font-size:13px"],[style*="font-size: 13px"],[style*=" 13px system"]){font-size:15px!important}
+:is(#gkInv,#gkShop,#gkRec,#gkCraft,#gkLoot) :is([style*="font-size:13px"],[style*="font-size: 13px"],[style*=" 13px system"]){font-size:var(--gk-fs-sm)!important}
 :is(#gkInv,#gkShop,#gkRec,#gkCraft,#gkLoot) :is([style*="font-size:14px"],[style*="font-size: 14px"],[style*=" 14px system"]){font-size:16px!important}
-:is(#gkInv,#gkShop,#gkRec,#gkCraft,#gkLoot) :is([style*="font-size:15px"],[style*="font-size: 15px"],[style*=" 15px system"]){font-size:17px!important}
-#gkInv>div,#gkShop>div,#gkRec>div,#gkCraft>div,#gkLoot>div{border-radius:3px!important;background:linear-gradient(180deg,rgba(20,17,13,.95),rgba(10,8,8,.95))!important;border:1px solid rgba(245,196,81,.35)!important;border-top:3px solid var(--gold3)!important;max-height:94vh;overflow:auto;scrollbar-width:thin;scrollbar-color:var(--gold3) transparent}
-#gkInv>div>div:first-child,#gkShop #shopTitle,#gkRec .ttl,#gkCraft .ttl,#gkLoot .ttl{font-family:var(--disp)!important;font-weight:700!important;letter-spacing:.06em!important;font-size:clamp(22px,3vw,30px)!important;color:var(--gold)!important}
-#gkInv .lab,#gkShop .lab,#gkRec .lab,#gkCraft .lab,#gkLoot .lab{color:#b9b4a6!important;letter-spacing:.2em!important}
-#gkInv button,#gkShop button,#gkRec button,#gkCraft button,#gkLoot button{border-radius:2px!important;letter-spacing:.14em!important;text-transform:uppercase}
-:is(#gkShop,#gkRec,#gkCraft,#gkLoot) [style*="border-radius:10px"],:is(#gkShop,#gkRec,#gkCraft,#gkLoot) [style*="border-radius: 10px"],:is(#gkShop,#gkRec,#gkCraft,#gkLoot) [style*="border-radius:8px"],:is(#gkShop,#gkRec,#gkCraft,#gkLoot) [style*="border-radius: 8px"]{border-radius:3px!important}
-#shopRows,#gkRec .body,#gkCraft .body,#gkLoot .body{max-height:min(58vh,520px);overflow:auto;padding-right:4px;scrollbar-width:thin;scrollbar-color:var(--gold3) transparent}
-/* inventory item tooltip and the "press E" prompts */
-div:is([style*="z-index:75"],[style*="z-index: 75"]){border-radius:3px!important;border:1px solid rgba(245,196,81,.5)!important;border-left:3px solid var(--gold)!important;font-family:var(--ui)!important;font-size:16px!important;padding:7px 12px!important;max-width:280px;background:rgba(10,8,8,.96)!important}
+:is(#gkInv,#gkShop,#gkRec,#gkCraft,#gkLoot) :is([style*="font-size:15px"],[style*="font-size: 15px"],[style*=" 15px system"]){font-size:var(--gk-fs-md)!important}
+#gkInv>div,#gkShop>div,#gkRec>div,#gkCraft>div,#gkLoot>div{border-radius:var(--gk-r)!important;background:linear-gradient(180deg,var(--gk-bg-hi),var(--gk-bg-solid))!important;border:1px solid var(--gk-line-hi)!important;border-top:3px solid var(--gk-accent-dim)!important;box-shadow:var(--gk-shadow-hi);max-height:94vh;overflow:auto}
+#gkInv>div>div:first-child,#gkShop #shopTitle,#gkRec .ttl,#gkCraft .ttl,#gkLoot .ttl,.gk-title{font-family:var(--disp)!important;font-weight:700!important;letter-spacing:.06em!important;font-size:var(--gk-fs-lg)!important;color:var(--gk-accent)!important}
+#gkInv .lab,#gkShop .lab,#gkRec .lab,#gkCraft .lab,#gkLoot .lab,.gk-lab{color:var(--gk-txt-mut)!important;letter-spacing:var(--gk-track-lab)!important;font-size:var(--gk-fs-xs);text-transform:uppercase}
+.gk-num{font-family:var(--disp);font-weight:700;color:var(--gk-accent);font-variant-numeric:tabular-nums}
+/* buttons: one shape everywhere (square-cut, spaced caps, gold fill on hover/focus) */
+#gkInv button,#gkShop button,#gkRec button,#gkCraft button,#gkLoot button,.gk-btn{border-radius:2px!important;letter-spacing:.14em!important;text-transform:uppercase;font-family:var(--ui)!important;font-weight:700;cursor:pointer;transition:background .18s,color .18s,border-color .18s,box-shadow .18s}
+.gk-btn{padding:6px 16px;font-size:var(--gk-fs-sm);color:var(--gk-txt);background:var(--gk-wash);border:1px solid var(--gk-line)}
+.gk-btn:hover:not(:disabled){color:#1a1104;background:linear-gradient(90deg,var(--gold2),var(--gold));border-color:var(--gold)}
+:is(.gk-btn,#gkInv button,#gkShop button,#gkRec button,#gkCraft button,#gkLoot button):disabled{opacity:.45;cursor:not-allowed}
+:is([style*="border-radius:10px"],[style*="border-radius: 10px"],[style*="border-radius:8px"],[style*="border-radius: 8px"]):is(#gkShop *,#gkRec *,#gkCraft *,#gkLoot *){border-radius:var(--gk-r)!important}
+#shopRows,#gkRec .body,#gkCraft .body,#gkLoot .body{max-height:min(58vh,520px);overflow:auto;padding-right:var(--gk-s1)}
+/* tooltips (inventory item card and the like) */
+div:is([style*="z-index:75"],[style*="z-index: 75"]),.gk-tip{border-left-color:var(--gk-accent)!important;border-color:var(--gk-line-hi)!important;font-size:var(--gk-fs-md)!important;padding:7px 12px!important;max-width:280px;background:var(--gk-bg-solid)!important}
+div:is([style*="z-index:25"],[style*="z-index: 25"]){font-size:var(--gk-fs-md)!important}
+#gkTip{font-size:var(--gk-fs-md)!important;border-left-color:var(--gk-accent-dim)!important}
+#gkTip>div:first-child{font-size:var(--gk-fs-xs)!important;font-weight:700;letter-spacing:var(--gk-track-lab)!important;color:var(--gk-accent)!important}
 .sheet{background:linear-gradient(180deg,rgba(18,15,12,.93),rgba(10,8,8,.93))}   /* the goblins on stage no longer show through the grids */
+/* lost-connection dialog */
+#gkLost .c{border-left-width:1px!important;border-top:3px solid var(--gk-bad)!important;padding:24px 28px!important}
+#gkLost h2{font-family:var(--disp)!important}
+#gkLost button{border-radius:2px!important;font-family:var(--ui)!important;font-weight:700!important;font-size:var(--gk-fs-md)!important}
+/* scrollbars and focus: the same on every scroller and control */
+*{scrollbar-width:thin;scrollbar-color:var(--gold3) transparent}
+::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--gold3);border-radius:4px;border:2px solid transparent;background-clip:padding-box}::-webkit-scrollbar-thumb:hover{background:var(--gold);background-clip:padding-box;border:2px solid transparent}
+:is(button,a,select,input,[tabindex]):focus-visible{outline:2px solid var(--gk-focus);outline-offset:2px}
+::selection{background:rgba(245,196,81,.35);color:#fff}
+/* small windows: the hint bar yields, panels tighten */
 @media (max-width:1000px){#hint{display:none!important}}   /* it wraps to four lines between the stat cards and the hotbar */
 @media (max-height:800px){.foot{display:none}}   /* the footer line would sit on top of the last menu button */
-#gkTip{border-radius:3px!important;font-family:var(--ui)!important;font-size:16px!important;border-left:3px solid var(--gold3)!important}
-div:is([style*="z-index:25"],[style*="z-index: 25"]){border-radius:3px!important;font-family:var(--ui)!important;font-size:16px!important}
+@media (max-width:720px),(max-height:560px){body #roundHud .b{display:none!important}#gkLeft>div{min-width:0;font-size:var(--gk-fs-sm)!important;padding:5px 10px!important}#gkMM{top:60px!important;transform:scale(.7);transform-origin:top right}#rr{height:28px}}
 </style>
 <script type="importmap">{"imports":{"three":"/three/three.module.js","three/addons/":"/three/addons/"}}</script>
 </head>
@@ -481,6 +534,7 @@ div:is([style*="z-index:25"],[style*="z-index: 25"]){border-radius:3px!important
 import * as THREE from 'three';
 window.THREE = THREE;
 try { await import('/itemart.js'); } catch (e) { console.error('itemart failed, using the old item models', e); } // ITEMART: custom 3D item models + baked icons (window.GKART)
+try { window.GKTAGS = await import('/client/ui/tags.js'); } catch (e) { console.error('tags failed, name tags use plain sprites', e); } // name tag + health bar atlas
 await import('/game.js');
 await import('/menu.js');
 </script>
