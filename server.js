@@ -22,13 +22,14 @@ const clamp = v => Math.max(-LIM, Math.min(LIM, v));
 // ---- doors and rounds (door ids and room keys must match game.js) ----
 const chestKey = WORLD.chestKey; // chest rooms in game.js order (WORLD.CHEST)
 const ROOM_DOORS = {}; let nDoors = 0; // room key ('0'..'8' grid, 'c0'..'c11' chest) -> door ids on its walls
-const addDoor = (a, b) => { const id = nDoors++; (ROOM_DOORS[a] = ROOM_DOORS[a] || []).push(id); (ROOM_DOORS[b] = ROOM_DOORS[b] || []).push(id); };
+const DOOR_AT = {}; // 'a|b' and 'b|a' -> { id, axis, c, hw }: where the doorway sits on the wall between two rooms (axis = coordinate along the wall, c = its centre, hw = half opening + slack)
+const addDoor = (a, b, axis, c) => { const id = nDoors++; (ROOM_DOORS[a] = ROOM_DOORS[a] || []).push(id); (ROOM_DOORS[b] = ROOM_DOORS[b] || []).push(id); DOOR_AT[a + '|' + b] = DOOR_AT[b + '|' + a] = { id, axis, c, hw: (a === '4' || b === '4' ? 4.9 : 4) / 2 + 0.2 }; }; // opening widths = VW / DW in game.js
 for (let i = 0; i < 9; i++) {
-  const col = i % 3, row = Math.floor(i / 3);
-  addDoor(String(i), col < 2 ? String(i + 1) : chestKey(i, 'E'));
-  addDoor(String(i), row < 2 ? String(i + 3) : chestKey(i, 'S'));
-  if (col === 0) addDoor(String(i), chestKey(i, 'W'));
-  if (row === 0) addDoor(String(i), chestKey(i, 'N'));
+  const col = i % 3, row = Math.floor(i / 3), [rx, rz] = WORLD.rc(i); // every door is centred on its wall segment
+  addDoor(String(i), col < 2 ? String(i + 1) : chestKey(i, 'E'), 'z', rz);
+  addDoor(String(i), row < 2 ? String(i + 3) : chestKey(i, 'S'), 'x', rx);
+  if (col === 0) addDoor(String(i), chestKey(i, 'W'), 'z', rz);
+  if (row === 0) addDoor(String(i), chestKey(i, 'N'), 'x', rx);
 }
 const roomKeyOf = WORLD.roomKeyOf, boxOf = WORLD.roomAt;
 // ---- matches: independent games, players are queued with similar victory counts ----
@@ -40,7 +41,8 @@ const bcast = (m, o) => { const msg = typeof o === 'string' ? o : JSON.stringify
 const avgWins = m => { let s = 0; for (const p of m.players.values()) s += p.wins; return m.players.size ? s / m.players.size : 0; };
 const tolerance = w => w <= 5 ? 1 : Math.ceil(w * 0.25);
 function newMatch() {
-  const m = { id: nextMatch++, players: new Map(), round: 1, dur: 30000, endsAt: Date.now() + 30000, started: false, sel: {}, open: [], drops: [], nextDrop: 1, dirty: false, lastRound: 0,
+  const R1 = process.env.GK_DEBUG && +process.env.GK_ROUND_MS > 0 ? +process.env.GK_ROUND_MS : 30000; // GK_DEBUG only: shorter round 1 so the tests run fast
+  const m = { id: nextMatch++, players: new Map(), round: 1, dur: R1, endsAt: Date.now() + R1, started: false, sel: {}, open: [], drops: [], nextDrop: 1, dirty: false, lastRound: 0,
     chests: Array.from({ length: 12 }, () => Math.floor(Math.random() * 6)), chestKeys: Array.from({ length: 12 }, () => GKITEMS.randomWeaponKey()), layout: GKITEMS.randomLayout() };
   m.shops = m.layout.map(x => x === 'merchant' ? GKITEMS.randomShop() : null);   // each merchant's 5 items with gold prices, rolled once per match
   m.mystery = m.layout.map(x => x === 'mystery' ? GKITEMS.randomMystery() : null);   // what is inside each mystery room, rolled once per match // weapon index per chest room
@@ -78,9 +80,10 @@ setInterval(() => { // one global timer steps every match
       m.open = picked.filter(d => ok || !VAULT.includes(d)); m.fizzled = ok ? [] : picked.filter(d => VAULT.includes(d)); m.sel = {}; m.round++; m.dur = 45000; m.endsAt = now + m.dur; broadcastRound(m); m.lastRound = now; }
     else if (now - m.lastRound >= 1000) { m.lastRound = now; broadcastRound(m); }
     // COMBAT-BEGIN regen: 1 HP every 4 s once a player has not been hit for 6 s
-    for (const p of m.players.values()) if (p.entered && !p.dead && p.stats && p.stats.health < p.stats.maxHealth && now - (p.hurtAt || 0) >= C.regenIdle && now - (p.regenAt || 0) >= C.regenEvery) { p.regenAt = now; p.stats.health = Math.min(p.stats.maxHealth, p.stats.health + C.regenAmt); m.dirty = true; }
+    for (const p of m.players.values()) if (p.entered && !p.dead && p.stats && p.stats.health < p.stats.maxHealth && now - (p.hurtAt || 0) >= C.regenIdle * RSCALE && now - (p.regenAt || 0) >= C.regenEvery * RSCALE) { p.regenAt = now; p.stats.health = Math.min(p.stats.maxHealth, p.stats.health + C.regenAmt); m.dirty = true; }
     // COMBAT-END
-    if (m.dirty) { m.dirty = false; bcast(m, { players: [...m.players.values()].map(pub) }); } // positions go out at 20 Hz
+    if (m.dirty) { m.dirty = false; bcast(m, { players: [...m.players.values()].map(pub) }); } // slow state: only when something other than movement changed
+    snapshots(m); // NETCODE: positions of players who moved go out at 20 Hz as compact snapshots
   }
 }, 50);
 
@@ -202,16 +205,18 @@ function checkWin(m) {   // DEFAULT RULE (owner has not decided): >= 2 players e
   const living = [...m.players.entries()].filter(([, q]) => q.entered && !q.dead);
   if (living.length === 1) win(living[0][0], living[0][1]);
 }
-function attack(m, ws, p, now) {   // {atk:1}: rate limit by weapon, nearest valid target in range, in the 70 degree cone, same room key
+function attack(m, ws, p, now, rt) {   // {atk:1, rt}: rate limit by weapon, nearest valid target in range, in the 70 degree cone, same room key; targets are rewound to server time rt (what the attacker saw), at most 200 ms
   if (!p.entered || p.dead) return;
   const cb = G.combat(p.inv.weapon);
   if (now - (p.atkAt || 0) < cb.cd * 0.9) return;   // 10% jitter allowance
   p.atkAt = now; bcast(m, { swing: p.id });
   const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw), reach = cb.range + C.slack;   // forward vector, same as the client's movement
   let best = null, bd = Infinity;
+  const T = srvT(), at = typeof rt === 'number' && Number.isFinite(rt) ? Math.max(T - REWIND_MAX, Math.min(T, rt)) : T;   // lag compensation: look at the world as the attacker saw it
   for (const [tws, t] of m.players) {
-    if (t === p || t.dead || !t.entered || t.room !== p.room) continue;
-    const dx = t.x - p.x, dz = t.z - p.z, d = Math.hypot(dx, dz);
+    if (t === p || t.dead || !t.entered) continue;
+    const [tx, tz] = at < T ? posAt(t, at) : [t.x, t.z]; if (roomKeyOf(tx, tz) !== p.room) continue;
+    const dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz);
     if (d > reach) continue;
     if (d > 0.05 && (dx * fx + dz * fz) / d < Math.cos(C.cone)) continue;
     if (d < bd) { bd = d; best = [tws, t]; }
@@ -255,12 +260,81 @@ function win(ws, p) { // everything carried goes home with the winner, nothing i
   sendTo(ws, { won: { items, gold: p.gold, parts: p.parts } });
 }
 
+// NET-BEGIN (movement validation, 20 Hz snapshots, position history for lag compensation; see docs/reports/netcode.md)
+const T0 = Date.now(), srvT = () => Date.now() - T0;   // server clock in ms, sent with every snapshot and pong
+const RSCALE = process.env.GK_DEBUG && +process.env.GK_REGEN_SCALE > 0 ? +process.env.GK_REGEN_SCALE : 1;   // GK_DEBUG only: speeds regeneration up for the tests
+const MAXV = 7.5 * (0.85 + 0.15 * 1.3) * 1.25, BUDGET = 1.2, SLACK = 0.3;   // fastest goblin sprint (game.js) x 1.25; the distance a client may bank while idle; fixed slack in m
+const HIST_MS = 1000, REWIND_MAX = 200;
+const r1 = v => Math.round(v * 10) / 10, r2 = v => Math.round(v * 100) / 100, r3 = v => Math.round(v * 1000) / 1000;
+function inBounds(x, z) {   // inside a room of the grid, or inside one of the 12 chest rooms (not the void around them)
+  if (Math.abs(x) > LIM || Math.abs(z) > LIM) return false;
+  if (Math.abs(x) <= WORLD.HALF && Math.abs(z) <= WORLD.HALF) return true;
+  const c = WORLD.CHEST[+roomKeyOf(x, z).slice(1)];
+  return !!c && Math.abs(x - c.cx) <= WORLD.CS / 2 + SLACK && Math.abs(z - c.cz) <= WORLD.CS / 2 + SLACK;
+}
+function pathOk(m, x0, z0, x1, z1) {   // walk the segment in 0.2 m steps: every room change must go through an OPEN door, inside its opening
+  const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 0.2)); let prev = roomKeyOf(x0, z0);
+  for (let i = 1; i <= n; i++) {
+    const x = x0 + (x1 - x0) * i / n, z = z0 + (z1 - z0) * i / n;
+    if (!inBounds(x, z)) return false;
+    const k = roomKeyOf(x, z); if (k === prev) continue;
+    const d = DOOR_AT[prev + '|' + k];
+    if (!d || !m.open.includes(d.id) || Math.abs((d.axis === 'x' ? x : z) - d.c) > d.hw) return false;
+    prev = k;
+  }
+  return true;
+}
+function place(p, x, z) {   // hard set (spawn, debug teleport): resets speed budget and history
+  p.x = x; p.z = z; p.box = boxOf(x, z); p.room = roomKeyOf(x, z); p.spd = 0; p.fixAt = 0; p.budget = BUDGET; p.mvAt = Date.now(); p.mvT = srvT(); p.hist = [[p.mvT, x, z]]; p.sd = true;
+}
+function applyMove(m, ws, p, x, z, yaw, now) {   // {m:[x,z,yaw]}: accept, or keep the old position and answer {fix:[x,z]}
+  x = clamp(x); z = clamp(z); yaw = Math.max(-1e3, Math.min(1e3, yaw));
+  const dt = p.mvAt ? Math.min(0.5, (now - p.mvAt) / 1000) : 0.066; p.mvAt = now;
+  p.budget = Math.min(BUDGET, (p.budget == null ? BUDGET : p.budget) + dt * MAXV);
+  const dist = Math.hypot(x - p.x, z - p.z);
+  if (dist > 0.0005 && (dist > p.budget + SLACK || !pathOk(m, p.x, p.z, x, z))) {
+    if (now - (p.fixAt || 0) > 150) { p.fixAt = now; sendTo(ws, { fix: [r2(p.x), r2(p.z)] }); }
+    if (yaw !== p.yaw) { p.yaw = yaw; p.sd = true; }
+    return false;
+  }
+  p.budget = Math.max(0, p.budget - dist);
+  const t = srvT(), v = dist < 0.004 ? 0 : Math.min(12, dist / Math.max(dt, 0.04));
+  const spd = v === 0 ? 0 : p.spd ? p.spd * 0.6 + v * 0.4 : v;
+  if (dist > 0.0005 || yaw !== p.yaw || r1(spd) !== r1(p.spd || 0)) p.sd = true;
+  if (dist > 0.0005) {   // history for lag compensation; a long-still player gets a hold entry so the rewind does not slide him
+    const h = p.hist || (p.hist = []), last = h[h.length - 1];
+    if (last && t - last[0] > 150) h.push([t - 1, last[1], last[2]]);
+    h.push([t, x, z]); while (h.length > 2 && h[1][0] < t - HIST_MS) h.shift();
+  }
+  p.x = x; p.z = z; p.yaw = yaw; p.spd = spd; p.mvT = t; p.box = boxOf(x, z); p.room = roomKeyOf(x, z);
+  return true;
+}
+function posAt(p, T) {   // where p was at server time T (position history, linear interpolation)
+  const h = p.hist; if (!h || !h.length || T >= h[h.length - 1][0]) return [p.x, p.z];
+  if (T <= h[0][0]) return [h[0][1], h[0][2]];
+  let i = h.length - 2; while (i > 0 && h[i][0] > T) i--;
+  const a = h[i], b = h[i + 1], f = (T - a[0]) / Math.max(1, b[0] - a[0]);
+  return [a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+}
+function snapshots(m) {   // {s:[t, id,x,z,yaw,speed,age, ...]} with the players that moved since the last tick, to everyone but themselves; age = ms since that position was received
+  const now = Date.now(); for (const p of m.players.values()) if (p.spd && now - p.mvAt > 150) { p.spd = 0; p.sd = true; }   // no update for a while: tell the others he stopped (clients only send when something changed)
+  let moved = null;
+  for (const p of m.players.values()) if (p.sd) { p.sd = false; (moved = moved || []).push(p); }
+  if (!moved) return;
+  const t = srvT();
+  for (const [ws, q] of m.players) {
+    const out = [t]; for (const p of moved) if (p !== q) out.push(p.id, r2(p.x), r2(p.z), r3(p.yaw), r1(p.spd || 0), Math.min(255, Math.max(0, t - (p.mvT || t))));
+    if (out.length > 1) sendTo(ws, { s: out });
+  }
+}
+// NET-END
+
 wss.on('connection', (ws, req) => {
   let q; try { q = new URL(req.url, 'http://x').searchParams; } catch { q = new URLSearchParams(); }
   const g = q.get('goblin'), goblin = g !== null && /^[0-4]$/.test(g) ? +g : rollGoblin();
   const wq = q.get('wins'), wins = wq !== null && /^\d{1,9}$/.test(wq) ? Math.min(9999, +wq) : 0;
   const id = nextId++;
-  const p = { id, wins, ws, ...spawn() }; p.room = String(p.box); equip(p, goblin);
+  const p = { id, wins, ws, ...spawn() }; p.room = String(p.box); equip(p, goblin); place(p, p.x, p.z);
   const m = findMatch(wins); p.match = m; m.players.set(ws, p); m.dirty = true;
   ws.on('error', () => {});
   sendTo(ws, { you: id, chests: m.chests, chestKeys: m.chestKeys, layout: m.layout, mystery: m.mystery, shops: m.shops, drops: m.drops, ...roundState(m), match: matchInfo(m) });
@@ -275,18 +349,15 @@ wss.on('connection', (ws, req) => {
     let d; try { d = JSON.parse(raw.toString()); } catch { return; }
     if (p.dead || !d || typeof d !== 'object') return;
     const dbg = !!process.env.GK_DEBUG;
-    if (Array.isArray(d.m) && d.m.length === 3 && d.m.every(v => typeof v === 'number' && Number.isFinite(v))) {
-      p.x = clamp(d.m[0]); p.z = clamp(d.m[1]);
-      p.yaw = Math.max(-1e3, Math.min(1e3, d.m[2]));
-      p.box = boxOf(p.x, p.z); p.room = roomKeyOf(p.x, p.z);
-      m.dirty = true;
+    if (Array.isArray(d.m) && d.m.length === 3 && d.m.every(v => typeof v === 'number' && Number.isFinite(v))) { applyMove(m, ws, p, d.m[0], d.m[1], d.m[2], now);
+    } else if (typeof d.ping === 'number' && Number.isFinite(d.ping)) { sendTo(ws, { pong: d.ping, t: srvT() });
     } else if (dbg && d.kill) { die(ws, p);   // test hooks, only with GK_DEBUG=1
     } else if (dbg && d.win) { win(ws, p);
     } else if (dbg && typeof d.give === 'string') { giveItem(p, d.give);
     } else if (dbg && Array.isArray(d.tp) && d.tp.length === 2 && d.tp.every(v => typeof v === 'number' && Number.isFinite(v))) {
-      p.x = clamp(d.tp[0]); p.z = clamp(d.tp[1]); p.box = boxOf(p.x, p.z); p.room = roomKeyOf(p.x, p.z); m.dirty = true;
+      place(p, clamp(d.tp[0]), clamp(d.tp[1])); m.dirty = true;
     } else if (dbg && Number.isFinite(d.gold)) { p.gold = Math.max(0, Math.floor(d.gold)); sendGold(p);
-    } else if (d.atk === 1) { attack(m, ws, p, now);
+    } else if (d.atk === 1) { attack(m, ws, p, now, d.rt);
     } else if (d.enter === 1) { if (!p.entered) { p.entered = true; m.enteredEver = (m.enteredEver || 0) + 1; broadcastMatch(m); } if (!m.started) { m.started = true; m.endsAt = now + m.dur; broadcastRound(m); }
     } else if (typeof d.eat === 'string') { eat(p, d.eat);
     } else if (Array.isArray(d.loot)) { const why = loot(m, p, d.loot); if (why) sendTo(ws, { lootFail: why });

@@ -3041,7 +3041,15 @@ function invAll(inv) { return [inv.weapon, inv.armor, ...inv.backpack, ...inv.qu
 function makeNet(opts) {   // opts.goblin: play this goblin type (a saved character) instead of rolling one
   if (!window.GK_OFFLINE) {
     const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + (opts && opts.goblin != null ? '/?goblin=' + (opts.goblin | 0) + '&wins=' + (Math.max(0, (opts.wins | 0))) : (opts && opts.wins ? '/?wins=' + (opts.wins | 0) : '')));
-    const net = { send: m => ws.readyState === 1 && ws.send(JSON.stringify(m)), onmessage: null };
+    let lastM = '', lastMT = 0;   // NET: my position goes out only when it changed (plus a 1 s keepalive); attacks carry the server time I was seeing
+    const net = { send: m => {
+      if (ws.readyState !== 1) return;
+      if (m.m) { const j = JSON.stringify(m), t = performance.now(); if (j === lastM && t - lastMT < 1000) return; lastM = j; lastMT = t; return ws.send(j); }
+      if (m.atk === 1 && NETC.offPong) m = { atk: 1, rt: Math.round(srvNow() - NETC.delay) };
+      ws.send(JSON.stringify(m));
+    }, onmessage: null };
+    const ping = () => ws.readyState === 1 && ws.send(JSON.stringify({ ping: performance.now() }));
+    ws.onopen = ping; setInterval(ping, 2000);   // NET: RTT and clock offset
     ws.onmessage = e => { let d; try { d = JSON.parse(e.data); } catch (err) { return; } net.onmessage && net.onmessage(d); };
     ws.onclose = () => { const m = document.getElementById('me'); if (m) m.textContent = 'Disconnected - reload to rejoin'; /* FEEL-BEGIN */ if (GK.feel) GK.feel.onClose(); /* FEEL-END */ };
     return net;
@@ -3067,6 +3075,9 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
   const sendMatch = () => { const w = list.map(p => p.wins); net.onmessage && net.onmessage({ match: { size: 5, alive: list.length, minWins: Math.min(...w), maxWins: Math.max(...w) } }); };
   const entry = ({ id, goblin, box, x, z, yaw, seq, inv, wins, know, hp, kills }) => { const s = invStats(inv, goblin, know); if (hp != null) s.health = Math.min(hp, s.maxHealth); return { id, goblin, box, x, z, yaw, seq, kills: kills || 0, stats: s, gear: { weapon: inv.weapon && infoOf(inv.weapon) ? infoOf(inv.weapon).name : null, armor: inv.armor && infoOf(inv.armor) ? infoOf(inv.armor).name : null }, wins }; };
   const emit = () => net.onmessage && net.onmessage({ players: list.map(entry) });
+  // NET: the offline mock speaks the same protocol as server.js: slow {players} on changes, {s:[...]} snapshots of the bots that moved every 50 ms, {pong}
+  const lastSent = new Map();
+  const emitSnap = () => { if (!net.onmessage) return; const t = Math.round(performance.now()), out = [t]; for (const b of list) { if (b === meP) continue; const l = lastSent.get(b.id), d = l ? Math.hypot(b.x - l.x, b.z - l.z) : 1, v = d < 0.004 ? 0 : Math.min(12, d / 0.05); if (l && d < 0.004 && b.yaw === l.yaw && l.v === 0) continue; lastSent.set(b.id, { x: b.x, z: b.z, yaw: b.yaw, v }); out.push(b.id, Math.round(b.x * 100) / 100, Math.round(b.z * 100) / 100, Math.round(b.yaw * 1000) / 1000, Math.round(v * 10) / 10, 0); } if (out.length > 1) net.onmessage({ s: out }); };
   // same round machine as server.js, run locally: 30 s first round, 45 s after; bots pick a door in their room each round
   const rs = { n: 1, dur: 30000, endsAt: performance.now() + 30000, sel: {}, open: [], fizzled: [] };
   const isVault = id => DINFO[id].kind === 'vault', votes = () => Object.keys(rs.sel).filter(k => isVault(rs.sel[k])).length;
@@ -3120,6 +3131,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
   const net = {
     onmessage: null,
     send(m) {
+      if (typeof m.ping === 'number') net.onmessage && net.onmessage({ pong: m.ping, t: Math.round(performance.now()) });
       if (m.atk === 1) simAtk();
       if (m.enter === 1 && !rs.started) { rs.started = true; rs.endsAt = performance.now() + rs.dur; botPlan(); emitRound(); }
       if (Number.isInteger(m.sel) && meP) { const k = roomKeyAt(meP.x, meP.z); if ((ROOM_DOORS[k] || []).includes(m.sel) && rs.sel[k] !== m.sel) { rs.sel[k] = m.sel; emitRound(); } }
@@ -3215,9 +3227,9 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
         }
       } else { b.x += dx / d * 2.8 * 0.05; b.z += dz / d * 2.8 * 0.05; b.yaw = Math.atan2(-dx, -dz); b.box = roomAt(b.x, b.z); }
     }
-    emit();
+    emitSnap();
   }, 50);
-  setInterval(() => { if (simDeaths) { sendMatch(); return; } const bots = list.filter(p => p.bot); if (bots.length > 2 && Math.random() < 0.5) list.splice(list.indexOf(bots[0]), 1); else if (bots.length < 6) list.push(mk(true)); sendMatch(); }, 7000);
+  setInterval(() => { if (simDeaths) { sendMatch(); return; } const bots = list.filter(p => p.bot); if (bots.length > 2 && Math.random() < 0.5) list.splice(list.indexOf(bots[0]), 1); else if (bots.length < 6) list.push(mk(true)); emit(); sendMatch(); }, 7000);
   return net;
 }
 
@@ -3227,12 +3239,69 @@ function dropGoblin(g) { // free GPU memory of a removed goblin (shared geometry
   const lm = g.userData.label && g.userData.label.material.map; if (lm) lm.dispose();
   g.traverse(o => { if (o.geometry) o.geometry.dispose(); [].concat(o.material || []).forEach(m => m.dispose()); });
 }
+// NET-BEGIN (client side of the netcode: snapshot interpolation with an adaptive delay, clock sync, ping readout, server corrections; see docs/reports/netcode.md)
+const NETC = { off: null, offPong: false, rtt: 0, delay: 100, jit: 0, lastArr: 0, lastT: 0, rt: 0, fix: null, el: null, txt: '' };
+const NS = { x: 0, z: 0, yaw: 0 };   // scratch result of netSample (no per-frame allocation)
+const srvNow = () => performance.now() + (NETC.off || 0);   // estimate of the server clock in ms
+function netRenderT(dt) {   // the server time that remote goblins are drawn at: now minus the interpolation delay (never runs backwards)
+  NETC.delay += (clamp(66 + 2 * NETC.jit, 70, 150) - NETC.delay) * Math.min(1, dt * 2);
+  const r = srvNow() - NETC.delay; NETC.rt = r > NETC.rt || NETC.rt - r > 500 ? r : NETC.rt; return NETC.rt;
+}
+function netPong(d) {   // {pong: my ping time, t: server time}
+  const now = performance.now(), rtt = now - d.pong; if (!(rtt >= 0 && rtt < 5000) || typeof d.t !== 'number') return;
+  NETC.rtt = NETC.rtt ? NETC.rtt + (rtt - NETC.rtt) * 0.3 : rtt;
+  if (!NETC.offPong || rtt <= NETC.rtt * 1.5 + 5) { const o = d.t + rtt / 2 - now; NETC.off = !NETC.offPong || NETC.off == null ? o : NETC.off + (o - NETC.off) * 0.2; NETC.offPong = true; }
+  netHud();
+}
+function netHud() {   // small ping readout, bottom right: green below 80 ms, yellow below 150, red above (hidden offline and outside play mode)
+  if (!NETC.el) { NETC.el = document.createElement('div'); NETC.el.style.cssText = 'position:fixed;right:10px;bottom:8px;z-index:5;padding:3px 7px;border-radius:6px;background:rgba(10,10,16,.55);font:600 11px/1 system-ui,sans-serif;pointer-events:none;text-shadow:0 1px 3px #000;display:none'; document.body.appendChild(NETC.el); }
+  const show = !window.GK_OFFLINE && NETC.offPong && GK.mode === 'play', r = Math.round(NETC.rtt), txt = 'Ping ' + r + ' ms';
+  if (show !== (NETC.el.style.display === 'block')) NETC.el.style.display = show ? 'block' : 'none';
+  if (txt !== NETC.txt) { NETC.txt = txt; NETC.el.textContent = txt; NETC.el.style.color = r < 80 ? '#7be08a' : r < 150 ? '#ffd75e' : '#ff6a5a'; }
+}
+setInterval(netHud, 500);
+function netSnap(s) {   // {s:[t, id,x,z,yaw,speed,age, ...]}: buffer one entry per moved goblin, stamped with the server time its position was received
+  const now = performance.now(), t = s[0];
+  if (NETC.off == null) NETC.off = t - now;
+  if (NETC.lastArr) NETC.jit += (Math.min(Math.abs(now - NETC.lastArr - (t - NETC.lastT)), 300) - NETC.jit) * 0.1;   // arrival jitter (RFC 3550 style)
+  NETC.lastArr = now; NETC.lastT = t;
+  for (let i = 1; i + 5 < s.length; i += 6) {
+    const a = actors.get(s[i]); if (!a || s[i] === me) continue;
+    const et = t - s[i + 5], b = a.buf || (a.buf = []), l = b[b.length - 1];
+    if (l && et <= l.t) continue;
+    if (l && l.v === 0 && et - l.t > 250) b.push({ t: et - 66, x: l.x, z: l.z, yaw: l.yaw, v: 0 });   // was standing still: hold the old spot until just before he moved
+    b.push({ t: et, x: s[i + 1], z: s[i + 2], yaw: s[i + 3], v: s[i + 4] });
+    while (b.length > 3 && b[1].t < et - 1500) b.shift();
+  }
+}
+function netSample(a, rt) {   // position of a remote goblin at server time rt: interpolate between the two snapshots around it, extrapolate at most 100 ms past the newest
+  const b = a.buf, n = b ? b.length : 0; if (!n) return null;
+  const L = b[n - 1];
+  if (rt >= L.t) {
+    NS.x = L.x; NS.z = L.z; NS.yaw = L.yaw;
+    if (L.v > 0 && n > 1) { const q = b[n - 2], dx = L.x - q.x, dz = L.z - q.z, d = Math.hypot(dx, dz), o = Math.min(rt - L.t, 100) / 1000; if (d > 1e-4) { NS.x += dx / d * L.v * o; NS.z += dz / d * L.v * o; } }
+    return NS;
+  }
+  if (rt <= b[0].t) { NS.x = b[0].x; NS.z = b[0].z; NS.yaw = b[0].yaw; return NS; }
+  let i = n - 2; while (i > 0 && b[i].t > rt) i--;
+  const A = b[i], B = b[i + 1], f = (rt - A.t) / (B.t - A.t || 1);
+  NS.x = A.x + (B.x - A.x) * f; NS.z = A.z + (B.z - A.z) * f; NS.yaw = A.yaw + wrapPi(B.yaw - A.yaw) * f; return NS;
+}
+function netFixStep(a, dt) {   // the server refused a move ({fix:[x,z]}): blend my position back to the last accepted one (snap when it is far away)
+  const f = NETC.fix; if (!f) return;
+  const dx = f[0] - P.x, dz = f[1] - P.z, d = Math.hypot(dx, dz), k = d > 4 || d < 0.02 ? 1 : Math.min(1, dt * 14);
+  P.x += dx * k; P.z += dz * k; a.x = P.x; a.z = P.z; if (k === 1) NETC.fix = null;
+}
+// NET-END
 let netReal = null;
 const net = { send: m => netReal && netReal.send(m) };
 const actors = new Map();
 let me = 0, spawned = false;
 const P = { x: 0, z: 0, yaw: 0, pitch: 0, speed: 0 };
 const handleMsg = d => {
+  if (d.s) return netSnap(d.s);   // NET: fast position snapshots (hot path)
+  if (d.pong != null) return netPong(d);
+  if (d.fix) NETC.fix = d.fix;
   /* FEEL-BEGIN */ if (GK.feel) GK.feel.onMsg(d); /* FEEL-END */
   if (d.layout) applyLayout(d.layout, d.mystery);
   if (d.chestKeys || d.chests) applyChests(d.chestKeys || d.chests);   // item keys like 'w:axe' (new), or legacy indices
@@ -3268,7 +3337,7 @@ const handleMsg = d => {
       actors.set(p.id, a);
       if (p.id === me) spawned = false;
     }
-    a.tx = p.x; a.tz = p.z; a.tyaw = p.yaw; a.box = p.box; combatSync(a, p);
+    a.box = p.box; combatSync(a, p);   // positions of existing goblins come from the snapshots (NET), not from this slow list
     if (p.id === me && !spawned) { P.x = p.x; P.z = p.z; P.yaw = p.yaw; P.pitch = 0; a.x = p.x; a.z = p.z; spawned = true; }
   }
   const mine = actors.get(me);
@@ -4437,12 +4506,13 @@ function frame(now) {
   }
   dfxUpdate(dt);
   // goblins
+  const nrt = netRenderT(dt);   // NET: server time that remote goblins are drawn at
   for (const [id, a] of actors) {
     if (id !== me) {
-      const k = Math.min(1, dt * 10), nx = a.x + (a.tx - a.x) * k, nz = a.z + (a.tz - a.z) * k;
+      const s = netSample(a, nrt), nx = s ? s.x : a.x, nz = s ? s.z : a.z;
       a.speed += (Math.hypot(nx - a.x, nz - a.z) / dt - a.speed) * Math.min(1, dt * 8);
-      a.x = nx; a.z = nz; a.yaw += wrapPi(a.tyaw - a.yaw) * k;
-    }
+      a.x = nx; a.z = nz; if (s) a.yaw = s.yaw;
+    } else netFixStep(a, dt);
     const u = a.group.userData, g = a.group;
     g.position.set(a.x, 0, a.z); g.rotation.y = a.yaw + Math.PI;
     g.visible = !(inside && id === me);
