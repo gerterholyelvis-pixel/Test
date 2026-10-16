@@ -5,16 +5,18 @@ const $ = id => document.getElementById(id);
 const TAU = Math.PI * 2;
 const DEFAULTS = { sens: 1, fov: 75, scale: 1, invertY: false, tags: true, fx: true, fsStart: false, gfx: 'high', minimap: true, mmNorth: true };   // MINIMAP: show / hide, north-up
 Object.assign(DEFAULTS, GK.feelDefaults || {});   // FEEL: vol, sfx, amb, bob (feel.js)
-const SKIN = ['#9bd45a', '#6dbb44', '#3f8a36', '#4cb8a6', '#a9cc34'];
-const ODDS = [30, 30, 30, 9, 1];
+const SKIN = ['#9bd45a', '#6dbb44', '#3f8a36', '#4cb8a6', '#a9cc34', '#9ccf52', '#5e7a4c', '#7f9a4a', '#8a9c6a', '#8c9a3c', '#4f8f72', '#b4733a'];
+const GOBS = (window.GKITEMS && GKITEMS.GOBLINS) || [], NG = GOBS.length || 5;   // GOBTYPES: the twelve starting goblins (items.js)
+const ODDS = GOBS.length ? GOBS.map(g => g.odds) : [30, 30, 30, 9, 1];
 const FLAVOR = [
   'Tiny, twitchy and easy to overlook. Stay low, stay quick.',
   'A sturdy brawler of the horde. Dependable and mean.',
   'Hulking, loud and hard to ignore. Everyone gets out of your way.',
   'Robed and rare. The horde whispers of your spells.',
   'One in a hundred. Every goblin in the cave kneels to you.'];
-const SLOT = [0, 3, 1, 4, 2];            // wheel slot -> goblin type (spreads the colours around)
-const A = TAU / 5;
+for (let i = FLAVOR.length; i < NG; i++) FLAVOR.push(GOBS[i].desc);   // GOBTYPES
+const SLOT = NG === 12 ? [0, 5, 1, 8, 6, 3, 2, 9, 7, 4, 10, 11] : [0, 3, 1, 4, 2];            // wheel slot -> goblin type (spreads the colours around)
+const A = TAU / NG;
 const body = document.body;
 
 // ---------- settings ----------
@@ -111,8 +113,8 @@ $('s-back').onclick = $('c-back').onclick = $('ch-back').onclick = $('inv-back')
 function headCanvas(type, size) {   // goblin portrait using the wheel's head drawing
   const c = document.createElement('canvas'), d = Math.min(devicePixelRatio || 1, 2);
   c.width = c.height = Math.round(size * d); c.style.width = c.style.height = size + 'px';
-  const g = c.getContext('2d'); g.scale(d, d); g.translate(size / 2, size * (type === 3 ? 0.62 : type === 4 ? 0.6 : 0.5));
-  drawHead(g, type, size * (type === 3 ? 0.2 : type === 4 ? 0.26 : 0.29)); return c;
+  const g = c.getContext('2d'); g.scale(d, d); g.translate(size / 2, size * (type === 3 ? 0.62 : type === 4 ? 0.6 : type === 7 || type === 8 || type === 9 ? 0.57 : 0.5));
+  drawHead(g, type, size * (type === 3 ? 0.2 : type === 4 ? 0.26 : type === 7 || type === 8 || type === 9 ? 0.25 : 0.29)); return c;
 }
 function trophyCanvas(size) {
   const c = document.createElement('canvas'), d = Math.min(devicePixelRatio || 1, 2);
@@ -162,7 +164,18 @@ function ago(t) {
   return 'Last win ' + (m < 2 ? 'just now' : m < 90 ? Math.round(m) + ' min ago' : m < 60 * 36 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' days ago');
 }
 function fixedWins(c) { return Math.max(0, c.wins | 0); }
+function renderRoster() {   // GOBTYPES: all twelve starting goblins with a model portrait, odds, perk and a one-line description
+  const box = $('roster'); if (!box || box.childElementCount || !GOBS.length) return;
+  GOBS.map((g, i) => i).sort((a, b) => GOBS[b].odds - GOBS[a].odds).forEach(i => {
+    const g = GOBS[i], card = document.createElement('div'); card.className = 'rcard' + (i === 4 ? ' king' : ''); card.appendChild(portraitEl(i, 58));
+    const info = document.createElement('div'); info.className = 'cinfo'; const n = document.createElement('div'); n.className = 'rn'; n.textContent = GK.NAMES[i] || g.name;
+    const o = document.createElement('span'); o.className = 'ro'; o.textContent = g.odds + '%'; n.appendChild(o);
+    const p = document.createElement('div'); p.className = 'rp'; p.textContent = g.perkName + ': ' + g.perkText; const d = document.createElement('div'); d.className = 'rd'; d.textContent = g.desc;
+    info.append(n, p, d); card.appendChild(info); box.appendChild(card);
+  });
+}
 function renderChars() {
+  try { renderRoster(); } catch (e) { console.warn('roster failed', e); }
   const box = $('chars-list'); box.textContent = '';
   let list = []; try { list = (window.GKSAVE ? GKSAVE.characters() : []).slice(); } catch (e) {}
   list.sort((a, b) => fixedWins(b) - fixedWins(a) || (b.lastWin || 0) - (a.lastWin || 0));
@@ -365,11 +378,11 @@ const wc = $('wheel'), wx = wc.getContext('2d');
 let S = 0, dpr = 1, staticC = null, wheelGo = false;
 function drawHead(g, type, s, glow) {  // goblin head, centred, radius ~ s
   g.save();
-  const sc = [0.8, 0.95, 1.12, 0.95, 1][type];
+  const sc = [0.8, 0.95, 1.12, 0.95, 1, 0.86, 0.9, 1.0, 0.95, 1.05, 1.0, 0.95][type] || 1;
   g.scale(sc, sc);
   g.lineJoin = 'round';
   const skin = SKIN[type], dark = 'rgba(0,0,0,.55)';
-  const ear = (sx) => { g.beginPath(); g.moveTo(sx * s * .62, -s * .12); g.lineTo(sx * s * 1.42, -s * .5 - (type === 0 ? s * .1 : 0)); g.lineTo(sx * s * .7, s * .42); g.closePath(); g.fillStyle = skin; g.fill(); g.strokeStyle = dark; g.lineWidth = s * .07; g.stroke(); g.beginPath(); g.moveTo(sx * s * .72, 0); g.lineTo(sx * s * 1.2, -s * .36); g.lineTo(sx * s * .76, s * .26); g.fillStyle = 'rgba(255,120,120,.28)'; g.fill(); };
+  const ear = (sx) => { g.beginPath(); g.moveTo(sx * s * .62, -s * .12); g.lineTo(sx * s * (type === 10 ? 1.15 : 1.42), -s * .5 - (type === 0 ? s * .1 : 0) - ({ 5: .55, 10: -.3, 11: .05 }[type] || 0) * s); g.lineTo(sx * s * .7, s * .42); g.closePath(); g.fillStyle = skin; g.fill(); g.strokeStyle = dark; g.lineWidth = s * .07; g.stroke(); g.beginPath(); g.moveTo(sx * s * .72, 0); g.lineTo(sx * s * 1.2, -s * .36); g.lineTo(sx * s * .76, s * .26); g.fillStyle = 'rgba(255,120,120,.28)'; g.fill(); };
   ear(-1); ear(1);
   if (type === 3) { }
   const hw = type === 2 ? 1.0 : .88, hh = type === 2 ? .88 : .94;
@@ -379,7 +392,7 @@ function drawHead(g, type, s, glow) {  // goblin head, centred, radius ~ s
   // brow + eyes
   const ey = -s * .12, ex = s * .38;
   for (const sx of [-1, 1]) {
-    g.beginPath(); g.ellipse(sx * ex, ey, s * .24, s * .17, sx * .25, 0, TAU); g.fillStyle = type === 3 ? '#9ff' : type === 4 ? '#ffd24a' : '#f3e86a'; g.fill(); g.strokeStyle = dark; g.lineWidth = s * .05; g.stroke();
+    g.beginPath(); g.ellipse(sx * ex, ey, s * .24, s * .17, sx * .25, 0, TAU); g.fillStyle = type === 3 ? '#9ff' : type === 4 ? '#ffd24a' : type === 9 ? '#ff7a5a' : type === 8 ? '#dff6ff' : type === 10 ? '#ffb84a' : '#f3e86a'; g.fill(); g.strokeStyle = dark; g.lineWidth = s * .05; g.stroke();
     g.beginPath(); g.arc(sx * ex * .85, ey + s * .01, s * .075, 0, TAU); g.fillStyle = '#111'; g.fill();
     g.beginPath(); g.moveTo(sx * ex - sx * s * .34, ey - s * .3 + (type === 2 ? s * .05 : 0)); g.lineTo(sx * ex + sx * s * .02 - sx * s * .0, ey - s * .06 + s * .04); g.lineTo(sx * ex + sx * s * .3, ey - s * .22 - s * .1); g.strokeStyle = '#1a2a10'; g.lineWidth = s * .12; g.lineCap = 'round'; g.stroke();
   }
@@ -404,7 +417,18 @@ function drawHead(g, type, s, glow) {  // goblin head, centred, radius ~ s
     for (const [px, py, c] of [[0, cy - s * .75, '#ff4040'], [-s * .8, cy - s * .55, '#5ff'], [s * .8, cy - s * .55, '#5ff']]) { g.beginPath(); g.arc(px, py, s * .09, 0, TAU); g.fillStyle = c; g.fill(); }
     g.beginPath(); g.arc(0, cy + s * .05, s * .1, 0, TAU); g.fillStyle = '#e03030'; g.fill();
   }
+  head2D(g, type, s, dark);   // GOBTYPES
   g.restore();
+}
+function head2D(g, type, s, dark) {   // GOBTYPES: wheel/portrait marks of the newer goblins: feathers, hood, hard hat, horned skull, mohawk, lily pad, horns + topknot
+  const P = (pts, fill, w) => { g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x * s, y * s) : g.moveTo(x * s, y * s)); g.closePath(); g.fillStyle = fill; g.fill(); g.strokeStyle = dark; g.lineWidth = s * (w || .06); g.stroke(); };
+  if (type === 5) { P([[-.55, -.55], [-.75, -1.45], [-.42, -.6]], '#f0ead8'); P([[-.38, -.62], [-.45, -1.3], [-.25, -.66]], '#b3402a'); g.fillStyle = '#6a4626'; g.fillRect(-s * .86, -s * .5, s * 1.72, s * .12); }
+  if (type === 6) { g.beginPath(); g.ellipse(0, -s * .1, s * 1.0, s * 1.02, 0, Math.PI * 1.02, Math.PI * 1.98); g.lineTo(s * .7, -s * .25); g.quadraticCurveTo(0, -s * .55, -s * .7, -s * .25); g.closePath(); g.fillStyle = '#2a2830'; g.fill(); g.strokeStyle = dark; g.lineWidth = s * .06; g.stroke(); }
+  if (type === 7) { g.beginPath(); g.ellipse(0, -s * .55, s * .9, s * .55, 0, Math.PI, TAU); g.closePath(); g.fillStyle = '#b08a3a'; g.fill(); g.strokeStyle = dark; g.lineWidth = s * .06; g.stroke(); g.fillStyle = '#9a7a30'; g.fillRect(-s * 1.0, -s * .6, s * 2.0, s * .12); g.fillStyle = '#f0e6c8'; g.fillRect(-s * .08, -s * 1.38, s * .16, s * .3); g.beginPath(); g.ellipse(0, -s * 1.5, s * .07, s * .13, 0, 0, TAU); g.fillStyle = '#ffb030'; g.fill(); }
+  if (type === 8) { for (const sx of [-1, 1]) P([[sx * .45, -.6], [sx * 1.1, -1.25], [sx * .95, -1.6], [sx * .85, -1.2], [sx * .25, -.75]], '#e0d4b4', .05); g.beginPath(); g.ellipse(0, -s * .78, s * .55, s * .3, 0, 0, TAU); g.fillStyle = '#e8dec0'; g.fill(); g.strokeStyle = dark; g.lineWidth = s * .06; g.stroke(); g.fillStyle = '#1a1210'; for (const sx of [-1, 1]) { g.beginPath(); g.arc(sx * s * .2, -s * .8, s * .08, 0, TAU); g.fill(); } }
+  if (type === 9) { const pts = [[-.12, -.8]]; for (let i = 0; i < 6; i++) pts.push([-.12 + i * .05, -1.5 + (i % 2) * .3 + Math.abs(i - 2.5) * .08], [-.08 + i * .05, -.85]); P(pts, '#d0281a', .04); g.fillStyle = 'rgba(179,18,43,.85)'; g.fillRect(-s * .8, -s * .36, s * 1.6, s * .1); }
+  if (type === 10) { g.beginPath(); g.ellipse(s * .05, -s * .82, s * .95, s * .22, -.12, 0.25, TAU - 0.25); g.lineTo(s * .05, -s * .82); g.closePath(); g.fillStyle = '#5a9a3a'; g.fill(); g.strokeStyle = dark; g.lineWidth = s * .05; g.stroke(); }
+  if (type === 11) { for (const sx of [-1, 1]) P([[sx * .2, -.75], [sx * .55, -1.2], [sx * .75, -1.25], [sx * .45, -.7]], '#3a3028', .04); P([[-.15, -.85], [-.12, -1.35], [.12, -1.35], [.15, -.85]], '#1a1414', .04); g.fillStyle = '#ffc933'; g.fillRect(-s * .16, -s * 1.12, s * .32, s * .08); }
 }
 function buildStatic() {
   staticC = document.createElement('canvas'); staticC.width = staticC.height = Math.round(S * dpr);
@@ -417,18 +441,18 @@ function buildStatic() {
   g.beginPath(); g.arc(0, 0, R * 1.03, 0, TAU); g.fillStyle = '#2b1a05'; g.fill();
   // segments
   const bgs = ['#2c3a1d', '#1f2b3a', '#3a2418', '#2c1d3f', '#4a3410'];
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < NG; i++) {
     const type = SLOT[i], a0 = i * A - Math.PI / 2 - A / 2, a1 = a0 + A;
     g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, R, a0, a1); g.closePath();
-    const col = ['#35502a', '#2a4a30', '#2a3f4a', '#3b2a5c', '#6a4a10'][type];
+    const col = ['#35502a', '#2a4a30', '#2a3f4a', '#3b2a5c', '#6a4a10', '#3a5224', '#26262e', '#4a3c22', '#3a4a40', '#5a2420', '#1f4a3e', '#4a2a1e'][type] || '#2a4a30';
     const gr = g.createRadialGradient(0, 0, R * .1, 0, 0, R); gr.addColorStop(0, '#0d0b0a'); gr.addColorStop(.35, col); gr.addColorStop(1, shade(col, 1.35));
     g.fillStyle = gr; g.fill(); g.strokeStyle = '#e8b64a'; g.lineWidth = Math.max(2, S * .006); g.stroke();
     // content in the segment's local frame (up = -y)
     g.save(); g.rotate(i * A);
-    g.save(); g.translate(0, -R * .56); g.shadowColor = 'rgba(0,0,0,.6)'; g.shadowBlur = S * .02; drawHead(g, type, S * .058); g.restore();
+    g.save(); g.translate(0, -R * .56); g.shadowColor = 'rgba(0,0,0,.6)'; g.shadowBlur = S * .02; drawHead(g, type, S * (NG > 5 ? .04 : .058)); g.restore();
     g.textAlign = 'center'; g.textBaseline = 'middle';
-    const fs = S * .042; g.font = `700 ${fs}px "Barlow Condensed","Arial Narrow",Impact,sans-serif`;
-    g.fillStyle = type === 4 ? '#ffe36a' : '#f4ecd2'; g.shadowColor = '#000'; g.shadowBlur = 4; g.fillText(GK.NAMES[type].toUpperCase(), 0, -R * .88);
+    const fs = S * (NG > 5 ? .03 : .042); g.font = `700 ${fs}px "Barlow Condensed","Arial Narrow",Impact,sans-serif`;
+    g.fillStyle = type === 4 ? '#ffe36a' : '#f4ecd2'; g.shadowColor = '#000'; g.shadowBlur = 4; g.fillText((NG > 5 ? GK.NAMES[type].replace(/^Goblin /, '').replace(/ Goblin$/, '') : GK.NAMES[type]).toUpperCase(), 0, -R * .88);
     g.font = `600 ${fs * .8}px "Barlow Condensed","Arial Narrow",sans-serif`; g.fillStyle = type === 4 ? '#ffb43a' : '#9ae6d0'; g.fillText(ODDS[type] + '%', 0, -R * .88 + fs * .95);
     g.restore();
   }
@@ -476,12 +500,12 @@ function drawWheel(now) {
   if (!staticC) return;
   const g = wx; g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, S, S);
   const R = S / 2 * 0.86, cx = S / 2, cy = S / 2;
-  const idx = ((Math.round(-wh.rot / A) % 5) + 5) % 5, under = SLOT[idx];
+  const idx = ((Math.round(-wh.rot / A) % NG) + NG) % NG, under = SLOT[idx];
   // rotating static layer
   g.save(); g.translate(cx, cy); g.rotate(wh.rot); g.scale(1 / dpr, 1 / dpr); g.drawImage(staticC, -staticC.width / 2, -staticC.height / 2); g.scale(dpr, dpr);
   if (wh.state === 'landed') {
     const k = Math.min(1, wh.land / .6), win = SLOT.indexOf(wh.result);
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < NG; i++) {
       const a0 = i * A - Math.PI / 2 - A / 2; g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, R, a0, a0 + A); g.closePath();
       if (i !== win) { g.fillStyle = `rgba(0,0,0,${.6 * k})`; g.fill(); }
       else { g.globalCompositeOperation = 'lighter'; g.fillStyle = `rgba(255,220,120,${(.18 + .17 * Math.sin(now / 120)) * k})`; g.fill(); g.globalCompositeOperation = 'source-over'; g.strokeStyle = `rgba(255,236,160,${k})`; g.lineWidth = S * .012; g.stroke(); }
@@ -520,7 +544,7 @@ function showReveal() {
   const t = wh.result, k = $('reveal');
   $('rolling').style.display = 'none';
   $('vname').textContent = (t === 3 || t === 4 ? '' : '') + GK.NAMES[t];
-  $('vflav').textContent = FLAVOR[t]; $('vodds').textContent = ODDS[t] + '% chance';
+  $('vflav').textContent = FLAVOR[t] + (GOBS[t] ? ' ' + GOBS[t].perkName + ': ' + GOBS[t].perkText : ''); $('vodds').textContent = ODDS[t] + '% chance';
   k.classList.toggle('king', t === 4); k.classList.add('on');
 }
 
@@ -535,7 +559,7 @@ function startGame(opts) {
   wh.state = 'spin'; wh.t = 0; wh.rot = Math.random() * TAU; wh.result = null; wh.shown = false;
   $('rname').textContent = 'Rolling...'; $('rstat').textContent = 'Spinning the wheel of fate';
   let p; try { p = opts ? GK.start(opts) : GK.start(); } catch (e) { console.error(e); p = new Promise(() => {}); }
-  Promise.resolve(p).then(g => { wh.result = (typeof g === 'number' && g >= 0 && g < 5) ? g : 0; });
+  Promise.resolve(p).then(g => { wh.result = (typeof g === 'number' && g >= 0 && g < NG) ? g : 0; });
 }
 $('b-start').onclick = () => startGame();
 try {   // 'Requeue' from the death screen (optionally with a saved character)

@@ -11,7 +11,7 @@ const BOTS = { GK_MATCH_SIZE: '8', GK_QUEUE_MS: '100', GK_ROUND_MS: '500', GK_NE
   try {
     fail = await L.run('balance', [
       ['speed table: small goblins are the fastest, big the slowest, and the server budget covers the fastest class', async () => {
-        eq(G.SPEED.length, 5); assert(G.SPEED[0] > G.SPEED[1] && G.SPEED[1] > G.SPEED[2], 'small > medium > big: ' + G.SPEED); assert(Math.max(...G.SPEED) === G.SPEED[0]);
+        eq(G.SPEED.length, G.GOBLINS.length); assert(G.SPEED[0] > G.SPEED[1] && G.SPEED[1] > G.SPEED[2], "small > medium > big: " + G.SPEED); assert(Math.max(...G.SPEED) === G.SPEED[0]);
         const c = await connect(bots.port, 'goblin=0&wins=0'); await sleep(150);   // a small goblin sprinting at 7.5 x 1.12 across its own room must not be corrected
         const [cx, cz] = W.rc(c.state.matchStart.spawn.box); let x = cx - 3, z = cz; c.send({ tp: [x, z] }); await sleep(100); const fixes = () => c.msgs.filter(m => m.fix).length, f0 = fixes();
         for (let i = 0; i < 10; i++) { x += 7.5 * G.SPEED[0] * 0.066; c.send({ m: [+x.toFixed(2), z, 0] }); await sleep(66); }

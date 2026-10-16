@@ -9,7 +9,9 @@
   }
   function store(s) { mem = s; try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} }
   const score = i => (i.tierN || 0) * 1000 + (i.price || 0);
-  const NAMES = [['Nib', 'Snik', 'Grub', 'Wort', 'Pip'], ['Gruk', 'Brask', 'Mog', 'Skarn', 'Dreg'], ['Thok', 'Gorbash', 'Ugrak', 'Brug', 'Zog'], ['Mizzle', 'Zarn', 'Quill', 'Ombra', 'Vexil'], ['Krag the King', 'Morgul', 'Grimble', 'Ozzar', 'Velkor']];
+  const NAMES = [['Nib', 'Snik', 'Grub', 'Wort', 'Pip'], ['Gruk', 'Brask', 'Mog', 'Skarn', 'Dreg'], ['Thok', 'Gorbash', 'Ugrak', 'Brug', 'Zog'], ['Mizzle', 'Zarn', 'Quill', 'Ombra', 'Vexil'], ['Krag the King', 'Morgul', 'Grimble', 'Ozzar', 'Velkor'],
+    ['Flit', 'Skeet', 'Ranz', 'Tikka', 'Quik'], ['Shiv', 'Murk', 'Sliss', 'Nox', 'Wisp'], ['Durk', 'Grubnik', 'Pebble', 'Clank', 'Rusk'], ['Ooga', 'Hexa', 'Bonesy', 'Mumbo', 'Vetch'],   // GOBTYPES: scout, sneak, miner, shaman
+    ['Rakka', 'Gorm', 'Skull', 'Brakk', 'Rend'], ['Glub', 'Murla', 'Sloog', 'Bogwin', 'Reedle'], ['Kazgar', 'Vorn', 'Ruskar', 'Toreth', 'Ashka']];   // berserker, bog goblin, hobgoblin
   window.GKSAVE = {
     load,
     stash: () => load().stash,

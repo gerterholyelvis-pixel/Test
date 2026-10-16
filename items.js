@@ -105,6 +105,50 @@
   const SLOTS = { backpack: 9, quick: 3 };
   const KNOWLEDGE_TIERS = [20, 40, 60, 80, 100];   // the knowledge tree has 5 tiers; tier N needs this much knowledge
   const START_GOLD = 100;   // placeholder starting gold so the merchant can be tried out
+  // GOBTYPES-BEGIN (12 starting goblins; docs/reports/goblin-types.md). Type ids 0-4 never change (saved-character tokens store them), the newer ones are 5-11.
+  // odds: percent the server rolls (the common three 20 each = 60, the other nine taper off geometrically (x0.74) to 40, the King rarest at 1).
+  // size: model scale (game.js SCALE) and hit-box size; hp: added to the armour's health; reach: extra melee reach in metres; perk: what the server applies (see goblinHit / goblinRegen / equip).
+  const GOBLINS = [
+    { key: 'small', name: 'Small Goblin', odds: 20, size: 0.75, hp: 0, reach: 0, perk: null, perkName: 'Quick', perkText: 'The fastest of the common goblins.', desc: 'Tiny, twitchy and easy to overlook. Stay low, stay quick.' },
+    { key: 'medium', name: 'Goblin', odds: 20, size: 1, hp: 0, reach: 0, perk: null, perkName: 'Steady', perkText: 'No weakness, no tricks: a club and a vest.', desc: 'A sturdy brawler of the horde. Dependable and mean.' },
+    { key: 'big', name: 'Big Goblin', odds: 20, size: 1.3, hp: 0, reach: 0, perk: null, perkName: 'Heavy', perkText: 'Starts in a warlord harness. Slow, and a big target.', desc: 'Hulking, loud and hard to ignore. Everyone gets out of your way.' },
+    { key: 'wizard', name: 'Goblin Wizard', odds: 4.5, size: 1.1, hp: 0, reach: 0, perk: null, perkName: 'Staff bolt', perkText: 'Starts with a staff that throws bolts. The most knowledge.', desc: 'Robed and rare. The horde whispers of your spells.' },
+    { key: 'king', name: 'GOBLIN KING', odds: 1, size: 1.2, hp: 0, reach: 0, perk: null, perkName: 'Royal', perkText: 'Royal gear, but rivals see your crown through the walls.', desc: 'One in a hundred. Every goblin in the cave kneels to you.' },
+    { key: 'scout', name: 'Goblin Scout', odds: 11.2, size: 0.9, hp: 22, reach: 0, perk: 'nimble', perkName: 'Nimble', perkText: '1 in 8 melee blows against you miss.', desc: 'Long ears and light feet. Hears you coming, gets there first.' },
+    { key: 'sneak', name: 'Goblin Sneak', odds: 8.2, size: 0.88, hp: -4, reach: 0, perk: 'backstab', perkName: 'Backstab', perkText: '+50% damage when you hit a goblin from behind.', desc: 'Hooded, crouched and never where you look.' },
+    { key: 'miner', name: 'Goblin Miner', odds: 6.1, size: 0.92, hp: -12, reach: 0, perk: 'prospector', perkName: 'Prospector', perkText: 'Starts with 40 more gold and a pouch of metal, wood and a gem.', desc: 'Short, stocky and covered in grit. Smells gold through rock.' },
+    { key: 'shaman', name: 'Goblin Shaman', odds: 3.3, size: 1, hp: -4, reach: 0, perk: 'mending', perkName: 'Mending', perkText: 'Heals twice as often, and starts healing sooner after a hit.', desc: 'Bone mask, horns and old charms. The wounds close by themselves.' },
+    { key: 'berserker', name: 'Goblin Berserker', odds: 2.5, size: 1.15, hp: -12, reach: 0, perk: 'rage', perkName: 'Rage', perkText: '+35% damage while below half health.', desc: 'Painted red and screaming. Hurting it only makes it worse.' },
+    { key: 'bog', name: 'Bog Goblin', odds: 1.8, size: 0.95, hp: 0, reach: 0, perk: 'thickhide', perkName: 'Thick hide', perkText: 'Takes 15% less damage from everything.', desc: 'A wide-mouthed swamp goblin with a tail. Slimy, slow and hard to hurt.' },
+    { key: 'hob', name: 'Hobgoblin', odds: 1.4, size: 1.3, hp: 4, reach: 0.4, perk: 'longarms', perkName: 'Long arms', perkText: 'Melee reach +0.4 m. Tall, so easy to hit.', desc: 'A tall, rust-skinned cousin from the deep. Keeps you at spear length.' },
+  ];
+  START.push({ weapon: 'w:sword', armor: 'a:swiftwrap' }, { weapon: 'w:twinfangs', armor: 'a:scraps' }, { weapon: 'w:handaxe', armor: 'a:scrapplate' },
+    { weapon: 'w:club', armor: 'a:bonemail' }, { weapon: 'w:scrapcleaver', armor: 'a:furmantle' }, { weapon: 'w:spear', armor: 'a:rags' }, { weapon: 'w:spear', armor: 'a:cloth' });
+  KNOWLEDGE.push(50, 55, 45, 70, 25, 45, 50);
+  SPEED.push(1.04, 1.06, 0.94, 1.0, 1.03, 0.96, 1.0);   // the scout's swiftwrap adds its own x1.12
+  const GOB_PERKS = { nimble: { dodge: 0.125 }, backstab: { mult: 1.5 }, prospector: { gold: 40, parts: { metal: 3, wood: 2, gem: 1 } }, mending: { idle: 0.5, every: 0.5 }, rage: { below: 0.5, mult: 1.35 }, thickhide: { taken: 0.85 }, longarms: {} };
+  const HIT_R = 0.35;   // hit-box radius of a size-1 goblin (m): bigger goblins are a little easier to reach, smaller ones a little harder
+  const gob = g => GOBLINS[g | 0] || GOBLINS[1];
+  function rollGoblin(r) {   // weighted roll -> type id; r in [0, 1) (default Math.random())
+    let x = (r == null ? Math.random() : r) * 100;
+    for (let i = 0; i < GOBLINS.length; i++) if ((x -= GOBLINS[i].odds) < 0) return i;
+    return 1;
+  }
+  const goblinHp = (g, armorHp) => Math.max(1, armorHp + gob(g).hp);   // max health: armour + the type's bonus
+  const hitRadius = g => HIT_R * gob(g).size;
+  const goblinReach = g => gob(g).reach;
+  function goblinHit(att, tgt, dmg, ctx = {}) {   // att / tgt: { goblin, hp, max, npc }; ctx: { melee, behind, rnd }. -> { dmg, dodged }. NPCs have no perks.
+    const pa = att && !att.npc ? gob(att.goblin).perk : null, pt = tgt && !tgt.npc ? gob(tgt.goblin).perk : null, rnd = ctx.rnd == null ? Math.random() : ctx.rnd;
+    if (pt === 'nimble' && ctx.melee && rnd < GOB_PERKS.nimble.dodge) return { dmg: 0, dodged: true };
+    let d = dmg;
+    if (pa === 'backstab' && ctx.behind) d *= GOB_PERKS.backstab.mult;
+    if (pa === 'rage' && att.max > 0 && att.hp < att.max * GOB_PERKS.rage.below) d *= GOB_PERKS.rage.mult;
+    if (pt === 'thickhide') d *= GOB_PERKS.thickhide.taken;
+    return { dmg: Math.max(1, Math.round(d)), dodged: false };
+  }
+  const goblinRegen = g => gob(g).perk === 'mending' ? GOB_PERKS.mending : { idle: 1, every: 1 };   // multipliers on COMBAT.regenIdle / regenEvery
+  const goblinStart = g => gob(g).perk === 'prospector' ? GOB_PERKS.prospector : null;   // extra gold and parts at the start
+  // GOBTYPES-END
 
   // ---- GOBLIN BRAIN: a dead goblin drops its brain. Eating it gives 5% of the knowledge that goblin had.
   // A brain is an item key 'm:brain:<knowledge of the dead goblin>' (e.g. 'm:brain:60'); use info(key) to read any item key including brains.
@@ -258,6 +302,6 @@
     ['w:slayer', 5, { metal: 18, gold: 8, gem: 4, crystal: 3 }], ['a:aegis', 5, { metal: 20, gold: 8, gem: 4, crystal: 3 }]])
     if (ITEMS[key] && !RECIPES.some(r => r.out === key)) RECIPES.push({ id: 'r:' + key, out: key, tier, cost, needs: KNOWLEDGE_TIERS[tier - 1] });
   // KNOWLEDGE-END
-  root.GKITEMS = { KNOW, BRANCHES, PERKS, PERK, hasPerk, perkSpent, knowPoints, knowTier, learnFail, recipeCost, recycleFor, healMult, reforgeCost, UTIL_KEYS, pickUtil, armorSpeed, MAX_ARMOR_SPEED, randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, WEAPON_TUNE, START, KNOWLEDGE, SPEED, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info, armorThorns, armorScore };
+  root.GKITEMS = { KNOW, BRANCHES, PERKS, PERK, hasPerk, perkSpent, knowPoints, knowTier, learnFail, recipeCost, recycleFor, healMult, reforgeCost, UTIL_KEYS, pickUtil, armorSpeed, MAX_ARMOR_SPEED, randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, WEAPON_TUNE, START, KNOWLEDGE, SPEED, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info, armorThorns, armorScore, GOBLINS, GOB_PERKS, HIT_R, rollGoblin, goblinHp, hitRadius, goblinReach, goblinHit, goblinRegen, goblinStart };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.GKITEMS;
 })(typeof window !== 'undefined' ? window : globalThis);
