@@ -102,6 +102,42 @@ function trophyCanvas(size) {
   g.lineWidth = 0.04; g.fillRect(.45, .64, .1, .16); g.fillRect(.28, .8, .44, .1); g.strokeRect(.28, .8, .44, .1);
   return c;
 }
+// 3D portrait of a goblin type: rendered once into an offscreen target with its own little studio rig (never touches the game scene), cached as a data URL
+const PORT = {}; let portScene = null, portCam = null, portRT = null;
+function portraitURL(type) {
+  if (PORT[type] !== undefined) return PORT[type];
+  PORT[type] = null;
+  try {
+    const r = GK.renderer, S = 256;
+    if (!portScene) {
+      portScene = new THREE.Scene(); portScene.add(new THREE.AmbientLight(0x8a7a66, 1.5));
+      const k = new THREE.DirectionalLight(0xffe2b0, 3.4); k.position.set(2.5, 3, 4); portScene.add(k);
+      const rim = new THREE.DirectionalLight(0x44e0c0, 2.2); rim.position.set(-3, 2, -2.5); portScene.add(rim);
+      if (GK.scene && GK.scene.environment) { portScene.environment = GK.scene.environment; if ('environmentIntensity' in portScene) portScene.environmentIntensity = 0.5; }
+      portCam = new THREE.PerspectiveCamera(26, 1, 0.1, 40); portRT = new THREE.WebGLRenderTarget(S, S, { samples: 4 }); portRT.texture.colorSpace = THREE.SRGBColorSpace;
+    }
+    const g = GK.build(type); g.traverse(o => { if (o.isSprite) o.visible = false; }); g.rotation.y = 0.4; portScene.add(g);
+    const box = new THREE.Box3().setFromObject(g), h = box.max.y - box.min.y, ty = box.max.y - h * 0.38, d = h * 1.55;
+    portCam.position.set(d * 0.18, ty + h * 0.04, d); portCam.lookAt(0, ty, 0); portCam.updateProjectionMatrix();
+    const cc = new THREE.Color(); r.getClearColor(cc); const ca = r.getClearAlpha(), prev = r.getRenderTarget();
+    r.setClearColor(0x000000, 0); r.setRenderTarget(portRT); r.clear(); r.render(portScene, portCam); r.setRenderTarget(prev); r.setClearColor(cc, ca);
+    const px = new Uint8Array(S * S * 4); r.readRenderTargetPixels(portRT, 0, 0, S, S, px);
+    const cv = document.createElement('canvas'); cv.width = cv.height = S; const g2 = cv.getContext('2d'), im = g2.createImageData(S, S);
+    for (let y = 0; y < S; y++) im.data.set(px.subarray((S - 1 - y) * S * 4, (S - y) * S * 4), y * S * 4);
+    g2.putImageData(im, 0, 0); PORT[type] = cv.toDataURL('image/png'); portScene.remove(g);
+  } catch (e) { console.warn('portrait failed', e); }
+  return PORT[type];
+}
+function portraitEl(type, size) {
+  const url = portraitURL(type), w = document.createElement('div'); w.className = 'cport'; w.style.width = w.style.height = size + 'px';
+  if (url) { const i = document.createElement('img'); i.src = url; i.alt = ''; w.appendChild(i); } else w.appendChild(headCanvas(type, size - 6));
+  return w;
+}
+function ago(t) {
+  if (!t) return 'No wins yet';
+  const m = Math.max(0, (Date.now() - t) / 60000);
+  return 'Last win ' + (m < 2 ? 'just now' : m < 90 ? Math.round(m) + ' min ago' : m < 60 * 36 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' days ago');
+}
 function fixedWins(c) { return Math.max(0, c.wins | 0); }
 function renderChars() {
   const box = $('chars-list'); box.textContent = '';
@@ -112,13 +148,15 @@ function renderChars() {
   box.style.display = '';
   for (const c of list) {
     const card = document.createElement('div'); card.className = 'ccard';
-    card.appendChild(headCanvas(c.goblin, 56));
+    card.appendChild(portraitEl(c.goblin, 84));
     const info = document.createElement('div'); info.className = 'cinfo';
     const n = document.createElement('div'); n.className = 'cname'; n.textContent = c.name; info.appendChild(n);
     const t = document.createElement('div'); t.className = 'ctype'; t.textContent = GK.NAMES[c.goblin] || 'Goblin'; info.appendChild(t);
-    const w = document.createElement('div'); w.className = 'cwins'; w.appendChild(trophyCanvas(20));
+    const w = document.createElement('div'); w.className = 'cwins'; w.appendChild(trophyCanvas(22));
     const l = document.createElement('span'); l.textContent = 'Victories'; const b = document.createElement('b'); b.textContent = fixedWins(c); w.append(l, b); info.appendChild(w);
+    const when = document.createElement('div'); when.className = 'cwhen'; when.textContent = ago(c.lastWin); info.appendChild(when);
     card.appendChild(info);
+    if (c.best && window.GKICONS) { const bi = itemInfo(c.best), bx = document.createElement('div'); bx.className = 'cbest'; bx.title = 'Best item: ' + bi.name; if (bi.tier) bx.dataset.t = bi.tier; bx.appendChild(GKICONS.canvas(bi.key || c.best, 36)); bx.onmouseenter = bx.onmousemove = e => tip(bi, e); bx.onmouseleave = () => tip(null); card.appendChild(bx); }
     const p = document.createElement('button'); p.className = 'cplay'; p.textContent = 'Play'; p.onclick = () => startGame({ goblin: c.goblin, wins: fixedWins(c), charId: c.id });
     card.appendChild(p); box.appendChild(card);
   }

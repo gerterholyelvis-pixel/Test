@@ -8,6 +8,7 @@
     return mem || blank();
   }
   function store(s) { mem = s; try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} }
+  const score = i => (i.tierN || 0) * 1000 + (i.price || 0);
   const NAMES = [['Nib', 'Snik', 'Grub', 'Wort', 'Pip'], ['Gruk', 'Brask', 'Mog', 'Skarn', 'Dreg'], ['Thok', 'Gorbash', 'Ugrak', 'Brug', 'Zog'], ['Mizzle', 'Zarn', 'Quill', 'Ombra', 'Vexil'], ['Krag the King', 'Morgul', 'Grimble', 'Ozzar', 'Velkor']];
   window.GKSAVE = {
     load,
@@ -25,6 +26,7 @@
         c = { id: s.nextId++, goblin, name, wins: 0 }; s.characters.push(c);
       }
       c.wins++; c.lastWin = Date.now();
+      for (const it of items || []) { const k = typeof it === 'string' ? it : it && it.key, i = k && window.GKITEMS && GKITEMS.info && GKITEMS.info(k); if (i && (!c.best || score(i) > score(GKITEMS.info(c.best) || {}))) c.best = k; }   // the best thing this goblin ever brought home (shown on its card)
       for (const it of items || []) if (it) s.stash.push(it);
       s.parts = s.parts || {}; for (const k in parts || {}) if (parts[k] > 0) s.parts[k] = (s.parts[k] || 0) + (parts[k] | 0);
       store(s); return c;

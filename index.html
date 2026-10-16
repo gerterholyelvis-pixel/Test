@@ -209,6 +209,20 @@ table.keys td:first-child{width:auto;min-width:clamp(96px,11vw,140px);padding-ri
 table.keys td:last-child{font-size:var(--t2);line-height:1.15;color:#d8d2bf}
 #p-controls .note{margin-top:var(--s2)}
 @media (max-width:760px){table.keys tbody{grid-template-columns:1fr}}
+
+/* characters: 3D portrait, victories, last win, best item */
+.clist{grid-template-columns:1fr;gap:var(--s2)}
+.ccard{gap:var(--s3);padding:var(--s2) var(--s3) var(--s2) var(--s2);position:relative;transition:border-color .2s,background .2s,transform .2s,box-shadow .2s}
+.ccard:hover,.ccard:focus-within{transform:translateX(4px);box-shadow:0 0 18px rgba(245,170,50,.18)}
+.cport{flex:none;position:relative;border-radius:50%;overflow:hidden;background:radial-gradient(circle at 50% 38%,#3a2d1a,#0b0907 75%);border:2px solid var(--gold3);box-shadow:0 0 0 3px rgba(0,0,0,.6),0 0 16px rgba(245,170,50,.25),inset 0 0 14px rgba(0,0,0,.7)}
+.cport img{width:100%;height:100%;display:block;object-fit:cover}
+.cport canvas{border:0;border-radius:0;background:none;display:block;margin:auto}
+.cname{font-size:var(--t3)}.ctype{font-size:var(--t1)}.cwins{font-size:var(--t2)}
+.cwhen{margin-top:2px;font-size:var(--t1);letter-spacing:.14em;text-transform:uppercase;color:var(--mut)}
+.cbest{flex:none;width:clamp(40px,6vh,52px);height:clamp(40px,6vh,52px);display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#1b1813,#0e0c09);border:1px solid #4a4030}
+.cbest[data-t=uncommon]{border-color:#3d8f3a}.cbest[data-t=rare]{border-color:#3a78c8}.cbest[data-t=mythic]{border-color:#8a4fc8}.cbest[data-t=legendary]{border-color:#d98f1f;box-shadow:0 0 10px rgba(255,176,46,.35)}.cbest[data-t=transcendent]{border-color:#6fd8e0;box-shadow:0 0 12px rgba(143,246,255,.45)}
+.cbest canvas{max-width:88%;max-height:88%}
+@media (max-width:560px){.ccard{gap:var(--s2);flex-wrap:wrap}.cplay{margin-left:auto}.cport{width:64px!important;height:64px!important}}
 </style>
 <script type="importmap">{"imports":{"three":"/three/three.module.js","three/addons/":"/three/addons/"}}</script>
 </head>
