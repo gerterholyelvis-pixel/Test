@@ -1,6 +1,8 @@
 // netcode: ping/pong, snapshot shape, slow state not resent, movement validation (speed, closed door, open door, walls), lag-compensated melee
 const L = require('./lib.js'), { connect, sleep, assert, eq } = L, W = require('../world.js'), G = require('../items.js');
 const FACE_E = -Math.PI / 2;
+// room 0 / room 1 geometry from world.js: WX = the wall between them (the door is centred on it at z = Z0), OX = room 0's outer west wall
+const Z0 = W.rc(0)[1], WX = W.rc(0)[0] + W.roomW(0) / 2, OX = -W.HALF, q = v => Math.round(v * 100) / 100;
 const D = L.doors(), DOOR01 = D.find(d => d.a === '0' && d.b === '1').id;
 async function pair(srv, wins, ga = 0, gb = 0) {   // two players in one private match (distinct `wins` keep tests apart)
   // servers run with GK_MATCH_SIZE=2: both clients queue together (same `wins` bracket); connect() returns after GO
@@ -69,15 +71,15 @@ const walk = async (c, x0, z0, x1, z1, secs, speed) => {   // send {m} every 66 
       }],
       ['closed door: walking through a wall or a closed door is rejected; after the round opens it, the doorway works but the wall beside it does not', async () => {
         const [a, o] = await pair(srv, 20);   // a = mover, o = observer
-        await put(a, -9.4, -15); delete a.state.fix; await sleep(80); const no = o.msgs.length;
-        a.send({ m: [-8.6, -15, 0] }); await a.until(x => x.state.fix, 2000, 'fix at the closed door');
-        eq(a.state.fix, [-9.4, -15], 'back to the last good spot'); eq(snapsOf(o, a.state.you, no).filter(s => s.x > -9), [], 'the observer saw him pass the wall');
-        delete a.state.fix; a.send({ tp: [-20.4, -15] }); a.send({ m: [-21.3, -15, 0] }); await a.until(x => x.state.fix, 2000, 'fix at the outer wall'); eq(a.state.fix, [-20.4, -15]);
-        delete a.state.fix; a.send({ tp: [-10, -19] }); a.send({ m: [-8, -19, 0] }); await a.until(x => x.state.fix, 2000, 'fix when crossing at the wall instead of the doorway'); // 4 m beside the door centre
-        a.send({ tp: [-9.4, -15] }); a.send({ enter: 1 }); await sleep(100); a.send({ sel: DOOR01 });   // room 0 votes for the plain door to room 1
+        await put(a, q(WX - 0.4), Z0); delete a.state.fix; await sleep(80); const no = o.msgs.length;
+        a.send({ m: [q(WX + 0.4), Z0, 0] }); await a.until(x => x.state.fix, 2000, 'fix at the closed door');
+        eq(a.state.fix, [q(WX - 0.4), Z0], 'back to the last good spot'); eq(snapsOf(o, a.state.you, no).filter(s => s.x > WX), [], 'the observer saw him pass the wall');
+        delete a.state.fix; a.send({ tp: [q(OX + 0.6), Z0] }); a.send({ m: [q(OX - 0.3), Z0, 0] }); await a.until(x => x.state.fix, 2000, 'fix at the outer wall'); eq(a.state.fix, [q(OX + 0.6), Z0]);
+        delete a.state.fix; a.send({ tp: [q(WX - 1), Z0 - 4] }); a.send({ m: [q(WX + 1), Z0 - 4, 0] }); await a.until(x => x.state.fix, 2000, 'fix when crossing at the wall instead of the doorway'); // 4 m beside the door centre
+        a.send({ tp: [q(WX - 0.4), Z0] }); a.send({ enter: 1 }); await sleep(100); a.send({ sel: DOOR01 });   // room 0 votes for the plain door to room 1
         await a.until(x => x.state.open && x.state.open.includes(DOOR01), 6000, 'door opens at the end of round 1');
-        delete a.state.fix; a.send({ m: [-8.6, -15, 0] }); await sleep(200); eq(a.state.fix, undefined, 'open door still blocks'); await o.until(x => snapsOf(x, a.state.you).some(s => s.x > -9), 1500, 'observer sees him in the next room');
-        delete a.state.fix; a.send({ tp: [-8.6, -19] }); a.send({ m: [-9.6, -19, 0] }); await a.until(x => x.state.fix, 2000, 'wall beside the open doorway');
+        delete a.state.fix; a.send({ m: [q(WX + 0.4), Z0, 0] }); await sleep(200); eq(a.state.fix, undefined, 'open door still blocks'); await o.until(x => snapsOf(x, a.state.you).some(s => s.x > WX), 1500, 'observer sees him in the next room');
+        delete a.state.fix; a.send({ tp: [q(WX + 0.4), Z0 - 4] }); a.send({ m: [q(WX - 0.6), Z0 - 4, 0] }); await a.until(x => x.state.fix, 2000, 'wall beside the open doorway');
         await a.close(); await o.close();
       }],
       ['lag compensation: melee uses the target position the attacker saw (rewound, capped at 200 ms)', async () => {

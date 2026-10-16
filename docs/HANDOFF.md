@@ -17,7 +17,7 @@ Screenshots are in `docs/screens/`.
 - Debug env vars, only with `GK_DEBUG=1`: `GK_MATCH_SIZE`, `GK_QUEUE_MS`, `GK_ROUND_MS`, `GK_COUNTDOWN_MS`, `GK_READY_MS`, `GK_REGEN_SCALE`.
 
 ## What exists now (all on main)
-- **World:** THE VAULT (18x18) and the shared `world.js` geometry used by client and server. Room art has story corners, readable graffiti, wear and floor storytelling.
+- **World:** THE VAULT (22.5x22.5; rooms 15x15 / 22.5x15, `WORLD.SCALE` = 1.25 over the original 12 / 18 m) and the shared `world.js` geometry used by client and server. Room art has story corners, readable graffiti, wear and floor storytelling.
 - **Graphics:**
   - IBL, GTAO and bloom.
   - Quality presets Low/Medium/High/Ultra, auto-picked on first run.

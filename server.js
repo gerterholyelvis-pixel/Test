@@ -862,6 +862,16 @@ function face(m, p, x, z, now, jitter) {   // turn toward a point (with aim jitt
   const yaw = Math.atan2(-(x - p.x), -(z - p.z)) + (jitter ? (Math.random() - 0.5) * 0.22 : 0);
   mv(m, p, p.x, p.z, yaw, now);
 }
+function doorClamp(m, key, x, z) {   // keep (x, z) 0.5 m off the walls of room `key`, except straight through the opening of an open door (where it may leave the room)
+  const r = RB[key]; if (!r) return [x, z];
+  let [cx, cz] = clampIn(key, x, z, 0.5);
+  for (const e of ADJ[key] || []) {
+    if (!m.open.includes(e.door)) continue; const d = DOOR_AT[key + '|' + e.to];
+    if (d.axis === 'z') { if (Math.abs(z - d.c) < d.hw - 0.5 && Math.sign(x - r.cx) === Math.sign(e.w2[0] - r.cx)) cx = x; }
+    else if (Math.abs(x - d.c) < d.hw - 0.5 && Math.sign(z - r.cz) === Math.sign(e.w2[1] - r.cz)) cz = z;
+  }
+  return [cx, cz];
+}
 function stepTo(m, p, tx, tz, dt, now, free) {   // one validated step toward (tx, tz); returns true when there. `free`: a doorway crossing (no wall margin)
   const b = p.brain, obs = obstaclesFor(m, p.room), nav = b.nav || (b.nav = {});
   if (obs.length) { if (BN.hitAt(p.x, p.z, obs)) { const [ox, oz] = BN.pushOut(p.x, p.z, obs); mv(m, p, ox, oz, p.yaw, now); } [tx, tz] = BN.pushOut(tx, tz, obs, BN.BOT_R, p.x, p.z); }   // NAV: a target inside a prop moves out of it; a bot inside one steps out
@@ -871,6 +881,7 @@ function stepTo(m, p, tx, tz, dt, now, free) {   // one validated step toward (t
   const st = Math.min(d, b.speed * dt); let nx = p.x + dx / d * st, nz = p.z + dz / d * st;
   if (!free) [nx, nz] = clampIn(p.room, nx, nz, 0.5);
   if (obs.length) { const r = BN.steer(nav, p.x, p.z, nx, nz, Math.hypot(nx - p.x, nz - p.z) || st, obs, BN.BOT_R, now); if (r) { nx = r[0]; nz = r[1]; } else { nx = p.x; nz = p.z; } }
+  if (free) [nx, nz] = doorClamp(m, p.room, nx, nz);   // a prop detour or an escape leg must not drag a doorway walker along the wall into the masonry
   b.scan = null;
   const lvl = obs.length ? BN.track(nav, p.x, p.z, now, tx, tz) : 0;   // NAV: stuck detection (nothing runs while a room has no props)
   if (lvl) { BS.nav = (BS.nav || 0) + 1; if (lvl === 1) nav.side = -(nav.side || 1); else if (lvl === 2) BN.escape(nav, dx / d, dz / d, now); else { b.route = []; b.idleUntil = now + 300; BN.untrack(nav); nav.side = 0; return false; } }

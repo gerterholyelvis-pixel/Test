@@ -24,7 +24,7 @@ const equipBow = async c => { c.send({ give: 'w:bow' }); await c.until(x => x.st
         const cases = [
           async () => { const [a, b] = await pair(srv, 0); await put(a, -15, -15, FACE_W); await put(b, -13.5, -15, 0); const ms = await swing(a); assert(ms.some(m => m.swing === a.state.you), 'swing not broadcast'); eq(hits(ms), [], 'hit from behind'); await a.close(); await b.close(); },
           async () => { const [a, b] = await pair(srv, 10); await put(a, -15, -15, FACE_E); await put(b, -11.5, -15, 0); eq(hits(await swing(a)), [], 'hit at 3.5 m'); await a.close(); await b.close(); },
-          async () => { const [a, b] = await pair(srv, 20); await put(a, -9.8, -15, FACE_E); await put(b, -8.6, -15, 0); eq(W.roomKeyOf(-9.8, -15), '0'); eq(W.roomKeyOf(-8.6, -15), '1'); eq(hits(await swing(a)), [], 'hit through the wall'); await a.close(); await b.close(); },
+          async () => { const [a, b] = await pair(srv, 20); const wx = W.rc(0)[0] + W.roomW(0) / 2; await put(a, wx - 0.8, -15, FACE_E); await put(b, wx + 0.4, -15, 0); eq(W.roomKeyOf(wx - 0.8, -15), '0'); eq(W.roomKeyOf(wx + 0.4, -15), '1'); /* across the room 0 / room 1 wall */ eq(hits(await swing(a)), [], 'hit through the wall'); await a.close(); await b.close(); },
         ];
         await Promise.all(cases.map(f => f()));
       }],
