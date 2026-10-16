@@ -3,14 +3,15 @@
 // the rooms above/below it are V wide x W deep, the rooms left/right of it are W wide x V deep, the corner rooms are W x W.
 // Rooms are numbered 0..8 (index = col + 3 * row). 12 chest/mystery/merchant rooms (CS x CS) sit centred behind the 12 outer walls.
 (function (root) {
-  const W = 12;            // normal room size (m)
-  const V = 18;            // THE VAULT size (m), change this one number to resize the middle room
+  const SCALE = 1.25;      // room scale vs the original 12 / 18 m layout (rooms grew 25% per side; doors, props and the chest rooms keep their size)
+  const W = 12 * SCALE;    // normal room size (m): 15
+  const V = 18 * SCALE;    // THE VAULT size (m): 22.5, keep V / W = 1.5
   const H = 6.5;           // ceiling height
   const T = 0.6;           // wall thickness
   const CS = 8;            // chest room size
   const COLW = [W, V, W], ROWD = [W, V, W];
-  const HALF = V / 2 + W;                       // half extent of the room grid (21)
-  const LIM = HALF + CS;                        // half extent including the chest rooms (29)
+  const HALF = V / 2 + W;                       // half extent of the room grid (26.25)
+  const LIM = HALF + CS;                        // half extent including the chest rooms (34.25)
   const COLX = [-(V / 2 + W / 2), 0, V / 2 + W / 2], ROWZ = COLX;   // column / row centres
   const colOf = i => i % 3, rowOf = i => Math.floor(i / 3);
   const roomW = i => COLW[colOf(i)], roomD = i => ROWD[rowOf(i)];
@@ -39,15 +40,15 @@
     if (Math.abs(x) > HALF) return chestKey(gi(z) * 3 + (x < 0 ? 0 : 2), x < 0 ? 'W' : 'E');
     return String(roomAt(x, z));
   };
-  // ceiling light panel centres of a room (offsets from the room centre): a grid of ~5.6 m spacing, scales with the room size
-  const PANEL_STEP = 5.6;
+  // ceiling light panel centres of a room (offsets from the room centre): 2 per W side, 3 per V side; the spacing grows with SCALE
+  const PANEL_STEP = 5.6 * SCALE;
   const panelOffsets = i => {
-    const nx = Math.round(roomW(i) / 6), nz = Math.round(roomD(i) / 6), out = [];
+    const nx = Math.round(roomW(i) / (6 * SCALE)), nz = Math.round(roomD(i) / (6 * SCALE)), out = [];
     for (let b = 0; b < nz; b++) for (let a = 0; a < nx; a++) out.push([(a - (nx - 1) / 2) * PANEL_STEP, (b - (nz - 1) / 2) * PANEL_STEP]);
     return out;
   };
-  // x offset of the wall map (-dx) and the door control panel (+dx) on a room's north wall: 4.5 m, 6.5 m in the 18 m wide rooms (they clear the vault door's keypads)
-  const panelDX = i => roomW(i) > W ? 6.5 : 4.5;
+  // x offset of the wall map (-dx) and the door control panel (+dx) on a room's north wall: 5.3 m, 7.9 m in the vault-wide rooms (they clear the door keypads and the vault door's panels)
+  const panelDX = i => roomW(i) > W ? 7.9 : 5.3;
   // a random spawn point inside room i (its own width/depth), keeping a 3 m margin to the walls
   const randomPoint = (i, rnd = Math.random) => { const [cx, cz] = rc(i); return [cx + (rnd() - 0.5) * (roomW(i) - 6), cz + (rnd() - 0.5) * (roomD(i) - 6)]; };
   // ===== SOLID PROPS: crates, barrels, urns and the relic pedestal are obstacles for walking (client prediction AND server validation), bolts and melee line of sight.
@@ -111,7 +112,8 @@
     const key = roomKeyOf(x, z); if (key === 'c-1') return [];
     return solidsOf(key, key[0] === 'c' ? typeOf(types, +key.slice(1)) : '');
   };
-  const PILLARS = []; for (const sx of [-1, 1]) for (const sz of [-1, 1]) PILLARS.push([sx * 5.4 - 0.6, sz * 5.4 - 0.6, sx * 5.4 + 0.6, sz * 5.4 + 0.6]);   // vault pillars (game.js rects); the vault centre is the origin
+  const PILLAR_D = V * 0.3;   // the four vault pillars stand at (+-PILLAR_D, +-PILLAR_D) from the vault centre (game.js VAULT block and blob shadows use it too)
+  const PILLARS = []; for (const sx of [-1, 1]) for (const sz of [-1, 1]) PILLARS.push([sx * PILLAR_D - 0.6, sz * PILLAR_D - 0.6, sx * PILLAR_D + 0.6, sz * PILLAR_D + 0.6]);   // vault pillars (game.js rects); the vault centre is the origin
   const rectsAt = (x, z) => Math.abs(x) < V / 2 && Math.abs(z) < V / 2 ? PILLARS : [];
   // Push a walker of radius rad out of every footprint. (x0, z0) is where he came from. A head-on move (no progress after the push) gets turned along the surface so nobody sticks to a barrel.
   const slide = (x0, z0, x1, z1, rad, types, withRects) => {
@@ -160,7 +162,7 @@
   };
   const allProps = types => { const out = []; for (let i = 0; i < 9; i++) out.push(...solidsOf(String(i), '')); for (const c of CHEST) out.push(...solidsOf('c' + c.id, typeOf(types, c.id))); return out; };
   const obstaclesIn = (key, m) => solidsOf(key, key[0] === 'c' ? typeOf(m && m.layout, +key.slice(1)) : '');   // bot steering: the room's prop circles {x,z,r}
-  const api = { obstaclesIn, solidsOf, storyOf, slide, inProp, segBlocked, allProps, propsAt, rectsAt, PILLARS, RELIC, W, V, H, T, CS, COLW, ROWD, COLX, ROWZ, HALF, LIM, VAULT, colOf, rowOf, roomW, roomD, rc, gi, roomAt, inGrid, CHEST, chestKey, roomKeyOf, panelOffsets, panelDX, randomPoint };
+  const api = { obstaclesIn, solidsOf, storyOf, slide, inProp, segBlocked, allProps, propsAt, rectsAt, PILLARS, PILLAR_D, RELIC, SCALE, W, V, H, T, CS, COLW, ROWD, COLX, ROWZ, HALF, LIM, VAULT, colOf, rowOf, roomW, roomD, rc, gi, roomAt, inGrid, CHEST, chestKey, roomKeyOf, panelOffsets, panelDX, randomPoint };
   root.GKWORLD = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

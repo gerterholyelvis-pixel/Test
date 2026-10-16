@@ -616,7 +616,8 @@ for (let i = 0; i < 9; i++) {
     scene.add(m);
   }
   // 9 point lights in total (one per room); the vault is bigger, so its lamp is stronger and a little higher to light the whole hall
-  const big = i === WORLD.VAULT, lamp = new THREE.PointLight(big ? 0xfff0dc : 0xfff6ea, big ? 14 : 9, 0, 1.2); lamp.position.set(cx, H - (big ? 1.2 : 0.7), cz); scene.add(lamp);
+  // ROOMSCALE: rooms are WORLD.SCALE (1.25) times the original 12 / 18 m, so the walls are that much further from the lamp; the intensity grows by the same factor to keep the walls lit (decay 1.2)
+  const big = i === WORLD.VAULT, lamp = new THREE.PointLight(big ? 0xfff0dc : 0xfff6ea, (big ? 14 : 9) * WORLD.SCALE, 0, 1.2); lamp.position.set(cx, H - (big ? 1.2 : 0.7), cz); scene.add(lamp);
 }
 scene.add(new THREE.HemisphereLight(0xffffff, 0xeeebe4, 2.1));
 for (let i = 0; i < 9; i++) {
@@ -631,7 +632,7 @@ for (let i = 0; i < 9; i++) {
 }
 layoutHooks.push(types => { for (const d of doors) { if (!d.setType) continue; const c = CHEST_ROOMS.find(r => Math.abs(r.wallX - d.gx) < 0.01 && Math.abs(r.wallZ - d.gz) < 0.01); if (c) d.setType(c.type); } });
 if (GK.layout) layoutHooks[layoutHooks.length - 1](GK.layout);
-// VAULT-BEGIN (THE VAULT: the big middle room, 18 x 18 m: gold lettering, floor medallion, pillars, dais, chandelier; no extra PointLights)
+// VAULT-BEGIN (THE VAULT: the big middle room, WORLD.V (22.5 m) square: gold lettering, floor medallion, pillars, dais, chandelier; no extra PointLights)
 {
   const [vx, vz] = rc(WORLD.VAULT), vh = VSIZE / 2 - T / 2;   // room centre, half size to the inner wall faces
   const brass = M(0xe0a93a, { metalness: 1, roughness: 0.27, envMapIntensity: 1.7, emissive: 0x4a2800, emissiveIntensity: 0.55 });
@@ -654,7 +655,7 @@ if (GK.layout) layoutHooks[layoutHooks.length - 1](GK.layout);
   for (const [wx, wz, rot] of [[0, -1, 0], [0, 1, Math.PI], [-1, 0, Math.PI / 2], [1, 0, -Math.PI / 2]]) {   // four walls, plate faces the room centre
     const g = new THREE.Group(); g.position.set(vx + wx * vh, 0, vz + wz * vh); g.rotation.y = rot; scene.add(g);   // local +z points into the room
     for (const sx of [-1, 1]) {
-      const px = sx * 6.0;
+      const px = sx * (vh + 3.3) / 2;   // ROOMSCALE: centred on the wall between the door's panels (3.3 m) and the corner
       bx(g, LW + 0.34, LH + 0.34, 0.08, px, LY, 0.04, brass, 1);
       const pl = new THREE.Mesh(new THREE.PlaneGeometry(LW, LH), letterM); pl.position.set(px, LY, 0.09); g.add(pl);
       glowSprite(g, vaultGlowM(), 7.5, px, LY, 0.5);
@@ -695,7 +696,7 @@ if (GK.layout) layoutHooks[layoutHooks.length - 1](GK.layout);
   flat(wheelTex, 6.2, 0.165, 0.7);
   // four pillars (steel shaft, brass bands, brass capital and plinth, a glowing gold strip), solid for collision
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    const px = vx + sx * 5.4, pz = vz + sz * 5.4;
+    const px = vx + sx * WORLD.PILLAR_D, pz = vz + sz * WORLD.PILLAR_D;   // ROOMSCALE: same spot as the world.js PILLARS collision rects
     bx(scene, 1.5, 0.45, 1.5, px, 0.225, pz, plinthM, 1); bx(scene, 1.64, 0.08, 1.64, px, 0.47, pz, brass, 1);
     cyl(scene, 0.52, H - 1.3, pillarM, px, 0.51 + (H - 1.3) / 2, pz);
     for (const y of [1.0, 2.6, 4.2]) cyl(scene, 0.58, 0.14, brass, px, y, pz);
@@ -2204,7 +2205,7 @@ if (GK.layout && GK.CHEST_ROOMS) { /* the rooms agent calls buildMysteryContents
 // MYSTERY-END
 // MAP-BEGIN (wall maps in the spawn rooms: owned by the map agent)
 {
-  const MW = 1024, MH = 740, MS = 11.6, MOX = 360, MOY = 372; // canvas size, px per metre (fits the grid plus the chest rooms, +-29 m), map origin (world 0,0)
+  const MW = 1024, MH = 740, MS = 11.6 * 29 / WORLD.LIM, MOX = 360, MOY = 372; // canvas size, px per metre (fits the grid plus the chest rooms, +-WORLD.LIM m, in the same 673 px as the original +-29 m), map origin (world 0,0)
   const mx = x => MOX + x * MS, my = z => MOY + z * MS;
   const rr = (g, x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
   const chestIcon = (g, x, y, k) => { // gold chest, centred on x,y
@@ -2325,7 +2326,7 @@ if (GK.layout && GK.CHEST_ROOMS) { /* the rooms agent calls buildMysteryContents
     g.fillStyle = '#d81818'; rr(g, lx - 58, ly - 30, 116, 60, 9); g.fill();
     g.strokeStyle = '#ffd0d0'; g.lineWidth = 2; g.stroke();
     g.fillStyle = '#fff'; g.fillText('YOU ARE', lx, ly - 12); g.fillText('HERE', lx, ly + 14); g.restore();
-    // the two wall panels on this room's north wall: map at x-dx, door controls at x+dx (dx = 4.5 m, 6.5 m in the wide rooms) (pin tips on the wall line)
+    // the two wall panels on this room's north wall: map at x-dx, door controls at x+dx (dx = WORLD.panelDX: 5.3 m, 7.9 m in the wide rooms) (pin tips on the wall line)
     wallTab(g, lx - WORLD.panelDX(i) * MS, y + 3, '#1b6fe0', 'MAP'); wallTab(g, lx + WORLD.panelDX(i) * MS, y + 3, '#f08a1c', 'CTRL');
   }
   const glowTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'), r = g.createRadialGradient(64, 64, 8, 64, 64, 64);
@@ -2371,7 +2372,7 @@ const chestKeyOf = (i, side) => 'c' + CHEST_ROOMS.findIndex(c => c.parent === i 
   }
   for (const k in ROOM_DOORS) ROOM_DOORS[k].sort((p, q) => { const f = id => PDIRS.indexOf(DINFO[id].a === k ? DINFO[id].da : DINFO[id].db); return f(p) - f(q); });
 }
-const roomKeyAt = WORLD.roomKeyOf;   // grid rooms inside +-21 m (the vault spans +-9 m), chest rooms beyond
+const roomKeyAt = WORLD.roomKeyOf;   // grid rooms inside +-WORLD.HALF (26.25 m; the vault spans +-11.25 m), chest rooms beyond
 
 const roomTypeName = t => (GK.ROOM_TYPE_NAMES && GK.ROOM_TYPE_NAMES[t]) || { chest: 'Treasure room', mystery: 'Mystery room', merchant: 'Merchant' }[t] || 'Treasure room';
 const doorLabel = (key, id) => {
@@ -2543,7 +2544,7 @@ window.GKRULES = (() => {
   return { has: n => R.on.has(n), onMsg, openText, panel, bribeKey };
 })();
 // RULES-CLIENT-END
-for (let i = 0; i < 9; i++) {   // grid rooms: north wall, mirrored against the facility map (x = centre + 4.5)
+for (let i = 0; i < 9; i++) {   // grid rooms: north wall, mirrored against the facility map (x = centre + WORLD.panelDX)
   const [cx, cz] = rc(i); cpBuild(String(i), scene, 2.6, 1.9, cx + WORLD.panelDX(i), 2.6, cz - roomD(i) / 2 + T / 2, 0);
 }
 for (const cr of CHEST_ROOMS) {   // chest rooms: 2 m panel on the room's left wall (the far wall is taken by banners and torches)
@@ -5421,7 +5422,7 @@ function fxBuildBlobs() {
       boxes.push([bb.min.x, bb.min.z, bb.max.x, bb.max.z]);
     });
   }
-  const [vx, vz] = rc(WORLD.VAULT); for (const sx of [-1, 1]) for (const sz of [-1, 1]) boxes.push([vx + sx * 5.4 - 0.75, vz + sz * 5.4 - 0.75, vx + sx * 5.4 + 0.75, vz + sz * 5.4 + 0.75]);   // vault pillars
+  const [vx, vz] = rc(WORLD.VAULT), pd = WORLD.PILLAR_D; for (const sx of [-1, 1]) for (const sz of [-1, 1]) boxes.push([vx + sx * pd - 0.75, vz + sz * pd - 0.75, vx + sx * pd + 0.75, vz + sz * pd + 0.75]);   // vault pillars
   for (let merged = true; merged;) {   // union overlapping footprints so one prop gets one blob (capped at 4 m)
     merged = false;
     for (let i = 0; i < boxes.length && !merged; i++) for (let j = i + 1; j < boxes.length; j++) {
@@ -6790,7 +6791,7 @@ function frame(now) {
     /* FEEL-BEGIN */ if (GK.feel) GK.feel.camera(cam, dt, mine); /* FEEL-END */
   } else {
     if (!inside) orbit += dt * 0.05;
-    const dist = innerHeight > innerWidth ? 80 : 60;   // overview orbit radius (the world is +-29 m with the chest rooms)
+    const dist = (innerHeight > innerWidth ? 80 : 60) * WORLD.LIM / 29;   // overview orbit radius (tuned for the original +-29 m world; scales with WORLD.LIM)
     cam.fov = 50; cam.position.set(Math.sin(orbit) * dist, dist * 0.7, Math.cos(orbit) * dist); cam.lookAt(0, 0, 0);
   }
   vmUpdate(dt, t, mine);   // VIEWMODEL
