@@ -57,7 +57,7 @@ const join = async (port, q) => { const c = await connectRaw(port, q); await c.u
       }],
       ['static: unknown paths are 404, only / and /index.html return the page, traversal is refused', async () => {
         for (const p of ['/index.htm', '/foo', '/server.js', '/package.json', '/tests/lib.js', '/game.js.map', '/three/addons/../../package.json', '/three/addons/%2e%2e/%2e%2e/package.json', '/three/addons/', '/three/other.js', '/nope.js']) eq((await get(prod.port, p)).status, 404, p);
-        for (const p of ['/', '/index.html', '/?x=1', '/game.js', '/menu.js', '/save.js', '/three/three.module.js', '/three/addons/postprocessing/EffectComposer.js']) eq((await get(prod.port, p)).status, 200, p);
+        for (const p of ['/', '/index.html', '/?x=1', '/game.js', '/menu.js', '/save.js', '/itemart.js', '/iconworker.js', '/three/three.module.js', '/three/addons/postprocessing/EffectComposer.js']) eq((await get(prod.port, p)).status, 200, p);
         eq((await get(prod.port, '/', 'POST')).status, 404);
       }],
       ['static: security headers, a CSP with script hashes and no unsafe-inline for scripts', async () => {

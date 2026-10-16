@@ -727,10 +727,27 @@ let bakeJob = null;
 let ENC_LUT = null; const ENC_S = 512, ENC_N = 12 * 512;   // PERF3: encode lookup table (0..12 in 1/512 steps, linear interpolation; the curve is flat at 1.0 beyond about 6)
 const allKeys = () => { const I = window.GKITEMS, ks = I ? Object.keys(I.ITEMS) : []; return ks.concat(['m:brain', 'gold'], PART_KEYS.map(k => 'part:' + k)); };
 const enc = v => { v = Math.max(0, v * tune.expo); v = (v * (2.51 * v + 0.03)) / (v * (2.43 * v + 0.59) + 0.14); v = Math.min(1, Math.max(0, v)); return v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055; };
+// ---------- T7: IndexedDB icon cache (item key -> { ver, blob }); every call is wrapped, any failure just means "bake as before" ----------
+const IDB_NAME = 'gk-icons', IDB_STORE = 'icons'; let lastBake = null; const stepStat = { ms: 0, max: 0, n: 0 };   // main-thread time spent inside bake steps
+async function iconVersion() {   // hash of everything that changes how an icon looks; a changed model, tint, tier or tune value invalidates the whole cache
+  try {
+    const urls = [import.meta.url, new URL('items.js', import.meta.url).href, new URL('iconworker.js', import.meta.url).href]; let h = '';
+    for (const u of urls) { const r = await fetch(u); if (!r.ok) return null; const t = await r.text(); h += crypto && crypto.subtle ? Array.from(new Uint8Array(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(t))).slice(0, 6), x => x.toString(16).padStart(2, '0')).join('') : String(t.length); }
+    return h + '.' + THREE.REVISION + '.' + ICON + '.' + JSON.stringify(tune);
+  } catch (e) { return null; }
+}
+const idbOpen = () => new Promise(res => { try { if (typeof indexedDB === 'undefined') return res(null); const rq = indexedDB.open(IDB_NAME, 1); rq.onupgradeneeded = () => rq.result.createObjectStore(IDB_STORE); rq.onsuccess = () => res(rq.result); rq.onerror = rq.onblocked = () => res(null); } catch (e) { res(null); } });
+const idbLoad = (db, ver) => new Promise(res => {   // -> Map key -> blob for the current version; rows of older versions are deleted
+  const m = new Map(); try {
+    const tx = db.transaction(IDB_STORE, 'readwrite'), rq = tx.objectStore(IDB_STORE).openCursor();
+    rq.onsuccess = () => { const c = rq.result; if (!c) return; if (c.value && c.value.ver === ver && c.value.blob) m.set(c.key, c.value.blob); else c.delete(); c.continue(); };
+    tx.oncomplete = () => res(m); tx.onerror = tx.onabort = () => res(new Map());
+  } catch (e) { res(new Map()); }
+});
 function bake(renderer, opts = {}) {
   if (bakeJob && !opts.force) return bakeJob.promise;
   const keys = (opts.keys || allKeys()), t00 = performance.now(), budget = opts.budget ?? 10, gap = opts.gap ?? 40;
-  let env, scene, cam, rt, rtM, bufC, bufM, tmp, tctx;
+  let env, scene, cam, rt, rtM, bufC, bufM, tmp, tctx, wk = null, pending = 0, persist = () => {}; const pool = [];
   const maskMat = new THREE.MeshBasicMaterial({ color: 0xffffff }), maskPts = new THREE.PointsMaterial({ color: 0xffffff, size: 0.075, sizeAttenuation: true });
   const setup = () => {
     const pm = new THREE.PMREMGenerator(renderer); env = pm.fromScene(new RoomEnvironment(), 0.04).texture; pm.dispose();
@@ -743,6 +760,7 @@ function bake(renderer, opts = {}) {
   };
   const one = key => {
     const m = model(key); if (!m) return;
+    if (!bufC.byteLength) { const pr = pool.pop(); bufC = new Float32Array(pr ? pr.c : RTS * RTS * 4 * 4); bufM = new Uint8Array(pr ? pr.m : RTS * RTS * 4); }   // T7: the last pair was handed to the worker
     const info = infoOf(key) || {}, isW = info.type === 'weapon', tall = isW && !(info.family === 'bow' || info.family === 'crossbow');
     for (const o of m.children.slice()) if (o.userData.glow) m.remove(o);
     const g1 = new THREE.Group(), g2 = new THREE.Group(), g3 = new THREE.Group(); g1.add(m); g2.add(g1); g3.add(g2); scene.add(g3);
@@ -756,6 +774,8 @@ function bake(renderer, opts = {}) {
     renderer.setRenderTarget(rtM); renderer.clear(); renderer.render(scene, cam); renderer.readRenderTargetPixels(rtM, 0, 0, RTS, RTS, bufM);
     lights.forEach(l => l.visible = true); scene.environment = env0; for (const [o, mt] of saved) o.material = mt;
     scene.remove(g3);
+    const gc = GLOW[info.tier] || (key === 'm:brain' ? 0xff7a9e : key === 'gold' ? 0xffc933 : 0), ga = (TIER_ORDER.indexOf(info.tier) >= 2 || !info.tier) ? 0.55 : 0.28;
+    if (wk && !wk.dead) { const c = bufC.buffer, mm = bufM.buffer; pending++; wk.w.postMessage({ id: ++wk.seq, key, rts: RTS, icon: ICON, expo: tune.expo, glow: gc, glowA: ga, c, m: mm }, [c, mm]); return false; }   // T7: tone map, glow and downscale run in iconworker.js; the pixel buffers come back from it for reuse
     const id = tctx.createImageData(RTS, RTS), d = id.data;
     if (!ENC_LUT) { ENC_LUT = new Float32Array(ENC_N + 2); for (let k = 0; k < ENC_LUT.length; k++) ENC_LUT[k] = enc(k / ENC_S) * 255; }   // PERF3: tone map + sRGB once per level, not three Math.pow per pixel (about 10 ms of main thread per icon)
     const encF = v => { const f = v * ENC_S; if (!(f < ENC_N)) return ENC_LUT[ENC_N]; const k = f | 0, r = f - k; return ENC_LUT[k] + (ENC_LUT[k + 1] - ENC_LUT[k]) * r; };
@@ -766,28 +786,74 @@ function bake(renderer, opts = {}) {
     }
     tctx.putImageData(id, 0, 0);
     const out = document.createElement('canvas'); out.width = out.height = ICON; const o2 = out.getContext('2d'); o2.imageSmoothingQuality = 'high';
-    const gc = GLOW[info.tier] || (key === 'm:brain' ? 0xff7a9e : key === 'gold' ? 0xffc933 : 0);
-    if (gc) { const hex = '#' + gc.toString(16).padStart(6, '0'), a = (TIER_ORDER.indexOf(info.tier) >= 2 || !info.tier) ? 0.55 : 0.28, gr = o2.createRadialGradient(ICON / 2, ICON / 2, 0, ICON / 2, ICON / 2, ICON * 0.5); gr.addColorStop(0, hex + Math.round(a * 255).toString(16).padStart(2, '0')); gr.addColorStop(0.6, hex + '22'); gr.addColorStop(1, hex + '00'); o2.fillStyle = gr; o2.fillRect(0, 0, ICON, ICON); }
+    if (gc) { const hex = '#' + gc.toString(16).padStart(6, '0'), a = ga, gr = o2.createRadialGradient(ICON / 2, ICON / 2, 0, ICON / 2, ICON / 2, ICON * 0.5); gr.addColorStop(0, hex + Math.round(a * 255).toString(16).padStart(2, '0')); gr.addColorStop(0.6, hex + '22'); gr.addColorStop(1, hex + '00'); o2.fillStyle = gr; o2.fillRect(0, 0, ICON, ICON); }
     o2.drawImage(tmp, 0, 0, ICON, ICON);
-    icons.set(key, out);
+    icons.set(key, out); persist(key, out); return true;
   };
   bakeJob = { promise: null };
   bakeJob.promise = new Promise(resolve => {
-    let i = 0, ready = false;
-    const step = () => {
+    let q = [], i = 0, ready = false, nPri = 0, flushT = 0, closed = false, timer = 0, hits = 0, sent = 0, mainBaked = 0, db = null, ver = null, workerErr = null; const fresh = [];
+    const note = k => { fresh.push(k); if (!flushT) flushT = setTimeout(() => { flushT = 0; const ks = fresh.splice(0); if (ks.length) window.dispatchEvent(new CustomEvent('gkart-icons', { detail: { keys: ks } })); }, 30); };   // coalesced: icons.js repaints once per batch
+    const put = (k, blob) => { try { const tx = db.transaction(IDB_STORE, 'readwrite'); tx.onerror = tx.onabort = () => {}; tx.objectStore(IDB_STORE).put({ ver, blob }, k); } catch (e) {} };
+    persist = (k, c) => { if (db && c.toBlob) { try { c.toBlob(b => { if (b) put(k, b); }, 'image/png'); } catch (e) {} } };
+    const finish = () => {
+      if (closed) return; closed = true;
+      try { rt && rt.dispose(); rtM && rtM.dispose(); env && env.dispose(); if (tmp) tmp.width = tmp.height = 0; } catch (e) {}
+      if (wk) { try { wk.w.terminate(); } catch (e) {} wk = null; }
+      pool.length = 0; bufC = bufM = null; try { db && db.close(); } catch (e) {} db = null;
+      GKART.bakeMs = performance.now() - t00; lastBake = { ms: Math.round(GKART.bakeMs), total: icons.size, cached: hits, baked: sent + mainBaked, viaWorker: sent, onMain: mainBaked, ver, workerErr, stepMs: Math.round(stepStat.ms), stepMax: Math.round(stepStat.max), steps: stepStat.n };
+      window.dispatchEvent(new CustomEvent('gkart-baked', { detail: { count: icons.size } })); resolve(icons.size);
+    };
+    const check = () => { if (i >= q.length && pending === 0) finish(); };
+    const startWorker = () => {
+      if (opts.noWorker || typeof Worker === 'undefined' || typeof OffscreenCanvas === 'undefined' || typeof createImageBitmap === 'undefined') return;
+      try {
+        const w = new Worker(new URL('iconworker.js', import.meta.url)), inflight = new Set(); wk = { w, seq: 0, dead: false };
+        const fail = why => { if (wk.dead) return; wk.dead = true; workerErr = String(why); try { w.terminate(); } catch (e) {} for (const k of inflight) q.push(k); inflight.clear(); pending = 0; pool.length = 0; schedule(); check(); };   // worker unusable: whatever it still owed goes back on the main-thread path
+        w.onerror = e => fail(e && e.message || 'worker error');
+        w.onmessage = ev => {
+          const r = ev.data; pending--; inflight.delete(r.key); if (pool.length < 3 && r.c && r.c.byteLength) pool.push({ c: r.c, m: r.m });
+          if (r.bmp) {
+            const out = document.createElement('canvas'); out.width = out.height = ICON; out.getContext('2d').drawImage(r.bmp, 0, 0); r.bmp.close();
+            icons.set(r.key, out); if (db && r.blob) put(r.key, r.blob); note(r.key);
+          } else { inflight.add(r.key); fail(r.error || 'worker failed'); return; }
+          if (i < q.length) schedule(); check();
+        };
+        const post = w.postMessage.bind(w); w.postMessage = (m, t) => { inflight.add(m.key); sent++; post(m, t); };
+      } catch (e) { wk = null; workerErr = String(e); }
+    };
+    const step = b => {
       const t0 = performance.now(), done = [];
       const prevRT = renderer.getRenderTarget(), prevCol = renderer.getClearColor(new THREE.Color()), prevA = renderer.getClearAlpha(), prevTM = renderer.toneMapping, prevAuto = renderer.info.autoReset, prevXR = renderer.xr.enabled;
       renderer.info.autoReset = false; renderer.toneMapping = THREE.NoToneMapping; renderer.xr.enabled = false;
       try {
         if (!ready) { setup(); ready = true; }
-        while (i < keys.length && (done.length === 0 || performance.now() - t0 < budget)) { const k = keys[i++]; try { one(k); done.push(k); } catch (e) { console.warn('[GKART] bake failed for', k, e); } }
-      } catch (e) { console.warn('[GKART] bake aborted', e); i = keys.length; }
+        let n = 0;
+        while (i < q.length && (n === 0 || performance.now() - t0 < b) && (!wk || wk.dead || pending < 3)) { const k = q[i++]; n++; try { if (one(k) === true) { done.push(k); mainBaked++; } } catch (e) { console.warn('[GKART] bake failed for', k, e); } }
+      } catch (e) { console.warn('[GKART] bake aborted', e); i = q.length; }
       renderer.setRenderTarget(prevRT); renderer.setClearColor(prevCol, prevA); renderer.toneMapping = prevTM; renderer.info.autoReset = prevAuto; renderer.xr.enabled = prevXR;
       if (done.length) window.dispatchEvent(new CustomEvent('gkart-icons', { detail: { keys: done } }));
-      if (i < keys.length) setTimeout(step, gap);
-      else { try { rt && rt.dispose(); rtM && rtM.dispose(); env && env.dispose(); } catch (e) {} GKART.bakeMs = performance.now() - t00; window.dispatchEvent(new CustomEvent('gkart-baked', { detail: { count: icons.size } })); resolve(icons.size); }
+      { const d = performance.now() - t0; stepStat.ms += d; stepStat.max = Math.max(stepStat.max, d); stepStat.n++; }
+      if (i < q.length) schedule(); else check();
     };
-    setTimeout(step, opts.delay ?? 0);
+    function schedule() {   // priority icons (inventory/hotbar) use short timer gaps; the rest wait for idle time between frames
+      if (timer || closed || i >= q.length) return;
+      if (i >= nPri && typeof requestIdleCallback === 'function') timer = requestIdleCallback(dl => { timer = 0; step(Math.min(budget, Math.max(4, dl.timeRemaining()))); }, { timeout: 1500 });
+      else timer = setTimeout(() => { timer = 0; step(budget); }, i === 0 ? (opts.delay ?? 0) : gap);
+    }
+    (async () => {
+      const want = new Set(keys); let pri = [];
+      try { if (opts.priority) for (const k of [].concat(opts.priority()) ) { const c = want.has(k) ? k : canon(k); if (c && want.has(c) && !pri.includes(c)) pri.push(c); } } catch (e) {}
+      const ordered = pri.concat(keys.filter(k => !pri.includes(k)));
+      let have = new Map();
+      if (!opts.force && !opts.noCache) { ver = await iconVersion(); if (ver) { db = await idbOpen(); if (db) have = await idbLoad(db, ver); } }
+      if (have.size) await Promise.all(ordered.filter(k => have.has(k)).map(async k => {
+        try { const bm = await createImageBitmap(have.get(k)), c = document.createElement('canvas'); c.width = c.height = ICON; c.getContext('2d').drawImage(bm, 0, 0); bm.close(); icons.set(k, c); hits++; note(k); } catch (e) {}
+      }));
+      q = ordered.filter(k => !icons.has(k)); nPri = pri.filter(k => !icons.has(k)).length;
+      if (!q.length) return finish();   // everything came from the cache: no scene, no render targets, no PMREM
+      startWorker(); schedule();
+    })();
   });
   return bakeJob.promise;
 }
@@ -811,5 +877,5 @@ function showSheet(opts) {
   const c = sheet(opts); c.style.cssText = 'max-width:100%;height:auto'; d.appendChild(c); d.onclick = () => d.remove(); document.body.appendChild(d); return d;
 }
 
-const GKART = window.GKART = { model, bake, icon, sheet, showSheet, canon, keys: allKeys, drawCalls, bakeMs: 0, ICON, tune, count: () => icons.size };
+const GKART = window.GKART = { model, bake, icon, sheet, showSheet, canon, keys: allKeys, drawCalls, bakeMs: 0, ICON, tune, count: () => icons.size, stats: () => lastBake };
 export default GKART;
