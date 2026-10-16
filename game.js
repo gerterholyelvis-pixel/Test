@@ -3125,7 +3125,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
       b.chase = true; b.yaw = Math.atan2(-dx, -dz);
       const stop = c.ranged ? 4 : 1.7;
       if (d > stop) { b.x += dx / d * 2.4 * 0.1; b.z += dz / d * 2.4 * 0.1; b.box = roomAt(b.x, b.z); }
-      if (!window.GK_BOTS_PASSIVE && d <= c.range && now - (b.atkAt || 0) >= c.cd * 1.8) { b.atkAt = now; net.onmessage && net.onmessage({ swing: b.id }); if (inCone(b, meP, c.range + 0.3)) simHit(meP, c.dmg, b); }
+      if (!window.GK_BOTS_PASSIVE && rs.n > 1 && now - rs.goAt >= 20000 && d <= c.range && now - (b.atkAt || 0) >= c.cd * 1.8) { b.atkAt = now; net.onmessage && net.onmessage({ swing: b.id }); if (inCone(b, meP, c.range + 0.3)) simHit(meP, c.dmg, b); }
     }
   }, 100);
   // COMBAT-END
@@ -3134,7 +3134,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     send(m) {
       if (typeof m.ping === 'number') net.onmessage && net.onmessage({ pong: m.ping, t: Math.round(performance.now()) });
       if (m.atk === 1) simAtk();
-      if (m.enter === 1 && !rs.started) { rs.started = true; rs.endsAt = performance.now() + rs.dur; botPlan(); emitRound(); }
+      if (m.enter === 1 && !rs.started) { rs.started = true; rs.goAt = performance.now(); rs.endsAt = performance.now() + rs.dur; botPlan(); emitRound(); }
       if (Number.isInteger(m.sel) && meP) { const k = roomKeyAt(meP.x, meP.z); if ((ROOM_DOORS[k] || []).includes(m.sel) && rs.sel[k] !== m.sel) { rs.sel[k] = m.sel; emitRound(); } }
       if (m.m && meP) { [meP.x, meP.z, meP.yaw] = m.m; meP.box = roomAt(meP.x, meP.z); } if (m.reroll) { claimedSim.clear(); net.onmessage && net.onmessage({ claimedReset: 1 }); const o = list.indexOf(meP); seq++; meP = mk(false); meP.id = list[o].id; list[o] = meP; sendInv(); sendGold(); sendParts(); emit(); }
       // FEEL-BEGIN offline claim: mirrors server.js claim() (E in a chest room or a weapon / armour / gold mystery room, once per player)
@@ -3367,10 +3367,8 @@ function showStats(p, type) {   // small stat panel, bottom-left
   const st = Object.assign({}, STATS[type], mineInv, p && p.stats), gear = Object.assign({}, GEAR[type], p && p.gear, invReady ? { weapon: myInv.weapon ? itemName(myInv.weapon) : 'none', armor: myInv.armor ? itemName(myInv.armor) : 'none' } : null);
   GK.myStats = { knowledge: st.knowledge, attack: st.attack, health: st.health, maxHealth: st.maxHealth || st.health };   // read by the knowledge tree tiers
   const packN = invReady ? myInv.backpack.filter(Boolean).length : 0;
-  const max = st.maxHealth || st.health || 1, pct = Math.max(0, Math.min(100, 100 * st.health / max));
+  const max = st.maxHealth || st.health || 1;
   statsEl.innerHTML = '<div style="color:#ffd75e;letter-spacing:.06em;margin-bottom:4px">' + NAMES[type].toUpperCase() + '</div>'
-    + '<div style="display:flex;justify-content:space-between"><span>Health</span><span>' + st.health + ' / ' + max + '</span></div>'
-    + '<div style="height:6px;border-radius:3px;background:#2a2a34;margin:2px 0 6px"><div style="height:100%;width:' + pct + '%;border-radius:3px;background:linear-gradient(90deg,#c0392b,#e8564a)"></div></div>'
     + '<div style="display:flex;justify-content:space-between"><span>Attack</span><span>' + st.attack + '</span></div>'
     + '<div style="display:flex;justify-content:space-between"><span>Knowledge</span><span id="hudKnow">' + fmtN(st.knowledge) + '</span></div>'
     + '<div style="display:flex;justify-content:space-between;align-items:center"><span>Gold</span><span><i class="gkcoin"></i> <b style="color:#ffd75e">' + myGold + '</b></span></div>'
