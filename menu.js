@@ -307,8 +307,8 @@ const shaftTex = cTex(8, 256, (g, w, h) => { const gr = g.createLinearGradient(0
 const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 4.2, 11, 40, 1, true), new THREE.MeshBasicMaterial({ map: shaftTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, opacity: 0.2, fog: false }));
 shaft.position.set(0, 5.5, -2.2); mscene.add(shaft);
 const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: GK.glowTex, color: 0xff5a22, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.55, fog: false }));
-glow.scale.set(16, 10, 1); glow.position.set(0, 3.2, -7); mscene.add(glow);
-const glow2 = glow.clone(); glow2.material = glow.material.clone(); glow2.material.color.set(0xffc060); glow2.material.opacity = 0.3; glow2.scale.set(7, 7, 1); glow2.position.set(0, 3.5, -4.2); mscene.add(glow2);
+glow.scale.set(16, 10, 1); glow.position.set(0, 3.6, -10.4); mscene.add(glow);
+const glow2 = glow.clone(); glow2.material = glow.material.clone(); glow2.material.color.set(0xffc060); glow2.material.opacity = 0.3; glow2.scale.set(8, 8, 1); glow2.position.set(0, 3.6, -8.6); mscene.add(glow2);
 
 // embers
 const NP = 360, pPos = new Float32Array(NP * 3), pSeed = new Float32Array(NP * 3), pCol = new Float32Array(NP * 3);
@@ -339,12 +339,96 @@ for (const L of LINE) {
   rigs.push({ rig, L, ph: Math.random() * 6 }); mscene.add(rig);
 }
 
+// TITLE2-BEGIN: throne hall backdrop (arch + portal, pillars, torches, throne on a dais), god rays, dust motes, torch sparks, fog banks. No new lights: emissive materials and additive sprites only.
+const TQ = { low: 0, medium: 1, high: 2 };
+let tq = 2, portal = null, torches = [], throneGlow = null;
+const hall = new THREE.Group(); mscene.add(hall);
+const stoneM = new THREE.MeshStandardMaterial({ color: 0x1b1720, roughness: 0.78, metalness: 0.25, envMapIntensity: 0.5 });
+const goldM = new THREE.MeshStandardMaterial({ color: 0xd9a22a, roughness: 0.3, metalness: 1, emissive: 0x4a2a00, emissiveIntensity: 0.6, envMapIntensity: 1.2 });
+{ // doorway: a bevelled arch round a blazing portal
+  const arch = (r, h) => { const s = new THREE.Shape(); s.moveTo(-r, 0); s.lineTo(-r, h); s.absarc(0, h, r, Math.PI, 0, true); s.lineTo(r, 0); return s; };
+  const o = arch(3.6, 5.8); o.holes.push((() => { const p = new THREE.Path(); p.moveTo(-2.5, 0); p.lineTo(2.5, 0); p.lineTo(2.5, 5.8); p.absarc(0, 5.8, 2.5, 0, Math.PI, false); p.lineTo(-2.5, 0); return p; })());
+  const ag = new THREE.ExtrudeGeometry(o, { depth: 1.1, bevelEnabled: true, bevelThickness: 0.12, bevelSize: 0.12, bevelSegments: 2, curveSegments: 20 });
+  const am = new THREE.Mesh(ag, stoneM); am.position.set(0, 0, -11.6); hall.add(am);
+  const keystone = new THREE.Mesh(new THREE.OctahedronGeometry(0.5, 0), goldM); keystone.scale.set(0.8, 1.3, 0.6); keystone.position.set(0, 9.6, -10.4); hall.add(keystone);
+  const pt = cTex(128, 256, (g, w, h) => { const gr = g.createRadialGradient(w / 2, h * .62, 4, w / 2, h * .62, h * .72); gr.addColorStop(0, 'rgba(255,248,214,1)'); gr.addColorStop(.35, 'rgba(255,205,120,.95)'); gr.addColorStop(.75, 'rgba(255,120,40,.55)'); gr.addColorStop(1, 'rgba(120,40,10,.2)'); g.fillStyle = gr; g.fillRect(0, 0, w, h); });
+  const pg = new THREE.ShapeGeometry(arch(2.5, 5.8), 20);
+  const pu = pg.attributes.position, pv = pg.attributes.uv; for (let i = 0; i < pu.count; i++) pv.setXY(i, (pu.getX(i) + 2.5) / 5, pu.getY(i) / 8.3);
+  portal = new THREE.Mesh(pg, new THREE.MeshBasicMaterial({ map: pt, fog: false, transparent: true, opacity: 0.95, depthWrite: false })); portal.position.set(0, 0, -11.0); hall.add(portal);
+}
+{ // pillars, one instanced lathe, plus torches on the inner pair
+  const prof = [[.66, 0], [.66, .28], [.5, .4], [.42, .55], [.38, 1.2], [.36, 5.1], [.43, 5.35], [.58, 5.6], [.74, 5.95], [.74, 6.3]].map(p => new THREE.Vector2(p[0], p[1]));
+  const lg = new THREE.LatheGeometry(prof, 12); const POS = [[-6.4, -3.2], [-8.2, -6.6], [-9.4, -10], [6.6, -3.6], [8.4, -7], [9.6, -10.4]];
+  const im = new THREE.InstancedMesh(lg, stoneM, POS.length); const mm = new THREE.Matrix4();
+  POS.forEach((p, i) => { mm.makeScale(1, 1 + (i % 3) * 0.12, 1).setPosition(p[0], 0, p[1]); im.setMatrixAt(i, mm); }); hall.add(im);
+  for (const p of [POS[0], POS[3]]) {
+    const hx = p[0] + (p[0] < 0 ? 0.8 : -0.8), hy = 3.1, bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.1, 0.34, 8), goldM); bowl.position.set(hx, hy, p[1]); hall.add(bowl);
+    const f = new THREE.Sprite(new THREE.SpriteMaterial({ map: GK.glowTex, color: 0xff9a3a, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.95, fog: false })); f.scale.set(0.9, 1.3, 1); f.position.set(hx, hy + 0.35, p[1]); hall.add(f);
+    const h = new THREE.Sprite(new THREE.SpriteMaterial({ map: GK.glowTex, color: 0xff6a22, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.3, fog: false })); h.scale.set(4.2, 4.2, 1); h.position.copy(f.position); hall.add(h);
+    torches.push({ f, h, ph: Math.random() * 9, x: hx, y: hy + 0.4, z: p[1] });
+  }
+}
+{ // throne on a two-step dais, in front of the doorway
+  const dais = new THREE.Mesh(new THREE.CylinderGeometry(3.3, 3.7, 0.34, 9), stoneM); dais.position.set(0, 0.17, -6.4); hall.add(dais);
+  const d2 = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 2.9, 0.34, 9), stoneM); d2.position.set(0, 0.5, -6.4); hall.add(d2);
+  const P = [[-1.15, 0], [-1.15, 2.6], [-1.5, 3.8], [-0.92, 3.35], [-0.7, 4.6], [-0.26, 3.85], [0, 5.2], [0.26, 3.85], [0.7, 4.6], [0.92, 3.35], [1.5, 3.8], [1.15, 2.6], [1.15, 0]];
+  const sh = new THREE.Shape(P.map(p => new THREE.Vector2(p[0], p[1])));
+  const bg = new THREE.ExtrudeGeometry(sh, { depth: 0.34, bevelEnabled: true, bevelThickness: 0.07, bevelSize: 0.07, bevelSegments: 2 });
+  const back = new THREE.Mesh(bg, new THREE.MeshStandardMaterial({ color: 0x241a1c, roughness: 0.5, metalness: 0.6, envMapIntensity: 0.9 })); back.position.set(0, 0.67, -7.1); hall.add(back);
+  const trim = new THREE.LineSegments(new THREE.EdgesGeometry(bg, 30), new THREE.LineBasicMaterial({ color: 0xffc94a, fog: false })); trim.position.copy(back.position); hall.add(trim);
+  const seat = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.7, 1.6), stoneM); seat.position.set(0, 1.0, -6.4); hall.add(seat);
+  for (const sx of [-1, 1]) { const arm = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.9, 1.5), goldM); arm.position.set(sx * 1.2, 1.4, -6.4); hall.add(arm); }
+  const gem = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 12), new THREE.MeshStandardMaterial({ color: 0xc4122f, emissive: 0xff1a38, emissiveIntensity: 1.6, roughness: 0.2 })); gem.position.set(0, 3.9, -6.72); hall.add(gem);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.06, 8, 28), goldM); ring.position.copy(gem.position); hall.add(ring);
+  const gg = new THREE.Sprite(new THREE.SpriteMaterial({ map: GK.glowTex, color: 0xff2a44, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.55, fog: false })); gg.scale.set(2.2, 2.2, 1); gg.position.set(0, 3.9, -6.5); hall.add(gg); throneGlow = gg;
+}
+// god rays from high windows (soft-edged additive planes)
+const rayTex = cTex(64, 256, (g, w, h) => { const hg = g.createLinearGradient(0, 0, w, 0); hg.addColorStop(0, 'rgba(255,255,255,0)'); hg.addColorStop(.5, 'rgba(255,255,255,1)'); hg.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = hg; g.fillRect(0, 0, w, h); g.globalCompositeOperation = 'destination-in'; const vg = g.createLinearGradient(0, 0, 0, h); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(.18, 'rgba(0,0,0,1)'); vg.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = vg; g.fillRect(0, 0, w, h); });
+const rays = [];
+for (const [x, z, rz, w, c, o] of [[-4.6, -4.5, 0.42, 2.6, 0xffd9a0, 0.16], [-1.9, -7.5, 0.36, 3.4, 0xffe6b8, 0.13], [3.8, -6, -0.4, 3.0, 0xffcf90, 0.12]]) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, 15), new THREE.MeshBasicMaterial({ map: rayTex, color: c, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, opacity: o, fog: false }));
+  m.position.set(x, 6.5, z); m.rotation.z = rz; hall.add(m); rays.push({ m, o, ph: Math.random() * 6 });
+}
+// dust motes (slow, lit by the rays) and torch sparks (quick, rising)
+const ND = 160, dPos = new Float32Array(ND * 3), dSeed = new Float32Array(ND);
+for (let i = 0; i < ND; i++) { dPos[i * 3] = (Math.random() - .5) * 16; dPos[i * 3 + 1] = Math.random() * 7; dPos[i * 3 + 2] = -9 + Math.random() * 15; dSeed[i] = Math.random() * 6.28; }
+const dGeo = new THREE.BufferGeometry(); dGeo.setAttribute('position', new THREE.BufferAttribute(dPos, 3));
+const dust = new THREE.Points(dGeo, new THREE.PointsMaterial({ map: GK.glowTex, color: 0xffe2b0, size: 0.1, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.55, fog: false })); dust.frustumCulled = false; mscene.add(dust);
+const NS = 70, sPos = new Float32Array(NS * 3), sSeed = new Float32Array(NS * 3);
+for (let i = 0; i < NS; i++) { sSeed[i * 3] = Math.floor(Math.random() * 2); sSeed[i * 3 + 1] = 0.8 + Math.random() * 1.6; sSeed[i * 3 + 2] = Math.random() * 6.28; sPos[i * 3 + 1] = -100; }
+const sGeo = new THREE.BufferGeometry(); sGeo.setAttribute('position', new THREE.BufferAttribute(sPos, 3));
+const sparks = new THREE.Points(sGeo, new THREE.PointsMaterial({ map: GK.glowTex, color: 0xffa040, size: 0.16, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 1, fog: false })); sparks.frustumCulled = false; mscene.add(sparks);
+// drifting fog banks
+const fogTex = cTex(256, 128, (g, w, h) => { for (let i = 0; i < 26; i++) { const x = Math.random() * w, y = h * (.3 + Math.random() * .4), r = 22 + Math.random() * 44, gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(255,255,255,.22)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, w, h); } const e = g.createLinearGradient(0, 0, w, 0); e.addColorStop(0, 'rgba(0,0,0,1)'); e.addColorStop(.2, 'rgba(0,0,0,0)'); e.addColorStop(.8, 'rgba(0,0,0,0)'); e.addColorStop(1, 'rgba(0,0,0,1)'); g.globalCompositeOperation = 'destination-out'; g.fillStyle = e; g.fillRect(0, 0, w, h); });
+const fogs = [];
+for (const [x, y, z, s, c, o, v] of [[-3, 0.8, -8, 14, 0x8a6a8a, 0.2, 0.18], [4, 0.7, -5.5, 12, 0xa07a5a, 0.16, -0.14], [0, 0.9, -10, 18, 0x6a6aa0, 0.22, 0.1], [-5, 0.6, -2.5, 11, 0x7a6a8a, 0.12, 0.2], [5, 0.6, -1, 10, 0x9a7a6a, 0.1, -0.16]]) {
+  const f = new THREE.Sprite(new THREE.SpriteMaterial({ map: fogTex, color: c, transparent: true, depthWrite: false, opacity: o, fog: false })); f.scale.set(s, s * 0.32, 1); f.position.set(x, y, z); mscene.add(f); fogs.push({ f, v, x0: x, o });
+}
+function titleQuality() {
+  const q = TQ[GK.settings && GK.settings.gfx]; tq = q === undefined ? 2 : q;
+  pGeo.setDrawRange(0, tq === 0 ? 110 : tq === 1 ? 240 : NP); dust.visible = tq > 0; dGeo.setDrawRange(0, tq === 1 ? 80 : ND); sparks.visible = tq > 0; sGeo.setDrawRange(0, tq === 1 ? 30 : NS);
+  fogs.forEach((o, i) => { o.f.visible = tq === 2 || (tq === 1 && i < 3); }); rays.forEach((o, i) => { o.m.visible = tq === 2 || i === 0 || (tq === 1 && i < 2); });
+  rings2.visible = tq > 0; glow2.visible = tq > 0; for (const r of rigs) if (r.rig.userData.m) r.rig.userData.m.visible = tq > 0;
+  document.body.dataset.gfx = ['low', 'medium', 'high'][tq];
+}
+setTimeout(() => { const cu = $('tcurtain'); if (cu) cu.classList.add('up'); body.classList.add('tready'); }, 4000);   // safety: never leave the curtain down (a resumed match skips the title render)
+try {   // film grain: one small noise tile, jittered by CSS (static on Low)
+  const gc = document.createElement('canvas'); gc.width = gc.height = 128; const gg2 = gc.getContext('2d'), im = gg2.createImageData(128, 128);
+  for (let i = 0; i < im.data.length; i += 4) { const v = Math.random() * 255 | 0; im.data[i] = im.data[i + 1] = im.data[i + 2] = v; im.data[i + 3] = 255; }
+  gg2.putImageData(im, 0, 0); const gel = $('grain'); if (gel) gel.style.backgroundImage = 'url(' + gc.toDataURL('image/png') + ')';
+} catch (e) {}
+// TITLE2-END
+
 // ---------- title render ----------
 const mouse = { x: 0, y: 0, sx: 0, sy: 0 };
 addEventListener('pointermove', e => { mouse.x = e.clientX / innerWidth * 2 - 1; mouse.y = e.clientY / innerHeight * 2 - 1; });
-let W = 0, H = 0, T0 = 0;
+let W = 0, H = 0, T0 = 0, introT0 = 0, tqT = 0;
+const ease3 = x => 1 - Math.pow(1 - Math.min(1, Math.max(0, x)), 3);
 function titleRender(now, dt) {
   const t = now / 1000, r = GK.renderer;
+  if (!T0) { T0 = now; body.classList.add('tready'); const cu = $('tcurtain'); if (cu) cu.classList.add('up'); }
+  if (now - tqT > 800) { tqT = now; titleQuality(); }
+  const lead = 1 - ease3((now - T0) / 2600), go = introT0 ? ease3((now - introT0) / 1100) : 0;   // lead: the camera settles in on page load; go: it pushes toward the doorway when a match starts
   if (innerWidth !== W || innerHeight !== H) {
     W = innerWidth; H = innerHeight; mcam.aspect = W / H;
     mcam.userData.wide = W / H > 1.25;
@@ -355,8 +439,9 @@ function titleRender(now, dt) {
   // slow dolly + sway, plus parallax
   const asp = W / H, back = asp < 1.25 ? (1.25 / asp - 1) * 7 + 2 : 0;
   const dolly = 1.5 * (0.5 + 0.5 * Math.sin(t * 0.13));
-  mcam.position.set(Math.sin(t * 0.17) * 1.6 + mouse.sx * 1.3, 2.1 + mouse.sy * -0.45 + Math.sin(t * 0.21) * 0.15, 13.4 - dolly + back);
-  mcam.lookAt(0 + mouse.sx * 0.3, 1.35, -0.8);
+  mcam.position.set(Math.sin(t * 0.17) * 1.6 + mouse.sx * 1.8, 2.1 + mouse.sy * -0.6 + Math.sin(t * 0.21) * 0.15 + lead * 0.5 - go * 0.25, 13.4 - dolly + back + lead * 2.8 - go * 5.5);
+  mcam.lookAt(0 + mouse.sx * 0.4, 1.35 + go * 0.9, -0.8 - go * 2);
+  const fov = 36 - go * 7 + lead * 4; if (Math.abs(mcam.fov - fov) > 0.01) { mcam.fov = fov; mcam.updateProjectionMatrix(); }
   for (const o of rigs) {
     const b = o.ph + t;
     o.rig.position.y = Math.sin(b * 1.3) * 0.045;
@@ -370,6 +455,19 @@ function titleRender(now, dt) {
     if (p[i * 3 + 1] > 9) p[i * 3 + 1] = 0;
   }
   pGeo.attributes.position.needsUpdate = true;
+  // hall life: flickering torches and rays, drifting fog and dust, sparks off the torches, the throne gem pulsing
+  for (const o of torches) { const fl = 0.85 + Math.sin(t * 11 + o.ph) * 0.08 + Math.sin(t * 23 + o.ph * 2) * 0.07; o.f.scale.set(0.9 * fl, 1.3 * fl, 1); o.h.material.opacity = 0.26 * fl + 0.04; }
+  for (const o of rays) o.m.material.opacity = o.o * (0.75 + Math.sin(t * 0.5 + o.ph) * 0.25 + Math.sin(t * 1.3 + o.ph) * 0.06);
+  if (tq > 0) {
+    for (const o of fogs) { o.f.position.x = o.x0 + Math.sin(t * o.v * 0.35 + o.x0) * 3; o.f.material.opacity = o.o * (0.8 + 0.2 * Math.sin(t * 0.3 + o.x0)); }
+    const dp = dGeo.attributes.position.array; for (let i = 0; i < ND; i++) { dp[i * 3 + 1] += dt * 0.06; dp[i * 3] += Math.sin(t * 0.3 + dSeed[i]) * dt * 0.1; dp[i * 3 + 2] += Math.cos(t * 0.27 + dSeed[i]) * dt * 0.06; if (dp[i * 3 + 1] > 7) dp[i * 3 + 1] = 0; } dGeo.attributes.position.needsUpdate = true;
+    const sp = sGeo.attributes.position.array; for (let i = 0; i < NS; i++) {
+      const T = torches[sSeed[i * 3]]; if (!T) continue;
+      if (sp[i * 3 + 1] < -50) { sp[i * 3] = T.x + (Math.random() - .5) * 0.2; sp[i * 3 + 1] = T.y; sp[i * 3 + 2] = T.z; sSeed[i * 3 + 1] = 0.8 + Math.random() * 1.6; }
+      sp[i * 3 + 1] += sSeed[i * 3 + 1] * dt; sp[i * 3] += Math.sin(t * 2 + sSeed[i * 3 + 2]) * dt * 0.5; if (sp[i * 3 + 1] > T.y + 2.8) sp[i * 3 + 1] = -100;
+    } sGeo.attributes.position.needsUpdate = true;
+  }
+  throneGlow.material.opacity = 0.5 + Math.sin(t * 1.6) * 0.12; portal.material.opacity = 0.9 + Math.sin(t * 0.9) * 0.05 + go * 0.1; hall.position.x = -mouse.sx * 0.35;
   r.render(mscene, mcam);
 }
 
@@ -553,7 +651,7 @@ function startGame(opts) {
   if (started) return; started = true;
   if (GK.settings.fsStart && (!opts || opts.type === 'click')) fsSet(true);   // FULLSCREEN: inside the Start click
   if (!opts || typeof opts !== 'object' || opts.type === 'click') opts = undefined;
-  body.classList.add('rolling'); $('menu').classList.add('gone');
+  body.classList.add('rolling'); $('menu').classList.add('gone'); introT0 = performance.now(); { const cu = $('tcurtain'); if (cu) { cu.classList.remove('go'); cu.getBoundingClientRect(); cu.classList.add('go'); } }
   const roll = $('roll'); roll.classList.add('show'); roll.getBoundingClientRect(); roll.classList.add('vis');
   wheelGo = true; sizeWheel(); queueStart();
   wh.state = 'spin'; wh.t = 0; wh.rot = Math.random() * TAU; wh.result = null; wh.shown = false;

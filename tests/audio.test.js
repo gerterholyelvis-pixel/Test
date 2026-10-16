@@ -29,6 +29,14 @@ const L = require('./lib.js'), { assert, eq } = L;
       eq(A.itemSound({ type: 'consumable', family: 'potion' }, 'use'), 'drink'); eq(A.itemSound({ type: 'consumable', family: 'plushie' }, 'use'), 'squeak');
       eq(A.itemSound({ type: 'consumable', family: 'brain' }, 'use'), 'eat'); eq(A.itemSound({ type: 'weapon', family: 'sword' }, 'equip'), 'equip'); eq(A.itemSound(null, 'use'), 'pickup');
     }],
+    ['5x5 sounds exist and every bed builds, updates and stops cleanly', async () => {
+      const need = ['pumpTick', 'pumpCollect', 'elixirOpen', 'elixirClose', 'elixirConfirm', 'elixirDenied', 'upgrade', 'raidAlarm', 'sentryShot', 'doorBar', 'doorLock', 'sendGas', 'sendRats', 'sendSpikes', 'sendFire', 'sendWasps', 'sendBoulder', 'timingHit', 'timingMiss', 'captureTick', 'riskWarn', 'rewardChime', 'winchCreak', 'lockpickClick', 'coinCount', 'runeChime', 'coinPile', 'crownClaim', 'vaultAlarm', 'wardenRoar', 'roundHorn', 'rekeyWarn'];
+      for (const n of need) assert(A.names.includes(n), n + ' registered');
+      assert(A.beds.filter(b => b.indexOf('tree_') === 0).length === 10, 'ten tree ambiences');
+      for (const b of ['pumpHum', 'workbench', 'recycler', 'forge', 'grandRecycler', 'holdRiser', 'runeHum', 'crownLoop', 'suddenHeart']) assert(A.beds.includes(b), b + ' bed');
+      for (const b of A.beds) { created = 0; assert(A.bed(b, true, { v: 0.5, x: 2, z: 1 }), b + ' starts'); assert(created > 0, b + ' builds nodes'); assert(A.bed(b, true, { v: 0.9 }), b + ' updates'); A.bed(b, false); }
+      eq(A.bed('nope', true), false); A.stopAllBeds();
+    }],
     ['rapid repeats of a limited sound are gated', async () => {
       A.play('hit', {}); eq(A.play('hit', {}), false, 'second hit inside the gap is dropped');
     }],

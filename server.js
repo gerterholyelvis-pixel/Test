@@ -485,8 +485,8 @@ function attack(m, ws, p, now, rt) {   // {atk:1, rt}: rate limit by weapon, nea
     if (d < bd) { bd = d; best = [tws, t]; }
   }
   if (!best) return;
-  const [tws, t] = best; hitTarget(m, ws, p, tws, t, cb.dmg, now, undefined, { melee: true });
-  if (cb.bleed && t.stats.health > 0) t.bleed = { by: p, dmg: cb.bleed[0], left: cb.bleed[1], next: now + BLEED_MS, w: p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon] ? G.ITEMS[p.inv.weapon].name : '' };   // WEAPONS3: whips and tridents leave a bleed
+  const [tws, t] = best, hp0 = t.stats.health; hitTarget(m, ws, p, tws, t, cb.dmg, now, undefined, { melee: !cb.ranged });   // thorns and the scout's dodge only apply to melee
+  if (cb.bleed && t.stats.health > 0 && t.stats.health < hp0) t.bleed = { by: p, dmg: cb.bleed[0], left: cb.bleed[1], next: now + BLEED_MS, w: p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon] ? G.ITEMS[p.inv.weapon].name : '' };   // WEAPONS3: whips and tridents leave a bleed
 }
 // COMBAT-END
 // WEAPONS3-BEGIN (bleed from whips and tridents, tuned magic bolts; weapon numbers live in items.js WEAPON_TUNE)

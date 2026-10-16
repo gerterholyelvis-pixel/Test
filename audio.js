@@ -369,6 +369,122 @@
     }
   };
   const PRIORITY_LOW = { step: 1, uiHover: 1, tick: 1, heartbeat: 1, thud: 1 };   // dropped first when the voice count is high
+  // 5x5-BEGIN one-shots for the 5x5 systems (see docs/reports/audio-5x5.md for where each is triggered)
+  Object.assign(SND, {
+    // elixir pump and screen
+    pumpTick(out, t, o) { const f = 700 + 900 * clamp(num(o.fill, 0), 0, 1); tone(out, 'sine', f, t, 0.06, 0.22, { a: 0.002 }); noise(out, t, 0.015, 0.1, 'bandpass', f * 2, f * 1.6, 4, { a: 0.001 }); },   // opts.fill 0..1 raises the pitch as the tank fills
+    pumpCollect(out, t) { noise(out, t, 0.5, 0.22, 'bandpass', 500, 1600, 1.2, { a: 0.1 }); for (let i = 0; i < 4; i++) tone(out, 'sine', 300 + i * 90, t + i * 0.09, 0.14, 0.2, { f1: 220 + i * 90, a: 0.01 }); ping(out, t + 0.4, 1318.5, 0.3, 0.8); ping(out, t + 0.48, 1976, 0.22, 0.9); },
+    elixirOpen(out, t) { noise(out, t, 0.22, 0.2, 'bandpass', 600, 2000, 1, { a: 0.06 }); ping(out, t + 0.06, 988, 0.22, 0.5); ping(out, t + 0.15, 1480, 0.16, 0.6); },
+    elixirClose(out, t) { noise(out, t, 0.2, 0.18, 'bandpass', 2000, 500, 1, { a: 0.04 }); ping(out, t, 1100, 0.18, 0.35); ping(out, t + 0.07, 740, 0.16, 0.4); },
+    elixirConfirm(out, t) { ping(out, t, 1046.5, 0.3, 0.5); ping(out, t + 0.08, 1568, 0.3, 0.7); tone(out, 'sine', 300, t, 0.08, 0.2, { f1: 200, a: 0.002 }); },
+    elixirDenied(out, t) { tone(out, 'sawtooth', 200, t, 0.16, 0.16, { f1: 130, a: 0.004 }); tone(out, 'sawtooth', 160, t + 0.14, 0.2, 0.16, { f1: 90, a: 0.004 }); noise(out, t, 0.3, 0.1, 'lowpass', 900, 300, 0.8, { a: 0.01 }); },
+    upgrade(out, t) { for (const [f, d] of [[392, 0], [523.3, 0.1], [659.3, 0.2], [784, 0.3]]) { tone(out, 'triangle', f, t + d, 0.3, 0.22, { a: 0.01 }); ping(out, t + d, f * 2, 0.12, 0.5); } ping(out, t + 0.4, 2093, 0.22, 1.2); },
+    // defence
+    raidAlarm(out, t) { for (let i = 0; i < 4; i++) { const tt = t + i * 0.42; tone(out, 'square', 520, tt, 0.4, 0.14, { f1: 780, a: 0.02 }); tone(out, 'sawtooth', 523, tt, 0.4, 0.08, { f1: 784, a: 0.02, det: 20 }); } noise(out, t, 1.6, 0.05, 'bandpass', 1200, 1200, 2, { a: 0.1 }); },
+    sentryShot(out, t, o) { const p = rnd(0.95, 1.06) * num(o.pitch, 1); noise(out, t, 0.05, 0.4, 'highpass', 2500, 3400, 0.6, { a: 0.001 }); tone(out, 'square', 200 * p, t, 0.09, 0.2, { f1: 70, a: 0.001 }); tone(out, 'sine', 90, t, 0.12, 0.35, { f1: 50, a: 0.002 }); noise(out, t + 0.03, 0.12, 0.1, 'bandpass', 3800, 1500, 2, { a: 0.003 }); },
+    doorBar(out, t) { noise(out, t, 0.12, 0.45, 'bandpass', 900, 400, 1.4, { a: 0.001 }); tone(out, 'sine', 80, t, 0.22, 0.65, { f1: 40, a: 0.002 }); tone(out, 'sawtooth', 120, t + 0.01, 0.18, 0.1, { f1: 60, a: 0.002 }); noise(out, t + 0.12, 0.3, 0.1, 'lowpass', 600, 200, 0.7, { a: 0.02 }); },
+    doorLock(out, t) { noise(out, t, 0.02, 0.4, 'bandpass', 3000, 2400, 5, { a: 0.001 }); tone(out, 'square', 260, t, 0.05, 0.18, { f1: 180, a: 0.001 }); noise(out, t + 0.1, 0.03, 0.45, 'bandpass', 2200, 1500, 5, { a: 0.001 }); tone(out, 'sine', 110, t + 0.1, 0.12, 0.4, { f1: 60, a: 0.002 }); ping(out, t + 0.1, 1700, 0.06, 0.2); },
+    // sendables: six distinct
+    sendGas(out, t) { noise(out, t, 1.6, 0.34, 'highpass', 3200, 1400, 0.7, { a: 0.08 }); noise(out, t, 1.2, 0.18, 'bandpass', 600, 350, 0.8, { a: 0.1 }); tone(out, 'sine', 70, t, 0.4, 0.2, { f1: 50, a: 0.01 }); },
+    sendRats(out, t) { for (let i = 0; i < 9; i++) { const tt = t + i * rnd(0.05, 0.11), f = rnd(2400, 4200); tone(out, 'sine', f, tt, 0.05, 0.14, { f1: f * 1.3, a: 0.003 }); noise(out, tt, 0.04, 0.12, 'bandpass', 3500, 5500, 3, { a: 0.002 }); } for (let i = 0; i < 8; i++) noise(out, t + 0.1 + i * 0.07, 0.03, 0.14, 'highpass', 2200, 1500, 0.7, { a: 0.001 }); },
+    sendSpikes(out, t) { noise(out, t, 0.02, 0.5, 'bandpass', 2800, 2000, 3, { a: 0.001 }); tone(out, 'square', 340, t, 0.06, 0.2, { f1: 110, a: 0.001 }); tone(out, 'sine', 80, t + 0.02, 0.18, 0.5, { f1: 45, a: 0.002 }); for (let i = 0; i < 4; i++) ping(out, t + 0.03 + i * 0.015, rnd(2600, 3800), 0.1, 0.2); },
+    sendFire(out, t) { noise(out, t, 1.0, 0.4, 'bandpass', 300, 900, 0.8, { a: 0.03 }); noise(out, t, 0.9, 0.26, 'highpass', 2500, 1200, 0.7, { a: 0.02 }); tone(out, 'sawtooth', 70, t, 0.9, 0.16, { f1: 120, a: 0.04 }); for (let i = 0; i < 6; i++) noise(out, t + 0.2 + i * rnd(0.08, 0.14), 0.02, 0.3, 'highpass', 3500, 3000, 0.6, { a: 0.001 }); },
+    sendWasps(out, t) { const f = 220; tone(out, 'sawtooth', f, t, 1.4, 0.1, { f1: f * 1.15, a: 0.2, det: 15 }); tone(out, 'sawtooth', f * 1.03, t, 1.4, 0.08, { f1: f * 1.2, a: 0.2, det: -20 }); noise(out, t, 1.4, 0.14, 'bandpass', 900, 1500, 3, { a: 0.25 }); for (let i = 0; i < 5; i++) tone(out, 'sine', 700 + i * 90, t + i * 0.2, 0.18, 0.06, { f1: 540 + i * 70, a: 0.03 }); },
+    sendBoulder(out, t) { noise(out, t, 1.1, 0.5, 'lowpass', 200, 80, 0.9, { a: 0.35 }); tone(out, 'sine', 50, t, 1.1, 0.5, { f1: 35, a: 0.4 }); for (let i = 0; i < 6; i++) noise(out, t + 0.1 + i * 0.13, 0.06, 0.3, 'bandpass', 900, 400, 2, { a: 0.001 }); tone(out, 'sine', 60, t + 1.0, 0.6, 0.85, { f1: 28, a: 0.003 }); noise(out, t + 1.0, 0.4, 0.5, 'lowpass', 400, 80, 0.7, { a: 0.003 }); },
+    // activities
+    timingHit(out, t) { tone(out, 'triangle', 880, t, 0.1, 0.32, { f1: 1320, a: 0.002 }); ping(out, t, 1760, 0.22, 0.4); noise(out, t, 0.02, 0.2, 'highpass', 4000, 5000, 0.5, { a: 0.001 }); },
+    timingMiss(out, t) { tone(out, 'sawtooth', 220, t, 0.18, 0.2, { f1: 110, a: 0.004 }); noise(out, t, 0.12, 0.2, 'lowpass', 800, 250, 0.8, { a: 0.003 }); },
+    captureTick(out, t, o) { const p = 1 + 0.5 * clamp(num(o.amt, 0), 0, 1); tone(out, 'sine', 700 * p, t, 0.06, 0.26, { a: 0.002 }); tone(out, 'triangle', 1400 * p, t, 0.04, 0.08, { a: 0.002 }); },
+    riskWarn(out, t) { tone(out, 'square', 440, t, 0.1, 0.16, { f1: 420, a: 0.003 }); tone(out, 'square', 466, t + 0.14, 0.12, 0.16, { f1: 440, a: 0.003 }); noise(out, t, 0.06, 0.1, 'bandpass', 1800, 1500, 3, { a: 0.002 }); },
+    rewardChime(out, t) { ping(out, t, 1046.5, 0.3, 0.8); ping(out, t + 0.1, 1318.5, 0.3, 0.9); ping(out, t + 0.2, 1568, 0.3, 1.0); ping(out, t + 0.3, 2093, 0.24, 1.3); },
+    // vaultbreaker rooms
+    winchCreak(out, t) { const f = rnd(110, 150); tone(out, 'sawtooth', f, t, 0.5, 0.07, { f1: f * 1.5, a: 0.15 }); noise(out, t, 0.5, 0.2, 'bandpass', 900, 1700, 5, { a: 0.15 }); for (let i = 0; i < 4; i++) noise(out, t + 0.05 + i * 0.11, 0.02, 0.3, 'bandpass', 2500, 2000, 4, { a: 0.001 }); },
+    lockpickClick(out, t) { const f = rnd(2600, 3600); noise(out, t, 0.015, 0.35, 'bandpass', f, f * 0.8, 6, { a: 0.001 }); ping(out, t, f * 0.6, 0.08, 0.1); },
+    coinCount(out, t) { const f = rnd(2800, 3900); ping(out, t, f, rnd(0.14, 0.22), 0.16); noise(out, t, 0.02, 0.1, 'bandpass', f, f * 0.8, 6, { a: 0.001 }); },
+    runeChime(out, t, o) { const f = num(o.freq, 523.3) * rnd(0.99, 1.01); tone(out, 'sine', f, t, 1.0, 0.28, { a: 0.01 }); tone(out, 'sine', f * 1.5, t, 0.8, 0.14, { a: 0.01, det: 8 }); tone(out, 'sine', f * 2.01, t, 0.6, 0.08, { a: 0.01 }); },
+    // vault
+    coinPile(out, t) { for (let i = 0; i < 14; i++) { const tt = t + i * rnd(0.03, 0.06), f = rnd(2000, 3800); ping(out, tt, f, rnd(0.1, 0.22), rnd(0.12, 0.3)); noise(out, tt, 0.03, 0.12, 'bandpass', f, f * 0.8, 6, { a: 0.001 }); } noise(out, t, 0.5, 0.08, 'lowpass', 1500, 500, 0.7, { a: 0.02 }); },
+    crownClaim(out, t) { for (const [f, d] of [[392, 0], [523.3, 0.14], [659.3, 0.28], [784, 0.42]]) { tone(out, 'sawtooth', f, t + d, 0.5, 0.16, { a: 0.02 }); tone(out, 'triangle', f * 2, t + d, 0.5, 0.06, { a: 0.02 }); } ping(out, t + 0.5, 1568, 0.3, 1.6); ping(out, t + 0.5, 2349, 0.2, 1.8); },
+    vaultAlarm(out, t) { for (let i = 0; i < 3; i++) { const tt = t + i * 0.36; tone(out, 'square', 880, tt, 0.15, 0.14, { a: 0.003 }); tone(out, 'square', 660, tt + 0.16, 0.15, 0.14, { a: 0.003 }); } noise(out, t, 1.0, 0.05, 'bandpass', 2000, 2000, 2, { a: 0.1 }); },
+    wardenRoar(out, t) { tone(out, 'sawtooth', 95, t, 1.4, 0.34, { f1: 55, a: 0.08 }); tone(out, 'square', 98, t, 1.3, 0.14, { f1: 50, a: 0.08, det: 40 }); tone(out, 'sawtooth', 190, t + 0.05, 1.1, 0.12, { f1: 90, a: 0.1, det: -30 }); noise(out, t, 1.3, 0.4, 'bandpass', 500, 220, 1.2, { a: 0.1 }); tone(out, 'sine', 45, t, 1.4, 0.7, { f1: 30, a: 0.06 }); },
+    // round events
+    roundHorn(out, t) { for (const [f, d, du] of [[196, 0, 0.5], [196, 0.6, 0.35], [294, 1.05, 1.5]]) { tone(out, 'sawtooth', f, t + d, du, 0.24, { a: 0.06 }); tone(out, 'sawtooth', f * 1.005, t + d, du, 0.16, { a: 0.06, det: 12 }); tone(out, 'square', f * 2, t + d, du, 0.05, { a: 0.08 }); noise(out, t + d, du * 0.8, 0.05, 'lowpass', 1200, 800, 0.7, { a: 0.05 }); } },   // 2-minute horn
+    rekeyWarn(out, t) { for (let i = 0; i < 3; i++) { const tt = t + i * 0.2; tone(out, 'triangle', 330, tt, 0.14, 0.24, { f1: 300, a: 0.003 }); ping(out, tt, 660, 0.12, 0.2); } noise(out, t + 0.6, 0.3, 0.2, 'bandpass', 500, 1500, 1.5, { a: 0.1 }); tone(out, 'square', 140, t + 0.65, 0.3, 0.1, { f1: 240, a: 0.05 }); }
+  });
+  Object.assign(GAP, { pumpTick: 0.18, sentryShot: 0.09, lockpickClick: 0.05, coinCount: 0.04, captureTick: 0.1, timingHit: 0.08, timingMiss: 0.1, riskWarn: 0.25, raidAlarm: 1, vaultAlarm: 1, roundHorn: 2, doorBar: 0.15, doorLock: 0.15, wardenRoar: 1.5, rewardChime: 0.4, runeChime: 0.08, winchCreak: 0.3, coinPile: 0.4 });
+  Object.assign(PRIORITY_LOW, { pumpTick: 1, captureTick: 1, lockpickClick: 1, coinCount: 1, riskWarn: 1 });
+
+  // ---------- beds: managed loops and ambiences. GKAUDIO.bed(name, on, opts) ----------
+  // opts: x, z (attenuate by distance; call again to move/update), vol, v (0..1 value for holdRiser progress / suddenHeart intensity).
+  // At most MAXBEDS run at once. Beds clear their own timers when switched off. Machines/activities use the sfx bus, tree_* the ambient bus.
+  const MAXBEDS = 8, beds = {};
+  function mkBed(g, b) {   // helpers handed to bed builders
+    return {
+      osc(type, f, gain) { const o = ctx.createOscillator(), gn = ctx.createGain(); o.type = type; o.frequency.value = f; gn.gain.value = gain; o.connect(gn); gn.connect(g); o.start(); b.src.push(o); return o; },
+      nz(type, f, q, gain) { const s = ctx.createBufferSource(), fl = ctx.createBiquadFilter(), gn = ctx.createGain(); s.buffer = noiseBuf; s.loop = true; fl.type = type; fl.frequency.value = f; fl.Q.value = q; gn.gain.value = gain; s.connect(fl); fl.connect(gn); gn.connect(g); s.start(0, Math.random() * 1.5); b.src.push(s); return { fl, gn }; },
+      lfo(param, f, depth) { const o = ctx.createOscillator(), gn = ctx.createGain(); o.frequency.value = f; gn.gain.value = depth; o.connect(gn); gn.connect(param); o.start(); b.src.push(o); },
+      every(minS, maxS, fn) {   // minS may be a function returning the next delay in seconds
+        const next = () => typeof minS === 'function' ? minS() : rnd(minS, maxS);
+        let id = 0;
+        const step = () => { if (b.dead) return; try { if (ctx && ctx.state === 'running') fn(ctx.currentTime + 0.01, g); } catch (e) {} id = setTimeout(step, 1000 * next()); };
+        id = setTimeout(step, 1000 * rnd(0.1, 0.8)); b.timers.push(() => clearTimeout(id));
+      }
+    };
+  }
+  const pick = a => a[Math.floor(Math.random() * a.length)];
+  const PENT = [523.3, 587.3, 659.3, 784, 880, 1046.5];
+  const BEDS = {
+    pumpHum(g, H) { H.osc('sine', 62, 0.5); H.osc('sine', 62.8, 0.4); H.osc('triangle', 124, 0.1); const n = H.nz('lowpass', 300, 0.6, 0.25); H.lfo(n.gn.gain, 0.6, 0.1); H.every(1.6, 2.6, (t, o) => tone(o, 'sine', 420, t, 0.18, 0.1, { f1: 300, a: 0.03 })); },
+    workbench(g, H) { H.osc('sine', 80, 0.2); const n = H.nz('bandpass', 1400, 1.4, 0.08); H.lfo(n.gn.gain, 0.4, 0.05); H.every(1.4, 3.2, (t, o) => { noise(o, t, 0.05, 0.3, 'bandpass', 2600, 1800, 3, { a: 0.001 }); tone(o, 'sine', 95, t, 0.1, 0.25, { f1: 60, a: 0.002 }); }); },
+    recycler(g, H) { H.osc('sawtooth', 58, 0.16); H.osc('sawtooth', 58.9, 0.12); const n = H.nz('bandpass', 700, 1.5, 0.22); H.lfo(n.gn.gain, 2.2, 0.12); H.lfo(n.fl.frequency, 0.3, 200); },
+    forge(g, H) { const n = H.nz('lowpass', 220, 0.7, 0.45); H.lfo(n.gn.gain, 0.2, 0.15); H.osc('sine', 48, 0.4); H.osc('triangle', 96.4, 0.08); H.every(0.6, 1.8, (t, o) => noise(o, t, 0.02, 0.28, 'highpass', 3500, 3000, 0.6, { a: 0.001 })); H.every(4, 8, (t, o) => ping(o, t, 1568, 0.07, 0.6)); },   // master forge
+    grandRecycler(g, H) { H.osc('sawtooth', 44, 0.22); H.osc('sawtooth', 44.6, 0.16); H.osc('sine', 88, 0.15); const n = H.nz('bandpass', 500, 1.8, 0.28); H.lfo(n.gn.gain, 1.4, 0.14); H.lfo(n.fl.frequency, 0.2, 180); H.every(0.5, 1.2, (t, o) => noise(o, t, 0.05, 0.3, 'highpass', 2000, 900, 0.7, { a: 0.001 })); },
+    holdRiser(g, H, b) { const o = H.osc('sawtooth', 120, 0.12), o2 = H.osc('sine', 240, 0.2), n = H.nz('bandpass', 900, 2, 0.1); b.upd = v => { const t = ctx.currentTime; o.frequency.setTargetAtTime(120 * Math.pow(4, v), t, 0.05); o2.frequency.setTargetAtTime(240 * Math.pow(4, v), t, 0.05); n.fl.frequency.setTargetAtTime(900 + 3000 * v, t, 0.05); n.gn.gain.setTargetAtTime(0.1 + 0.2 * v, t, 0.05); }; b.upd(0); },
+    runeHum(g, H) { H.osc('sine', 196, 0.3); H.osc('sine', 196.9, 0.24); H.osc('sine', 294.3, 0.12); H.osc('triangle', 392, 0.05); const l = H.nz('bandpass', 1200, 6, 0.04); H.lfo(l.gn.gain, 0.35, 0.03); },
+    crownLoop(g, H) { H.osc('sine', 392, 0.18); H.osc('sine', 392.8, 0.14); H.osc('sine', 587, 0.08); H.osc('triangle', 784, 0.04); H.every(0.5, 1.2, (t, o) => ping(o, t, pick(PENT) * 2, 0.07, 0.8)); },
+    suddenHeart(g, H, b) { b.v = 0.5; H.osc('sine', 40, 0.1); H.every(() => 0.95 - 0.4 * clamp(b.v, 0, 1), 0, (t, o) => { const v = 0.5 + 0.5 * clamp(b.v, 0, 1); tone(o, 'sine', 62, t, 0.16, 0.7 * v, { f1: 40, a: 0.01 }); tone(o, 'sine', 54, t + 0.17, 0.2, 0.5 * v, { f1: 36, a: 0.01 }); }); b.upd = v => { b.v = v; }; },
+    // the 10 tree-room types
+    tree_grove(g, H) { const n = H.nz('bandpass', 2200, 0.9, 0.14); H.lfo(n.gn.gain, 0.17, 0.09); H.lfo(n.fl.frequency, 0.11, 500); H.every(3, 8, (t, o) => { const f = rnd(2400, 3600); tone(o, 'sine', f, t, 0.09, 0.07, { f1: f * 1.3, a: 0.01 }); tone(o, 'sine', f * 1.1, t + 0.13, 0.08, 0.06, { f1: f * 1.4, a: 0.01 }); }); },
+    tree_crystal(g, H) { H.osc('sine', 1318, 0.015); H.osc('sine', 1320.5, 0.012); H.every(1.2, 4, (t, o) => ping(o, t, pick(PENT) * 2, 0.1, 1.4)); },
+    tree_bog(g, H) { H.nz('lowpass', 300, 0.5, 0.22); H.every(0.8, 3, (t, o) => tone(o, 'sine', rnd(600, 900), t, 0.09, 0.12, { f1: rnd(250, 400), a: 0.003 })); H.every(4, 9, (t, o) => tone(o, 'sine', 110, t, 0.25, 0.14, { f1: 330, a: 0.05 })); },
+    tree_ember(g, H) { H.nz('lowpass', 160, 0.6, 0.35); H.every(0.15, 0.7, (t, o) => noise(o, t, 0.02, rnd(0.08, 0.2), 'highpass', rnd(2500, 4500), 3000, 0.6, { a: 0.001 })); },
+    tree_frost(g, H) { const n = H.nz('bandpass', 3200, 3, 0.08); H.lfo(n.gn.gain, 0.12, 0.05); H.lfo(n.fl.frequency, 0.08, 700); H.every(5, 11, (t, o) => tone(o, 'sine', 1900, t, 0.5, 0.06, { f1: 900, a: 0.02 })); },
+    tree_fungus(g, H) { H.osc('sine', 170, 0.2); const n = H.nz('lowpass', 400, 0.5, 0.1); H.lfo(n.gn.gain, 0.3, 0.06); H.every(1, 3, (t, o) => tone(o, 'sine', rnd(180, 300), t, 0.1, 0.14, { f1: rnd(500, 700), a: 0.004 })); },
+    tree_hive(g, H) { H.osc('sawtooth', 148, 0.05); H.osc('sawtooth', 152, 0.05); const n = H.nz('bandpass', 700, 2, 0.12); H.lfo(n.gn.gain, 7, 0.05); H.lfo(n.fl.frequency, 0.15, 150); },
+    tree_bones(g, H) { const n = H.nz('bandpass', 500, 9, 0.14); H.lfo(n.fl.frequency, 0.13, 220); H.lfo(n.gn.gain, 0.2, 0.08); H.every(3, 9, (t, o) => { noise(o, t, 0.03, 0.3, 'bandpass', 1800, 1500, 5, { a: 0.001 }); tone(o, 'sine', 300, t, 0.06, 0.14, { f1: 200, a: 0.001 }); }); },
+    tree_spring(g, H) { const n = H.nz('highpass', 1600, 0.6, 0.12); H.lfo(n.gn.gain, 3.1, 0.04); H.nz('bandpass', 700, 1.2, 0.08); H.every(0.4, 1.4, (t, o) => tone(o, 'sine', rnd(900, 1700), t, 0.07, 0.07, { f1: rnd(1800, 2600), a: 0.003 })); },
+    tree_echo(g, H) { H.osc('sine', 82, 0.3); H.osc('sine', 82.6, 0.2); H.every(4, 9, (t, o) => { const f = pick([440, 523.3, 659.3]); ping(o, t, f, 0.1, 1.2); ping(o, t + 0.35, f, 0.05, 1.2); ping(o, t + 0.7, f, 0.025, 1.2); }); }
+  };
+  const BEDLVL = { pumpHum: 0.22, workbench: 0.3, recycler: 0.26, forge: 0.28, grandRecycler: 0.3, holdRiser: 0.4, runeHum: 0.28, crownLoop: 0.3, suddenHeart: 0.5 };
+  function stopBed(name) {
+    const b = beds[name]; if (!b) return; delete beds[name]; b.dead = true;
+    b.timers.forEach(f => f());
+    if (!ctx) return;
+    const t = ctx.currentTime; b.g.gain.setTargetAtTime(0, t, 0.12);
+    b.src.forEach(s => { try { s.stop(t + 0.6); } catch (e) {} });
+    setTimeout(() => { try { b.g.disconnect(); } catch (e) {} }, 900);
+  }
+  function bed(name, on, opts) {
+    const build = BEDS[name], o = opts || {};
+    if (!build) return false;
+    if (!on) { stopBed(name); return true; }
+    if (!ctx || ctx.state !== 'running') return false;
+    let att = num(o.vol, 1);
+    if (o.x != null && o.z != null) { const d = Math.hypot(o.x - L.x, o.z - L.z); att *= d > MAXD ? 0 : 1 / (1 + (d / REF) * (d / REF)) * (1 - d / MAXD); }
+    const isTree = name.indexOf('tree_') === 0, lvl = (isTree ? 0.2 : BEDLVL[name] || 0.25) * att;
+    let b = beds[name];
+    if (!b) {
+      if (att < 0.01 || Object.keys(beds).length >= MAXBEDS) return false;
+      const g = ctx.createGain(); g.gain.value = 0; g.connect(isTree ? ambBus : sfxBus);
+      b = beds[name] = { g, src: [], timers: [], dead: false };
+      build(g, mkBed(g, b), b);
+    }
+    b.g.gain.setTargetAtTime(lvl, ctx.currentTime, 0.25);
+    if (b.upd && o.v != null) b.upd(clamp(num(o.v, 0), 0, 1));
+    return true;
+  }
+  function stopAllBeds() { Object.keys(beds).forEach(stopBed); }
+  // 5x5-END
 
   function play(name, opts) {
     const fn = SND[name]; if (!fn) return false;
@@ -412,6 +528,9 @@
   window.GKAUDIO = {
     play,
     ambient,
+    bed,
+    stopAllBeds,
+    beds: Object.keys(BEDS),
     weaponClass,
     armorClass,
     itemSound,
