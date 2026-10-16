@@ -3490,7 +3490,7 @@ const itemName = k => { const it = infoOf(k); return it ? it.name : String(k); }
 const TIER_COL = { common: '#9aa0a8', uncommon: '#4fc35b', rare: '#4a9bff', mythic: '#b06bff', legendary: '#ffb02e', transcendent: '#7ff4ff', class: '#ffd75e' };
 const tierN = k => { const it = infoOf(k); return it && it.tierN != null ? it.tierN : null; };   // null for brains
 const tierTxt = k => tierN(k) != null ? 'Tier ' + tierN(k) : '';
-const statTxt = k => { const it = infoOf(k); if (!it) return ''; return [tierTxt(k), it.type === 'weapon' ? 'Attack ' + it.attack : it.type === 'armor' ? 'Health ' + it.health : it.gain != null ? '+' + fmtN(it.gain) + ' knowledge' : ''].filter(Boolean).join(' · '); };
+const statTxt = k => { const it = infoOf(k); if (!it) return ''; return [tierTxt(k), it.type === 'weapon' ? 'Attack ' + it.attack : it.type === 'armor' ? 'Health ' + it.health : it.gain != null ? '+' + fmtN(it.gain) + ' knowledge' : it.use ? it.desc : ''].filter(Boolean).join(' · '); };
 const fmtN = n => Number.isInteger(+n) ? String(n) : String(+(+n).toFixed(1));   // keys -> names (plain names from an older server pass through)
 const emptyInv = () => ({ backpack: Array(9).fill(null), quick: Array(3).fill(null), weapon: null, armor: null });
 function startInv(goblin) { const inv = emptyInv(), s = itemsData().START[goblin]; if (s) { inv.weapon = s.weapon || null; inv.armor = s.armor || null; } return inv; }
@@ -3811,6 +3811,7 @@ const handleMsg0 = d => {
   if (d.lootFail) lootFailFx(d.lootFail);
   if (GK.fun) GK.fun.onMsg(d);   // FUN: kill feed, board, match summary
   if (window.GKLOOT) GKLOOT.onMsg(d);   // LOOT: vault relic, thrown plushie
+  if (window.GKUSE) GKUSE.onMsg(d);   // UTILITY: used items, thrown bombs, smoke
   if (window.GKRULES) GKRULES.onMsg(d);   // RULES: experimental rules (inert unless the server advertises them)
   if (d.died) showDeathScreen(d.died);
   if (d.won) showVictory(d.won);
@@ -4403,6 +4404,7 @@ addEventListener('keydown', e => {
   if (e.repeat) return;
   if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') {
     if (window.GKLOOT && GKLOOT.key(+e.code.slice(5) - 1)) return;   // LOOT: a plushie in that quick slot is thrown
+    if (window.GKUSE && GKUSE.key(+e.code.slice(5) - 1)) return;   // UTILITY: a utility item in that quick slot is used
     ensureHotbar(); const i = +e.code.slice(5) - 1, k = invGet(myInv, 'q' + i);
     if (i === qSel && k != null && infoOf(k) && infoOf(k).family === 'brain') eatSlot('q' + i); else setSel(i);   // pressing the selected slot's key eats a brain
     return;
@@ -4653,7 +4655,7 @@ function buildRec() {
     const s = e.target.closest && e.target.closest('.gks[data-rec]'); if (!s) return;
     const id = s.dataset.id, k = invGet(myInv, id);
     if (k == null) return;
-    if (!(itemsData().recycleYield && itemsData().recycleYield(k))) { flashBad(id); say(recPn, 'Only weapons can be recycled'); return; }
+    if (!(itemsData().recycleYield && itemsData().recycleYield(k))) { flashBad(id); say(recPn, 'Only weapons and utility items can be recycled'); return; }
     recSel = id; paintRec();
   });
 }
@@ -6578,7 +6580,7 @@ function frame(now) {
   if (mine && spawned && GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked) {
     const f = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
     const s = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
-    const sp = (keys.has('ShiftLeft') || keys.has('ShiftRight') ? 7.5 : 4.6) * ((itemsData().SPEED || [])[mine.goblin] || (0.85 + 0.15 * SCALE[mine.goblin]));   // BALANCE: class speed table (items.js SPEED, shared with the server): small fastest, big slowest
+    const sp = (keys.has('ShiftLeft') || keys.has('ShiftRight') ? 7.5 : 4.6) * ((itemsData().SPEED || [])[mine.goblin] || (0.85 + 0.15 * SCALE[mine.goblin])) * (window.GKUSE ? GKUSE.speedMul() : 1);   // BALANCE: class speed table (items.js SPEED, shared with the server): small fastest, big slowest
     let mx = -Math.sin(P.yaw) * f + Math.cos(P.yaw) * s, mz = -Math.cos(P.yaw) * f - Math.sin(P.yaw) * s;
     const len = Math.hypot(mx, mz) || 1; mx = mx / len * sp * dt * (f || s ? 1 : 0); mz = mz / len * sp * dt * (f || s ? 1 : 0);
     const ox = P.x, oz = P.z;
@@ -6871,6 +6873,84 @@ const LOOT = window.GKLOOT = (() => {
   };
 })();
 // LOOT-END
+// UTILITY-BEGIN (use effects of the eight utility items: floating note, thrown bomb / smoke arc, smoke cloud sprites, bomb flash; no lights; see docs/reports/utility-items.md)
+const GKUSE = window.GKUSE = (() => {
+  const UT = k => (itemsData().ITEMS || {})[k] || {};
+  let tonicEnd = 0, lastKey = null;
+  const FAIL = { now: 'Not now', busy: 'Not yet', full: 'You are at full health', sudden: 'Nothing heals in sudden death', door: 'No open door close by', room: 'Use it in a room with a panel', item: 'Cannot use that' };
+  const note = (text, col) => {   // short floating note, the same family as the knowledge gain text but smaller
+    const f = document.createElement('div'); f.textContent = text;
+    f.style.cssText = 'position:fixed;left:50%;top:50%;transform:translateX(-50%);z-index:90;pointer-events:none;color:' + (col || '#ffe9a8') + ';font:700 20px system-ui,sans-serif;letter-spacing:.04em;text-shadow:0 2px 8px #000';
+    document.body.appendChild(f); const an = f.animate([{ opacity: 0, transform: 'translate(-50%,8px)' }, { opacity: 1, transform: 'translate(-50%,-6px)', offset: 0.2 }, { opacity: 0, transform: 'translate(-50%,-44px)' }], 1300); an.onfinish = () => f.remove();
+  };
+  const puffTex = canvasTex(64, 64, (g, w, h) => { const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,255,255,0.9)'); gr.addColorStop(0.55, 'rgba(255,255,255,0.35)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, w, h); });
+  const ballG = new THREE.SphereGeometry(1, 12, 9), bombM = new THREE.MeshStandardMaterial({ color: 0x2a2d33, roughness: 0.5, metalness: 0.4 }), smokeM = new THREE.MeshStandardMaterial({ color: 0x6b7078, roughness: 0.8 }), sparkM = new THREE.MeshBasicMaterial({ color: 0xffb83a });
+  const mkBall = kind => { const m = new THREE.Mesh(ballG, kind === 'bomb' ? bombM : smokeM); m.scale.setScalar(0.13); if (kind === 'bomb') { const s = new THREE.Mesh(ballG, sparkM); s.scale.setScalar(0.3); s.position.set(0.3, 1.05, 0); m.add(s); } return m; };
+  const flying = [], clouds = [], flashes = [], bombs = new Map();
+  function onToss(t) {
+    const m = mkBall(t.kind); scene.add(m);
+    flying.push({ m, kind: t.kind, id: t.id, t0: performance.now(), ms: t.ms, x0: t.from[0], z0: t.from[1], y0: t.by === me ? 1.45 : 1.3, x1: t.to[0], z1: t.to[1], landed: false });
+  }
+  function landed(f, now) {
+    f.landed = true;
+    if (f.kind === 'bomb') { f.m.position.set(f.x1, 0.14, f.z1); bombs.set(f.id, f.m); return; }
+    scene.remove(f.m); f.m.visible = false;
+    const u = UT('x:smoke'), r = u.r || 3, sprites = [];
+    for (let i = 0; i < 5; i++) { const a = i * 1.26, d = i ? r * 0.45 : 0, s = new THREE.Sprite(new THREE.SpriteMaterial({ map: puffTex, color: 0xa4aab2, transparent: true, opacity: 0, depthWrite: false, fog: false })); s.position.set(f.x1 + Math.cos(a) * d, 1.0 + (i % 2) * 0.35, f.z1 + Math.sin(a) * d); s.scale.setScalar(r * 1.25); sprites.push(s); scene.add(s); }
+    clouds.push({ sprites, t0: now, ms: u.ms || 6000 }); snd('hiss', { x: f.x1, z: f.z1, vol: 0.5 });
+  }
+  function onBoom(b) {
+    const m = bombs.get(b.id); if (m) { scene.remove(m); bombs.delete(b.id); }
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: puffTex, color: 0xffa040, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending, fog: false })); s.position.set(b.x, 0.9, b.z); scene.add(s);
+    flashes.push({ s, t0: performance.now(), r: b.r }); snd('boom', { x: b.x, z: b.z, vol: 0.9 });
+  }
+  function update(now) {
+    if (!flying.length && !clouds.length && !flashes.length) return;
+    for (let i = flying.length - 1; i >= 0; i--) {
+      const f = flying[i], k = Math.min(1, (now - f.t0) / f.ms);
+      if (k < 1) { f.m.position.set(f.x0 + (f.x1 - f.x0) * k, f.y0 * (1 - k) + 0.14 * k + Math.sin(k * Math.PI) * 1.2, f.z0 + (f.z1 - f.z0) * k); f.m.rotation.x = k * 8; }
+      else { if (!f.landed) landed(f, now); flying.splice(i, 1); }
+    }
+    for (let i = clouds.length - 1; i >= 0; i--) {
+      const c = clouds[i], k = (now - c.t0) / c.ms, a = k < 0.12 ? k / 0.12 : k > 0.85 ? Math.max(0, (1 - k) / 0.15) : 1;
+      for (const s of c.sprites) { s.material.opacity = 0.5 * a; s.material.rotation += 0.002; }
+      if (k >= 1) { for (const s of c.sprites) { scene.remove(s); s.material.dispose(); } clouds.splice(i, 1); }
+    }
+    for (let i = flashes.length - 1; i >= 0; i--) {
+      const f = flashes[i], k = (now - f.t0) / 380;
+      if (k >= 1) { scene.remove(f.s); f.s.material.dispose(); flashes.splice(i, 1); continue; }
+      f.s.scale.setScalar(0.6 + f.r * 1.8 * Math.sqrt(k)); f.s.material.opacity = 0.9 * (1 - k);
+    }
+  }
+  const loop = now => { update(now); requestAnimationFrame(loop); }; requestAnimationFrame(loop);
+  return {
+    key(i) {   // quick-slot key pressed: a utility item in that slot is used (true = handled; the server decides whether it works)
+      if (GK.mode !== 'play' || invOpen || !myInv) return false;
+      const k = invGet(myInv, 'q' + i), it = k && infoOf(k); if (!it || !it.use) return false;
+      lastKey = k; net.send({ use: 'q' + i }); return true;
+    },
+    speedMul() { return performance.now() < tonicEnd ? UT('x:tonic').n || 1.25 : 1; },
+    onMsg(d) {
+      if (d.toss) onToss(d.toss);
+      if (d.boom) onBoom(d.boom);
+      if (d.used) {
+        const u = d.used, it = UT(u.key); snd('useSoft', { pitch: it.use === 'speed' ? 1.3 : it.use === 'pick' ? 1.5 : 1 });
+        if (it.use === 'heal') note('+' + u.hp + ' HP', '#8be28b');
+        else if (it.use === 'regen') note('Regenerating', '#8be28b');
+        else if (it.use === 'speed') { tonicEnd = performance.now() + (u.ms || 8000); note('Quick on your feet', '#ffd76a'); }
+        else if (it.use === 'wedge') note('Door wedged open', '#ffd76a');
+        else if (it.use === 'pick') note('Vault vote added', '#ffd76a');
+      }
+      if (d.sealed) { note('Panel sealed by ' + d.sealed.by, '#ffd76a'); snd('useSoft', { pitch: 0.8 }); }
+      if (d.sealBlock) { toastMsg('This panel is sealed', false, 1100); snd('deny'); }
+      if (d.useFail) {
+        const pickMsg = lastKey === 'x:lockpick' ? 'Pick a Vault door on the panel first' : 'Pick a door on the panel first';
+        toastMsg(d.useFail === 'pick' ? pickMsg : FAIL[d.useFail] || 'Cannot use that', false, 1400); snd('deny');
+      }
+    },
+  };
+})();
+// UTILITY-END
 if (window.GKART) requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => GKART.bake(renderer), 600)));   // ITEMART: bake the inventory icons in small batches once the first frame is up
 window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw, pitch) { P.x = x; P.z = z; P.yaw = yaw; P.pitch = pitch || 0; spawned = true; }, toggleOverview() { inside = !inside; }, build: buildGoblin };
 })();

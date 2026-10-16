@@ -198,6 +198,16 @@
       tone(out, 'sine', 900 * p, t, 0.11, 0.4, { f1: 1900 * p, a: 0.004 }); tone(out, 'triangle', 1800 * p, t, 0.11, 0.12, { f1: 3400 * p, a: 0.004 });
       tone(out, 'sine', 1100 * p, t + 0.13, 0.09, 0.3, { f1: 2300 * p, a: 0.004 });
     },
+    useSoft(out, t, o) {   // UTILITY: a quiet rustle and a short rising note for bandage, mushroom, tonic, wax and lockpick
+      const p = num(o.pitch, 1);
+      noise(out, t, 0.16, 0.2, 'bandpass', 900 * p, 2200 * p, 1.2, { a: 0.01 }); tone(out, 'sine', 520 * p, t + 0.05, 0.16, 0.16, { f1: 780 * p, a: 0.01 });
+    },
+    hiss(out, t) {   // UTILITY: a smoke bomb landing
+      noise(out, t, 0.9, 0.3, 'highpass', 2600, 1200, 0.7, { a: 0.03 }); noise(out, t, 0.5, 0.2, 'bandpass', 700, 400, 0.8, { a: 0.01 });
+    },
+    boom(out, t) {   // UTILITY: the powder bomb, a short dull blast (not as long as the vault door)
+      tone(out, 'sine', 120, t, 0.42, 0.7, { f1: 38, a: 0.003 }); noise(out, t, 0.35, 0.6, 'lowpass', 1800, 160, 0.8, { a: 0.002 }); noise(out, t, 0.08, 0.4, 'highpass', 2500, 1500, 0.7, { a: 0.001 });
+    },
     deny(out, t) { tone(out, 'square', 150, t, 0.1, 0.16, { f1: 120, a: 0.003 }); tone(out, 'square', 130, t + 0.12, 0.14, 0.16, { f1: 90, a: 0.003 }); },
     // SOCIAL-BEGIN goblin emotes (keys 4-7): short, silly, vocal
     emoteTaunt(out, t, o) {   // chest thumps and a gravelly "HAH!"
