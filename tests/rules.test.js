@@ -5,10 +5,11 @@ const count = (c, k) => c.msgs.filter(m => m[k] !== undefined && m[k] !== null).
 const equip = async (c, key) => { c.send({ give: key }); await c.until(x => x.state.inv.backpack[0] === key, 2000, key); c.send({ mv: ['b0', 'weapon'] }); await c.until(x => x.state.inv.weapon === key, 2000, 'equipped'); };
 (async () => {
   const SHORT = { GK_ROUND_MS: '1800', GK_NEXT_ROUND_MS: '1800', GK_BOT_GRACE_MS: '0' };
-  const off = await L.startServer({ GK_CROWN_MS: '800' }), offShort = await L.startServer(SHORT), offTwo = await L.startServer({ GK_MATCH_SIZE: '2' });
-  const crown = await L.startServer({ GK_RULES: 'crown', GK_CROWN_MS: '1500', GK_MATCH_SIZE: '2' }), dclose = await L.startServer({ GK_RULES: 'doorclose', ...SHORT });
-  const staff = await L.startServer({ GK_RULES: 'staffbolt', GK_MATCH_SIZE: '2' }), bribe = await L.startServer({ GK_RULES: 'bribe', GK_ROUND_MS: '2500', GK_NEXT_ROUND_MS: '2500' });
-  const offBribe = await L.startServer({ GK_ROUND_MS: '2500', GK_NEXT_ROUND_MS: '2500' }); let fail = 1;
+  const NONE = { GK_RULES: 'none' };   // staffbolt and bribe are ON by default now (docs/reports/balance.md); the "off" servers turn everything off explicitly
+  const off = await L.startServer({ GK_CROWN_MS: '800', ...NONE }), offShort = await L.startServer({ ...SHORT, ...NONE }), offTwo = await L.startServer({ GK_MATCH_SIZE: '2', ...NONE });
+  const crown = await L.startServer({ GK_RULES: 'none,crown', GK_CROWN_MS: '1500', GK_MATCH_SIZE: '2' }), dclose = await L.startServer({ GK_RULES: 'none,doorclose', ...SHORT });
+  const staff = await L.startServer({ GK_RULES: 'none,staffbolt', GK_MATCH_SIZE: '2' }), bribe = await L.startServer({ GK_RULES: 'none,bribe', GK_ROUND_MS: '2500', GK_NEXT_ROUND_MS: '2500' });
+  const offBribe = await L.startServer({ GK_ROUND_MS: '2500', GK_NEXT_ROUND_MS: '2500', ...NONE }); let fail = 1;
   const pair = (srv, qa = '', qb = '') => Promise.all([connect(srv.port, 'goblin=2' + qa), connect(srv.port, 'goblin=3' + qb)]);
   try {
     fail = await L.run('rules', [
@@ -48,11 +49,11 @@ const equip = async (c, key) => { c.send({ give: key }); await c.until(x => x.st
         const [a, b] = await pair(offTwo); a.send({ tp: W.rc(0) }); b.send({ tp: [W.rc(0)[0] + 3, W.rc(0)[1]] }); await sleep(150);
         a.send({ m: [W.rc(0)[0], W.rc(0)[1], -Math.PI / 2] }); a.send({ atk: 1 }); await sleep(900); eq(count(a, 'bolt'), 0); assert(!b.msgs.some(m => m.hit), 'nobody was hit'); await a.close(); await b.close();
       }],
-      ['staffbolt on: a bolt flies 3 m, deals 6, 1.2 s cooldown', async () => {
+      ['staffbolt on: a bolt flies 3 m, deals 9, 1.0 s cooldown', async () => {
         const [a, b] = await pair(staff); eq(a.state.rules, ['staffbolt']); const [x, z] = W.rc(0); a.send({ tp: [x, z] }); b.send({ tp: [x + 3, z] }); await sleep(150);
         await equip(a, 'w:staff'); a.send({ m: [x, z, -Math.PI / 2] }); a.send({ atk: 1 });
         await a.until(c => c.msgs.some(m => m.bolt && m.bolt.by === c.state.you), 1000, 'bolt message'); const t0 = Date.now();
-        await a.until(c => c.msgs.some(m => m.hit && m.hit.from === c.state.you && m.hit.dmg === 6), 3000, 'bolt hit for 6'); assert(Date.now() - t0 > 150, 'a bolt is slow, not instant');
+        await a.until(c => c.msgs.some(m => m.hit && m.hit.from === c.state.you && m.hit.dmg === 9), 3000, 'bolt hit for 9'); assert(Date.now() - t0 > 150, 'a bolt is slow, not instant');
         await a.until(c => c.msgs.some(m => m.boltEnd && m.boltEnd.hit), 1000, 'boltEnd');
         await sleep(300); a.send({ atk: 1 }); await sleep(400); eq(count(a, 'bolt'), 1, 'second shot inside the cooldown is ignored');
         await sleep(900); a.send({ atk: 1 }); await a.until(c => count(c, 'bolt') === 2, 1500, 'second bolt after the cooldown'); await a.close(); await b.close();

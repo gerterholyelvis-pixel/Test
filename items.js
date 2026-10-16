@@ -60,6 +60,7 @@
     { weapon: 'w:staff', armor: 'a:robe' }, { weapon: 'w:scepter', armor: 'a:royal' },
   ];
   const KNOWLEDGE = [60, 40, 30, 80, 40];   // innate stat per goblin type
+  const SPEED = [1.12, 1.0, 0.9, 1.0, 0.95];   // BALANCE: movement multiplier per goblin type (walk 4.6, sprint 7.5 m/s times this). Small goblins are the fastest, big the slowest: before this the biggest goblin was also the fastest, the strongest and the toughest.
   const SLOTS = { backpack: 9, quick: 3 };
   const KNOWLEDGE_TIERS = [20, 40, 60, 80, 100];   // the knowledge tree has 5 tiers; tier N needs this much knowledge
   const START_GOLD = 100;   // placeholder starting gold so the merchant can be tried out
@@ -133,6 +134,6 @@
     const w = weaponKey && ITEMS[weaponKey], fam = w ? w.family : null, ranged = fam === 'bow' || fam === 'crossbow';
     return { dmg: w ? Math.max(1, w.attack) : COMBAT.unarmed, range: ranged ? COMBAT.ranged : COMBAT.melee, cd: w ? (SWING_CD[fam] || 600) : 500, ranged };
   }
-  root.GKITEMS = { randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, START, KNOWLEDGE, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info };
+  root.GKITEMS = { randomShop, START_GOLD, randomMystery, randomLayout, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, START, KNOWLEDGE, SPEED, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.GKITEMS;
 })(typeof window !== 'undefined' ? window : globalThis);
