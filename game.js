@@ -5805,11 +5805,13 @@ const ROOMART = (() => {
     if (!big && r.kind === 'grid') {
       const p = spot(1.5, 1.7);
       if (p) {
-        const [x, z, sx, sz] = p, toCentre = Math.atan2(sz, -sx); story.set(r.key, [x, z, theme]); storyAt = [x, z];
+        const [x, z, sx, sz] = p, toCentre = Math.atan2(sz, -sx); { const w = WORLD.storyOf(+r.key); if (!w || w.theme !== theme || Math.abs(w.x - x) > 1e-6 || Math.abs(w.z - z) > 1e-6) console.warn('roomart: story corner differs from world.js', r.key); }   // SOLID: world.js repeats the story draws for the collision footprints
+        story.set(r.key, [x, z, theme]); storyAt = [x, z];
         if (theme === 0) { coldFire(A, x, z, r2); tripodPot(A, x, z, r2); logSeat(A, x - sx * 0.2, z - sz * 0.95, 0.4 + r2(), r2); bedroll(A, x + sx * 1.1, z + sz * 0.15, (r2() - 0.5) * 0.2, r2); bonePile(A, x - sx * 0.1, z + sz * 1.1, r2); barrelTipped(A, x - sx * 1.25, z + sz * 0.95, toCentre, r2); crate(A, x + sx * 1.15, z - sz * 0.95, r2() * 0.4, 0.62, r2); crate(A, x + sx * 1.15, z - sz * 1.55, r2() * 0.4, 0.55, r2); sack(A, x + sx * 0.55, z - sz * 1.2, r2); }
         else if (theme === 1) { barrelTipped(A, x, z, toCentre, r2); barrelUpright(A, x + sx * 1.0, z + sz * 1.35, r2); barrelUpright(A, x + sx * 1.55, z + sz * 0.85, r2); crateBroken(A, x + sx * 1.3, z - sz * 0.45, (r2() - 0.5) * 0.6, 0.85, r2); sack(A, x + sx * 0.4, z + sz * 1.3, r2); sack(A, x + sx * 0.9, z + sz * 1.45, r2); coinScatter(A, x - sx * 0.8, z + sz * 0.3, 10, 0.4, r2); }
         else { shackles(A, x, z, r2); bonePile(A, x, z + sz * 0.15, r2); bucket(A, x + sx * 1.0, z + sz * 0.6, r2() * 6, r2); crateBroken(A, x - sx * 0.2, z + sz * 1.5, r2() * 0.5, 0.7, r2); }
       }
+      for (const p of WORLD.solidsOf(r.key, '')) occ.push([p.x - r.cx, p.z - r.cz, p.r]);   // SOLID: keep the second story spot off the crate corner
       const q = spot(0.8, 1.2); if (q) { if (theme === 1) bonePile(A, q[0], q[1], r2); else crateBroken(A, q[0], q[1], r2() * 6, 0.75, r2); }
     } else if (r.kind === 'chest') {
       for (let k = 0; k < 2; k++) {
@@ -5820,6 +5822,7 @@ const ROOMART = (() => {
     } else if (big) { const q = spot(0.9, 2.6); if (q) shackles(A, q[0], q[1], r2); }
     const wallSpot = rad => { for (let k = 0; k < 30; k++) { const w = (rnd() * 4) | 0, t = pickSeg(segs(r, w, rad + 0.5, rad + 0.7), rnd); if (t == null) continue; const [x, z] = wp(r, w, t, rad + 0.28 + rnd() * 0.7); if (Math.abs(x) < hx - rad && Math.abs(z) < hz - rad && free(x, z, rad)) { occ.push([x, z, rad]); return [x, z, w]; } } return null; };
     const cornerSpot = rad => { for (let k = 0; k < 16; k++) { const sx = rnd() < 0.5 ? -1 : 1, sz = rnd() < 0.5 ? -1 : 1, x = sx * (hx - 0.25 - rad - rnd() * 0.35), z = sz * (hz - 0.25 - rad - rnd() * 0.35); if (free(x, z, rad)) { occ.push([x, z, rad]); return [x, z]; } } return null; };
+    if (r.kind === 'grid') for (const p of WORLD.solidsOf(r.key, '')) occ.push([p.x - r.cx, p.z - r.cz, p.r]);   // SOLID: the collidable crates / pedestal are placed by world.js; everything else flows around them
     if (r.vault) vaultDress(r, A, rnd, occ);
     if (r.kind === 'chest') {   // door-side corners only (the far wall carries banners, torches and the chest)
       const cs = rad => { for (let k = 0; k < 10; k++) { const sx = rnd() < 0.5 ? -1 : 1, x = sx * (hx - 0.3 - rad - rnd() * 0.2), z = hz - 0.3 - rad - rnd() * 0.2; if (free(x, z, rad)) { occ.push([x, z, rad]); return [x, z]; } } return null; };
@@ -5829,7 +5832,7 @@ const ROOMART = (() => {
       for (let i = 0, n = 1 + ((rnd() * 2) | 0); i < n; i++) if ((p = cs(0.3))) coinScatter(A, p[0], p[1], 7 + ((rnd() * 8) | 0), 0.3, rnd);
     } else {
       const nCrates = 1 + ((rnd() * (big ? 3 : 2)) | 0), nBones = 2 + ((rnd() * 3) | 0), nCoins = 1 + ((rnd() * 3) | 0) + (big ? 2 : 0), nChains = 1 + ((rnd() * 3) | 0), bucketOn = rnd() < 0.5, helmetOn = rnd() < 0.45, sackOn = rnd() < 0.5;
-      for (let i = 0; i < nCrates; i++) { const p = cornerSpot(0.55); if (!p) break; const s = 0.7 + rnd() * 0.3, yaw = rnd() * 0.6 - 0.3; crate(A, p[0], p[1], yaw, s, rnd); if (rnd() < 0.5) { const [a, b] = rot(s * 0.9, s * 0.2, yaw); sack(A, p[0] + a, p[1] + b, rnd); } }
+      for (const w of WORLD.solidsOf(r.key, '')) if (w.k === 'crate') crate(A, w.x - r.cx, w.z - r.cz, w.yaw, w.s, rnd);   // SOLID: crates are collidable, so world.js picks where they stand (south corners, clear of doors and panels)
       for (let i = 0; i < nBones; i++) { const p = rnd() < 0.5 ? cornerSpot(0.4) : wallSpot(0.4); if (p) boneSet(A, p[0], p[1], rnd); }
       if (bucketOn) { const p = wallSpot(0.45); if (p) bucket(A, p[0], p[1], rnd() * 6, rnd); }
       if (helmetOn) { const p = wallSpot(0.3); if (p) helmet(A, p[0], p[1], rnd() * 6, rnd); }
@@ -5903,7 +5906,7 @@ const ROOMART = (() => {
       const a = (a0 + rnd() * (a1 - a0)) * PI / 180, rad = 4.2 + rnd() * 0.8, x = sx * Math.cos(a) * rad, z = sz * Math.sin(a) * rad, pr = 0.4 + rnd() * 0.35;
       coinPile(A, x, z, pr, 0.2 + rnd() * 0.2, rnd); r.piles.push([x, z, pr]);
     }
-    for (let k = 0; k < 2; k++) { const sx = rnd() < 0.5 ? -1 : 1, sz = k ? -1 : 1, x = sx * (r.hx - 1.3), z = sz * (r.hz - 1.3); coinPile(A, x, z, 1.0 + rnd() * 0.2, 0.6, rnd); occ.push([x, z, 1.2]); crate(A, x - sx * 1.5, z + sz * 0.3, rnd() * 6, 0.8, rnd); }
+    for (let k = 0; k < 2; k++) { const sx = k ? 1 : -1, sz = -1, x = sx * (r.hx - 1.3), z = sz * (r.hz - 1.3); coinPile(A, x, z, 1.0 + rnd() * 0.2, 0.6, rnd); occ.push([x, z, 1.2]); }   // SOLID: both hoards in the north corners; the south corners hold the (collidable) crates from world.js
   }
   // ---- chest / mystery / merchant mood accents (emissive only): floor inlay, ceiling cove and corner motifs
   function moodAccents(r, E, S, C, rnd) {
@@ -6665,6 +6668,7 @@ function frame(now) {
     const ox = P.x, oz = P.z;
     if (!blocked(P.x + mx, P.z)) P.x += mx;
     if (!blocked(P.x, P.z + mz)) P.z += mz;
+    if (WORLD.slide && (mx || mz)) { const [qx, qz] = WORLD.slide(ox, oz, P.x, P.z, RAD, CHEST_ROOMS); if (qx !== P.x || qz !== P.z) { const bz0 = P.z; P.x = blocked(qx, bz0) ? ox : qx; P.z = blocked(P.x, qz) ? oz : qz; } }   // SOLID: slide around crates, barrels, urns and the pedestal (world.js footprints, shared with the server)
     run.dist += Math.hypot(P.x - ox, P.z - oz);
     P.speed += (Math.hypot(P.x - ox, P.z - oz) / dt - P.speed) * Math.min(1, dt * 12);
     mine.x = P.x; mine.z = P.z; mine.yaw = P.yaw; mine.speed = P.speed;

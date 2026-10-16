@@ -408,6 +408,7 @@ function attack(m, ws, p, now, rt) {   // {atk:1, rt}: rate limit by weapon, nea
     if (d > reach) continue;
     if (d > 2.5 && inSmoke(m, t, now)) continue;   // UTILITY: nobody shoots into a smoke cloud from beyond melee range
     if (d > 0.05 && (dx * fx + dz * fz) / d < Math.cos(C.cone)) continue;
+    if (d > 0.9 && WORLD.segBlocked(p.x, p.z, tx, tz, m.layout)) continue;   // SOLID: no swinging through a crate or barrel
     if (d < bd) { bd = d; best = [tws, t]; }
   }
   if (!best) return;
@@ -442,7 +443,9 @@ function boltTick(m, now) {
     b.x += b.vx * dt; b.z += b.vz * dt; b.dist += BOLT.speed * dt;
     let hit = null;
     for (const [tws, t] of m.players) { if (t === b.by || t.dead || !t.entered || t.room !== b.room) continue; if (Math.hypot(t.x - b.x, t.z - b.z) < BOLT.radius && !(Math.hypot(t.x - b.by.x, t.z - b.by.z) > 2.5 && inSmoke(m, t, now))) { hit = [tws, t]; break; } }
+    if (hit && WORLD.segBlocked(b.x - b.vx * dt, b.z - b.vz * dt, hit[1].x, hit[1].z, m.layout)) hit = null;   // SOLID: a prop between the bolt and the goblin shields him
     if (hit) { hitTarget(m, b.by.ws, b.by, hit[0], hit[1], BOLT.dmg, now); bcast(m, { boltEnd: { id: b.id, hit: 1 } }); return false; }
+    if (WORLD.inProp(b.x, b.z, 0.08, m.layout)) { bcast(m, { boltEnd: { id: b.id } }); return false; }   // SOLID: the bolt dies on a crate, barrel or urn
     if (b.dist >= BOLT.range || roomKeyOf(b.x, b.z) !== b.room) { bcast(m, { boltEnd: { id: b.id } }); return false; }
     return true;
   });
@@ -531,6 +534,7 @@ const RSCALE = process.env.GK_DEBUG && +process.env.GK_REGEN_SCALE > 0 ? +proces
 const MAXV = 7.5 * Math.max(...G.SPEED) * G.MAX_ARMOR_SPEED * 1.1, BUDGET = 1.0, SLACK = 0.3, MOVE_SLACK = 0.3;   // BALANCE: the fastest class multiplier comes from items.js SPEED (shared with the client)   // fastest goblin sprint (game.js) x 1.1; the distance a client may bank while idle; SLACK: bounds tolerance in m; MOVE_SLACK: extra distance per move (SECURITY: was 1.25 / 1.2 / 0.3 per move)
 const HIST_MS = 1000, REWIND_MAX = 200;
 const r1 = v => Math.round(v * 10) / 10, r2 = v => Math.round(v * 100) / 100, r3 = v => Math.round(v * 1000) / 1000;
+const PROP_R = 0.33;   // SOLID: the walker radius the server checks against prop footprints (game.js RAD is 0.45; the gap keeps a slide along an edge from being corrected)
 function inBounds(x, z) {   // inside a room of the grid, or inside one of the 12 chest rooms (not the void around them)
   if (Math.abs(x) > LIM || Math.abs(z) > LIM) return false;
   if (Math.abs(x) <= WORLD.HALF && Math.abs(z) <= WORLD.HALF) return true;
@@ -538,10 +542,11 @@ function inBounds(x, z) {   // inside a room of the grid, or inside one of the 1
   return !!c && Math.abs(x - c.cx) <= WORLD.CS / 2 + SLACK && Math.abs(z - c.cz) <= WORLD.CS / 2 + SLACK;
 }
 function pathOk(m, x0, z0, x1, z1) {   // walk the segment in 0.2 m steps: every room change must go through an OPEN door, inside its opening
-  const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 0.2)); let prev = roomKeyOf(x0, z0);
+  const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 0.2)); let prev = roomKeyOf(x0, z0); const inside0 = WORLD.inProp(x0, z0, PROP_R, m.layout, true);
   for (let i = 1; i <= n; i++) {
     const x = x0 + (x1 - x0) * i / n, z = z0 + (z1 - z0) * i / n;
     if (!inBounds(x, z)) return false;
+    if (!inside0 && WORLD.inProp(x, z, PROP_R, m.layout, true)) return false;   // SOLID: crates, barrels, urns, pedestal, vault pillars (the client keeps 0.45, the server accepts 0.33)
     const k = roomKeyOf(x, z); if (k === prev) continue;
     const d = DOOR_AT[prev + '|' + k];
     if (!d || !m.open.includes(d.id) || Math.abs((d.axis === 'x' ? x : z) - d.c) > d.hw) return false;
@@ -743,6 +748,7 @@ const humanIn = (m, room) => { for (const q of m.players.values()) if (isHum(q) 
 function mv(m, p, x, z, yaw, now) {   // the one place a brain moves: applyMove plus the cosmetic jump arc (height in cm)
   const b = p.brain; let jy = 0;
   if (b.jump) { const f = (now - b.jump.t0) / b.jump.dur; if (f >= 1) b.jump = null; else jy = Math.round(b.jump.h * 4 * f * (1 - f)); }
+  if (x !== p.x || z !== p.z) [x, z] = WORLD.slide(p.x, p.z, x, z, 0.45, m.layout, true);   // SOLID: bots and mystery enemies walk around crates, barrels, urns, the pedestal and the vault pillars
   return applyMove(m, null, p, x, z, yaw, now, jy);
 }
 function startJump(p, now) { const b = p.brain; if (b.jump || now < b.jumpAt) return; b.jump = { t0: now, dur: rnd(480, 620), h: rnd(55, 90) }; b.jumpAt = now + rnd(30000, 60000); }   // at most 1-2 a minute
@@ -1139,7 +1145,8 @@ function relicGoal(m, p, dt, now) {   // a bot in the vault walks to the pedesta
 function throwPlushie(m, p, slot, now) {   // {throw: 'q1'}: the plushie leaves the slot, the server picks the landing spot 7 m ahead (clamped into the room) and tells everyone
   if (m.phase !== 'play' || !m.goAt || now < m.goAt || !RB[p.room] || typeof slot !== 'string' || !/^(q[0-2]|b[0-8])$/.test(slot) || getSlot(p.inv, slot) !== 'x:plushie') return;
   setSlot(p.inv, slot, null); recalc(p); sendInv(p); m.dirty = true;
-  const [lx, lz] = clampIn(p.room, p.x - Math.sin(p.yaw) * 7, p.z - Math.cos(p.yaw) * 7, 0.7);
+  let [lx, lz] = clampIn(p.room, p.x - Math.sin(p.yaw) * 7, p.z - Math.cos(p.yaw) * 7, 0.7);
+  [lx, lz] = WORLD.slide(p.x, p.z, lx, lz, 0.2, m.layout, true);   // SOLID: the plushie lands next to a prop, never inside it
   m.lures = (m.lures || []).filter(q => q.until > now);
   const l = { id: (m.lureId = (m.lureId || 0) + 1), x: lx, z: lz, room: p.room, from: now + LURE_FLY, until: now + LURE_FLY + LURE_MS };
   m.lures.push(l);
