@@ -22,6 +22,7 @@ const ready = c => c.send({ ready: 1 });
     await sleep(300); assert(cs.every(c => !c.state.countdown), 'countdown before everyone was ready');
     for (const c of cs.slice(0, 7)) ready(c);
     await sleep(300); assert(cs.every(c => !c.state.countdown), 'countdown before the last player was ready');
+    await cs[0].until(x => x.state.readyN && x.state.readyN.n === 7, 1000, 'readyN 7/8'); eq(cs[0].state.readyN, { n: 7, size: 8 });   // the loading screen shows how many goblins are ready
     const t0 = Date.now(); ready(cs[7]);
     await Promise.all(cs.map(c => c.until(x => x.state.countdown, 2000, 'countdown')));
     const at = cs[0].state.countdown.at; assert(cs.every(c => c.state.countdown.at === at), 'different GO times');

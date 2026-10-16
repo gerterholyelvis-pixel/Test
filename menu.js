@@ -401,7 +401,7 @@ function wheelStep(now, dt) {
     if (u >= 1) { wh.rot = wh.rot0 + wh.D; wh.speed = 0; wh.state = 'landed'; wh.land = 0; }
   } else if (wh.state === 'landed') {
     wh.land += dt;
-    if (wh.land > 1.1 && !wh.shown) { wh.shown = true; showReveal(); }
+    if (wh.land > 1.1 && !wh.shown) { wh.shown = true; wh.shownAt = performance.now(); showReveal(); }
   }
   // pointer tick
   const b = Math.floor(-wh.rot / A + 0.5);
@@ -512,8 +512,9 @@ GK.menu = {
   _wheel: wh,
   /* MATCH-BEGIN */
   queue(n, size, since) { if (qDone) return; if (since > 0) qT0 = performance.now() - since; $('qfind').textContent = 'Finding goblins ' + n + '/' + size; },
-  queueDone() { qDone = true; $('qfind').textContent = 'Goblins found. Loading in'; $('qcancel').style.display = 'none'; },
-  whenRevealed(cb, maxMs) { if (!wheelGo || wh.state === 'idle') return cb(); const t0 = performance.now(), t = setInterval(() => { const late = performance.now() - t0 > maxMs; if (wh.shown || late) { clearInterval(t); setTimeout(cb, late ? 0 : 500); } }, 100); },   // wait until the wheel has landed and shown the goblin (but not past maxMs: the server starts the countdown 8 s after the match forms)
+  queueDone() { qDone = true; $('qfind').textContent = 'Waiting for goblins…'; $('qtime').textContent = ''; $('qcancel').style.display = 'none'; },
+  ready(n, size) { if (qDone) $('qtime').textContent = n + '/' + size + ' ready'; },
+  whenRevealed(cb, maxMs, holdMs = 1500) { if (!wheelGo || wh.state === 'idle') return cb(); const t0 = performance.now(), t = setInterval(() => { const now = performance.now(), late = now - t0 > maxMs; if ((wh.shown && now - (wh.shownAt || now) >= holdMs) || late) { clearInterval(t); cb(); } }, 100); },   // the goblin you rolled stays on screen for holdMs before we report ready (the server waits up to its READY_MS)   // wait until the wheel has landed and shown the goblin (but not past maxMs: the server starts the countdown 8 s after the match forms)
   hideWheel,
   /* MATCH-END */
 };
