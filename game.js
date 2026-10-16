@@ -1611,10 +1611,30 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
   }
   const buildWorkbenchAt = (g, cr) => buildWorkbench(g, IN - 0.5, 0, -Math.PI / 2, cr.id);
   // ===== 5x5 placeholders (docs/PLAN-5x5.md 1.5; task C builds the real home / Master Forge / Grand Recycler art in rooms5art.js): the existing station kits on the back wall
+  // ELIXIR: the pump (glass tank, fills with the owner's tank level), the Elixir Screen and the lockbox, placeholders at WORLD.HOME_LAYOUT until the home art (rooms5art-home.js) replaces them. Stations 'pump' / 'screen' / 'box' are what E acts on (GKHOMEW.interact).
+  function buildElixirProps(g, cr) {
+    const L = WORLD.HOME_LAYOUT, id = cr.id, iron = steelDark, brass = brassM, wood = mat('hpWood', () => M(0x6b4a2a, { roughness: 0.82 }));
+    const glass = mat('hpGlass', () => new THREE.MeshStandardMaterial({ color: 0xbfeaff, transparent: true, opacity: 0.26, roughness: 0.08, metalness: 0.1, depthWrite: false }));
+    const liquid = mat('hpLiquid', () => new THREE.MeshBasicMaterial({ color: 0x5fd8ff, toneMapped: false, transparent: true, opacity: 0.9 }));
+    const PL = kgeo('hpPlane', () => new THREE.PlaneGeometry(1, 1));
+    const Pm = new THREE.Group(); Pm.position.set(L.pump[0], 0, L.pump[1]); Pm.rotation.y = -Math.PI / 2; g.add(Pm);
+    cyl2(Pm, iron, 0, 0.12, 0, 0.5, 0.24); cyl2(Pm, brass, 0, 0.27, 0, 0.4, 0.06); cyl2(Pm, glass, 0, 0.9, 0, 0.33, 1.2); cyl2(Pm, brass, 0, 1.52, 0, 0.38, 0.07); box(Pm, brass, 0, 0.5, 0.4, 0.1, 0.1, 0.22); box(Pm, iron, 0, 0.36, 0.46, 0.06, 0.3, 0.06);
+    const fill = cyl2(Pm, liquid, 0, 0.3, 0, 0.29, 1.1); regStation('pump', Pm, id);
+    const setFill = f => { f = Math.max(0, Math.min(1, f)); fill.visible = f > 0.02; fill.scale.y = Math.max(0.01, 1.1 * f); fill.position.y = 0.3 + 0.55 * f; };
+    GK.homeFill = GK.homeFill || {}; setFill(GK.homeFill[id] != null ? GK.homeFill[id] : 0.35); GK.homeProps = GK.homeProps || {}; GK.homeProps[id] = { setFill };
+    const Sc = new THREE.Group(); Sc.position.set(L.screen[0], 0, L.screen[1]); Sc.rotation.y = Math.PI / 2; g.add(Sc);
+    box(Sc, iron, 0, 0.45, 0, 0.5, 0.9, 0.34); box(Sc, iron, 0, 1.38, 0, 1.0, 0.78, 0.14);
+    const face = new THREE.Mesh(PL, mat('hpScreen', () => new THREE.MeshBasicMaterial({ toneMapped: false, map: ctex('hpScreenTex', 128, 80, (c, w, h) => {
+      c.fillStyle = '#071722'; c.fillRect(0, 0, w, h); c.fillStyle = '#5fd8ff'; c.beginPath(); c.moveTo(w * 0.2, h * 0.28); c.quadraticCurveTo(w * 0.12, h * 0.56, w * 0.2, h * 0.64); c.quadraticCurveTo(w * 0.28, h * 0.72, w * 0.31, h * 0.56); c.quadraticCurveTo(w * 0.33, h * 0.46, w * 0.2, h * 0.28); c.fill();
+      c.fillStyle = 'rgba(127,216,255,.55)'; for (let i = 0; i < 4; i++) c.fillRect(w * 0.42, h * (0.24 + i * 0.15), w * (0.4 - i * 0.07), h * 0.07);
+    }) }))); face.position.set(0, 1.38, 0.075); face.scale.set(0.9, 0.62, 1); Sc.add(face); regStation('screen', Sc, id);
+    const Bx = new THREE.Group(); Bx.position.set(L.box[0], 0, L.box[1]); Bx.rotation.y = Math.PI / 2; g.add(Bx);
+    box(Bx, wood, 0, 0.26, 0, 0.78, 0.52, 0.48); box(Bx, iron, 0, 0.56, 0, 0.8, 0.07, 0.5); for (const s of [-0.26, 0.26]) box(Bx, iron, s, 0.28, 0.005, 0.07, 0.54, 0.5); box(Bx, brass, 0, 0.42, 0.25, 0.1, 0.12, 0.03); regStation('box', Bx, id);
+  }
   function buildHome(slot) {   // the home's normal workbench and its 50% recycler (server stationAt), positions shared with world.js HOME_LAYOUT (their footprints are solid)
     const g = slot.inner, cr = slot.cr, L = WORLD.HOME_LAYOUT;
     buildWorkbench(g, L.bench[0], L.bench[1], L.bench[2], cr.id); buildRecycler(g, L.recycler[0], L.recycler[1], L.recycler[2], cr.id);
-    nameplate(g, 'HOME', 0, 5.7, -(cr.size / 2 - T / 2) + 0.4, 1.8, '#ffe9a8');
+    nameplate(g, 'HOME', 0, 5.7, -(cr.size / 2 - T / 2) + 0.4, 1.8, '#ffe9a8'); buildElixirProps(g, cr);
   }
   function buildStationRoom(slot) {   // Master Forge: a workbench (master type on the server); Grand Recycler: a recycler at 100%
     const g = slot.inner, cr = slot.cr, forge = cr.type === 'forge', S = WORLD.LOOT_LAYOUT[cr.type];
@@ -4171,9 +4191,9 @@ let netReal = null;
 const net = { send: m => netReal && !(GK.locked && (m.atk || m.claim || m.m || m.sel !== undefined)) && netReal.send(m) };   // MATCH: those are locked until GO
 const actors = new Map();
 function npcLook(group, kind) {   // BOTS: hostile mystery enemy = normal goblin model with a type tint (no new geometry, no lights); materials are cloned so the shared ones stay untouched
-  const tint = { troll: 0x6a8a5a, archer: 0x7a5a3a, speedy: 0xff7a3a, dumb: 0xb89a6a, regular: 0xd05a4a }[kind] || 0xd05a4a, c = new THREE.Color(tint);
+  const tint = { troll: 0x6a8a5a, archer: 0x7a5a3a, speedy: 0xff7a3a, dumb: 0xb89a6a, regular: 0xd05a4a, rat: 0x8a7560 }[kind] || 0xd05a4a, c = new THREE.Color(tint);
   group.traverse(o => { if (o.isMesh && o.material && o.material.color && !Array.isArray(o.material)) { o.material = o.material.clone(); o.material.color.multiply(c).multiplyScalar(1.4); } });
-  group.scale.setScalar(kind === 'troll' ? 1.8 : kind === 'speedy' ? 0.9 : 1.1);
+  group.scale.setScalar(kind === 'troll' ? 1.8 : kind === 'speedy' ? 0.9 : kind === 'rat' ? 0.4 : 1.1);
 }
 let me = 0, spawned = false;
 const P = { x: 0, z: 0, yaw: 0, pitch: 0, speed: 0 };
@@ -4205,6 +4225,7 @@ const handleMsg0 = d => {
   if (d.lootFail) lootFailFx(d.lootFail);
   if (GK.fun) GK.fun.onMsg(d);   // FUN: kill feed, board, match summary
   if (window.GKLOOT) GKLOOT.onMsg(d);   // LOOT: vault relic, thrown plushie
+  if (window.GKHOMEW) GKHOMEW.onMsg(d);   // ELIXIR: counter, Elixir Screen state, toasts, send effects
   if (window.GKUSE) GKUSE.onMsg(d);   // UTILITY: used items, thrown bombs, smoke
   if (window.GKRULES) GKRULES.onMsg(d);   // RULES: experimental rules (inert unless the server advertises them)
   if (d.died) showDeathScreen(d.died);
@@ -4404,7 +4425,7 @@ GK.showDeathScreen = showDeathScreen;
   function iconMyst(g, font) { g.font = font; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineWidth = 3; g.strokeStyle = '#1a0a2a'; g.strokeText('?', 0, 1); g.fillStyle = '#c58cff'; g.fillText('?', 0, 1); }
   function tickMark(g, r) { g.lineWidth = 2.2; g.strokeStyle = '#5dff8a'; g.lineCap = 'round'; g.beginPath(); g.moveTo(-r * .6, 0); g.lineTo(-r * .1, r * .55); g.lineTo(r * .7, -r * .5); g.stroke(); g.lineCap = 'butt'; }
   const actorDot = (a, id) => {   // fog of war: only goblins in my room or behind one of my open doors
-    if (id === me || a.npc || (vis[keyIdx(a.x, a.z)] !== 1 && !(window.GKUSE2 && GKUSE2.reveal()))) return;   // ITEMS2: a flare or bell shows everybody
+    if (id === me || a.npc || (vis[keyIdx(a.x, a.z)] !== 1 && !(window.GKUSE2 && GKUSE2.reveal()) && !(window.GKHOMEW && GKHOMEW.bellAt(a.x, a.z)))) return;   // ITEMS2: a flare or bell shows everybody; ELIXIR: so does a rung Alarm Bell room
     cg.beginPath(); cg.arc(a.x, a.z, (cbig ? 4.5 : 3) * cip, 0, 6.2832); cg.fill(); cg.stroke();
   };
   const actorSig = (a, id) => { if (id === me || a.npc) return; sigH = (sigH * 31 + Math.round(a.x * 2)) | 0; sigH = (sigH * 31 + Math.round(a.z * 2)) | 0; };
@@ -4958,6 +4979,7 @@ function openShop(roomId) {
 }
 function closeShop(noLock) {
   if (!shopOpen) return;
+  if (panelKind === 'home' && window.GKHOMEW) GKHOMEW.shut();   // ELIXIR
   shopOpen = false; panelKind = ''; for (const id of ['gkShop', 'gkRec', 'gkCraft', 'gkLoot']) { const el = document.getElementById(id); if (el) el.style.display = 'none'; } keys.clear(); if (!noLock) lockNow();
 }
 GK.openShop = openShop; GK.closeShop = closeShop;
@@ -4971,18 +4993,19 @@ function setHover(id, kind) {
   hoverTip.innerHTML = 'Press <b style="padding:1px 6px;border-radius:4px;background:#ffd75e;color:#1a1405">E</b> to ' + (hoverKind === 'r' ? 'recycle' : hoverKind === 'w' ? 'craft' : hoverKind === 'k' ? 'study' : 'trade'); hoverTip.style.display = /* FEEL: shown by feel.js */ false ? 'block' : 'none';
 }
 function merchantHoverTick() {
-  const T = PERF2_ON ? perf2HoverTargets() : [...(GK.merchantTargets || []), ...(GK.stationTargets || []).filter(o => o && o.userData && (o.userData.station === 'recycler' || o.userData.station === 'workbench' || o.userData.station === 'knowledge'))];   // PERF2: list cached (was rebuilt with a spread and a closure every frame)
+  const T = PERF2_ON ? perf2HoverTargets() : [...(GK.merchantTargets || []), ...(GK.stationTargets || []).filter(o => o && o.userData && (o.userData.station === 'recycler' || o.userData.station === 'workbench' || o.userData.station === 'knowledge' || o.userData.station === 'screen' || o.userData.station === 'pump' || o.userData.station === 'box'))];   // PERF2: list cached (was rebuilt with a spread and a closure every frame)
   lootPromptTick();
   if (GK.mode !== 'play' || invOpen || shopOpen || !inside || !spawned || !T.length) { if (hoverRoom >= 0) setHover(-1); return; }
   if (PERF2_ON && !perf2HoverNear(T)) { setHover(-1); return; }   // PERF2: nothing within 20 m, so the ray cannot reach (it is 7 m long): skip the raycast over every merchant, recycler and workbench model
   cam.updateMatrixWorld(); ray.setFromCamera({ x: 0, y: 0 }, cam); ray.far = 7;
   const hit = ray.intersectObjects(T, true)[0]; let id = -1, kind = '';
-  if (hit) { for (let o = hit.object; o; o = o.parent) { const u = o.userData; if (!u || u.roomId == null) continue; id = u.roomId; kind = u.station === 'recycler' ? 'r' : u.station === 'workbench' ? 'w' : u.station === 'knowledge' ? 'k' : 'm'; break; } }
+  if (hit) { for (let o = hit.object; o; o = o.parent) { const u = o.userData; if (!u || u.roomId == null) continue; id = u.roomId; kind = u.station === 'recycler' ? 'r' : u.station === 'workbench' ? 'w' : u.station === 'knowledge' ? 'k' : u.station === 'screen' ? 's' : u.station === 'pump' ? 'p' : u.station === 'box' ? 'b' : 'm'; break; } }
   setHover(id, kind);
 }
 GK.hover = () => ({ room: hoverRoom, kind: hoverKind });
 function stationInteract() {   // E while looking at a merchant, recycler or workbench opens it; true if it did
   if (hoverRoom < 0 || invOpen || shopOpen || GK.mode !== 'play') return false;
+  if ((hoverKind === 's' || hoverKind === 'p' || hoverKind === 'b') && window.GKHOMEW) return GKHOMEW.interact(hoverKind, hoverRoom);   // ELIXIR: Elixir Screen, pump, lockbox
   if (hoverKind === 'r') openStation('recycle', hoverRoom); else if (hoverKind === 'w' || hoverKind === 'k') openStation('craft', hoverRoom);   // KNOWLEDGE: the tree and the bench open the same screen else openShop(hoverRoom);
   return true;
 }
@@ -5054,7 +5077,7 @@ function openStation(kind, roomId) {
 GK.openStation = openStation;
 function stationFail(kind, why) {
   const pn = kind === 'recycle' ? recPn : craftPn;
-  say(pn, { room: 'You are too far from the ' + (kind === 'recycle' ? 'recycler' : 'workbench'), item: 'That cannot be recycled', recipe: 'Unknown recipe', knowledge: 'Not enough knowledge', parts: 'Not enough materials', space: 'Your backpack is full' }[why] || 'Cannot do that');
+  say(pn, { room: 'You are too far from the ' + (kind === 'recycle' ? 'recycler' : 'workbench'), item: 'That cannot be recycled', recipe: 'Unknown recipe', knowledge: 'Not enough knowledge', parts: 'Not enough materials', space: 'Your backpack is full', owner: 'Only the home owner can use this', elixir: 'Not enough elixir' }[why] || 'Cannot do that');
   flashBad(...(why === 'item' && recSel ? [recSel] : []));
 }
 // ---- recycler ----
@@ -5085,7 +5108,7 @@ function paintRec() {
   }
   if (recSel && invGet(myInv, recSel) == null) recSel = null;
   const k = recSel ? invGet(myInv, recSel) : null, pv = recPn.prev; pv.textContent = '';
-  let y = k && KNOWUI.recYield(k); { const c = CHEST_ROOMS[shopRoom], G = itemsData(); if (y && c && c.type === 'home' && G.recycleEff && G.STATIONS) y = G.recycleEff(y, G.STATIONS.recycler.home.eff); }   // 5x5: the home recycler gives 50% (server stationAt)
+  let y = k && KNOWUI.recYield(k); { const c = CHEST_ROOMS[shopRoom], G = itemsData(); if (y && c && c.type === 'home' && G.recycleEff && G.STATIONS) y = G.recycleEff(y, window.GKHOMEW ? GKHOMEW.recEff() : G.STATIONS.recycler.home.eff); }   // 5x5: the home recycler gives 50% (server stationAt)
   if (!k) { pv.innerHTML = '<div style="color:#8d8880;font-size:14px;line-height:1.5">Select a weapon or armour from your backpack or quick slots<br>to see which materials it yields.<br><span style="font-size:12px">(brains and worn gear cannot be recycled)</span></div>'; return; }
   const it = infoOf(k), head = document.createElement('div'); head.style.cssText = 'display:flex;align-items:center;gap:10px'; head.appendChild(mkIcon(k, 46));
   const t = document.createElement('div'); t.style.textAlign = 'left'; t.innerHTML = '<b style="color:' + (TIER_COL[it.tier] || '#fff') + ';font-size:16px">' + it.name + '</b><div style="font-size:12px;color:#aaa59d">' + statTxt(k) + '</div>'; head.appendChild(t);
@@ -5094,6 +5117,7 @@ function paintRec() {
   const bt = document.createElement('button'); bt.textContent = 'RECYCLE'; bt.id = 'recGo'; bt.style.cssText = 'width:100%;padding:14px 10px;border:0;border-radius:10px;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font:800 18px system-ui,sans-serif;letter-spacing:.12em;cursor:pointer';
   bt.onclick = () => { net.send({ recycle: recSel }); };
   pv.append(head, Object.assign(document.createElement('div'), { className: 'lab', textContent: 'YOU GET' }), get, bt);
+  if (window.GKHOMEW && GKHOMEW.canRefine(shopRoom)) { const rf = document.createElement('button'); rf.textContent = 'REFINE: 100% FOR 4 ELIXIR'; rf.id = 'recRefine'; rf.style.cssText = 'width:100%;padding:9px 10px;border:1px solid #7fd8ff;border-radius:10px;background:rgba(127,216,255,.12);color:#bdeaff;font:800 14px system-ui,sans-serif;letter-spacing:.08em;cursor:pointer'; rf.onclick = () => { net.send({ recycle: recSel, refine: 1 }); }; pv.append(rf); }   // ELIXIR
 }
 function recycledFx(r) {
   if (!recPn || panelKind !== 'recycle') return;
@@ -5107,9 +5131,9 @@ function recycledFx(r) {
   });
 }
 // ---- workbench + knowledge tree (KNOWLEDGE-BEGIN, docs/KNOWLEDGE.md): one screen, opened with E at a workbench or at a knowledge tree. Left: the perk tree. Right: recipes by tier (and Reforge). ----
-function buildCraft() { KNOWUI.build(); }
+function buildCraft() { KNOWUI.build(); if (window.GKHOMEW) GKHOMEW.decorateCraft(craftPn); }   // ELIXIR: brew row
 function myKnowledge() { const mine = actors.get(me); return invStats(myInv, mine ? mine.goblin : 0, knowOv).knowledge; }
-function paintCraft() { if (craftPn) KNOWUI.paint(); }
+function paintCraft() { if (craftPn) { KNOWUI.paint(); if (window.GKHOMEW) GKHOMEW.paintBrew(); } }
 const KNOWUI = (() => {
   const U = {}, ROM = ['0', 'I', 'II', 'III', 'IV', 'V'], BR_COL = { craft: '#ffb84a', lore: '#7fd0ff', guts: '#ff8a7a' };
   let perks = [], relic = null, chestKeys = null, lastJ = '', lastRoom = null, hcAt = 0;
@@ -5796,7 +5820,7 @@ function perf2HoverTargets() {
   const mt = GK.merchantTargets, st = GK.stationTargets, nm = mt ? mt.length : 0, ns = st ? st.length : 0, h = perf2Hov, m0 = nm ? mt[0] : null, m1 = nm ? mt[nm - 1] : null, s0 = ns ? st[0] : null, s1 = ns ? st[ns - 1] : null;
   if (h.mt !== mt || h.st !== st || h.nm !== nm || h.ns !== ns || h.m0 !== m0 || h.m1 !== m1 || h.s0 !== s0 || h.s1 !== s1) {
     h.mt = mt; h.st = st; h.nm = nm; h.ns = ns; h.m0 = m0; h.m1 = m1; h.s0 = s0; h.s1 = s1;
-    h.T = [...(mt || []), ...(st || []).filter(o => o && o.userData && (o.userData.station === 'recycler' || o.userData.station === 'workbench' || o.userData.station === 'knowledge'))];
+    h.T = [...(mt || []), ...(st || []).filter(o => o && o.userData && (o.userData.station === 'recycler' || o.userData.station === 'workbench' || o.userData.station === 'knowledge' || o.userData.station === 'screen' || o.userData.station === 'pump' || o.userData.station === 'box'))];
   }
   return h.T;
 }
@@ -7734,6 +7758,95 @@ const GKUSE2 = window.GKUSE2 = (() => {
   };
 })();
 // ITEMS2-END
+// HOME-BEGIN (Elixir Screen, elixir counter, toasts and send effects; homeui.js is the panel, the server is server.js ELIXIR; see docs/reports/elixir-home-wiring.md)
+const HOMEW = window.GKHOMEW = (() => {
+  if (!window.GKHOMEUI || !window.GKHOMEBASE) return null;
+  const W = WORLD, K = window.GKHOMEBASE;
+  let hs = null, elixir = 0, vig = null; const bells = new Map(), gas = new Set();
+  const ui = GKHOMEUI.createHomeUI({ root: document.body, send: m => net.send(m), onClose: () => { shopOpen = false; panelKind = ''; keys.clear(); lockNow(); } });
+  const mine = room => GK.myHome && 'c' + room === GK.myHome;
+  function mapState() {
+    const cells = [];
+    for (let i = 0; i < W.NARENA; i++) cells.push({ key: String(i), gx: i % W.N, gy: Math.floor(i / W.N), kind: String(i) === W.VAULT_KEY ? 'vault' : 'arena', label: String(i) === W.VAULT_KEY ? 'V' : '' });
+    for (const c of W.CHEST) if (c.home) { const k = 'c' + c.id, hm = hs && hs.homes && hs.homes[k]; cells.push({ key: k, gx: c.parent % W.N + c.dx, gy: Math.floor(c.parent / W.N) + c.dz, kind: 'home', owner: hm ? hm.owner : '', dead: hm && hm.dead ? 1 : 0, mine: k === GK.myHome, label: '' }); }
+    return { myRoom: GK.myHome, vaultKey: W.VAULT_KEY, cells };
+  }
+  function state() {
+    const bag = []; if (myInv) myInv.backpack.forEach((k, i) => { if (k) { const it = infoOf(k); bag.push({ slot: 'b' + i, name: it ? it.name : k, n: 1 }); } });
+    return { elixir, cap: 120, tank: hs.tank, tankCap: hs.tankCap, round: hs.round, sentRound: hs.sentRound, distills: hs.distills, distillMax: 3, home: { lv: hs.lv, ammo: hs.ammo, snareArmed: hs.snareArmed, box: hs.box, dead: hs.dead }, bag, active: hs.active, map: mapState() };
+  }
+  function interact(kind, room) {   // E on the screen, the pump or the lockbox
+    if (kind === 's') {
+      if (!mine(room)) { ui.toast('info', 'Not your screen'); snd('deny'); return true; }
+      if (!hs) { ui.toast('info', 'The screen is warming up'); return true; }
+      shopOpen = true; panelKind = 'home'; keys.clear(); try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
+      ui.open(state()); return true;
+    }
+    if (kind === 'p') { net.send({ pump: 1 }); return true; }
+    if (mine(room)) { ui.toast('info', 'Your lockbox: manage it on the Elixir Screen'); return true; }
+    net.send({ base: { crack: 1 } }); return true;
+  }
+  const REASON = { owner: 'Only the home owner can use this', room: 'Too far from a workbench', space: 'Your backpack is full', elixir: 'Not enough elixir' };
+  function fx(f) {
+    if (f.kind === 'gas') { if (f.on === 1) gas.add(f.room); else if (f.on === 0) gas.delete(f.room); }
+    else if (f.kind === 'bell') { if (f.on === 1) bells.set(f.room, performance.now() + (f.ms || 20000)); else if (f.on === 0) bells.delete(f.room); }
+    else if (f.kind === 'spike' && f.hit) snd('snap', { vol: 0.8 });
+  }
+  function paintGas() {   // a green haze while I stand in a room with Stink Gas running
+    const r = W.roomKeyOf(P.x, P.z), on = spawned && gas.has(r);
+    if (!on && !vig) return;
+    if (!vig) { vig = document.createElement('div'); vig.style.cssText = 'position:fixed;inset:0;z-index:6;pointer-events:none;opacity:0;transition:opacity .9s;background:radial-gradient(ellipse at center,rgba(120,170,40,.12) 25%,rgba(90,140,30,.42) 100%)'; document.body.appendChild(vig); }
+    vig.style.opacity = on ? '1' : '0';
+  }
+  setInterval(paintGas, 300);
+  setInterval(() => {   // the counter sits right under the minimap (whatever size and place the HUD gives it)
+    const c = document.querySelector('.hu-ctr'), mm = document.getElementById('gkMM'); if (!c || !mm || !c.classList.contains('on')) return;
+    const r = mm.getBoundingClientRect(); if (r.width < 10) return; const z = parseFloat(getComputedStyle(c).zoom) || 1;
+    c.style.top = Math.round(r.bottom + 6) / z + 'px'; c.style.right = Math.round(innerWidth - r.right) / z + 'px';
+  }, 1000);
+  function onMsg(d) {
+    if (d.matchStart || d.queue) { hs = null; elixir = 0; ui.setElixir(null); bells.clear(); gas.clear(); }
+    if (d.elixir !== undefined) { elixir = d.elixir | 0; ui.setElixir(elixir, 120); if (ui.isOpen() && hs) ui.update(state()); }
+    if (d.home) {
+      hs = d.home; if (ui.isOpen()) ui.update(state());
+      const id = GK.myHome ? +GK.myHome.slice(1) : -1; GK.homeFill = GK.homeFill || {}; GK.homeFill[id] = hs.tank / hs.tankCap; if (GK.homeProps && GK.homeProps[id]) GK.homeProps[id].setFill(GK.homeFill[id]);
+    }
+    if (d.homeToast) { ui.toast(d.homeToast.kind, d.homeToast.text); if (d.homeToast.kind === 'raid' || d.homeToast.kind === 'alarm') snd('deny', { vol: 0.5 }); }
+    if (d.homeRes) {
+      if (ui.isOpen()) ui.result(d.homeRes);
+      else if (d.homeRes.ok && d.homeRes.text) ui.toast('good', d.homeRes.text);
+      else if (!d.homeRes.ok && d.homeRes.reason) ui.toast('info', d.homeRes.reason);
+    }
+    if (d.brewed) ui.toast('good', 'Brewed ' + itemName(d.brewed.key));
+    if (d.brewFail) ui.toast('info', REASON[d.brewFail] || 'Cannot brew that');
+    if (d.homeFx) fx(d.homeFx);
+  }
+  // Refine and Brew live on the recycler / workbench panels (game.js hooks): they only show where the server will accept them
+  const inHome = room => { const c = CHEST_ROOMS[room]; return !!c && c.type === 'home'; };
+  let brewRow = null;
+  function decorateCraft(pn) {
+    if (!pn || brewRow) return;
+    brewRow = document.createElement('div'); brewRow.style.cssText = 'margin-top:10px;padding-top:8px;border-top:1px solid rgba(127,216,255,.25);display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;font:700 13px system-ui,sans-serif;color:#bdeaff';
+    brewRow.innerHTML = '<span style="letter-spacing:.14em;font-size:12px">BREW</span>';
+    for (const [k, label, cost] of [['heal', 'Healing Draught', 8], ['tonic', 'Speed Tonic', 12]]) {
+      const b = document.createElement('button'); b.dataset.brew = k; b.textContent = label + ' ' + cost; b.style.cssText = 'cursor:pointer;border:1px solid #7fd8ff;border-radius:8px;padding:6px 12px;background:rgba(127,216,255,.12);color:#bdeaff;font:800 12px system-ui,sans-serif;letter-spacing:.06em';
+      b.onclick = () => net.send({ brew: k }); brewRow.appendChild(b);
+    }
+    pn.body.after(brewRow);
+  }
+  function paintBrew() {
+    if (!brewRow) return; brewRow.style.display = hs || elixir ? 'flex' : 'none';
+    for (const b of brewRow.querySelectorAll('button')) b.style.opacity = elixir >= (b.dataset.brew === 'heal' ? 8 : 12) ? 1 : 0.45;
+  }
+  return {
+    onMsg, interact, shut: () => ui.close(false), decorateCraft, paintBrew, dbgSend: m => { if (GK.dbg) net.send(m); },   // GK_DEBUG servers only (screenshots, tests)
+    recEff: () => (hs ? K.recyclerEff({ lv: hs.lv, dead: hs.dead }) : 0.5),
+    canRefine: room => !!hs && !hs.dead && elixir >= 4 && mine(room) && inHome(room),
+    bellAt: (x, z) => { if (!bells.size) return false; const k = W.roomKeyOf(x, z), t = bells.get(k); return t != null && t > performance.now(); },
+    ui,
+  };
+})();
+// HOME-END
 if (window.GKART) requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => GKART.bake(renderer, { priority: () => { const v = myInv || {}; return [v.weapon, v.armor].concat(v.quick || [], v.backpack || [], (window.GKITEMS && GKITEMS.START || []).flatMap(g => [g.weapon, g.armor])).filter(k => typeof k === 'string'); } }), 600)));   // ITEMART: bake the inventory icons in small batches once the first frame is up
 window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw, pitch) { P.x = x; P.z = z; P.yaw = yaw; P.pitch = pitch || 0; spawned = true; }, toggleOverview() { inside = !inside; }, build: buildGoblin };
 })();
