@@ -41,7 +41,8 @@ const at = id => [W.CHEST[id].cx, W.CHEST[id].cz];
         c.send({ drop: 'q2' }); await c.until(x => x.state.inv.quick[2] === null, 2000, 'dropped'); await c.close();
       }],
       ['debug kill: the dead goblin drops its items and a brain, others see the pile; the brain can be eaten', async () => {
-        const a = await connect(srv.port, 'goblin=0'), b = await connect(srv.port, 'goblin=0');
+        const srv2 = await L.startServer({ GK_MATCH_SIZE: '3' });   // three players in one match (with only two left, the survivor would win and leave)
+        const [a, b, c3] = await Promise.all([connect(srv2.port, 'goblin=0'), connect(srv2.port, 'goblin=0'), connect(srv2.port, 'goblin=0')]);
         a.send({ give: WEAPON }); await a.until(x => x.state.inv.backpack[0], 2000, 'item');
         b.send({ tp: [3, 3] }); a.send({ tp: [3, 3] }); await sleep(100);
         a.send({ kill: 1 }); await a.until(x => x.state.died, 2000, 'died message'); assert(a.state.died.brain.startsWith('m:brain:'), 'brain key'); assert(a.state.died.items.includes(WEAPON));
@@ -51,7 +52,7 @@ const at = id => [W.CHEST[id].cx, W.CHEST[id].cz];
         b.send({ loot: [pile.id, bi, 'eat', pile.items[bi]] }); await b.until(x => x.state.ate, 2000, 'ate');
         eq(b.state.ate.gain, G.brainGain(pile.items[bi])); eq(b.state.ate.knowledge, Math.round((G.KNOWLEDGE[0] + b.state.ate.gain) * 100) / 100);
         b.send({ loot: [pile.id, 99, 'take'] }); await b.until(x => x.state.lootFail, 2000, 'lootFail'); eq(b.state.lootFail, 'item');
-        await a.close(); await b.close();
+        await a.close(); await b.close(); await c3.close(); srv2.stop();
       }],
       ['atk (combat): skipped until the server handles it, otherwise bogus attacks do not crash anything', async () => {
         if (!/\.atk\b/.test(fs.readFileSync(L.ROOT + '/server.js', 'utf8'))) return 'skip';

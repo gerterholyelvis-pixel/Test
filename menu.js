@@ -430,7 +430,6 @@ function showReveal() {
   $('vname').textContent = (t === 3 || t === 4 ? '' : '') + GK.NAMES[t];
   $('vflav').textContent = FLAVOR[t]; $('vodds').textContent = ODDS[t] + '% chance';
   k.classList.toggle('king', t === 4); k.classList.add('on');
-  $('enter').focus({ preventScroll: true });
 }
 
 let started = false;
@@ -439,7 +438,7 @@ function startGame(opts) {
   if (!opts || typeof opts !== 'object' || opts.type === 'click') opts = undefined;
   body.classList.add('rolling'); $('menu').classList.add('gone');
   const roll = $('roll'); roll.classList.add('show'); roll.getBoundingClientRect(); roll.classList.add('vis');
-  wheelGo = true; sizeWheel();
+  wheelGo = true; sizeWheel(); queueStart();
   wh.state = 'spin'; wh.t = 0; wh.rot = Math.random() * TAU; wh.result = null; wh.shown = false;
   $('rname').textContent = 'Rolling...'; $('rstat').textContent = 'Spinning the wheel of fate';
   let p; try { p = opts ? GK.start(opts) : GK.start(); } catch (e) { console.error(e); p = new Promise(() => {}); }
@@ -461,17 +460,31 @@ GK.menuDebug = { addDemoSave() {
   const s = GKSAVE.load(); s.characters.push({ id: s.nextId++, goblin: 3, name: 'Mizzle', wins: 0 }); localStorage.setItem('gk.save.v1', JSON.stringify(s));
 } };
 $('retry').onclick = () => location.reload();
-$('enter').onclick = () => {
-  body.classList.remove('menu');
-  GK.enter();
+// MATCH-BEGIN (the wheel screen is the queue: "Finding goblins N/8", elapsed time, Cancel; the match start moves you into the rooms, see game.js MATCH block)
+let qT0 = 0, qTimer = 0, qDone = false;
+function qFmt(ms) { const s = Math.max(0, Math.floor(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+function queueStart() {
+  qT0 = performance.now(); qDone = false; $('qbox').classList.add('on'); $('qfind').textContent = 'Finding goblins'; $('qtime').textContent = '0:00';
+  clearInterval(qTimer); qTimer = setInterval(() => { if (!qDone) $('qtime').textContent = qFmt(performance.now() - qT0); }, 250);
+}
+$('qcancel').onclick = () => { try { GK.cancelQueue && GK.cancelQueue(); } catch (e) {} setTimeout(() => location.reload(), 60); };   // back to the title with a clean connection
+function hideWheel() {
+  clearInterval(qTimer); body.classList.remove('menu'); $('qbox').classList.remove('on');
   $('roll').classList.add('out'); setTimeout(() => { $('roll').classList.remove('show'); wheelGo = false; }, 700);
-};
+}
+// MATCH-END
 
 GK.menu = {
   render(now, dt) {
     const rd = Math.min((now - (GK.menu._last || now)) / 1000, 0.5); GK.menu._last = now;   // wall-clock dt (game.js clamps its own to 50 ms)
     titleRender(now, Math.max(dt, Math.min(rd, 0.1))); if (wheelGo) wheelStep(now, rd);
   },
-  _wheel: wh
+  _wheel: wh,
+  /* MATCH-BEGIN */
+  queue(n, size, since) { if (qDone) return; if (since > 0) qT0 = performance.now() - since; $('qfind').textContent = 'Finding goblins ' + n + '/' + size; },
+  queueDone() { qDone = true; $('qfind').textContent = 'Goblins found. Loading in'; $('qcancel').style.display = 'none'; },
+  whenRevealed(cb, maxMs) { if (!wheelGo || wh.state === 'idle') return cb(); const t0 = performance.now(), t = setInterval(() => { const late = performance.now() - t0 > maxMs; if (wh.shown || late) { clearInterval(t); setTimeout(cb, late ? 0 : 500); } }, 100); },   // wait until the wheel has landed and shown the goblin (but not past maxMs: the server starts the countdown 8 s after the match forms)
+  hideWheel,
+  /* MATCH-END */
 };
 })();
