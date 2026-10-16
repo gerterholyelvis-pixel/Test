@@ -7734,7 +7734,7 @@ const GKUSE2 = window.GKUSE2 = (() => {
   };
 })();
 // ITEMS2-END
-if (window.GKART) requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => GKART.bake(renderer), 600)));   // ITEMART: bake the inventory icons in small batches once the first frame is up
+if (window.GKART) requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => GKART.bake(renderer, { priority: () => { const v = myInv || {}; return [v.weapon, v.armor].concat(v.quick || [], v.backpack || [], (window.GKITEMS && GKITEMS.START || []).flatMap(g => [g.weapon, g.armor])).filter(k => typeof k === 'string'); } }), 600)));   // ITEMART: bake the inventory icons in small batches once the first frame is up
 window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw, pitch) { P.x = x; P.z = z; P.yaw = yaw; P.pitch = pitch || 0; spawned = true; }, toggleOverview() { inside = !inside; }, build: buildGoblin };
 })();
 
