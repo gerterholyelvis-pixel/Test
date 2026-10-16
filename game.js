@@ -2468,11 +2468,12 @@ function cpDraw(p) {
     g.font = '700 ' + Math.min(26, b.h * 0.22) + 'px system-ui, sans-serif';
     g.fillStyle = sel ? '#7a1200' : opn ? '#6dff9f' : hov ? '#cfe8ff' : '#7fa4cc';
     const vlt = L.kind === 'vault', dy = vlt ? 4 : fs * 0.72;
-    g.fillText(sel ? 'SELECTED · OPENS AT 0:00' : opn ? 'OPEN THIS ROUND' : 'Press E to select', tx, iy + dy);
+    g.fillText(sel ? 'SELECTED · OPENS AT 0:00' : opn ? ((window.GKRULES && GKRULES.openText(b.id)) || 'OPEN THIS ROUND') : 'Press E to select', tx, iy + dy);
     if (vlt) { g.font = '800 ' + Math.min(21, b.h * 0.18) + 'px system-ui, sans-serif'; g.fillStyle = sel ? (RS.votes < 2 ? '#8a0a00' : '#1a5a10') : '#ffb347'; g.fillText('NEEDS 2 PLAYERS · THE VAULT votes: ' + RS.votes + '/2', tx, iy + dy + Math.min(27, b.h * 0.24)); }
     if (opn) { g.fillStyle = '#18c25e'; cpRR(g, b.x + b.w - 100, iy - 20, 84, 40, 20); g.fill(); g.fillStyle = '#04200f'; g.textAlign = 'center'; g.font = '800 24px system-ui, sans-serif'; g.fillText('OPEN', b.x + b.w - 58, iy + 1); }
   });
   if (GK.unique) GK.unique.panel(g, p);   // UNIQUE: picker badge + flash
+  if (window.GKRULES) GKRULES.panel(g, p);   // RULES: bribe line
   p.tex.needsUpdate = true; p.dirty = false;
 }
 function cpBuild(key, parent, w, h, x, y, z, rotY) {   // framed emissive screen, same look as the facility map
@@ -2493,6 +2494,50 @@ function cpBuild(key, parent, w, h, x, y, z, rotY) {   // framed emissive screen
   return grp;
 }
 function panelsDirty() { for (const p of cpList) p.dirty = true; }
+// RULES-CLIENT-BEGIN (experimental rules; everything here is inert unless the server advertises `rules` in its welcome / round message)
+window.GKRULES = (() => {
+  const R = { on: new Set(), bribes: {}, left: {}, crown: null, bolts: new Map(), ring: null, tag: null, raf: 0 };
+  const INFO = { crown: ['Crown win', 'Stand on the vault dais for 20 s without being hurt and you are crowned Goblin King.'], doorclose: ['Doors close', 'A door you open stays open for 2 rounds, then slams shut. A klaxon sounds 5 s before.'], staffbolt: ['Staff bolts', 'Staffs and scepters throw a slow 6 damage bolt (12 m range, 1.2 s cooldown) instead of a melee swing.'], bribe: ['Bribes', 'Aim at a door panel and press B: pay 50 gold for +1 weight on your room\'s pick this round.'] };
+  const sec = () => document.getElementById('sg-rules');
+  function ui() {
+    const s = sec(); if (!s) return; s.style.display = R.on.size ? '' : 'none';
+    s.innerHTML = '<h3>Experimental rules</h3>' + [...R.on].map(n => '<div class="row"><label><b>' + INFO[n][0] + '</b><br><span style="opacity:.7;font-size:.85em">' + INFO[n][1] + '</span></label></div>').join('') + '<div class="row"><label style="opacity:.6;font-size:.85em">Set by the server (GK_RULES). They cannot be changed from here.</label></div>';
+  }
+  function loop() {
+    R.raf = 0; const now = performance.now(), live = R.bolts.size || R.crown; if (!live) return;
+    for (const [id, b] of R.bolts) { const t = (now - b.t0) / 1000; b.spr.position.set(b.x + b.vx * t, 1.1, b.z + b.vz * t); if (t * 10 > b.range + 1) { scene.remove(b.spr); R.bolts.delete(id); } }
+    if (R.crown && R.ring) { const k = Math.min(1, (R.crown.p0 + (now - R.crown.t0) / R.crown.ms)); R.ring.geometry.setDrawRange(0, Math.max(0, Math.round(k * 96)) * 6); R.ring.rotation.z = now * 0.0006; }
+    R.raf = requestAnimationFrame(loop);
+  }
+  const kick = () => { if (!R.raf) R.raf = requestAnimationFrame(loop); };
+  function tagEl() { if (!R.tag) { R.tag = document.createElement('div'); R.tag.style.cssText = 'position:fixed;left:50%;top:16%;transform:translateX(-50%);padding:6px 16px;border-radius:8px;background:rgba(40,28,4,.82);border:2px solid #ffd24a;color:#ffe9a0;font:800 22px system-ui,sans-serif;letter-spacing:.04em;z-index:30;pointer-events:none;display:none'; document.body.appendChild(R.tag); } return R.tag; }
+  function ringMesh() {
+    if (R.ring) return R.ring; const g = new THREE.RingGeometry(2.0, 2.3, 96, 1); g.rotateX(-Math.PI / 2);
+    R.ring = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xffd24a, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })); R.ring.position.set(0, 0.24, 0); R.ring.frustumCulled = false; scene.add(R.ring); return R.ring;
+  }
+  let glowTex = null;
+  function glow() { if (glowTex) return glowTex; const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'), g = x.createRadialGradient(32, 32, 0, 32, 32, 32); g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.3, 'rgba(160,120,255,0.8)'); g.addColorStop(1, 'rgba(100,60,255,0)'); x.fillStyle = g; x.fillRect(0, 0, 64, 64); glowTex = new THREE.CanvasTexture(c); return glowTex; }
+  function onMsg(d) {
+    if (Array.isArray(d.rules) && d.rules.join() !== [...R.on].join()) { R.on = new Set(d.rules); ui(); }
+    if (!R.on.size) return;
+    if (d.bribes && JSON.stringify(d.bribes) !== JSON.stringify(R.bribes)) { R.bribes = d.bribes; panelsDirty(); }
+    if (R.on.has('doorclose') && d.openLeft && JSON.stringify(d.openLeft) !== JSON.stringify(R.left)) { R.left = d.openLeft; panelsDirty(); }
+    if (d.crown !== undefined) {
+      const t = tagEl();
+      if (!d.crown) { R.crown = null; t.style.display = 'none'; if (R.ring) { scene.remove(R.ring); R.ring = null; } }
+      else { R.crown = { p0: d.crown.p, t0: performance.now(), ms: d.crown.ms }; t.style.display = ''; t.textContent = (d.crown.id === me ? 'YOU ARE' : d.crown.name + ' IS') + ' CLAIMING THE CROWN ' + Math.ceil(d.crown.ms * (1 - d.crown.p) / 1000) + 's'; ringMesh(); kick(); }
+    }
+    if (d.bolt) { const b = d.bolt, spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow(), color: 0xb89cff, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })); spr.scale.set(0.7, 0.7, 1); scene.add(spr); R.bolts.set(b.id, { spr, x: b.x, z: b.z, vx: b.vx, vz: b.vz, range: b.range, t0: performance.now() }); snd('swing', { x: b.x, z: b.z }); kick(); }
+    if (d.boltEnd) { const b = R.bolts.get(d.boltEnd.id); if (b) { scene.remove(b.spr); R.bolts.delete(d.boltEnd.id); } }
+    if (d.klaxon) { toastMsg('KLAXON: doors close at the end of the round!', false); for (let i = 0; i < 3; i++) setTimeout(() => snd('tickLast'), i * 350); }
+    if (d.bribeFail) toastMsg({ pick: 'Select a door first', gold: 'Not enough gold (50)', max: 'Bribe limit reached', room: 'Not at a room panel' }[d.bribeFail] || 'No bribe', false);
+  }
+  function openText(id) { if (!R.on.has('doorclose')) return null; const n = R.left[id]; return n ? 'OPEN · ' + n + (n === 1 ? ' ROUND LEFT' : ' ROUNDS LEFT') : null; }
+  function panel(g, p) { if (!R.on.has('bribe')) return; const n = R.bribes[p.key] || 0; g.textAlign = 'right'; g.font = '700 19px system-ui, sans-serif'; g.fillStyle = n ? '#ffd24a' : '#8fb0d0'; g.fillText(n ? 'BRIBED +' + n + ' · [B] 50g more' : '[B] BRIBE 50g: +1 weight', p.W - 24, 62); }
+  function bribeKey() { if (!R.on.has('bribe') || !cpAim) return false; net.send({ bribe: 1 }); return true; }
+  return { has: n => R.on.has(n), onMsg, openText, panel, bribeKey };
+})();
+// RULES-CLIENT-END
 for (let i = 0; i < 9; i++) {   // grid rooms: north wall, mirrored against the facility map (x = centre + 4.5)
   const [cx, cz] = rc(i); cpBuild(String(i), scene, 2.6, 1.9, cx + WORLD.panelDX(i), 2.6, cz - roomD(i) / 2 + T / 2, 0);
 }
@@ -3758,6 +3803,7 @@ const handleMsg0 = d => {
   if (d.lootFail) lootFailFx(d.lootFail);
   if (GK.fun) GK.fun.onMsg(d);   // FUN: kill feed, board, match summary
   if (window.GKLOOT) GKLOOT.onMsg(d);   // LOOT: vault relic, thrown plushie
+  if (window.GKRULES) GKRULES.onMsg(d);   // RULES: experimental rules (inert unless the server advertises them)
   if (d.died) showDeathScreen(d.died);
   if (d.won) showVictory(d.won);
   if (d.swing != null || d.hit || d.kills != null || d.match) combatMsg(d);   // COMBAT
@@ -4358,6 +4404,7 @@ addEventListener('keydown', e => {
     if (nearestPile()) openStation('loot', nearestPile().id); else net.send({ claim: 1 });   // chest / mystery room contents
     return;
   }
+  if (e.code === 'KeyB' && !invOpen && !e.repeat && window.GKRULES && !GK.locked && GKRULES.bribeKey()) return;   // RULES: bribe at a door panel
   if (window.GK_OFFLINE && e.code === 'KeyG' && netReal && netReal.demoGive) netReal.demoGive();
   if (window.GK_OFFLINE && e.code === 'KeyL' && actors.get(me)) showVictory({ items: invAll(myInv), gold: myGold, parts: myParts });   // demo only: L = win
 });
