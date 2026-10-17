@@ -4315,6 +4315,7 @@ const handleMsg0 = d => {
   KNOWUI.onMsg(d);   // KNOWLEDGE: perks, learning, reforging, map intel
   if (d.lootFail) lootFailFx(d.lootFail);
   if (GK.fun) GK.fun.onMsg(d);   // FUN: kill feed, board, match summary
+  if (window.GKSTATSUI) GKSTATSUI.onMsg(d);   // STATS: lifetime stats recorder (statsui.js)
   if (window.GKLOOT) GKLOOT.onMsg(d);   // LOOT: vault relic, thrown plushie
   if (window.GKHOMEW) GKHOMEW.onMsg(d);   // ELIXIR: counter, Elixir Screen state, toasts, send effects
   if (window.GKUSE) GKUSE.onMsg(d);   // UTILITY: used items, thrown bombs, smoke

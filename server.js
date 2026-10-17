@@ -39,7 +39,7 @@ function cached(key, file, type) {
   if (cache.size < 500) cache.set(key, e);
   return e;
 }
-const CLIENT_JS = new Set(['game', 'menu', 'items', 'world', 'save', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'act5ui', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)
+const CLIENT_JS = new Set(['game', 'menu', 'items', 'world', 'save', 'stats', 'statsui', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'act5ui', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)
 let CSP = '';
 function buildCsp() {   // the page has two inline scripts (importmap + module): allowed by hash, so no 'unsafe-inline' for scripts
   const page = cached('/index.html', path.join(ROOT_DIR, 'index.html'), 'text/html; charset=utf-8'), hashes = [];
@@ -251,8 +251,9 @@ function equip(p, goblin) { // give a player a goblin type with its starting gea
   p.stats = null; recalc(p); p.gold = G.START_GOLD; p.parts = {}; for (const pt of G.PARTS) p.parts[pt.key] = 0;
   p.perks = []; p.swUsed = false;   // KNOWLEDGE: perks last until death
   const pk = G.goblinStart(goblin); if (pk) { p.gold += pk.gold; for (const k in pk.parts) p.parts[k] = (p.parts[k] || 0) + pk.parts[k]; }   // GOBTYPES: the miner's prospector pouch
+  statInit(p);   // STATS
 }
-const sendGold = p => { if (p.ws) sendTo(p.ws, { gold: p.gold }); };
+const sendGold = p => { statGold(p); if (p.ws) sendTo(p.ws, { gold: p.gold }); };   // STATS: statGold tallies gold earned / spent
 const sendParts = p => { if (p.ws) sendTo(p.ws, { parts: p.parts }); };
 // STATIONS (docs/PLAN-5x5.md 1.6): which station of which type the goblin stands at. kind: 'workbench' | 'recycler' | 'knowledge'. -> { kind, type } or null.
 // Types are items.js STATIONS keys: bench 'normal' | 'master', recycler 'home' (50%) | 'full' (100%). Merchants and mystery 'stations' rooms: normal bench, full recycler (as before);
@@ -397,7 +398,7 @@ function die(ws, p) { // a dead player drops everything where they fell and leav
   m.deaths = (m.deaths || 0) + 1; p.dead = true; p.diedAt = Date.now(); m.dead.push(p);
   if (ws && ws.readyState === 1) m.specs.set(ws, p);   // FUN: a dead human stays subscribed as a spectator (snapshots, hits, feed) until the socket closes
   addDrop(m, p, [...items, brain, ...elixirDeath(m, p)]);   // ELIXIR: carried elixir drops as a flask, the home dies
-  sendTo(ws, { died: { items, brain, by: p.killedBy || null, ...(p.killer ? { killer: p.killer } : null) } });   // killer: { name, npc, w } for the death card
+  sendTo(ws, { died: { items, brain, by: p.killedBy || null, ...(p.killer ? { killer: p.killer } : null), st: statBlock(m, p) } });   // STATS: st = this goblin's tallies   // killer: { name, npc, w } for the death card
   leave(m, ws);
 }
 // FUN-BEGIN (kill feed, board, spectators, match summary; see docs/reports/fun.md)
@@ -419,11 +420,21 @@ function endMatch(m, winner) {   // once per match: {matchEnd:{winner, top, long
   const places = order.map((p, i) => ({ id: p.id, name: p.name, goblin: p.goblin, bot: p.bot ? 1 : 0, place: i + 1, kills: p.kills || 0, secs: secs(p) }));
   const top = places.slice().sort((a, b) => b.kills - a.kills || a.place - b.place)[0] || null;
   const run = places.filter(r => r.place > 1).sort((a, b) => b.secs - a.secs || a.place - b.place)[0] || null;   // longest survivor besides the winner (who survived by definition)
-  const w = places[0] || null, msg = JSON.stringify({ matchEnd: { ...(m.timeLimit ? { timeLimit: 1 } : null), ...(m.crownWin ? { crown: 1 } : null), ...(m.decision ? { decision: m.decision } : null), winner: w && { id: w.id, name: w.name, goblin: w.goblin, bot: w.bot, kills: w.kills }, top, longest: run, places, size: places.length } });
+  const w = places[0] || null, msg = JSON.stringify({ matchEnd: { ...(m.timeLimit ? { timeLimit: 1 } : null), ...(m.crownWin ? { crown: 1 } : null), ...(m.decision ? { decision: m.decision } : null), winner: w && { id: w.id, name: w.name, goblin: w.goblin, bot: w.bot, kills: w.kills }, top, longest: run, places, size: places.length, stats: statBlocks(m, order) } });   // STATS: stats = { playerId: block } for the human players
   bcast(m, msg);
   if (!m.specs.size && !humans(m)) matches.delete(m.id);
 }
 // FUN-END
+// STATS-BEGIN (lifetime stats page, see docs/reports/stats-page.md): per-player tallies the client cannot see. p.st5 = { dd damage dealt, dt damage taken, ge gold earned, gs gold spent, ex elixir collected, lg last gold seen }.
+// Hooks: statInit (player setup), statGold (sendGold: every sent change of p.gold counts as earned or spent), statHit (hitTarget: real health lost to melee, bolts and bleed; not thorns or room hazards), statElx (pump, flasks).
+// statBlock goes out with {died}, {won} and, for every human, in {matchEnd}.stats; rd = the round it was made in.
+function statInit(p) { p.st5 = { dd: 0, dt: 0, ge: 0, gs: 0, ex: 0, lg: p.gold | 0 }; }
+function statGold(p) { const s = p.st5; if (!s) return; const g = p.gold | 0, d = g - s.lg; s.lg = g; if (d > 0) s.ge += d; else s.gs -= d; }
+function statHit(p, t, lost) { lost = Math.round(lost); if (!(lost > 0)) return; if (p.st5) p.st5.dd += lost; if (t.st5) t.st5.dt += lost; }
+function statElx(p, n) { if (p.st5 && n > 0) p.st5.ex += n | 0; }
+function statBlock(m, p) { const s = p.st5 || {}; if (s.rd == null && p.dead) s.rd = (m && m.round) | 0; return { dd: s.dd | 0, dt: s.dt | 0, ge: s.ge | 0, gs: s.gs | 0, ex: s.ex | 0, rd: s.rd != null ? s.rd : (m && m.round) | 0 }; }   // rd: the round the goblin died or won in, else the current round
+function statBlocks(m, order) { const o = {}; for (const p of order) if (p && !p.npc && !p.bot) o[p.id] = statBlock(m, p); return o; }
+// STATS-END
 // SUDDEN-BEGIN (match time limit, DEFAULT awaiting the owner's decision, see docs/FEATURES.md): after round SUDDEN_ROUND every door is open and regeneration stops; if nobody has won after round MAX_ROUND the goblin with the most kills wins, then the most HP
 // 5x5 (docs/PLAN-5x5.md 5.2): every round is ROUND_MS (2 min); sudden death after round 5, decided after round 7 (14 min at most)
 const SUDDEN_ROUND = DBG && +process.env.GK_SUDDEN_ROUND > 0 ? +process.env.GK_SUDDEN_ROUND : 5, MAX_ROUND = DBG && +process.env.GK_MAX_ROUND > 0 ? +process.env.GK_MAX_ROUND : 7;
@@ -576,6 +587,7 @@ function hitTarget(m, ws, p, tws, t, dmg, now, wname, opts) {   // damage, hit b
   dmg = A5.hitMul(m, p, t, dmg, wname, opts);   // ACT5: Fury blessing, Hollow Oak ambush
   let hp = Math.max(0, t.stats.health - dmg);
   if (hp <= 0 && !t.npc && !t.swUsed && G.hasPerk(t.perks, 'secondwind')) { hp = 1; t.swUsed = true; sendTo(t.ws, { secondWind: 1 }); }   // KNOWLEDGE: Second Wind
+  statHit(p, t, t.stats.health - hp);   // STATS
   t.stats.health = hp; t.hurtAt = now; t.hitBy = p.id; m.dirty = true;   // hitBy: a bot notices whoever hurt it at once
   A5.hurt(m, t, p);   // ACT5: a hit breaks channels and drops carried sacks / buckets
   bcast(m, { hit: { from: p.id, to: t.id, dmg, hp, max: t.stats.maxHealth, dead: hp <= 0, ...(opts && opts.bleed ? { bleed: 1 } : null) } });
@@ -678,7 +690,7 @@ function win(ws, p) { // everything carried goes home with the winner, nothing i
   const m = p.match; if (p.dead || !m) return;
   const items = allItems(p.inv);
   p.dead = true; p.diedAt = Date.now(); endMatch(m, p); leave(m, ws);
-  sendTo(ws, { won: { items, gold: p.gold, parts: p.parts, ctoken: makeToken({ c: p.charId, g: p.goblin, w: Math.min(9999, p.wins + 1), n: p.name }) } });   // SECURITY: signed character token
+  sendTo(ws, { won: { st: statBlock(m, p), items, gold: p.gold, parts: p.parts, ctoken: makeToken({ c: p.charId, g: p.goblin, w: Math.min(9999, p.wins + 1), n: p.name }) } });   // SECURITY: signed character token
 }
 
 // JUMP-BEGIN (server side: the jump is cosmetic; movement, walls and attack ranges stay 2D)
@@ -1805,7 +1817,7 @@ function pumpUse(m, p, now) {
   const own = h.owner === p.id, r = EX.collect(h.pump, p.elixir | 0, now, own);
   p.elixir = r.carried;
   if (r.moved <= 0) return homeRes(p, false, (p.elixir | 0) >= EX.CARRY_CAP ? 'You carry all you can' : 'The tank is empty');
-  sendElixir(p); homeRes(p, true, null, '+' + r.moved + ' elixir');
+  statElx(p, r.moved); sendElixir(p); homeRes(p, true, null, '+' + r.moved + ' elixir');   // STATS
   if (r.raid && !h.dead && h.ref && !h.ref.dead) { homeToast(h.ref, 'raid', p.name + ' is draining your pump!'); sendTo(h.ref.ws, { pumpGlow: EX.RAID_GLOW_MS }); }
   pushHome(m, h, now);
 }
@@ -2023,7 +2035,7 @@ function elixirDeath(m, p) {   // from die(); returns the extra pile entries
 function elixirTakeFlask(m, p, dr, di, a) {   // loot(): taking a flask adds its elixir to what you carry (the carry cap leaves the rest in the pile)
   if (a[2] !== 'take') return 'item';
   const key = dr.items[a[1]], r = EX.pickUpFlask(p.elixir | 0, G.flaskN(key)); if (r.got <= 0) return 'space';
-  p.elixir = r.carried; sendElixir(p);
+  p.elixir = r.carried; statElx(p, r.got); sendElixir(p);   // STATS
   if (r.left > 0) dr.items[a[1]] = 'x:flask:' + r.left; else { dr.items.splice(a[1], 1); if (!dr.items.length) m.drops.splice(di, 1); }
   bcast(m, { drops: m.drops }); m.dirty = true; return null;
 }
