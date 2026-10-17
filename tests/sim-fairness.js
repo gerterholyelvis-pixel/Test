@@ -20,7 +20,7 @@ async function simBots5(o) {
     c.send({ bot5: 1 }); await sleep(300);
     const e = c.state.matchEnd, win = e && e.winner, wp = win && ps.find(p => p.id === win.id), slot = wp ? W.HOME_IDS.indexOf(+wp.home.slice(1)) : -1;
     const how = !e ? 'timeout' : e.decision ? (/claim/.test(e.decision.reason) ? 'crown' : e.decision.reason) : 'last';
-    const row = { idx, secs: Math.round((Date.now() - t0) / 1000), rounds, how, slot, vaultOpen, s: last };
+    const row = { idx, secs: Math.round((Date.now() - t0) / 1000), rounds, how, slot, vaultOpen, s: last, winId: win ? win.id : null, places: e ? e.places : [] };   // BOTS6: places carry kills; s.b6.lvl the bot levels
     rows.push(row); await c.close();
     if (o.log) console.log('match ' + (idx + 1) + ': ' + row.secs + ' s, ' + rounds + ' rounds, ' + how + (slot >= 0 ? ' (home slot ' + slot + ')' : '') + ', vault opened ' + (vaultOpen == null ? 'never before sudden death' : 'round ' + vaultOpen)
       + (last ? ', trees ' + JSON.stringify(last.tree) + ' by ' + last.treeUsers + ', heists ' + JSON.stringify(last.vb) + ' by ' + last.vbUsers + ', home/forge/grand ' + last.home + '/' + last.forge + '/' + last.grand + ', crafted ' + last.crafted + ', recycled ' + last.recycled + ', coop ' + last.coop + ', bribes ' + last.bribes + ', stuck ' + last.stuck + '/' + last.hardStuck + ', rewards ' + JSON.stringify(last.rewards) + ', left home ' + last.left + '/' + last.bots : ''));
@@ -42,9 +42,24 @@ function summary5(rows) {
   return { matches: rows.length, meanSecs: mean(rows.map(r => r.secs)), meanRounds: mean(rows.map(r => r.rounds)), timeouts: rows.filter(r => r.how === 'timeout').length, ends: how, winnerSlots: slots,
     vaultOpenShare: +(vo.length / n).toFixed(2), vaultOpenRound: mean(vo), treeMatchShare: +(ok.filter(r => Object.keys(r.s.tree).length).length / n).toFixed(2), heistMatchShare: +(ok.filter(r => Object.keys(r.s.vb).length).length / n).toFixed(2),
     treeUsers: mean(ok.map(r => r.s.treeUsers)), heistUsers: mean(ok.map(r => r.s.vbUsers)), stationUses: mean(ok.map(r => r.s.home + r.s.forge + r.s.grand)), crafted: mean(ok.map(r => r.s.crafted)), coop: mean(ok.map(r => r.s.coop)), bribes: mean(ok.map(r => r.s.bribes)),
-    leftHome: mean(ok.map(r => r.s.left / Math.max(1, r.s.bots))), stuck: mean(ok.map(r => r.s.stuck)), hardStuck: ok.reduce((x, r) => x + r.s.hardStuck, 0), sweepMs: mean(ok.map(r => r.s.sweepMean)) };
+    leftHome: mean(ok.map(r => r.s.left / Math.max(1, r.s.bots))), stuck: mean(ok.map(r => r.s.stuck)), hardStuck: ok.reduce((x, r) => x + r.s.hardStuck, 0), sweepMs: mean(ok.map(r => r.s.sweepMean)), ...levels6(ok) };
 }
-module.exports = { simBots5, summary5 };
+// BOTS6 (docs/reports/bots6.md): per skill level (GK_BOT_LEVEL=mix deals easy, normal, hard in turn): bots, wins, win share per bot, kills and deaths per bot;
+// plus vault claims (matches with any crown claim, the mean top claim in seconds), crown wins, and the BOTS6 tallies summed over the matches.
+function levels6(ok) {
+  const rows = ok.filter(r => r.s.b6 && r.s.b6.lvl); if (!rows.length) return {};
+  const L = {}, tal = { use: {}, danger: {}, styles: {} }, add = (o, k, v) => { o[k] = (o[k] || 0) + v; };
+  for (const r of rows) {
+    const b6 = r.s.b6, dead = new Set(b6.dead || []);
+    for (const id in b6.lvl) { const l = L[b6.lvl[id]] || (L[b6.lvl[id]] = { bots: 0, wins: 0, kills: 0, deaths: 0 }), pl = r.places.find(p => p.id === +id); l.bots++; if (r.winId === +id) l.wins++; if (pl) l.kills += pl.kills; if (dead.has(+id)) l.deaths++; }
+    for (const k of ['flank', 'behind', 'window', 'kite', 'dodge', 'sends', 'gaveUp', 'defend', 'regroup', 'heard']) add(tal, k, b6[k] || 0);
+    for (const g of ['use', 'danger', 'styles']) for (const k in b6[g] || {}) add(tal[g], k, b6[g][k]);
+  }
+  for (const k in L) { const l = L[k]; l.winPerBot = +(l.wins / l.bots).toFixed(3); l.killsPerBot = +(l.kills / l.bots).toFixed(2); l.deathsPerBot = +(l.deaths / l.bots).toFixed(2); }
+  const cl = rows.filter(r => (r.s.claims || []).length);
+  return { levels: L, claimMatches: +(cl.length / rows.length).toFixed(2), topClaimS: cl.length ? +(cl.reduce((x, r) => x + r.s.claims[0].s, 0) / cl.length).toFixed(1) : 0, crownWins: rows.filter(r => r.how === 'crown').length, b6: tal };
+}
+module.exports = { simBots5, summary5, levels6 };
 const N = +process.argv[2] || 5, FIGHT = process.argv[3] !== '0';
 if (require.main === module && process.argv[2] === 'bots5') simBots5({ n: +process.argv[3] || 20, roundMs: +process.argv[4] || 20000, parallel: +process.argv[5] || 5 }).then(() => process.exit(0), e => { console.error(e); process.exit(1); });
 else if (require.main === module) (async () => {
