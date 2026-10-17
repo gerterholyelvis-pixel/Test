@@ -150,7 +150,7 @@
       const P = A.P, mine = A.actors.get(A.me), myKey = A.roomKeyAt(P.x, P.z);
       a && a.setListener(P.x, P.z, P.yaw);
       sudT -= dt; if (sudT <= 0) { sudT = 1; sudden = !!document.getElementById('gkSudTag'); }
-      a && A.spawned && a.ambient(sudden ? 'sudden' : myKey === (window.GKWORLD ? GKWORLD.VAULT_KEY : '12') ? 'vault' : myKey && myKey[0] === 'c' ? 'chest' : 'room');
+      a && A.spawned && a.ambient(sudden ? 'sudden' : myKey === (window.GKWORLD ? GKWORLD.VAULT_KEY : '12') ? 'vault' : myKey && myKey[0] === 'c' ? 'chest' : 'room', window.HUD5 && myKey ? HUD5.cellSide(myKey) : null);   // ARENAHUE: the room hum is pitched by the compass side
       // low health: a soft heartbeat that quickens as it gets worse (the sound is dropped first when busy)
       if (mine && mine.hp > 0 && mine.maxHp > 0 && A.spawned) {
         const fr = mine.hp / mine.maxHp;

@@ -1,6 +1,17 @@
 // Pure checks on hud5.js map layout (no DOM)
 const H = require('../hud5.js'), { run, assert, eq } = require('./lib.js');
 run('hud5', [
+  ['ARENAHUE: every cell but the vault has a compass colour, mirrored cells (i, 24-i) have opposite sides, the map uses it', () => {
+    eq(H.cellSide(12), null); eq(H.cellHue(12), null);
+    const seen = {}; for (let i = 0; i < 25; i++) if (i !== 12) { const s = H.cellSide(i); assert(H.SIDE_HUE[s] != null, 'hue for cell ' + i); seen[s] = (seen[s] || 0) + 1; }
+    eq(Object.keys(seen).length, 8, 'eight sides'); eq([H.cellSide(0), H.cellSide(2), H.cellSide(4), H.cellSide(10), H.cellSide(14), H.cellSide(20), H.cellSide(22), H.cellSide(24)], ['NW', 'N', 'NE', 'W', 'E', 'SW', 'S', 'SE']);
+    eq([H.cellSide(6), H.cellSide(7), H.cellSide(13), H.cellSide(16)], ['NW', 'N', 'E', 'SW'], 'inner ring');
+    const opp = { N: 'S', S: 'N', E: 'W', W: 'E', NE: 'SW', SW: 'NE', NW: 'SE', SE: 'NW' };
+    for (let i = 0; i < 12; i++) eq(H.cellSide(24 - i), opp[H.cellSide(i)], 'mirror ' + i);
+    const hues = Object.values(H.SIDE_HUE); eq(new Set(hues).size, 8, 'distinct hues');
+    const ops = H.mapOps({ me: { x: 0, z: 0, yaw: 0 } }, {}), cell0 = ops.find(o => o.t === 'rect' && o.x === H.ARENA[0].cx && o.z === H.ARENA[0].cz);
+    assert(/rgba\(68,165,173/.test(cell0.fill), 'minimap cell 0 is teal: ' + cell0.fill);
+  }],
   ['25 arena cells and 20 attached rooms, no overlaps, the same rects as world.js', () => {
     eq(H.ARENA.length, 25); eq(H.ATTACHED.length, 20);
     const W = require('../world.js'); W.CHEST.forEach((c, i) => { const a = H.ATTACHED[i]; eq([a.id, a.cx, a.cz, a.w, a.h, a.side], ['c' + c.id, c.cx, c.cz, c.size, c.size, c.side], 'attached rect ' + i); });
