@@ -6,10 +6,10 @@
 const fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..');
 const rd = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
-const SOURCES = ['items.js', 'world.js', 'elixir.js', 'homebase.js', 'activity.js', 'rooms5-trees.js', 'vb5.js', 'vault5.js', 'server.js', 'tools/gameinfo.js', 'tools/gameinfo.template.html'];
+const SOURCES = ['items.js', 'world.js', 'elixir.js', 'homebase.js', 'camterm.js', 'activity.js', 'rooms5-trees.js', 'vb5.js', 'vault5.js', 'server.js', 'tools/gameinfo.js', 'tools/gameinfo.template.html'];
 const OUT = path.join(ROOT, 'docs', 'game-info.html');
 function srcHash() { const h = require('crypto').createHash('sha1'); for (const f of SOURCES) h.update(rd(f).replace(/\r\n?/g, '\n')); return h.digest('hex').slice(0, 8); }   // line-ending independent
-const G = require('../items.js'), WORLD = require('../world.js'), EX = require('../elixir.js'), HB = require('../homebase.js');
+const G = require('../items.js'), WORLD = require('../world.js'), EX = require('../elixir.js'), HB = require('../homebase.js'), CT = require('../camterm.js');
 const ACT = require('../activity.js'), T5 = require('../rooms5-trees.js'), VB = require('../vb5.js'), V5 = require('../vault5.js');
 const SRC = { server: rd('server.js'), items: rd('items.js') };
 
@@ -254,6 +254,7 @@ const upgrades = HB.ORDER.flatMap(id => HB.UPGRADES[id].levels.map((l, i) => ({ 
 let run = 0; for (const u of upgrades) { run += u.cost; u.total = run; }
 const sends = HB.SEND_IDS.map(k => { const d = HB.SENDS[k]; return { id: 'send-' + k, name: d.name, cost: d.cost, ms: d.ms === 'round' ? 'rest of the round' : S(d.ms), target: d.target, fx: d.fx, counter: d.counter }; });
 const homeFacts = [['Whole upgrade tree', HB.treeCost() + ' elixir'], ['Sentry', HB.SENTRY.shots + ' shots, ' + HB.SENTRY.damage + ' damage every ' + S(HB.SENTRY.everyMs)], ['Snare', 'roots ' + S(HB.SNARE.rootMs) + ', ' + HB.SNARE.damage + ' damage, one shot'], ['Healing Pad', HB.PAD.hps + ' HP/s after ' + S(HB.PAD.calmMs) + ' unhurt'],
+  ['Camera Terminal', 'a prop in your home once bought. ' + CT.OPEN_COST + ' elixir to start a feed, then ' + CT.METER_COST + ' per ' + S(CT.LEVELS[1].meterMs) + ' (tier II: ' + S(CT.LEVELS[2].meterMs) + '). Feed lasts ' + S(CT.LEVELS[1].feedMs) + ' (tier II: ' + S(CT.LEVELS[2].feedMs) + ', and the Vault). Shows one arena room at a time as a live map: goblins with names and health, doors, loot piles, the crown claim. Starts in round ' + CT.FIRST_ROUND + ', dead in sudden death and the showdown, blind to a room whose goblin holds the Hollow Oak. Occupants with an Alarm are warned that a camera is watching, without a name.'],
   ['Door lock pick time', HB.PICK_MS.map(S).join(' / ') + ' by level'], ['Lockbox crack time', HB.CRACK_MS.map(S).join(' / ') + ' by lock level (range ' + HB.CRACK_RANGE + ' m)'], ['Recycler efficiency', HB_REC.map(pc).join(' / ')], ['Lockbox slots', HB_BOX.join(' / ')],
   ['Home bench', 'tier ' + HB_BASE.maxTier + ' at ' + S(HB_BASE.craftMs) + '; Bench II tier ' + HB_II.maxTier + ' at ' + S(HB_II.craftMs)], ['Sends', 'telegraph ' + S(HB.TELEGRAPH_MS) + ', at most ' + HB.MAX_ACTIVE_PER_ROOM + ' live per room, from round ' + HB.FIRST_SEND_ROUND + ', one per goblin per round'],
   ['Elixir over a match', 'a level-1 pump makes ' + HB.baseIncomeMatch(SV.MAX_ROUND, SV.ROUND_MS) + ' over ' + SV.MAX_ROUND + ' rounds']];

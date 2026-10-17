@@ -40,7 +40,7 @@ function cached(key, file, type) {
   return e;
 }
 const missUntil = new Map();   // PERF4: url key -> time the remembered miss expires
-const CLIENT_JS = new Set(['game', 'menu', 'items', 'world', 'save', 'stats', 'statsui', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'wbui', 'act5ui', 'fskeep', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)
+const CLIENT_JS = new Set(['game', 'menu', 'items', 'world', 'save', 'stats', 'statsui', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'camterm', 'wbui', 'act5ui', 'fskeep', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)
 let CSP = '';
 function buildCsp() {   // the page has two inline scripts (importmap + module): allowed by hash, so no 'unsafe-inline' for scripts
   const page = cached('/index.html', path.join(ROOT_DIR, 'index.html'), 'text/html; charset=utf-8'), hashes = [];
@@ -1920,6 +1920,7 @@ function homeMsg(m, ws, p, d, now) {   // the one entry for the home messages (v
   else if (d.base !== undefined) baseMsg(m, p, d.base, now);
   else if (d.lockbox !== undefined) lockboxMsg(m, p, d.lockbox, now);
   else if (d.brew !== undefined) { const why = brewAt(m, p, d.brew); if (why) sendTo(ws, { brewFail: why }); }
+  else if (d.cam !== undefined) camMsg(m, p, d.cam, now);   // CAMTERM
 }
 
 // ---- raids: crack a foreign lockbox (8 s, 14 s against Lock L2) within 1.5 m
@@ -2008,10 +2009,57 @@ function sendTick(m, now) {
   m.sends = m.sends.filter(s => !(s.ended || (HB.sendPhase(s, now) === 'over' && !s.started)));
 }
 
+// CAMTERM-BEGIN (Camera Terminal; rules and frame shape in camterm.js, docs/reports/camera-terminal.md). A session lives on p.cam = {room, lv, until, meterAt, sentAt, last}; only its owner's socket ever gets a frame, and a frame holds only what a goblin in that room shows to everyone.
+const CT = require('./camterm.js');
+if (DBG && +process.env.GK_CAM_METER_MS > 0) for (const l of CT.LEVELS) if (l) l.meterMs = +process.env.GK_CAM_METER_MS;   // GK_DEBUG only: tests shorten the meter
+const camCtx = (m, p, h) => ({ lv: HB.level(h, 'camera'), round: m.round, sudden: !!m.sudden, showdown: !!m.showdown, alive: !p.dead, entered: !!p.entered, homeDead: !!h.dead, atTerminal: p.room === p.home && hState(p, p.home, 'cam').dist <= CT.RANGE + 0.3 });
+const camHidden = (m, room) => { const t = m.act && m.act.trees && m.act.trees[room]; return !!(t && t.type === 'oak' && t.st && t.st.warden != null); };   // the held Hollow Oak hides a tree room's goblins from every map; the camera is no exception
+function camView(m, room) {
+  const r = RB[room], rel = q => ({ x: q.x - r.cx, z: q.z - r.cz }), goblins = [], foes = [], drops = [], doors = [];
+  for (const q of m.players.values()) if (q.room === room && !q.dead && q.entered && q.stats) { const o = { name: q.name, hp: q.stats.health / Math.max(1, q.stats.maxHealth), ...rel(q) }; if (q.npc) foes.push(o); else { o.id = q.id; goblins.push(o); } }
+  for (const d of m.drops) if (!d.bait && roomKeyOf(d.x, d.z) === room) drops.push({ x: d.x - r.cx, z: d.z - r.cz, n: d.items.length });
+  for (const e of ADJ[room] || []) if (isArena(e.to)) { const dx = e.w2[0] - e.w1[0], dz = e.w2[1] - e.w1[1]; doors.push(Math.abs(dx) > Math.abs(dz) ? { side: dx > 0 ? 'E' : 'W', off: e.w1[1] - r.cz, open: isOpen(m, e.door) } : { side: dz > 0 ? 'S' : 'N', off: e.w1[0] - r.cx, open: isOpen(m, e.door) }); }
+  const cb = room === VK && rule('crown') && m.crownBy != null ? [...m.players.values()].find(q => q.id === m.crownBy) : null;
+  return { room, name: room === VK ? 'THE VAULT' : (WORLD.TREE_CELLS.includes(+room) ? 'TREE ROOM ' : 'ROOM ') + (+room % WORLD.N + 1) + '.' + (Math.floor(+room / WORLD.N) + 1), w: r.hw * 2, d: r.hd * 2, goblins, foes, drops, doors, hidden: camHidden(m, room), crown: cb ? cb.name : null };
+}
+function camEnd(p, reason) { if (!p.cam) return; p.cam = null; if (p.ws) sendTo(p.ws, { cam: null, ...(reason ? { camRes: { ok: false, reason, end: 1 } } : null) }); }
+const camRefuse = (p, reason) => { if (p.ws && reason !== 'state') sendTo(p.ws, { camRes: { ok: false, reason } }); };
+function camSpot(m, p, room, now) {   // optional "camera spotted": occupants whose home has an Alarm get a nameless warning, once per 20 s each
+  for (const q of m.players.values()) if (q.room === room && !q.dead && q.entered && !q.npc && q !== p && now - (q.camSpotAt || 0) >= CT.SPOT_COOLDOWN_MS) { const qh = homeAt(m, q.home); if (qh && !qh.dead && HB.level(qh, 'alarm')) { q.camSpotAt = now; homeToast(q, 'info', 'A camera is watching this room'); } }
+}
+function camMsg(m, p, b, now) {   // {cam:{open:1}} {cam:{room}} {cam:{close:1}}: the owner at his own terminal only
+  if (!b || typeof b !== 'object' || Array.isArray(b)) return;
+  if (b.close === 1) return camEnd(p, null);
+  const h = typeof p.home === 'string' && homeAt(m, p.home); if (!h) return;
+  const c = camCtx(m, p, h), why = CT.gate(c); if (why) { camEnd(p, why === 'state' ? null : why); return camRefuse(p, why); }
+  if (b.open === 1) {
+    if (p.cam) return;
+    if ((p.elixir | 0) < CT.OPEN_COST) return camRefuse(p, 'Not enough elixir');
+    p.elixir -= CT.OPEN_COST; sendElixir(p); p.cam = CT.newSession(now, c.lv, null);
+  } else if (typeof b.room === 'string') {
+    if (!p.cam) return camRefuse(p, 'Open the terminal first');
+    const bad = CT.viewable(c.lv, b.room, isArena, VK); if (bad) return camRefuse(p, bad);
+    if (p.cam.room !== b.room) { p.cam.room = b.room; p.cam.last = ''; camSpot(m, p, b.room, now); }
+  }
+}
+function camTick(m, now) {   // 20 Hz loop, a frame at most every CT.GAP_MS (4 Hz) per viewer; the meter charges here
+  for (const p of m.players.values()) {
+    const s = p.cam; if (!s) continue;
+    const h = typeof p.home === 'string' && homeAt(m, p.home), why = h ? CT.gate(camCtx(m, p, h)) : 'state';
+    if (why) { camEnd(p, why === 'state' ? null : why); continue; }
+    const st = CT.step(s, now, p.elixir); if (st.end) { camEnd(p, st.end); continue; }
+    if (st.charge) { p.elixir -= st.charge; sendElixir(p); }
+    if (!st.send || s.room == null || !p.ws) continue;
+    const f = CT.frame(camView(m, s.room), s, now);
+    if (CT.shouldSend(s, JSON.stringify({ ...f, left: 0 }), now)) sendTo(p.ws, { cam: f });
+  }
+}
+// CAMTERM-END
 // ---- the per-match tick (from the main loop, about 5 Hz): lazy pumps need none, this does pads, sentries, alarms, snares, sends, raids, bots and the owner's live view
 function elixirTick(m, now) {
   if (m.phase !== 'play' || m.ended || !m.goAt || now < m.goAt) return;
   if (!m.homes) homesInit(m, m.goAt);
+  camTick(m, now);   // CAMTERM
   if (now - (m.elxAt || 0) < 200) return; m.elxAt = now;
   for (const h of Object.values(m.homes)) {
     for (const pid in h.pickSeen) if (now - h.pickSeen[pid] > 600) { HB.cancelPick(h, +pid); delete h.pickSeen[pid]; }
@@ -2217,7 +2265,7 @@ wss.on('connection', (ws, req) => {
     } else if (d.act !== undefined) { A5.act(m, p, d.act, now);   // ACT5: an activity verb {act:{r,a,v,x?}}
     } else if (typeof d.lat === 'number' && Number.isFinite(d.lat)) { p.lat = Math.max(0, Math.min(1000, d.lat));   // ACT5: smoothed latency for the timing presses
     } else if (dbg && d.actDbg) { A5.debug(m, p, d.actDbg);   // ACT5 test hook
-    } else if (d.pump === 1 || d.base !== undefined || d.lockbox !== undefined || d.brew !== undefined) { homeMsg(m, ws, p, d, now);   // ELIXIR
+    } else if (d.pump === 1 || d.base !== undefined || d.lockbox !== undefined || d.brew !== undefined || d.cam !== undefined) { homeMsg(m, ws, p, d, now);   // ELIXIR
     } else if (dbg && d.dbgElixir) { elixirDbg(m, p, d.dbgElixir);
     } else if (typeof d.recycle === 'string' && homeAt(m, p.room)) { const why = homeRecycle(m, p, d.recycle, d.refine === 1); if (why) sendTo(ws, { recycleFail: why });   // ELIXIR: the home recycler is owner-only and follows its upgrade
     } else if (typeof d.craft === 'string' && homeAt(m, p.room) && !HB.canUseStation(homeAt(m, p.room), p.id)) { sendTo(ws, { craftFail: 'owner' });

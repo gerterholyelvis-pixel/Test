@@ -8,7 +8,7 @@
 //   home.setPumpLevel(0..1), home.setPumpAlert(bool), home.setUpgrade(name, level), home.setScreenPower(bool), home.setOwner(name), home.ringAlarm(), home.setSentryTarget(x, z | null)
 //   home.update(timeSeconds) call once per frame while the room is visible (bubbles, smoke, flicker, bell swing)
 //   home.dispose()
-// Upgrade names: 'lock' (door bars, level 1 / 2), 'alarm' (bell), 'sentry' (crossbow mount), 'lockbox' (reinforced straps). Unknown names return false.
+// Upgrade names: 'lock' (door bars, level 1 / 2), 'alarm' (bell), 'sentry' (crossbow mount), 'lockbox' (reinforced straps), 'camera' (Camera Terminal, level 1+). Unknown names return false.
 // Static art is merged into 7 meshes (one per material); the animated bits add about 14 more draw calls. Only emissive materials and sprites, never a light.
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
@@ -463,8 +463,16 @@ export function buildHomeRoom(THREE, helpers = {}, opts = {}) {
   upg.lockbox = sub('lockboxUp', () => {
     at(LBX, 0, LBZ, -PI / 2 - 0.12, () => { for (const y of [0.18]) box('metal', 0.99, 0.09, 0.64, 0, y, 0, 0x7a8086, { rad: 0.015 }); box('metal', 0.99, 0.06, 0.64, 0, 0.5, 0, 0x7a8086, { rad: 0.012 }); box('brass', 0.12, 0.12, 0.06, 0.3, 0.38, 0.35, 0xe0b85a, { rad: 0.02 }); tor('metal', 0.04, 0.012, 0.3, 0.45, 0.35, IRONL, { seg: 8 }); });
   });
-  upg.alarm.position.x = -1.75; group.add(upg.alarm, upg.sentry, upg.lockbox);
-  for (const k of ['lock', 'lock2', 'alarm', 'sentry', 'lockbox']) upg[k].visible = false;
+  // CAMTERM-BEGIN: the Camera Terminal (Camera upgrade level 1+): iron pedestal, a monitor with a green emissive face, a camera dome on a stalk. Merged into the same few meshes, no light. Stands at world.js HOME_LAYOUT.cam (CAMX, CAMZ).
+  const CAMX = 3.3, CAMZ = -HALF + 0.55;
+  upg.camera = sub('cameraTerm', () => at(CAMX, 0, CAMZ, 0, () => {
+    box('metal', 0.8, 0.9, 0.5, 0, 0.45, 0, IRON, { rad: 0.02 }); box('brass', 0.86, 0.05, 0.56, 0, 0.92, 0, BRASS, { rad: 0.015 }); box('metal', 0.96, 0.62, 0.16, 0, 1.28, -0.02, 0x4d5258, { rad: 0.02 });
+    box('glow', 0.8, 0.46, 0.02, 0, 1.28, 0.07, 0x39f2c4); for (const sx of [-1, 1]) box('metal', 0.05, 0.5, 0.05, sx * 0.4, 1.28, 0.05, IRONL, { rad: 0.01 });
+    cyl('metal', 0.03, 0.03, 0.42, 0, 1.8, -0.05, IRON, { seg: 6 }); sph('metal', 0.13, 0, 2.04, -0.05, IRONL, { seg: 10, segH: 7 }); sph('glow', 0.04, 0, 2.04, 0.08, 0xff4a3a, { seg: 6, segH: 4 });
+  }));
+  // CAMTERM-END
+  upg.alarm.position.x = -1.75; group.add(upg.alarm, upg.sentry, upg.lockbox, upg.camera);
+  for (const k of ['lock', 'lock2', 'alarm', 'sentry', 'lockbox', 'camera']) upg[k].visible = false;
 
   // ---------- merge static bags into meshes ----------
   const meshes = [];
@@ -500,6 +508,7 @@ export function buildHomeRoom(THREE, helpers = {}, opts = {}) {
       if (name === 'alarm') { upg.alarm.visible = level >= 1; return true; }
       if (name === 'sentry' || name === 'turret') { upg.sentry.visible = level >= 1; return true; }
       if (name === 'lockbox') { upg.lockbox.visible = level >= 1; return true; }
+      if (name === 'camera') { upg.camera.visible = level >= 1; return true; }   // CAMTERM
       return false;
     },
     ringAlarm() { ring = 1; },
