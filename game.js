@@ -7961,6 +7961,7 @@ function c4Reticle() {   // the centre dot warms up and grows a thin ring when a
 function c4Confirm(h) {   // the server's hit for my swing sq: true when my client already played its impact
   const p = C4C.preds.find(q => q.sq === h.sq) || (C4C.pend && C4C.pend.sq === h.sq ? { ids: C4C.pend.hits, got: [] } : null);
   if (p && p.ids.includes(h.to) && !p.got.includes(h.to)) { p.got.push(h.to); C4C.st.confirmed++; return true; }
+  if (C4C.pend && C4C.pend.sq === h.sq && !C4C.pend.hits.includes(h.to)) { C4C.pend.hits.push(h.to); C4C.st.confirmed++; return false; }   // the server was first (LAN, offline): it plays the impact now and the prediction will not play it again
   if (!h.k) C4C.st.late++; return false;
 }
 function c4Victim(h) {   // a blow on me: stagger (my wind-up is cancelled, my next swing waits) and knockback
