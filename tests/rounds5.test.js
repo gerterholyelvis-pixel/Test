@@ -29,7 +29,7 @@ const ROUND = 120000;
       }]]),
       L.run('rounds5-prod', [['without GK_DEBUG dbgFF is IGNORED (the round keeps its full 2 min), and the debug overrides are off too', async () => {
         const c = await connect(prod.port, 'goblin=2', { wait: 25000 });
-        assert(!c.msgs.some(m => m.dbg), 'a non-debug server never advertises dbg'); assert(c.state.round && c.state.round.dur === ROUND, 'round 1 is ROUND_MS (' + (c.state.round && c.state.round.dur) + ')');
+        assert(!c.msgs.some(m => m.dbg), 'a non-debug server never advertises dbg'); assert(c.state.round && (c.state.round.dur === ROUND || c.state.round.dur === ROUND * 0.75), 'round 1 is ROUND_MS or 75% under the Fast Doors mutator (' + (c.state.round && c.state.round.dur) + ')');
         eq(c.state.matchStart.players.length, 8, 'GK_MATCH_SIZE is off: the queue closes with a full table of bots');
         c.send({ dbgFF: 1 }); await sleep(800); c.send({ dbgFF: 1 }); await sleep(500);
         assert(!c.msgs.some(m => m.round && m.round.left < ROUND - 10000), 'dbgFF shortened a round on a non-debug server: ' + JSON.stringify(c.msgs.filter(m => m.round).map(m => m.round.left).slice(-3)));
