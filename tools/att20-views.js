@@ -9,9 +9,10 @@ module.exports = async c => {
   const st = JSON.parse(await c.ev(`JSON.stringify({ home: GK.myHome, x: GK.P.x, z: GK.P.z, yaw: GK.P.yaw, room: GKWORLD.roomKeyOf(GK.P.x, GK.P.z), side: GKWORLD.attachedSide(GK.myHome), pos: GKWORLD.attachedPos(GK.myHome) })`));
   console.log('spawn', J(st));
   await c.wait(600); await c.shot(S + 'home-spawn.jpg'); await info('home-spawn');
-  // 2. walk out: hold W for a while (real movement, collision and the hatch), report where we got
+  // 2. walk out: hold W for a while (real movement, collision and the hatch), report where we got. Round 1 is the home phase (hatch shut): wait for round 2 (GK_ROUND_MS=9000)
+  await c.wait(+process.env.HOME_WAIT || 0);
   const hc = await CH(+st.home.slice(1));
-  await c.ev(`(GK.P.yaw = Math.atan2(-${-hc.dx}, -${-hc.dz}), GK.P.pitch = 0, 1)`);
+  await c.ev(`(GK.P.yaw = ${Math.atan2(hc.dx, hc.dz)}, GK.P.pitch = 0, 1)`);   // facing (-dx, -dz): the doorway
   await c.ev(`(dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW', key: 'w' })), 1)`);
   for (let i = 0; i < 40; i++) { await c.wait(250); const k = await c.ev('GKWORLD.roomKeyOf(GK.P.x, GK.P.z)'); if (k[0] !== 'c') { await c.wait(700); break; } }
   await c.ev(`(dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW', key: 'w' })), 1)`);
