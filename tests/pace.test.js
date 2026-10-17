@@ -17,10 +17,15 @@ async function kill(a, b) {   // a (with a slayer) walks next to b and swings un
       ['a round nobody voted in still opens one outer door; living goblins earn 10 gold at the new round', async () => {
         const [a, b] = await Promise.all([connect(srv.port, 'name=Thok&goblin=2&wins=0'), connect(srv.port, 'name=Mizzle&goblin=2&wins=0')]);
         a.send({ enter: 1 }); b.send({ enter: 1 });
-        const g0 = a.state.gold != null ? a.state.gold : 100;
+        const g0 = a.state.gold != null ? a.state.gold : 100, W = require('../world.js');
         await a.until(x => x.state.round && x.state.round.n === 2, 7000, 'round 2');
-        eq(a.state.open.length, 1, 'one door opened with no votes'); assert(['arena', 'loot'].includes(require('../world.js').DOORS[a.state.open[0]].kind), 'a dead round opens a plain door, never a hatch or a vault door');
+        // HOME PHASE: round 1 had no votes (nobody can leave home); round 2 opens at least one plain door of each home's cell, never a hatch or a vault door
+        for (const c of [a, b]) { const cell = L.cellOf(c.state.matchStart.spawn.home); assert(a.state.open.some(d => W.ROOM_DOORS[cell].includes(d) && W.DOORS[d].kind === 'arena'), 'cell ' + cell + ' of ' + c.state.matchStart.spawn.home + ' got an exit at round 2'); }
+        assert(a.state.open.length >= 1 && a.state.open.length <= 3 && a.state.open.every(d => ['arena', 'loot'].includes(W.DOORS[d].kind)), 'round 2 opens one exit per home cell (+ the PACE door): ' + JSON.stringify(a.state.open));
         await a.until(x => x.state.gold === g0 + 10, 1500, 'round income');
+        await a.until(x => x.state.round && x.state.round.n === 3, 7000, 'round 3');
+        eq(a.state.open.length, 1, 'one door opened with no votes'); assert(['arena', 'loot'].includes(W.DOORS[a.state.open[0]].kind), 'a dead round opens a plain door, never a hatch or a vault door');
+        await a.until(x => x.state.gold === g0 + 20, 1500, 'round income again');
         for (const x of [a, b]) await x.close();
       }],
       ['a kill pays half of the victim\'s gold, and the toast message carries it', async () => {

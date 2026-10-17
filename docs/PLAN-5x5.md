@@ -9,9 +9,9 @@ Nothing here is implemented yet. Items marked **(owner?)** need the owner's call
   - the 4 inner corners are **tree rooms**: 10 types, rolled by weight per match
   - the 4 rooms touching the vault are **vaultbreaker rooms**: 4 fixed types that move between the 4 rooms every round
   - the outer ring has 16 plain halls
-- **Attached rooms:** 16 rooms, one per perimeter cell, in a pinwheel.
-  - 8 are **home rooms**: one per player, smaller (10x10), each with a normal workbench, a 50% recycler and an **elixir pump** (1 elixir every 5 s into a tank that caps at 48), plus an **Elixir Screen** for base upgrades, security and "sendables" aimed at other rooms (1.8). The doorway is never voted on and stays open unless the owner buys a Door Lock.
-  - The other 8 are loot rooms. They are guaranteed to include **1 Master Forge** (the upgraded bench) and **1 Grand Recycler** (100%). The other 6 are rolled from chest, mystery and merchant.
+- **Attached rooms (owner decision, final):** 20 rooms, one behind each outward wall segment: 5 per side, numbered 1..5 along the side. A corner cell has two outward sides, so it has two attached rooms.
+  - 8 are **home rooms**, at positions 2 and 4 of every side: one per player, smaller (10x10), each with a normal workbench, a 50% recycler and an **elixir pump** (1 elixir every 5 s into a tank that caps at 48), plus an **Elixir Screen** for base upgrades, security and "sendables" aimed at other rooms (1.8). The doorway is never voted on and stays open unless the owner buys a Door Lock.
+  - The other 12 (positions 1, 3, 5) are loot rooms. They are guaranteed to include **1 Master Forge** (the upgraded bench) and **1 Grand Recycler** (100%), on opposite sides. The other 10 are rolled from chest, mystery and merchant.
 - **Rounds** last 2 minutes (`ROUND_MS = 120000`). Sudden death starts after round 5 and the match is decided after round 7, so a match takes at most 14 minutes.
 - **Dev fast-forward:** a debug-only button sets the round timer to 10 s. The server honours it only with `GK_DEBUG`.
 - **Doors:** the voting core stays: one pick per room, panels, panel politics, and the 2-vote vault rule. The vaultbreakers are four ways to get the second vote, and the Ram bypasses the vote for one door. The exit guarantee in doorguard ignores home doorways.
@@ -44,18 +44,19 @@ The distance from a home to the vault is about 45-60 m of path, which is 6-8 s s
 
 ### 1.2 Indexing (backwards-friendly)
 - **Arena room key:** `String(col + 5*row)`, `'0'..'24'`. `VAULT = 12`, `VAULT_KEY = '12'`. The helpers `colOf`, `rowOf`, `rc`, `roomW`, `roomD`, `roomAt` and `gi` keep their names, generalised to N=5. `gi` becomes a lookup over the column edges.
-- **Attached room key:** `'c0'..'c15'`, keeping the `'c'` prefix. Every existing `key[0] === 'c'` check (claims, mystery, merchant, `m.layout[id]`, the mystery props) keeps working. A home is just an attached room whose `m.layout[id] === 'home'`.
-- **Attached order** is clockwise from the NW corner. Each side has 4 rooms: [corner **home**, loot, middle **home**, loot]. **Even ids are homes and odd ids are loot**:
+- **Attached room key:** `'c0'..'c19'`, keeping the `'c'` prefix. Every existing `key[0] === 'c'` check (claims, mystery, merchant, `m.layout[id]`, the mystery props) keeps working. A home is just an attached room whose `m.layout[id] === 'home'`.
+- **Attached order (owner decision, 20 rooms; docs/reports/attached-20.md):** one attached room behind each of the 20 outward wall segments, 5 per side. Side `s` (N 0, E 1, S 2, W 3) holds ids `5s .. 5s+4` = **positions 1..5**, numbered clockwise along the side (N west to east, E north to south, S east to west, W south to north). **Positions 2 and 4 are homes, positions 1, 3 and 5 are loot rooms**:
 
-| side (attach dir) | cells (col,row) -> ids |
+| side (attach dir) | cells -> ids (position 1..5) |
 |---|---|
-| N | (0,0) c0 home, (1,0) c1, (2,0) c2 home, (3,0) c3 |
-| E | (4,0) c4 home, (4,1) c5, (4,2) c6 home, (4,3) c7 |
-| S | (4,4) c8 home, (3,4) c9, (2,4) c10 home, (1,4) c11 |
-| W | (0,4) c12 home, (0,3) c13, (0,2) c14 home, (0,1) c15 |
+| N | 0 c0, 1 **c1 home**, 2 c2, 3 **c3 home**, 4 c4 |
+| E | 4 c5, 9 **c6 home**, 14 c7, 19 **c8 home**, 24 c9 |
+| S | 24 c10, 23 **c11 home**, 22 c12, 21 **c13 home**, 20 c14 |
+| W | 20 c15, 15 **c16 home**, 10 c17, 5 **c18 home**, 0 c19 |
 
-- **Corner attachment:** the corners attach in a **pinwheel** (NW goes N, NE goes E, SE goes S, SW goes W). This gives a 90-degree rotational symmetry, so all 8 spawns are fair under rotation. Homes are evenly spaced, 2 perimeter cells apart. Attached rooms never touch each other: the gaps are at least 5 m.
-- **Owner discrepancy:** the owner said "25 attached rooms". The perimeter has 16 cells, so this plan uses **16** **(owner?)**. Going to 25 would mean several attached rooms per cell, for example 2 per corner and 1 per edge cell plus extras. It would break the one-door-per-wall panel model and add 9 dead-end rooms with little play value.
+- `HOME_IDS` = [1, 3, 6, 8, 11, 13, 16, 18], `LOOT_IDS` = the other 12. World API: `attachedSide(id)`, `attachedPos(id)`, `attachedId(side, pos)`, `attachedOf(cell)` (0, 1 or 2 rooms), `isHomeKey(key)`, `SIDE_CELLS`, `SIDE_ORDER`, `HOME_POS`; `homeOf(slot)` = `'c' + HOME_IDS[slot]`.
+- **Corners:** a corner cell has two attached rooms (positions 1 and 5 of two sides), both loot rooms. They sit centred on the two outer wall segments, so they never touch: across the diagonal the gap is 3.5 m, and the diagonal square beyond the corner is void (`roomKeyOf` gives `'c-1'`).
+- **Symmetry:** rotating the map by 90 degrees maps side `s` position `p` onto side `s+1` position `p` (id + 5), and positions 2 and 4 mirror each other, so all 8 homes are equivalent. Neighbours along a side never overlap: every attached room (8 or 10 m) is centred on a 15 or 22.5 m segment.
 
 ### 1.3 Special arena cells
 | cells | role |
@@ -63,43 +64,39 @@ The distance from a home to the vault is about 45-60 m of path, which is 6-8 s s
 | 12 | THE VAULT |
 | 7 (N), 11 (W), 13 (E), 17 (S) | **vaultbreaker rooms** (the 4 rooms with a vault door) |
 | 6, 8, 16, 18 | **tree rooms** (the inner 3x3 corners) |
-| outer ring, 16 cells | plain halls with story corners and crates, as today. 8 of them lead to a home and 8 to a loot room. |
+| outer ring, 16 cells | plain halls with story corners and crates, as today. 8 of them lead to a home (cells 1, 3, 9, 19, 23, 21, 15, 5), the 4 corners to two loot rooms each, the 4 middle cells (2, 14, 22, 10) to one loot room. |
 
-Fairness check:
-- **Corner homes** (via cells 0, 4, 20, 24) are 3 arena doors from a vaultbreaker room, but their cell has only 2 arena neighbours, so they are safer.
-- **Middle homes** (via cells 2, 14, 22, 10) are 1 door from a vaultbreaker room, but their cell has 3 neighbours, so they are exposed.
-- Every home is exactly 2 arena doors from a tree room.
-
-This is a deliberate trade, and the 3x3 has it today (edge rooms touch the vault, corners do not).
+Fairness check: every home's cell is an edge cell next to a corner, with 3 arena neighbours; it is 1 door from a tree room and 2 doors from a vaultbreaker room. All 8 homes are the same under the rotation and mirror symmetry.
 
 ### 1.4 Doors (one shared table: `WORLD.DOORS`)
-- **Count:** 40 arena-arena doors (4 of them vault doors) + 16 attached doors (8 hatches + 8 loot doors) = **56 doors**.
+- **Count:** 40 arena-arena doors (4 of them vault doors) + 20 attached doors (8 hatches + 12 loot doors) = **60 doors**.
 - **Canonical id order** (the only order; server and client both derive from it). For `i = 0..24`:
   - the E door (if `col < 4`)
   - the S door (if `row < 4`)
-  - the cell's attached door, if it has one
+  - the cell's attached door(s), in N E S W order (a corner has two)
 - Each entry is `{ id, a, b, kind: 'arena'|'vault'|'loot'|'hatch', axis, c, hw, wall: {x, z, rot, len} }`.
   - `hw` is 4.9/2 + 0.2 for vault doors and 2 + 0.2 otherwise (the same as today's `addDoor`).
 - `WORLD.WALLS` lists every wall segment, with or without a door: `{x, z, rot, len, door: id|null}`. That covers:
   - the 40 internal walls
-  - the 20 outer segments: 16 with an attached door, plus the 4 bare corner walls on the non-attached side
+  - the 20 outer segments, all with an attached door (no bare outer wall is left)
   - each attached room's 3 own walls
 - **Hatch** (the home doorway): an **open archway with no leaf**. It carries the owner's name banner (cloth, painted per match from the player name) and is always passable: for its owner always, and for everyone else unless the owner bought a Door Lock (1.8). It is the cheapest door to draw.
   - Every rule treats it as open through `WORLD.alwaysOpen(id)`.
   - It never appears on a panel and never counts for the door guard.
+- **Loot door:** a loot room has exactly one door, which is its exit for the door guard. For the arena cell outside it is **no** exit (the loot room is a dead end): a corner cell with only its two loot doors open counts as locked in, and the guard opens one of its arena doors.
 
-### 1.5 The 16 attached rooms
-- **Homes (even ids):** 10x10, with the doorway on the arena side. Contents along the back wall:
+### 1.5 The 20 attached rooms
+- **Homes (positions 2 and 4):** 10x10, with the doorway on the arena side. Contents along the back wall:
   - a **normal workbench**
   - a **home recycler (50%)**
   - a **wall map** (shared texture, see 4.4)
   - a small bed and crate dressing
-- **Loot rooms (odd ids, rolled per match):**
+- **Loot rooms (positions 1, 3, 5; rolled per match):**
   - **1 Master Forge**: upgraded bench, 8x8
   - **1 Grand Recycler**: 100%, 8x8
-  - **6 rolled** with weights chest 45, mystery 35, merchant 20, guaranteeing at least 1 merchant (if the roll has none, convert one random chest).
-  - **Constraint:** the Forge and the Grand Recycler sit on **opposite sides** (side k and side k+2), at a random slot. Neither type wins a whole half of the map.
-- **Edge rule:** today's rule ("edge rooms can never be merchant") disappears, because every attached room is the only attachment of its cell.
+  - **10 rolled** with weights chest 45, mystery 35, merchant 20, guaranteeing at least 1 merchant (if the roll has none, convert one random chest).
+  - **Constraint:** the Forge and the Grand Recycler sit on **opposite sides** (side k and side k+2), each at a random loot position (1, 3 or 5). Neither type wins a whole half of the map.
+- **Edge rule:** today's rule ("edge rooms can never be merchant") stays gone: every loot room has its own door.
 
 ### 1.6 Workbench and recycler types (parameters, not code paths)
 `items.js` gets:
@@ -339,8 +336,8 @@ Max match length is 7 x 2 min = 14 min, inside `MATCH_LIFE_MS` = 20 min.
 
 ## 4. Client
 
-### 4.1 Building 41 rooms
-**Shells at load** (floor, ceiling, walls, AO planes, ceiling panels) for all 25 arena rooms + 16 attached rooms, from `WORLD.WALLS` and room rects. There is no per-room loop over `9` any more.
+### 4.1 Building 45 rooms
+**Shells at load** (floor, ceiling, walls, AO planes, ceiling panels) for all 25 arena rooms + 20 attached rooms, from `WORLD.WALLS` and room rects. There is no per-room loop over `9` any more.
 
 **Doors:** 56. Hatches have no leaf, so they cost about 12 draw calls. `perf2MergeDoors` keeps merging per material.
 
@@ -383,7 +380,7 @@ They reuse `GK.stations` (recycler, workbench), `bx`, `inst` and the materials.
 
 - Today's vault view is about 220 on Low and 450 on High, so this is achievable because culling keeps at most about 7-10 rooms visible.
 - **Dust motes, light shafts and contact-shadow blobs:** only for rooms with a pooled light, or all built but culled with the room.
-- **Control panels:** 25 canvas textures, one per arena room, plus 8 loot rooms. They redraw only when dirty **and** visible (in the cull set), and the panel canvas drops to 256x192.
+- **Control panels:** 25 canvas textures, one per arena room, plus 12 loot rooms. They redraw only when dirty **and** visible (in the cull set), and the panel canvas drops to 256x192.
 
 ### 4.4 Minimap, M map, wall maps, overview
 - **Minimap:** drive it from `WORLD` tables (`ROOMS`, `DOORS`, `ATTACHED`) and remove the hard-coded `CI` (parent*4 + side), `NR = 9 + 12` and `disc = 12` tables. Keep the fog of war.
@@ -418,7 +415,7 @@ It keeps working:
 - `VAULT` = the doors of `WORLD.VAULT_KEY`.
 - Every `'4'` literal becomes `VK` (11 in server.js, 1 in doorguard.js, 4 in game.js, 2 in feel.js).
 - **Open-door check:** `isOpen(m, d) = WORLD.alwaysOpen(d) || m.open.includes(d)`. It is used by `pathOk`, `bfsPath`, `reach`, `follow`, `doorClamp` and the guard. Sudden death and showdown keep `m.open = all ids`.
-- **`inBounds`:** inside the grid, or inside one of the 16 attached rects (`WORLD.attachedAt(x, z)`).
+- **`inBounds`:** inside the grid, or inside one of the 20 attached rects (`WORLD.attachedAt(x, z)`).
 
 ### 5.2 Spawns, rounds, votes
 - **Spawn:** each goblin gets a distinct **home** (`p.home = 'c' + id`, id even), with a random point inside the home's 10x10 (3 m margin), facing the doorway. `fillBots` uses the free homes. `box` becomes `p.room` (the client shows "Home of <name>").
@@ -432,6 +429,7 @@ It keeps working:
   - `trapped(room, isOpenFn, roomDoors, vaultDoors, skip)` skips **homes** (their doorway is always open, and the trap check moves to the arena cell outside) and the vault.
   - `isExit` excludes hatches. So a hall whose only open way is the hatch back home counts as trapped and gets an arena door after `TRAP_MS`. A goblin can never be stuck in home + cell for 2 minutes.
   - **Round 1:** everyone steps from home into their cell. 5 s later the guard opens one arena door per occupied cell. Round 1 is never dead.
+  - **Superseded by the home phase (docs/reports/home-phase.md):** round 1 is spent at home with every hatch shut and the guard exempt; round 2 opens the hatches and one exit per occupied home's cell at once.
 - **Dev fast-forward:** `{dbgFF:1}` is honoured only if `DBG && m.phase === 'play' && m.started && !m.ended`. It sets `m.endsAt = Math.min(m.endsAt, now + 10000)` and calls `broadcastRound(m)`. Otherwise it is ignored silently (and counted by the security fuzz).
 - **New match state:**
   - `m.layout` (16)
@@ -484,17 +482,17 @@ It keeps working:
 ## 6. world.js v2 API (exact surface)
 Kept (same names, generalised): `SCALE W V H T CS COLW ROWD COLX ROWZ HALF LIM VAULT colOf rowOf roomW roomD rc gi roomAt inGrid roomKeyOf panelOffsets panelDX randomPoint` and all of `SOLID` (`solidsOf storyOf slide inProp segBlocked allProps propsAt rectsAt PILLARS PILLAR_D RELIC obstaclesIn`).
 
-- `CHEST` keeps its shape `{id, parent, side, dx, dz, cx, cz, wallX, wallZ}` and adds `size` (8 or 10) and `home: bool`. 16 entries.
+- `CHEST` keeps its shape `{id, parent, side, dx, dz, cx, cz, wallX, wallZ}` and adds `size` (8 or 10), `home: bool` and `pos` (1..5 along its side). 20 entries.
 - `chestKey(i, side)` stays.
 
 New:
-- `N`, `NARENA` (25), `NATT` (16), `HS`, `VAULT_KEY`, `HOME_IDS` [0, 2, ..., 14], `LOOT_IDS` [1, 3, ..., 15], `TREE_CELLS` [6, 8, 16, 18], `VB_CELLS` {N: 7, W: 11, E: 13, S: 17}
-- `ROOMS`: `[{key, kind: 'arena'|'vault'|'tree'|'vb'|'home'|'loot', cx, cz, hw, hd}]`, 41 entries
+- `N`, `NARENA` (25), `NATT` (20), `HS`, `VAULT_KEY`, `HOME_IDS` [1, 3, 6, 8, 11, 13, 16, 18], `LOOT_IDS` (the other 12), `attachedSide attachedPos attachedId attachedOf isHomeKey SIDE_CELLS SIDE_ORDER HOME_POS`, `TREE_CELLS` [6, 8, 16, 18], `VB_CELLS` {N: 7, W: 11, E: 13, S: 17}
+- `ROOMS`: `[{key, kind: 'arena'|'vault'|'tree'|'vb'|'home'|'loot', cx, cz, hw, hd}]`, 45 entries
 - `roomRect(key)`
 - `DOORS`, `WALLS`, `ROOM_DOORS` (key -> ids, sorted N E S W)
 - `alwaysOpen(id)`
 - `attachedAt(x, z)`: the id or -1
-- `homeOf(slot)`: `'c' + 2*slot`
+- `homeOf(slot)`: `'c' + HOME_IDS[slot]`
 
 Rules for these helpers:
 - `randomPoint(key | i)` accepts a room key, so homes work.
@@ -510,7 +508,7 @@ Rules for these helpers:
 ## 7. Migration plan per consumer
 | consumer | change |
 |---|---|
-| **server.js** | tables from WORLD (5.1); `'4'` to `VK`; `spawn`/`fillBots` to homes; `inBounds` via `attachedAt`; `RB` from `ROOMS`; `isOpen`; `newMatch` layout 16; `chests`/`chestKeys` length `NATT`; `RELIC_POS` from `WORLD.RELIC`; `claim` ignores homes |
+| **server.js** | tables from WORLD (5.1); `'4'` to `VK`; `spawn`/`fillBots` to homes; `inBounds` via `attachedAt`; `RB` from `ROOMS`; `isOpen`; `newMatch` layout 20 (was 16); `chests`/`chestKeys` length `NATT`; `RELIC_POS` from `WORLD.RELIC`; `claim` ignores homes |
 | **doorguard.js** | parametrised vault key, a skip set, a hatch-aware exit (5.2) |
 | **botnav.js** | no change (pure steering) |
 | **items.js** | `randomLayout()` returns 16 with homes fixed and Forge/Grand placed (1.5); `STATIONS`; `canCraft` / `addKnowledge` adapters; `TREES` weight table + `rollTrees()`; `VB_TYPES` + `derange()` |
@@ -559,7 +557,7 @@ Rules for these helpers:
 ## 9. Test plan
 | file | checks |
 |---|---|
-| `world.test.js` (rewrite) | 25 + 16 rooms; no overlaps; `roomKeyOf` round-trips every room centre and 2000 random points; 56 doors; each door's `a`/`b` are adjacent; ids in canonical order; hatch count 8; pinwheel symmetry (rotating the layout by 90 degrees maps homes to homes); spawn points clear of props; `panelDX` clear of doors |
+| `world.test.js` (rewrite) | 25 + 20 rooms; no overlaps; `roomKeyOf` round-trips every room centre and 2000 random points; 60 doors; each door's `a`/`b` are adjacent; ids in canonical order; hatch count 8; pinwheel symmetry (rotating the layout by 90 degrees maps homes to homes); spawn points clear of props; `panelDX` clear of doors |
 | `doorguard.test.js` | the random-vote sim on the 5x5 (no occupied non-vault, non-home room locked after the grace); hatch never counts as an exit; a home is never "trapped" |
 | `rounds5.test.js` (new) | every round is `ROUND_MS`; `dbgFF` sets ≤ 10 s left under `GK_DEBUG` and is **ignored** without it (spawn a non-debug server); sudden death after round 5; decision after round 7 |
 | `vault5.test.js` (new) | treasury paid only inside; relic restock; crown alarm opens the 4 vault doors and closes them after the claim breaks; venting damage outside the vault only in sudden death |
@@ -576,7 +574,7 @@ Rules for these helpers:
 ## 10. Risks
 1. **F0 is big and touches everything.** Mitigation: it is mechanical and adds no features; one agent; the other tasks start only after it merges; the WORLD tables become the single source, which also removes today's three hand-synced door orders (server `addDoor`, game.js `wall()` order, `DINFO`).
 2. **Light pool pops or wrong lighting** in unlit visible rooms. Mitigation: brighter emissive panels on unlit rooms (+15%), fades, and the vault always lit within 2 hops; check by eye on Low and High.
-3. **Load time and memory** with 41 rooms and 56 doors. Mitigation: lazy ROOMART, cheap hatches, one shared wall-map texture, small panel canvases; measure on Low.
+3. **Load time and memory** with 45 rooms and 60 doors. Mitigation: lazy ROOMART, cheap hatches, one shared wall-map texture, small panel canvases; measure on Low.
 4. **An empty, slow map** (8 goblins, 25 rooms, 2-minute rounds). Mitigation: the round-1 guard opening, treasury pull, tree rooms on every home's 2-door path, the levers in 5.4, and QA metrics.
 5. **Vaultbreaker shuffle confuses players.** Mitigation: never mid-round, a 15 s preview, one banner line, signs on the doors leading in.
 6. **KNOWLEDGE.md is not merged.** Mitigation: all knowledge goes through 3 adapters (`canCraft`, `addKnowledge`, `perk*`) with today's behaviour as the default; E rewires them when it lands.

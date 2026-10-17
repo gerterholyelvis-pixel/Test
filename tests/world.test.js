@@ -1,15 +1,15 @@
-// Pure geometry checks on world.js v2 (5x5 arena + 16 attached rooms, no server). See docs/PLAN-5x5.md sections 1, 6 and 9.
+// Pure geometry checks on world.js v2 (5x5 arena + 20 attached rooms, no server). See docs/PLAN-5x5.md sections 1, 6 and 9.
 const W = require('../world.js'), { run, assert, eq } = require('./lib.js');
 const STEP = { NORTH: [0, -1], EAST: [1, 0], SOUTH: [0, 1], WEST: [-1, 0] };
 const rects = () => W.ROOMS.map(r => ({ key: r.key, x0: r.cx - r.hw, x1: r.cx + r.hw, z0: r.cz - r.hd, z1: r.cz + r.hd }));
-const propTypes = id => W.CHEST[id].home ? 'home' : id % 4 === 1 ? 'mystery' : id % 4 === 3 ? 'forge' : 'grand';   // a mix of loot room types for the prop checks
+const propTypes = id => W.CHEST[id].home ? 'home' : id % 3 === 0 ? 'mystery' : id % 3 === 1 ? 'forge' : 'grand';   // a mix of loot room types for the prop checks
 run('world', [
-  ['25 arena rooms + 16 attached rooms (8 homes, 8 loot rooms), kinds: 1 vault, 4 tree rooms, 4 vaultbreaker rooms', () => {
-    eq(W.ROOMS.length, 41); eq(W.NARENA, 25); eq(W.NATT, 16); eq(W.CHEST.length, 16); eq(W.N, 5);
-    eq(W.ROOMS.filter(r => r.key[0] !== 'c').length, 25); eq(W.ROOMS.filter(r => r.kind === 'home').length, 8); eq(W.ROOMS.filter(r => r.kind === 'loot').length, 8);
+  ['25 arena rooms + 20 attached rooms (8 homes, 12 loot rooms), kinds: 1 vault, 4 tree rooms, 4 vaultbreaker rooms', () => {
+    eq(W.ROOMS.length, 45); eq(W.NARENA, 25); eq(W.NATT, 20); eq(W.CHEST.length, 20); eq(W.N, 5);
+    eq(W.ROOMS.filter(r => r.key[0] !== 'c').length, 25); eq(W.ROOMS.filter(r => r.kind === 'home').length, 8); eq(W.ROOMS.filter(r => r.kind === 'loot').length, 12);
     eq(W.ROOMS.filter(r => r.kind === 'vault').map(r => r.key), ['12']); eq(W.VAULT, 12); eq(W.VAULT_KEY, '12'); eq(W.rc(12), [0, 0]);
     eq(W.ROOMS.filter(r => r.kind === 'tree').map(r => r.i), [6, 8, 16, 18]); eq(W.ROOMS.filter(r => r.kind === 'vb').map(r => r.i), [7, 11, 13, 17]);
-    eq(new Set(W.ROOMS.map(r => r.key)).size, 41, 'duplicate room keys');
+    eq(new Set(W.ROOMS.map(r => r.key)).size, 45, 'duplicate room keys');
   }],
   ['no two rooms overlap (they may touch)', () => {
     const R = rects();
@@ -24,7 +24,7 @@ run('world', [
     for (const r of W.ROOMS) eq(W.roomKeyOf(r.cx, r.cz), r.key, 'centre of ' + r.key);
     for (let i = 0; i < 25; i++) { const [x, z] = W.rc(i); eq(W.roomAt(x, z), i); }
   }],
-  ['randomPoint stays inside its own room and round-trips through roomKeyOf (2000 samples per room, all 41 rooms)', () => {
+  ['randomPoint stays inside its own room and round-trips through roomKeyOf (2000 samples per room, all 45 rooms)', () => {
     for (const r of W.ROOMS) for (let k = 0; k < 2000; k++) {
       const [x, z] = W.randomPoint(r.key); if (W.roomKeyOf(x, z) !== r.key) throw new Error('room ' + r.key + ' got ' + x + ',' + z);
       assert(Math.abs(x - r.cx) <= r.hw - 3 + 1e-9 && Math.abs(z - r.cz) <= r.hd - 3 + 1e-9, 'randomPoint breaks the 3 m margin in ' + r.key);
@@ -41,34 +41,49 @@ run('world', [
     for (const r of W.ROOMS) if (r.kind === 'home') eq([2 * r.hw, 2 * r.hd], [10, 10], r.key); else if (r.kind === 'loot') eq([2 * r.hw, 2 * r.hd], [8, 8], r.key);
     eq([W.HALF, W.LIM], [41.25, 51.25]); eq(W.rc(0), [-33.75, -33.75]);
   }],
-  ['attached rooms: ids c0..c15 clockwise from the NW corner, even = home, odd = loot, each behind its own perimeter cell\'s outer wall', () => {
+  ['attached rooms: ids c0..c19, 5 per side (N E S W), positions 1..5 clockwise along the side; homes at positions 2 and 4, loot at 1, 3, 5; each behind its own outer wall segment', () => {
     W.CHEST.forEach((c, i) => {
-      eq(c.id, i); eq(c.home, i % 2 === 0, 'home flag of ' + i); eq(c.size, i % 2 === 0 ? 10 : 8); assert(!W.inGrid(c.cx, c.cz), 'attached room ' + i + ' inside the grid');
+      const pos = i % 5 + 1, home = pos === 2 || pos === 4;
+      eq(c.id, i); eq(c.side, 'NESW'[Math.floor(i / 5)], 'side of ' + i); eq(c.pos, pos, 'position of ' + i); eq(c.home, home, 'home flag of ' + i); eq(c.size, home ? 10 : 8);
+      eq(W.attachedSide(i), c.side); eq(W.attachedSide('c' + i), c.side); eq(W.attachedPos(i), pos); eq(W.attachedPos('c' + i), pos); eq(W.attachedId(c.side, pos), i);
+      assert(!W.inGrid(c.cx, c.cz), 'attached room ' + i + ' inside the grid');
       assert(Math.abs(c.cx - c.wallX) + Math.abs(c.cz - c.wallZ) === c.size / 2, 'attached room ' + i + ' not adjacent to its wall');
       assert(Math.abs(c.wallX) === W.HALF || Math.abs(c.wallZ) === W.HALF, 'attached room ' + i + ' wall is not an outer wall');
       assert(Math.abs(c.cx) <= W.LIM && Math.abs(c.cz) <= W.LIM, 'attached room ' + i + ' beyond LIM');
       const col = W.colOf(c.parent), row = W.rowOf(c.parent); assert(col === 0 || col === 4 || row === 0 || row === 4, 'parent ' + c.parent + ' is not a perimeter cell');
-      eq(W.chestKey(c.parent, c.side), 'c' + i); eq(W.attachedAt(c.cx, c.cz), i);
+      eq(c.parent, W.SIDE_CELLS[c.side][pos - 1]); assert(W.attachedOf(c.parent).includes(c), 'attachedOf ' + c.parent);
+      eq(W.chestKey(c.parent, c.side), 'c' + i); eq(W.attachedAt(c.cx, c.cz), i); eq(W.isHomeKey('c' + i), home);
+      // centred on its cell's outer wall segment and narrower than it, so neighbours along a side never overlap
+      if (c.dz) { eq(c.cx, W.rc(c.parent)[0]); assert(c.size < W.roomW(c.parent), 'wider than its segment'); } else { eq(c.cz, W.rc(c.parent)[1]); assert(c.size < W.roomD(c.parent), 'deeper than its segment'); }
     });
-    for (let s = 0; s < 8; s++) eq(W.homeOf(s), 'c' + 2 * s); eq(W.HOME_IDS, [0, 2, 4, 6, 8, 10, 12, 14]); eq(W.LOOT_IDS, [1, 3, 5, 7, 9, 11, 13, 15]);
-    // every perimeter cell has exactly one attached room, no inner cell has any
-    for (let i = 0; i < 25; i++) { const perim = [0, 4].includes(W.colOf(i)) || [0, 4].includes(W.rowOf(i)); eq(W.CHEST.filter(c => c.parent === i).length, perim ? 1 : 0, 'attached rooms of cell ' + i); }
-    // clockwise from the NW corner: the first four sit north, then east, south, west
-    eq(W.CHEST.map(c => c.side).join(''), 'NNNNEEEESSSSWWWW');
+    eq(W.HOME_IDS, [1, 3, 6, 8, 11, 13, 16, 18]); eq(W.LOOT_IDS, [0, 2, 4, 5, 7, 9, 10, 12, 14, 15, 17, 19]);
+    for (let s = 0; s < 8; s++) eq(W.homeOf(s), 'c' + W.HOME_IDS[s]);
+    // corner cells have two attached rooms (one per outward side, both loot rooms), the other perimeter cells one, inner cells none
+    for (let i = 0; i < 25; i++) {
+      const c = W.colOf(i), r = W.rowOf(i), n = (r === 0) + (r === 4) + (c === 0) + (c === 4);
+      eq(W.CHEST.filter(a => a.parent === i).length, n, 'attached rooms of cell ' + i); eq(W.attachedOf(i).length, n);
+      if (n === 2) for (const a of W.attachedOf(i)) assert(!a.home && (a.pos === 1 || a.pos === 5), 'corner room ' + a.id + ' must be a loot room at position 1 or 5');
+    }
+    eq(W.CHEST.map(c => c.side).join(''), 'NNNNNEEEEESSSSSWWWWW');
+    for (const id of W.HOME_IDS) assert([2, 4].includes(W.attachedPos(id)), 'home position');
+    // the two rooms of a corner do not touch: the gap across the diagonal is at least 3 m
+    for (const i of [0, 4, 20, 24]) { const [p, q] = W.attachedOf(i); assert(Math.abs(p.cx - q.cx) - (p.size + q.size) / 2 >= 3 || Math.abs(p.cz - q.cz) - (p.size + q.size) / 2 >= 3, 'corner rooms of ' + i + ' too close'); }
+    // the diagonal square beyond a corner is void
+    for (const [x, z] of [[-46, -46], [46, -46], [46, 46], [-46, 46]]) eq(W.roomKeyOf(x, z), 'c-1');
   }],
-  ['56 doors in canonical order: for i = 0..24 its E door, its S door, then its attached door; ids are 0..55', () => {
-    eq(W.DOORS.length, 56); W.DOORS.forEach((d, i) => eq(d.id, i, 'door id'));
+  ['60 doors in canonical order: for i = 0..24 its E door, its S door, then its attached door(s) (N E S W); ids are 0..59', () => {
+    eq(W.DOORS.length, 60); W.DOORS.forEach((d, i) => eq(d.id, i, 'door id'));
     const want = [];
     for (let i = 0; i < 25; i++) {
       if (W.colOf(i) < 4) want.push([String(i), String(i + 1)]);
       if (W.rowOf(i) < 4) want.push([String(i), String(i + 5)]);
-      const a = W.CHEST.find(c => c.parent === i); if (a) want.push([String(i), 'c' + a.id]);
+      for (const side of 'NESW') { const a = W.CHEST.find(c => c.parent === i && c.side === side); if (a) want.push([String(i), 'c' + a.id]); }
     }
-    eq(want.length, 56); eq(W.DOORS.map(d => [d.a, d.b]), want);
+    eq(want.length, 60); eq(W.DOORS.map(d => [d.a, d.b]), want);
   }],
-  ['door kinds: 40 grid doors (36 plain + 4 vault), 8 hatches (homes), 8 loot doors; the vault has exactly 4 doors', () => {
+  ['door kinds: 40 grid doors (36 plain + 4 vault), 8 hatches (homes), 12 loot doors; the vault has exactly 4 doors', () => {
     const by = k => W.DOORS.filter(d => d.kind === k);
-    eq(by('vault').length, 4); eq(by('arena').length, 36); eq(by('hatch').length, 8); eq(by('loot').length, 8);
+    eq(by('vault').length, 4); eq(by('arena').length, 36); eq(by('hatch').length, 8); eq(by('loot').length, 12);
     eq(W.ROOM_DOORS['12'].length, 4); for (const id of W.ROOM_DOORS['12']) eq(W.DOORS[id].kind, 'vault');
     eq(W.HATCHES.length, 8); eq(W.HATCHES, by('hatch').map(d => d.id));
     for (const d of W.DOORS) {
@@ -92,7 +107,7 @@ run('world', [
       assert(Math.abs(d.c - (d.axis === 'x' ? ra.cx : ra.cz)) < 1e-9 || Math.abs(d.c - (d.axis === 'x' ? rb.cx : rb.cz)) < 1e-9, 'door ' + d.id + ' is not centred on a room');
     }
   }],
-  ['pinwheel symmetry: rotating the world 90 degrees about the origin maps homes to homes, loot rooms to loot rooms, arena kinds to the same kinds', () => {
+  ['rotational symmetry: rotating the world 90 degrees about the origin maps homes to homes, loot rooms to loot rooms, arena kinds to the same kinds', () => {
     for (const rot of [([x, z]) => [-z, x], ([x, z]) => [z, -x]]) {
       let okAll = true; const errs = [];
       for (const r of W.ROOMS) {
@@ -102,9 +117,9 @@ run('world', [
       if (rot([1, 0])[0] === 0 && rot([1, 0])[1] === 1) assert(okAll, 'rotation by +90 is not a symmetry: ' + errs.join(' '));   // (x, z) -> (-z, x)
       if (rot([1, 0])[1] === -1) assert(okAll, 'rotation by -90 is not a symmetry: ' + errs.join(' '));
     }
-    // the homes of consecutive sides are exactly 4 ids apart: rotating one side's home ids gives the next side's
+    // consecutive sides are exactly 5 ids apart: rotating side s position p gives side s+1 position p
     const rot = ([x, z]) => [-z, x];
-    for (const c of W.CHEST) { const [x, z] = rot([c.cx, c.cz]), k = W.roomKeyOf(x, z); eq(k, 'c' + (c.id + 4) % 16, 'rotating c' + c.id); }
+    for (const c of W.CHEST) { const [x, z] = rot([c.cx, c.cz]), k = W.roomKeyOf(x, z); eq(k, 'c' + (c.id + 5) % 20, 'rotating c' + c.id); }
     // doors map to doors (same kind)
     for (const d of W.DOORS) { const [x, z] = rot([d.wall.x, d.wall.z]), found = W.DOORS.find(e => Math.abs(e.wall.x - x) < 1e-9 && Math.abs(e.wall.z - z) < 1e-9); assert(found && found.kind === d.kind, 'door ' + d.id + ' has no rotated twin'); }
   }],

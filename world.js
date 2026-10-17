@@ -1,7 +1,8 @@
 // Shared world geometry: ONE source of truth for the client (window.GKWORLD) and the server (require('./world.js')).
 // world.js v2 (docs/PLAN-5x5.md section 6): a 5x5 grid with column widths COLW = [W, W, V, W, W] and row depths ROWD = COLW, so the middle room (room 12) is THE VAULT (V x V),
 // the rooms of the vault row / column are V x W (or W x V), every other room is W x W. Arena rooms are numbered 0..24 (index = col + 5 * row).
-// 16 attached rooms ('c0'..'c15') sit behind the 16 perimeter cells in a pinwheel, clockwise from the NW corner: even ids are 10x10 HOMES, odd ids are 8x8 loot rooms.
+// 20 attached rooms ('c0'..'c19') sit behind the 20 outward wall segments (5 per side; a corner cell has two, one on each outward side). Side s (N 0, E 1, S 2, W 3) holds ids 5s..5s+4 = positions 1..5,
+// numbered clockwise along the side (N west to east, E north to south, S east to west, W south to north). Positions 2 and 4 are 10x10 HOMES (8), positions 1, 3, 5 are 8x8 loot rooms (12).
 // Every door of the world is in WORLD.DOORS (one canonical id order, server and client both derive from it). WORLD.WALLS lists every wall segment.
 (function (root) {
   const SCALE = 1.25;      // room scale vs the original 12 / 18 m layout (rooms grew 25% per side; doors, props and the loot rooms keep their size)
@@ -11,7 +12,7 @@
   const T = 0.6;           // wall thickness
   const CS = 8;            // loot room size (merchant, mystery and chest art is authored for 8 m)
   const HS = 10;           // home room size
-  const N = 5, NARENA = N * N, NATT = 16;
+  const N = 5, NARENA = N * N, NSIDE = N, NATT = 4 * NSIDE;   // 20 attached rooms, 5 per side
   const COLW = [W, W, V, W, W], ROWD = COLW;
   const HALF = V / 2 + 2 * W;                   // half extent of the room grid (41.25)
   const LIM = HALF + HS;                        // half extent including the attached rooms (51.25)
@@ -29,35 +30,47 @@
   const roomAt = (x, z) => gi(x) + N * gi(z);
   const inGrid = (x, z) => Math.abs(x) <= HALF && Math.abs(z) <= HALF;
   const kindOf = i => i === VAULT ? 'vault' : TREE_CELLS.includes(i) ? 'tree' : VB_LIST.includes(i) ? 'vb' : 'arena';
-  // ---- attached rooms (pinwheel: NW goes N, NE goes E, SE goes S, SW goes W; each side is [corner home, loot, middle home, loot])
+  // ---- attached rooms: 5 per side (positions 1..5 clockwise along the side), homes at positions 2 and 4, loot rooms at 1, 3, 5.
+  // Rotating the map by 90 degrees maps side s position p onto side s+1 position p, so the 8 homes are equivalent (each is 1 cell from a corner; positions 2 and 4 mirror each other).
   const SIDES = { N: [0, -1], E: [1, 0], S: [0, 1], W: [-1, 0] }, OPP = { N: 'S', S: 'N', E: 'W', W: 'E' }, DIRNAME = { N: 'NORTH', E: 'EAST', S: 'SOUTH', W: 'WEST' };
-  const ATT_CELLS = [[0, 'N'], [1, 'N'], [2, 'N'], [3, 'N'], [4, 'E'], [9, 'E'], [14, 'E'], [19, 'E'], [24, 'S'], [23, 'S'], [22, 'S'], [21, 'S'], [20, 'W'], [15, 'W'], [10, 'W'], [5, 'W']];
+  const SIDE_ORDER = ['N', 'E', 'S', 'W'];
+  const SIDE_CELLS = { N: [0, 1, 2, 3, 4], E: [4, 9, 14, 19, 24], S: [24, 23, 22, 21, 20], W: [20, 15, 10, 5, 0] };   // the arena cells of each side in position 1..5 order
+  const HOME_POS = [2, 4];
   const HOME_IDS = [], LOOT_IDS = [];
-  const CHEST = [];   // attached rooms in id order: { id, parent, side, dx, dz, cx, cz, wallX, wallZ, size, home }
-  const ATT = new Array(NARENA).fill(null);   // arena index -> its attached room entry (or null)
-  for (const [i, side] of ATT_CELLS) {
-    const id = CHEST.length, home = id % 2 === 0, size = home ? HS : CS, [dx, dz] = SIDES[side], [x0, z0] = rc(i), off = dx ? roomW(i) / 2 : roomD(i) / 2;
-    const c = { id, parent: i, side, dx, dz, cx: x0 + dx * (off + size / 2), cz: z0 + dz * (off + size / 2), wallX: x0 + dx * off, wallZ: z0 + dz * off, size, home };
-    CHEST.push(c); ATT[i] = c; (home ? HOME_IDS : LOOT_IDS).push(id);
-  }
+  const CHEST = [];   // attached rooms in id order: { id, parent, side, pos, dx, dz, cx, cz, wallX, wallZ, size, home }
+  const ATT = Array.from({ length: NARENA }, () => []);   // arena index -> its attached room entries (a corner has 2, in N E S W order)
+  for (const side of SIDE_ORDER) SIDE_CELLS[side].forEach((i, k) => {
+    const id = CHEST.length, pos = k + 1, home = HOME_POS.includes(pos), size = home ? HS : CS, [dx, dz] = SIDES[side], [x0, z0] = rc(i), off = dx ? roomW(i) / 2 : roomD(i) / 2;
+    const c = { id, parent: i, side, pos, dx, dz, cx: x0 + dx * (off + size / 2), cz: z0 + dz * (off + size / 2), wallX: x0 + dx * off, wallZ: z0 + dz * off, size, home };
+    CHEST.push(c); (home ? HOME_IDS : LOOT_IDS).push(id);
+  });
+  for (const side of SIDE_ORDER) for (const c of CHEST) if (c.side === side) ATT[c.parent].push(c);
+  const attIdx = id => typeof id === 'string' ? +id.replace(/^c/, '') : id;
+  const attachedSide = id => { const c = CHEST[attIdx(id)]; return c ? c.side : null; };   // 'N' | 'E' | 'S' | 'W' (id 0..19 or key 'c0'..'c19')
+  const attachedPos = id => { const c = CHEST[attIdx(id)]; return c ? c.pos : 0; };        // 1..5 along its side
+  const attachedId = (side, pos) => SIDE_ORDER.indexOf(side) * NSIDE + pos - 1;            // inverse of the two above
+  const attachedOf = i => ATT[+i] || [];                                                   // the attached rooms of arena cell i (0, 1 or 2)
+  const attOn = (i, side) => { for (const a of ATT[i]) if (a.side === side) return a; return null; };
+  const isHomeKey = k => typeof k === 'string' && k[0] === 'c' && !!CHEST[+k.slice(1)] && CHEST[+k.slice(1)].home;
   const chestKey = (i, side) => 'c' + CHEST.findIndex(c => c.parent === i && c.side === side);
-  const homeOf = slot => 'c' + 2 * slot;   // spawn slot 0..7 -> home room key
+  const homeOf = slot => 'c' + HOME_IDS[slot];   // spawn slot 0..7 -> home room key
   const attachedAt = (x, z, pad = 0) => { for (const c of CHEST) if (Math.abs(x - c.cx) <= c.size / 2 + pad && Math.abs(z - c.cz) <= c.size / 2 + pad) return c.id; return -1; };
-  // position -> room key ('0'..'24' arena rooms, 'c0'..'c15' attached rooms, 'c-1' for the void outside the grid that belongs to no attached room).
-  // Outside the grid the key follows the wall region (the strip beyond a perimeter cell's wall belongs to that cell's attached room), as in v1; inBounds() decides what is walkable.
+  // position -> room key ('0'..'24' arena rooms, 'c0'..'c19' attached rooms, 'c-1' for the void outside the grid that belongs to no attached room).
+  // Outside the grid the key follows the wall region (the strip beyond a perimeter cell's wall belongs to that cell's attached room on that side); the diagonal squares beyond a corner are void.
   const roomKeyOf = (x, z) => {
-    if (Math.abs(z) > HALF) { const a = ATT[gi(x) + (z < 0 ? 0 : N * (N - 1))]; if (a && a.side === (z < 0 ? 'N' : 'S')) return 'c' + a.id; }
-    if (Math.abs(x) > HALF) { const a = ATT[gi(z) * N + (x < 0 ? 0 : N - 1)]; if (a && a.side === (x < 0 ? 'W' : 'E')) return 'c' + a.id; }
-    if (Math.abs(x) > HALF || Math.abs(z) > HALF) return 'c-1';
+    const ox = Math.abs(x) > HALF, oz = Math.abs(z) > HALF;
+    if (ox && oz) return 'c-1';
+    if (oz) { const a = attOn(gi(x) + (z < 0 ? 0 : N * (N - 1)), z < 0 ? 'N' : 'S'); return a ? 'c' + a.id : 'c-1'; }
+    if (ox) { const a = attOn(gi(z) * N + (x < 0 ? 0 : N - 1), x < 0 ? 'W' : 'E'); return a ? 'c' + a.id : 'c-1'; }
     return String(roomAt(x, z));
   };
-  // ---- ROOMS: 25 arena rooms + 16 attached rooms
+  // ---- ROOMS: 25 arena rooms + 20 attached rooms
   const ROOMS = [], ROOM = {};
   for (let i = 0; i < NARENA; i++) { const [cx, cz] = rc(i); ROOMS.push({ key: String(i), i, kind: kindOf(i), cx, cz, hw: roomW(i) / 2, hd: roomD(i) / 2 }); }
   for (const c of CHEST) ROOMS.push({ key: 'c' + c.id, id: c.id, kind: c.home ? 'home' : 'loot', cx: c.cx, cz: c.cz, hw: c.size / 2, hd: c.size / 2 });
   for (const r of ROOMS) ROOM[r.key] = r;
   const roomRect = k => ROOM[typeof k === 'number' ? String(k) : k] || null;
-  // ---- DOORS (canonical order: for i = 0..24 its E door, its S door, then its attached door) and WALLS
+  // ---- DOORS (canonical order: for i = 0..24 its E door, its S door, then its attached door(s) in N E S W order; 40 arena + 20 attached = 60) and WALLS
   const DOORS = [], WALLS = [], ROOM_DOORS = {};
   const addDoor = (a, b, da, db, kind, axis, c, x, z, rot, len) => {
     const id = DOORS.length, d = { id, a, b, da, db, kind, axis, c, hw: (kind === 'vault' ? 4.9 : 4) / 2 + 0.2, wall: { x, z, rot, len } };
@@ -67,14 +80,13 @@
     const col = colOf(i), row = rowOf(i), [cx, cz] = rc(i), rw = roomW(i), rd = roomD(i), s = String(i);
     if (col < N - 1) addDoor(s, String(i + 1), 'EAST', 'WEST', i === VAULT || i + 1 === VAULT ? 'vault' : 'arena', 'z', cz, cx + rw / 2, cz, Math.PI / 2, rd);
     if (row < N - 1) addDoor(s, String(i + N), 'SOUTH', 'NORTH', i === VAULT || i + N === VAULT ? 'vault' : 'arena', 'x', cx, cx, cz + rd / 2, 0, rw);
-    const a = ATT[i];
-    if (a) { const ns = a.dz !== 0; addDoor(s, 'c' + a.id, DIRNAME[a.side], DIRNAME[OPP[a.side]], a.home ? 'hatch' : 'loot', ns ? 'x' : 'z', ns ? cx : cz, a.wallX, a.wallZ, ns ? 0 : Math.PI / 2, ns ? rw : rd); }
+    for (const a of ATT[i]) { const ns = a.dz !== 0; addDoor(s, 'c' + a.id, DIRNAME[a.side], DIRNAME[OPP[a.side]], a.home ? 'hatch' : 'loot', ns ? 'x' : 'z', ns ? cx : cz, a.wallX, a.wallZ, ns ? 0 : Math.PI / 2, ns ? rw : rd); }   // a corner: N / S door first
   }
-  // the 4 bare outer walls (each corner cell's side that has no attached room), then each attached room's own 3 walls (back + 2 sides; their meshes are the room shell)
+  // bare outer walls (an outward side of a corner cell without an attached room: none since every outward segment has one), then each attached room's own 3 walls (back + 2 sides; their meshes are the room shell)
   for (const i of [0, N - 1, NARENA - 1, NARENA - N]) {
-    const col = colOf(i), row = rowOf(i), [cx, cz] = rc(i), a = ATT[i];
+    const col = colOf(i), row = rowOf(i), [cx, cz] = rc(i);
     for (const side of [row === 0 ? 'N' : 'S', col === 0 ? 'W' : 'E']) {
-      if (a && a.side === side) continue; const [dx, dz] = SIDES[side];
+      if (attOn(i, side)) continue; const [dx, dz] = SIDES[side];
       WALLS.push(dz ? { x: cx, z: cz + dz * roomD(i) / 2, rot: 0, len: roomW(i), door: null } : { x: cx + dx * roomW(i) / 2, z: cz, rot: Math.PI / 2, len: roomD(i), door: null });
     }
   }
@@ -275,7 +287,7 @@
   const allProps = types => { const out = []; for (let i = 0; i < NARENA; i++) out.push(...solidsOf(String(i), treeTypeOf(types, i))); for (const c of CHEST) out.push(...solidsOf('c' + c.id, typeOf(types, c.id))); return out; };
   const obstaclesIn = (key, m) => solidsOf(key, key[0] === 'c' ? typeOf(m && m.layout, +key.slice(1)) : treeTypeOf(m, key) || treeTypeOf(m && m.layout, key));   // bot steering: the room's prop circles {x,z,r}
   const api = { obstaclesIn, solidsOf, storyOf, slide, inProp, segBlocked, allProps, propsAt, rectsAt, PILLARS, PILLAR_D, RELIC, SCALE, W, V, H, T, CS, HS, N, NARENA, NATT, COLW, ROWD, COLX, ROWZ, EDGE, HALF, LIM,
-    VAULT, VAULT_KEY, TREE_CELLS, VB_CELLS, HOME_IDS, LOOT_IDS, colOf, rowOf, roomW, roomD, rc, gi, roomAt, inGrid, kindOf, CHEST, chestKey, roomKeyOf, panelOffsets, panelDX, randomPoint,
+    VAULT, VAULT_KEY, TREE_CELLS, VB_CELLS, HOME_IDS, LOOT_IDS, NSIDE, SIDE_ORDER, SIDE_CELLS, HOME_POS, attachedSide, attachedPos, attachedId, attachedOf, isHomeKey, colOf, rowOf, roomW, roomD, rc, gi, roomAt, inGrid, kindOf, CHEST, chestKey, roomKeyOf, panelOffsets, panelDX, randomPoint,
     ROOMS, roomRect, DOORS, WALLS, ROOM_DOORS, HATCHES, alwaysOpen, attachedAt, homeOf, attLocal, HOME_LAYOUT, LOOT_LAYOUT, HOME_SOLIDS, HOME_K, TREE_SOLIDS, VB_SOLIDS, VB_SCALE, COFFERS, rectCircles, treeKind, treeTypeOf, ACT_LOCAL, vbRot, actAnchors, actKind };
   root.GKWORLD = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

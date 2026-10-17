@@ -49,12 +49,12 @@ const hitsOn = (c, n0) => c.msgs.slice(n0).filter(m => m.hit && m.hit.to === c.s
         eq(hitsOn(b, n0).length, 1, 'a second dash inside the cooldown still protected');
         await a.close(); await b.close();
       }],
-      ['dash: it buys about 3 m of extra movement once, then the normal limit applies again', async () => {
+      ['dash: it buys about 3 m of extra movement once (on top of the 2 m bank), then the normal limit applies again', async () => {
         const [a, b] = await pair(srv, 20); await put(a, PX(-4), PZ, FACE_E); await sleep(1100);   // a full movement budget
         const fixes = () => a.msgs.filter(m => m.fix).length, f0 = fixes();
-        a.send({ dash: 1 }); await sleep(20); a.send({ m: [+PX(-1.4).toFixed(2), PZ, FACE_E] }); await sleep(150);
+        a.send({ dash: 1 }); await sleep(20); a.send({ m: [+PX(0.2).toFixed(2), PZ, FACE_E] }); await sleep(150);
         eq(fixes() - f0, 0, 'a dash-length step was corrected'); await sleep(DASH_WAIT);
-        const f1 = fixes(); a.send({ m: [+PX(1.2).toFixed(2), PZ, FACE_E] }); await sleep(150); assert(fixes() > f1, 'the same step without a dash was accepted');
+        const f1 = fixes(); a.send({ m: [+PX(3.2).toFixed(2), PZ, FACE_E] }); await sleep(150); assert(fixes() > f1, 'the same step without a dash was accepted');
         await a.close(); await b.close();
       }],
       ['heavy blow: wind-up broadcast, x mult damage after chargeMs, the target is staggered (its swing is refused), a quick release is a normal swing', async () => {
