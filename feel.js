@@ -62,7 +62,7 @@
   let promptLow = false;
   function setPrompt(t, low) { low = !!low; if (low !== promptLow) { promptLow = low; promptEl.classList.toggle('low', low); } if (t === promptNow) return; promptNow = t; if (t) promptTxt.textContent = t; promptEl.classList.toggle('on', !!t); }   // low: aiming at a door panel, the prompt sits above the hotbar so it never covers the panel's rows
   function promptFor(A) {
-    if (A.cpAim) return 'Select door';
+    if (A.cpAim) return GK.cpAimOpen && GK.cpAimOpen() ? '' : 'Select door';   // DOORS-PERSIST: an open door needs no vote
     const h = A.hover();
     if (h && h.room >= 0) return h.kind === 'r' ? 'Use recycler' : h.kind === 'w' ? 'Use crafting bench' : h.kind === 'k' ? 'Study the knowledge tree' : h.kind === 's' ? 'Open the Elixir Screen' : h.kind === 'p' ? 'Collect elixir from the pump' : h.kind === 'b' ? (GK.myHome === 'c' + h.room ? 'Your lockbox' : 'Crack the lockbox') : 'Trade with merchant';
     { const ap = window.GKACT5 && GKACT5.prompt(); if (ap) return ap; }   // ACT5UI: the anchor of a tree room / vaultbreaker / the vault in reach
@@ -193,7 +193,7 @@
         if (R.n !== lastN) {
           const first = lastN === 0, opened = (R.open ? R.open.length : 0) - lastOpenLen;
           lastN = R.n; lastOpenLen = R.open ? R.open.length : 0;
-          banner('Round ' + R.n + ' · ' + (GK.homeLocked && GK.homeLocked() ? 'Prepare in your base' : first ? 'Pick a door' : opened > 0 ? 'Doors open' : R.fizzled && R.fizzled.length ? 'The vault stays sealed' : 'No doors opened'));
+          banner('Round ' + R.n + ' · ' + (GK.homeLocked && GK.homeLocked() ? 'Prepare in your base' : first ? 'Pick a door' : R.n === 2 ? 'Vote your way out' : opened > 0 ? (opened === 1 ? 'A door opens for good' : opened + ' doors open for good') : R.fizzled && R.fizzled.length ? 'The vault stays sealed' : 'No new doors'));   // DOORS-PERSIST: opened = the doors new this round
           play('gong');
         } else lastOpenLen = R.open ? R.open.length : 0;
       }
