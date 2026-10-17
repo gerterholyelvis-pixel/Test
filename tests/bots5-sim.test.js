@@ -1,10 +1,10 @@
-// bots5-sim (task G, docs/reports/bots5.md): two all-bot 5x5 matches on short rounds (tests/sim-fairness.js simBots5: 7 s rounds, sudden death after round 3,
-// decided after round 4). Every match ends, every bot leaves its home, bots send activity verbs, nobody is hard stuck, the per-feature bot cost stays small
+// bots5-sim (task G, docs/reports/bots5.md): two all-bot 5x5 matches on short rounds (tests/sim-fairness.js simBots5: 7 s rounds, round 1 at home, sudden death after round 4,
+// decided after round 5). Every match ends, every bot leaves its home, bots send activity verbs, nobody is hard stuck, the per-feature bot cost stays small
 // and act5 logs no errors. The full 20-match report is `node tests/sim-fairness.js bots5`.
 const L = require('./lib.js'), { assert, eq } = L, { simBots5 } = require('./sim-fairness.js');
 (async () => {
   let fail = 0, sim = null;
-  try { sim = await simBots5({ n: 2, roundMs: 7000, parallel: 2, sudden: 3, max: 4, log: false }); }
+  try { sim = await simBots5({ n: 2, roundMs: 7000, parallel: 2, sudden: 4, max: 5, log: false }); }   // HOME PHASE: round 1 is spent at home, so one round more keeps two open-arena rounds before sudden death
   catch (e) { fail++; console.log('  FAIL  bots5-sim: setup:', e.stack || e); }
   if (sim) fail += await L.run('bots5-sim', [
     ['two all-bot matches end (crown, kills, HP or last standing) and every bot walks out of its home', () => {
