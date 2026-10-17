@@ -4061,7 +4061,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     const net = { send: m => {
       if (ws.readyState !== 1) return;
       if (m.m) { const j = JSON.stringify(m), t = performance.now(); if (j === lastM && t - lastMT < 1000) return; lastM = j; lastMT = t; return ws.send(j); }
-      if (m.atk === 1 && NETC.offPong) m = { atk: 1, rt: Math.round(srvNow() - NETC.delay) };
+      if (m.atk === 1 && NETC.offPong) m = { ...m, rt: Math.round(NETC.rt || srvNow() - NETC.delay) };   // COMBAT4: keep sq / pt; rt = the render time really drawn (NETC.rt never runs backwards, srvNow() - delay can)
       ws.send(JSON.stringify(m));
     }, onmessage: null };
     const ping = () => ws.readyState === 1 && ws.send(JSON.stringify({ ping: performance.now() }));
@@ -4121,18 +4121,23 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     sendDrops(); emit(); sendMatch();
     if (!meP.dead && list.every(p => p === meP)) net.onmessage && net.onmessage({ won: { items: invAll(meP.inv), gold: meP.gold, parts: clone(meP.parts) } });   // last goblin standing
   }
-  function simHit(t, dmg, from) {
+  function simHit(t, dmg, from, sq) {
     const max = maxHpOf(t); t.hp = Math.max(0, hpOf(t) - dmg); t.hurtAt = performance.now();
-    net.onmessage && net.onmessage({ hit: { from: from.id, to: t.id, dmg, hp: t.hp, max, dead: t.hp <= 0 } });
+    net.onmessage && net.onmessage({ hit: { from: from.id, to: t.id, dmg, hp: t.hp, max, dead: t.hp <= 0, ...(sq != null ? { sq } : null) } });
     if (t.hp <= 0) simKill(t, from); else emit();
   }
-  function simAtk() {   // the player's {atk:1}
+  function simAtk(m) {   // the player's {atk:1, sq}; COMBAT4: like the server, the blow lands on the contact frame and uses combat4.js shapes
     if (!meP || meP.dead || !rs.started) return;
     const c = wcOf(meP), now = performance.now(); if (now - (meP.atkAt || 0) < c.cd * 0.9) return; meP.atkAt = now;
-    net.onmessage && net.onmessage({ swing: meP.id });
-    const key = roomKeyAt(meP.x, meP.z); let best = null, bd = 1e9;
-    for (const b of list) { if (!b.bot || roomKeyAt(b.x, b.z) !== key || !inCone(meP, b, c.range + itemsData().COMBAT.slack)) continue; const d = Math.hypot(b.x - meP.x, b.z - meP.z); if (d < bd) { bd = d; best = b; } }
-    if (best) simHit(best, c.dmg, meP);
+    const C4 = window.GKC4, tm = C4 ? C4.timing(itemsData(), meP.inv.weapon, c.cd) : { contact: 0, dur: 0 }, sq = m && Number.isInteger(m.sq) ? m.sq : 0;
+    net.onmessage && net.onmessage({ swing: meP.id, c4: [tm.contact, tm.dur, sq] });
+    setTimeout(() => {
+      if (!meP || meP.dead) return;
+      const key = roomKeyAt(meP.x, meP.z), pr = C4 && C4.profile(itemsData(), meP.inv.weapon), O = {}; let best = null, bd = 1e9;
+      for (const b of list) { if (!b.bot || roomKeyAt(b.x, b.z) !== key) continue; const r = itemsData().hitRadius ? itemsData().hitRadius(b.goblin) : 0.35, ok = C4 && !c.ranged ? C4.melee(pr, c.range, meP.x, 0, meP.z, meP.yaw, b.x, 0, b.z, r, C4.capH(r / 0.35), O) : inCone(meP, b, c.range + itemsData().COMBAT.slack); if (!ok) continue; const d = Math.hypot(b.x - meP.x, b.z - meP.z); if (d < bd) { bd = d; best = b; } }
+      if (best) simHit(best, c.dmg, meP, sq);
+      net.onmessage && net.onmessage({ swr: [sq, best ? 1 : 0] });
+    }, tm.contact);
   }
   setInterval(() => {   // bot behaviour (a bot within 6 m in the same room walks to the player and attacks) and health regeneration
     const now = performance.now();
@@ -4146,7 +4151,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
       b.chase = true; b.yaw = Math.atan2(-dx, -dz);
       const stop = c.ranged ? 4 : 1.7;
       if (d > stop) { b.x += dx / d * 2.4 * 0.1; b.z += dz / d * 2.4 * 0.1; b.box = roomAt(b.x, b.z); }
-      if (!window.GK_BOTS_PASSIVE && rs.n > 1 && now - rs.goAt >= 20000 && d <= c.range && now - (b.atkAt || 0) >= c.cd * 1.8) { b.atkAt = now; net.onmessage && net.onmessage({ swing: b.id }); if (inCone(b, meP, c.range + 0.3)) simHit(meP, c.dmg, b); }
+      if (!window.GK_BOTS_PASSIVE && rs.n > 1 && now - rs.goAt >= 20000 && d <= c.range && now - (b.atkAt || 0) >= c.cd * 1.8) { b.atkAt = now; const tm = window.GKC4 ? GKC4.timing(itemsData(), b.inv.weapon, c.cd) : { contact: 0, dur: 0 }; net.onmessage && net.onmessage({ swing: b.id, c4: [tm.contact, tm.dur, 0] }); setTimeout(() => { if (meP && !meP.dead && list.includes(b) && inCone(b, meP, c.range + 0.3)) simHit(meP, c.dmg, b); }, tm.contact); }   // COMBAT4: the bot's blow lands on its contact frame too
     }
   }, 100);
   // COMBAT-END
@@ -4176,7 +4181,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     onmessage: null,
     send(m) {
       if (typeof m.ping === 'number') net.onmessage && net.onmessage({ pong: m.ping, t: Math.round(performance.now()) });
-      if (m.atk === 1) simAtk();
+      if (m.atk === 1) simAtk(m);
       if (typeof m.use === 'string' && meP) simUse(m.use);   // ITEMS2
       if (m.dbgFF === 1 && SIM_DBG && rs.started) { rs.endsAt = Math.min(rs.endsAt, performance.now() + 10000); emitRound(); }   // DEV: same rule as server.js dbgFF
       if (m.enter === 1 && !rs.started) { rs.started = true; rs.goAt = performance.now(); rs.endsAt = performance.now() + rs.dur; botPlan(); emitRound(); }
@@ -4348,7 +4353,7 @@ function netSnap(s) {   // {s:[t, id,x,z,yaw,speed,age, ...]}: buffer one entry 
     const a = actors.get(s[i]); if (!a || s[i] === me) continue;
     const et = t - s[i + 5], b = a.buf || (a.buf = []), l = b[b.length - 1];
     if (l && et <= l.t) continue;
-    if (l && l.v === 0 && et - l.t > 250) b.push({ t: et - 66, x: l.x, z: l.z, yaw: l.yaw, v: 0, y: l.y });   // was standing still: hold the old spot until just before he moved
+    if (l && l.v === 0 && et - l.t > 250) b.push({ t: et - 50, x: l.x, z: l.z, yaw: l.yaw, v: 0, y: l.y });   // was standing still: hold the old spot until just before he moved (COMBAT4: 50 ms = one move interval, the same hold the server's rewind history uses)
     b.push({ t: et, x: s[i + 1], z: s[i + 2], yaw: s[i + 3], v: s[i + 4] % 100, y: Math.floor(s[i + 4] / 100) / 100 });   // JUMP: the speed slot also carries the jump height in cm (v + 100 * cm)
     while (b.length > 3 && b[1].t < et - 1500) b.shift();
   }
@@ -4437,7 +4442,7 @@ const handleMsg0 = d => {
   if (window.GKRULES) GKRULES.onMsg(d);   // RULES: experimental rules (inert unless the server advertises them)
   if (d.died) showDeathScreen(d.died);
   if (d.won) showVictory(d.won);
-  if (d.swing != null || d.hit || d.kills != null || d.match) combatMsg(d);   // COMBAT
+  if (d.swing != null || d.hit || d.kills != null || d.match || d.dodge || d.swr || d.proj || d.projEnd || d.c4g) combatMsg(d);   // COMBAT (COMBAT4: + dodge, which never reached combatMsg, swing results, projectiles, blocks)
   if (d.you) me = d.you;
   if (d.dbg === 1 || (d.matchStart && d.matchStart.dbg === 1)) GK.dbg = true;   // DEV: the server runs with GK_DEBUG (shows the skip-to-0:10 button)
   if (d.round || d.sel || d.open) applyRound(d);
@@ -5678,7 +5683,7 @@ addEventListener('mousemove', e => {
   mouseX = e.clientX;
   if (!freeLook() || (!lockOk() && !lockRefused)) return;
   if (Math.abs(e.movementX) > 400 || Math.abs(e.movementY) > 400) return;   // drop the jump some browsers report when the lock engages
-  const k = 0.0022 * GK.settings.sens; P.yaw = wrapPi(P.yaw - e.movementX * k); P.pitch = clamp(P.pitch - e.movementY * k * (GK.settings.invertY ? -1 : 1), -1.45, 1.45);
+  const k = 0.0022 * GK.settings.sens * (C4C.fric || 1); P.yaw   /* COMBAT4: a little stickiness while a target is in reach */ = wrapPi(P.yaw - e.movementX * k); P.pitch = clamp(P.pitch - e.movementY * k * (GK.settings.invertY ? -1 : 1), -1.45, 1.45);
 });
 // in play the cursor is hidden (only the centre dot shows); if the lock was dropped (Esc), a click anywhere resumes
 let resumeEl = null;
@@ -7550,7 +7555,8 @@ function combatSwing() {   // left click: swing animation on my own goblin now, 
   const mine = actors.get(me); if (!mine) return false;
   const cb = itemsData().combat ? itemsData().combat(invReady ? myInv.weapon : null) : { cd: 600 }, now = performance.now();
   if (now - CB.last < cb.cd) return false;
-  CB.last = now; CB.nextAt = now + cb.cd; /* FEEL2: cooldown end for buffer/hold */ mine.swing = 1e-4; vmSwing(mine, true); net.send({ atk: 1 }); snd('swing', { fam: mine.vmFam }); return true;
+  if (now < C4C.stagUntil) { CB.nextAt = Math.max(CB.nextAt, C4C.stagUntil); return false; }   // COMBAT4: staggered (the buffer fires the swing when it ends)
+  CB.last = now; CB.nextAt = now + cb.cd; /* FEEL2: cooldown end for buffer/hold */ mine.swing = 1e-4; vmSwing(mine, true); net.send(c4Begin(invReady ? myInv.weapon : null, cb, mine)); snd('swing', { fam: mine.vmFam }); return true;   // COMBAT4: {atk, sq, pt} + the local contact-frame prediction
 }
 canvas.addEventListener('mousedown', e => { if (e.button === 0 && (lockOk() || lockRefused)) { /* FEEL2: hold + input buffer */ CB.held = true; if (!combatSwing() && CB.nextAt - performance.now() <= 180) CB.buf = true; } });   // the click that captures the mouse does not swing
 // FEEL2-BEGIN (attack input buffer + hold-to-attack, directional damage arc, crosshair hit marker; see docs/reports/feel-2.md)
@@ -7592,6 +7598,7 @@ function feel2HitMark(kill) {   // small white X at screen centre for ~120 ms; l
 // FEEL2-END
 function combatSync(a, p) { if (p.stats && p.stats.health != null) { a.hp = p.stats.health; a.maxHp = p.stats.maxHealth || p.stats.health; } if (p.kills != null) a.kills = p.kills; }
 function combatFloat(text, pos, color, size) {   // floating damage number (a sprite that rises and fades)
+  if (c4Float(text, pos, color, size)) return;   // COMBAT4: pooled canvas sprites (no allocation per hit); the code below is the fallback when the pool is full
   const c = document.createElement('canvas'); c.width = 160; c.height = 80; const g = c.getContext('2d');
   g.font = '800 54px system-ui,sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineWidth = 8; g.strokeStyle = 'rgba(0,0,0,.85)'; g.strokeText(text, 80, 42); g.fillStyle = color; g.fillText(text, 80, 42);
   const tex = new THREE.CanvasTexture(c), sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
@@ -7607,24 +7614,25 @@ function combatHurtFx(dmg, max) {   // red vignette + screen number when I am hu
 const vmArmKey = n => { if (!n) return null; const I = itemsData().ITEMS; for (const k in I) if (I[k].type === 'armor' && I[k].name === n) return k; return null; };   // FEEL3: armour name -> item key
 const snd = (n, o) => { try { window.GKAUDIO && GKAUDIO.play(n, o); } catch (e) {} };   // combat sounds (audio.js)
 function combatMsg(d) {   // server messages: swing, hit, kills, match (goblins left)
-  if (d.swing != null && d.swing !== me) { const a = actors.get(d.swing); if (a) { a.swing = 1e-4; vmSwing(a, false); snd('swing', { x: a.x, z: a.z, vol: 0.7, fam: a.vmFam }); } }
+  if (d.swing != null && d.swing !== me) { const a = actors.get(d.swing); if (a) { a.swing = 1e-4; a.c4dur = d.c4 ? d.c4[1] : 0; /* COMBAT4: the server's clip length, so its contact frame meets the damage */ vmSwing(a, false); snd('swing', { x: a.x, z: a.z, vol: 0.7, fam: a.vmFam }); } }
   if (d.hit) {
-    const h = d.hit, v = actors.get(h.to), f = actors.get(h.from); if (h.from === me) vmHit(h);
+    const h = d.hit, v = actors.get(h.to), f = actors.get(h.from), pre = h.from === me && !h.bleed && c4Confirm(h); if (h.from === me && !pre) vmHit(h); else if (pre && h.dead) feel2HitMark(true); if (h.to === me) c4Victim(h);   /* COMBAT4: pre = my client already played this blow's impact at the contact frame (prediction confirmed) */
     if (v) {
       v.hp = h.hp; v.maxHp = h.max; v.hitT = h.bleed ? 0 : CB.HIT;   /* WEAPONS3: a bleed tick is just a number, no lean or flash */
       const dx = f ? v.x - f.x : 0, dz = f ? v.z - f.z : 1, l = Math.hypot(dx, dz) || 1; v.kx = dx / l; v.kz = dz / l;
       const y = (h.to === me ? 1.4 : 2.0) * (SCALE[v.goblin] || 1);
-      combatFloat('-' + h.dmg, new THREE.Vector3(v.x, y, v.z), h.from === me ? '#ffd75e' : '#ffffff', 0.5);
-      if (!h.bleed) { const burst = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff3a2a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.9 }));   // red hit flash on the victim (sprite only, no lights)
+      combatFloat('-' + h.dmg + (h.cr ? '!' : ''), C4C.v3.set(v.x, y, v.z), h.blk ? '#a9bccc' : h.cr ? '#ff8a3a' : h.from === me ? '#ffd75e' : '#ffffff', h.cr || h.dead ? 0.62 : 0.5);   /* COMBAT4: crit (backstab / rage) and blocked cues */
+      if (!h.bleed && !c4Flash(v.x, 1.0 * (SCALE[v.goblin] || 1), v.z)) { const burst = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff3a2a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.9 }));   // red hit flash on the victim (sprite only, no lights)
       burst.scale.set(1.3, 1.3, 1); burst.position.set(v.x, 1.0 * (SCALE[v.goblin] || 1), v.z); scene.add(burst); CB.floats.push({ sp: burst, t: 0, flash: true }); }
     }
-    if (v && !h.bleed) try { const sc = SCALE[v.goblin] || 1, dx = v.x - (f ? f.x : v.x), dz = v.z - (f ? f.z : v.z - 1), l = Math.hypot(dx, dz) || 1, ak0 = h.to === me ? (invReady ? myInv.armor : null) : (v.gArm !== undefined ? vmArmKey(v.gArm) : null); GKVFX.hit({ x: v.x - dx / l * 0.3, y: 1.1 * sc, z: v.z - dz / l * 0.3 }, { x: dx / l, z: dz / l }, f && f.vmFam, ak0 && itemsData().ITEMS[ak0] && itemsData().ITEMS[ak0].family, h.dmg, h.dead); if (h.dead) GKVFX.ring(v.x, v.z, 0xffd75e, 1.5); } catch (e) {} // VFX
+    if (v && !h.bleed) try { const sc = SCALE[v.goblin] || 1, dx = v.x - (f ? f.x : v.x), dz = v.z - (f ? f.z : v.z - 1), l = Math.hypot(dx, dz) || 1, ak0 = h.to === me ? (invReady ? myInv.armor : null) : (v.gArm !== undefined ? vmArmKey(v.gArm) : null); if (!pre) GKVFX.hit({ x: v.x - dx / l * 0.3, y: 1.1 * sc, z: v.z - dz / l * 0.3 }, { x: dx / l, z: dz / l }, f && f.vmFam, ak0 && itemsData().ITEMS[ak0] && itemsData().ITEMS[ak0].family, h.dmg, h.dead); if (h.dead) GKVFX.ring(v.x, v.z, 0xffd75e, 1.5); } catch (e) {} // VFX
     if (!h.bleed) { const fam = f && f.vmFam, ak = h.to === me ? (invReady ? myInv.armor : null) : (v && v.gArm !== undefined ? vmArmKey(v.gArm) : null), ait = ak && itemsData().ITEMS[ak], armor = ait && ait.family; /* FEEL3: weapon and armour families pick the hit sound */
-      if (h.to === me) { combatHurtFx(h.dmg, h.max); snd('hit', { fam, armor, vol: 0.7 }); snd('hurt'); try { GK.feel.hurt(h.dmg, h.max); } catch (e) {} if (f) feel2Arc(f); /* FEEL2 */ } else if (v) snd('hit', h.from === me ? { fam, armor } : { x: v.x, z: v.z, fam, armor }); }
+      if (h.to === me) { combatHurtFx(h.dmg, h.max); snd('hit', { fam, armor, vol: 0.7 }); snd('hurt'); try { GK.feel.hurt(h.dmg, h.max); } catch (e) {} if (f) feel2Arc(f); /* FEEL2 */ } else if (v && !pre) snd('hit', h.from === me ? { fam, armor } : { x: v.x, z: v.z, fam, armor }); }
   }
   if (d.dodge) { const v = actors.get(d.dodge.to); if (v && (d.dodge.to === me || d.dodge.from === me)) combatFloat('dodged', new THREE.Vector3(v.x, 1.8 * (SCALE[v.goblin] || 1), v.z), '#9ae6d0', 0.42); }   // GOBTYPES: the scout's nimble perk
   if (d.kills != null) { CB.kills = d.kills; toastMsg('Goblin defeated!  Kills: ' + d.kills + (d.bounty ? '   +' + d.bounty + ' gold' : ''), true); }   /* PACE: bounty */
   if (d.match) { CB.alive = d.match.alive | 0; CB.size = d.match.size | 0; }
+  if (d.swr || d.proj || d.projEnd || d.c4g) c4Msg(d);   // COMBAT4
 }
 function combatBar(a, id) {   // small health bar sprite over another goblin's head
   let b = CB.bars.get(id);
@@ -7683,11 +7691,12 @@ function combatTick(dt) {   // called every frame after the goblin loop: swing, 
   for (let i = CB.floats.length - 1; i >= 0; i--) {
     const q = CB.floats[i]; q.t += dt;
     const life = q.flash ? 0.28 : 0.95;
-    if (q.t >= life) { scene.remove(q.sp); if (q.sp.material.map && !q.flash) q.sp.material.map.dispose(); q.sp.material.dispose(); CB.floats.splice(i, 1); continue; }
+    if (q.t >= life) { if (q.pool) { q.pool.busy = false; q.sp.visible = false; } /* COMBAT4: back to the pool */ else { scene.remove(q.sp); if (q.sp.material.map && !q.flash) q.sp.material.map.dispose(); q.sp.material.dispose(); } CB.floats.splice(i, 1); continue; }
     const k = q.t / life;
     if (q.flash) { q.sp.material.opacity = 0.9 * (1 - k); q.sp.scale.setScalar(1.3 + k); } else { q.sp.position.y += dt * 1.1; q.sp.position.x += q.x * dt; q.sp.material.opacity = k < 0.6 ? 1 : 1 - (k - 0.6) / 0.4; }
   }
   combatHud(actors.get(me));
+  try { c4Tick(dt); } catch (e) { if (!C4C.err) { C4C.err = 1; console.warn('combat4', e); } }   // COMBAT4: prediction, projectiles, knockback, reticle
 }
 GK.attack = combatSwing; GK.combatState = CB; GK.combatHurtFx = combatHurtFx;
 // COMBAT-END
@@ -7813,6 +7822,7 @@ function vmSwing(a, isMe) {   // hook: a.swing was just set (combatSwing for me,
 function vmHit(h) {   // hook: the server confirmed my hit: recoil + hit-stop (heavier for big weapons)
   const heavy = VM_CLASS[VM.fam] === 'smash' ? 1 : VM_CLASS[VM.fam] === 'thrust' ? 0.7 : 0.5;
   feel2HitMark(!!h.dead); /* FEEL2 */ VM.stop = 0.06 + 0.03 * heavy; VM.kick = 1; VM.shake = Math.max(VM.shake, 0.35 + 0.5 * heavy);
+  if (window.GKC4 && !h.k) c4Weight(c4W(), true);   // COMBAT4: an unpredicted (late) melee hit gets the same per-weapon hit-stop / kick / shake; a projectile hit only the marker
 }
 function vmGear(a, p) { a.vmName = p.gear && p.gear.weapon || null; }   // hook: other goblins' weapon arrives as a name in the player list
 const vmByName = (() => { let m = null; return name => { if (!name) return null; if (!m) { m = {}; const I = itemsData().ITEMS; for (const k in I) if (I[k].type === 'weapon') m[I[k].name] = k; } return m[name] || null; }; })();
@@ -7870,7 +7880,7 @@ function vmUpdate(dt, t, mine) {   // hook: every frame after the actor loop, be
     if (cls === 'smash' && !VM.shook && p >= 0.56) { VM.shook = true; VM.shake = Math.max(VM.shake, 0.55); }
     if (cls === 'bow' && !VM.fired && p >= 0.64) {
       VM.fired = true; const d = new THREE.Vector3(); cam.getWorldDirection(d); const from = new THREE.Vector3(0.18, -0.16, -0.5).applyMatrix4(cam.matrixWorld);
-      vmTracer(d, from); VM.kick = 0.8;
+      if (!window.GKC4) vmTracer(d, from); VM.kick = 0.8;   // COMBAT4: the real arrow (c4Shoot, same frame) replaces the straight tracer
     }
     if (cls === 'cast') { const b = vmRamp(p, 0.4, 1); VM.burst.visible = b > 0 && b < 1; VM.burst.material.opacity = Math.sin(b * Math.PI) * 0.95; VM.burst.scale.setScalar(0.18 + 0.7 * vmSm(b)); }
   } else { VM.trail.visible = false; if (VM.burst.visible) VM.burst.visible = false; }
@@ -7903,7 +7913,7 @@ function vmUpdate(dt, t, mine) {   // hook: every frame after the actor loop, be
 }
 function vmHide() { VM.root.visible = false; }   // hook: menu / early-return path of frame()
 // ---- third person: per-family arm clips driven by a.swing (0..1)
-const vmSw = a => { const c = VM_CLASS[a.vmFam] || (a.vmFam ? 'slash' : 'fist'); return Math.max(0.25, VM_SECS[c] * (a.vmFam === 'dagger' ? 0.78 : 1) * 1); };
+const vmSw = a => { if (a.c4dur > 0) return a.c4dur / 1000; /* COMBAT4: the clip length the server timed the damage to */ const c = VM_CLASS[a.vmFam] || (a.vmFam ? 'slash' : 'fist'); return Math.max(0.25, VM_SECS[c] * (a.vmFam === 'dagger' ? 0.78 : 1) * 1); };
 function vmPose3(a, u) {   // arm/torso pose for one swing frame; combatTick resets nothing, vmEnd3 clears what these set
   const p = a.swing, cls = a.vmFam ? VM_CLASS[a.vmFam] || 'slash' : 'fist', arm = u.arms[1], el = arm.userData.el, bell = vmSm(vmRamp(p, 0.1, VM_HITAT[cls])) * (1 - vmSm(vmRamp(p, VM_HITAT[cls] + 0.1, 1)));
   if (cls === 'slash') { arm.rotation.x = -0.4 - 1.9 * bell; arm.rotation.z = 0.9 * (1 - 2 * vmSm(vmRamp(p, 0.15, 0.5))) * (1 - vmRamp(p, 0.6, 1)); el.rotation.x = -0.4 * bell; u.torso.rotation.y += 0.5 * bell; }
@@ -7916,6 +7926,141 @@ function vmPose3(a, u) {   // arm/torso pose for one swing frame; combatTick res
 function vmEnd3(a, u) { const arm = u.arms[1]; arm.rotation.z = 0; arm.userData.el.rotation.x = 0; u.arms[0].userData.el.rotation.x = 0; }
 GK.vm = { tables: { VM_SC, VM_GRIP, VM_TILT, VM_ADJ, VM_FPX }, rebuild: key => vmSetWeapon(key), state: VM, setWeapon(key) { if (typeof myInv === 'object') { myInv.weapon = key; invReady = true; } return key; }, swing: () => combatSwing(), tracers: VM.tracers };   // GK.vm.setWeapon is a test hook: local equip without the server
 // VIEWMODEL-END
+// COMBAT4-BEGIN (client side of combat4.js: contact-frame hit prediction with server confirm / rollback, per-weapon hit-stop / kick / shake, pooled damage numbers
+// and flashes, real projectiles, stagger and knockback on me, block cues, a small aim assist and a reach reticle; see docs/reports/combat-4.md)
+const C4C = { sq: 0, pend: null, preds: [], st: { swings: 0, predicted: 0, confirmed: 0, rolledBack: 0, late: 0 }, stagUntil: 0, kb: null, dotK: '', fric: 1, fr: 0, proj: new Map(), ppool: [], fpool: [], flpool: [], O: {}, v3: new THREE.Vector3(), v3b: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0), err: 0 };
+const c4W = () => { const C = window.GKC4; return C ? (C.profile(itemsData(), invReady ? myInv.weapon : null).weight || 0.4) : 0.4; };
+function c4Weight(w, late) { VM.stop = Math.max(VM.stop, 0.035 + 0.075 * w); VM.kick = Math.max(VM.kick, 0.55 + 0.6 * w); VM.shake = Math.max(VM.shake, (late ? 0.15 : 0.2) + 0.7 * w); }   // hit-stop, camera kick and shake scale with the weapon's weight
+const c4Open = id => RS.open.includes(id) || !!(WORLD.alwaysOpen && WORLD.alwaysOpen(id) && !RS.homeLock);
+function c4Begin(key, cb, mine) {   // my swing: the {atk} message and the prediction record
+  const C = window.GKC4; C4C.sq = (C4C.sq + 1) & 0xffff; C4C.st.swings++;
+  if (!C) return { atk: 1 };
+  const tm = C.timing(itemsData(), key, cb.cd), now = performance.now(), G = itemsData();
+  mine.c4dur = tm.dur;
+  C4C.pend = { sq: C4C.sq, key, kind: cb.ranged ? 'proj' : cb.bolt ? 'bolt' : 'melee', pr: C.profile(G, key), R: cb.range + (cb.ranged ? 0 : (G.goblinReach ? G.goblinReach(mine.goblin) : 0)), at: now + tm.contact, end: now + tm.end, hits: [], sent: false, aimed: false, pull: 0, lyaw: P.yaw };
+  return { atk: 1, sq: C4C.sq, pt: +P.pitch.toFixed(3) };
+}
+function c4Cap(a) { const G = itemsData(), r = a.npc || !G.hitRadius ? 0.35 : G.hitRadius(a.goblin); return [r, window.GKC4.capH(r / 0.35)]; }
+function c4Strike(pr, R, yaw, out, pick) {   // the actors my strike touches right now (my drawn picture of them = what the server rewinds to); pick: 'all' | 'best'
+  const C = window.GKC4; let best = null, bd = 1e9;
+  for (const [id, a] of actors) {
+    if (id === me || (a.hp != null && a.hp <= 0)) continue;
+    const [r, h] = c4Cap(a);
+    if (!C.melee(pr, R, P.x, JUMP.y, P.z, yaw, a.x, a.jy || 0, a.z, r, h, C4C.O)) continue;
+    if (C4C.O.d - r > 0.35 && !C.los(WORLD, RS.layout || null, c4Open, P.x, JUMP.y + 1, P.z, C4C.O.cx, C4C.O.cy, C4C.O.cz, false)) continue;
+    if (out) out.push({ a, id, d: C4C.O.d, x: C4C.O.cx, y: C4C.O.cy, z: C4C.O.cz }); if (C4C.O.d < bd) { bd = C4C.O.d; best = a; }
+  }
+  return best;
+}
+function c4Impact(t, pd) {   // instant feedback for a predicted hit: hit-stop, kick, shake, spark, sound, marker (the number comes with the server's confirm)
+  const a = t.a, ak = a.gArm !== undefined ? vmArmKey(a.gArm) : null, armor = ak && itemsData().ITEMS[ak] && itemsData().ITEMS[ak].family, fam = vmFamOf(pd.key);
+  c4Weight(pd.pr.weight || 0.4); feel2HitMark(false);
+  const dx = a.x - P.x, dz = a.z - P.z, l = Math.hypot(dx, dz) || 1;
+  try { GKVFX.hit({ x: t.x, y: t.y, z: t.z }, { x: dx / l, z: dz / l }, fam, armor, 10, false); } catch (e) {}
+  snd('hit', { fam, armor }); c4Flash(a.x, 1.0 * (SCALE[a.goblin] || 1), a.z);
+}
+function c4Assist(pd, now) {   // melee aim assist during the wind-up: a pull of at most ASSIST.maxDeg toward a goblin just outside the strike, never against the player's own turn
+  const C = window.GKC4, A = C.ASSIST; if (GK.settings.aimAssist === false || pd.pull >= A.maxDeg * Math.PI / 180) return;
+  const turned = wrapPi(P.yaw - pd.lyaw); pd.lyaw = P.yaw;
+  if (c4Strike(pd.pr, pd.R, P.yaw, null)) return;
+  let best = null, be = 1e9;
+  for (const [id, a] of actors) { if (id === me || (a.hp != null && a.hp <= 0)) continue; const d = Math.hypot(a.x - P.x, a.z - P.z), [r] = c4Cap(a); if (d - r > pd.R + 0.3) continue; const b = C.bearing(P.x, P.z, P.yaw, a.x, a.z); if (Math.abs(b) < be) { be = Math.abs(b); best = b; } }
+  if (best == null || be > (pd.pr.half || 0.3) + A.deg * Math.PI / 180) return;
+  if (turned * -best < -1e-4) { pd.pull = 1e9; return; }   // the player turns away: hands off for this swing
+  const step = Math.min(be * A.rate, A.maxDeg * Math.PI / 180 - pd.pull); P.yaw = wrapPi(P.yaw - Math.sign(best) * step); pd.pull += step; pd.lyaw = P.yaw;
+}
+function c4Tick(dt) {
+  const C = window.GKC4; if (!C) return;
+  const now = performance.now(), pd = C4C.pend;
+  if (pd) {
+    if (pd.kind === 'proj' && !pd.aimed && now >= pd.at - Math.min(120, (NETC.rtt || 0) / 2 + 20)) { pd.aimed = true; net.send({ aim: [pd.sq, +P.pitch.toFixed(3)] }); }   // the pitch at release reaches the server before its release frame
+    if (now >= pd.at && !pd.sent) { pd.sent = true; net.send({ m: [+P.x.toFixed(2), +P.z.toFixed(2), +P.yaw.toFixed(3), ...JUMP.tail()] }); }   // the freshest pose for the server's look at the contact frame
+    if (pd.kind !== 'melee') { if (now >= pd.at) C4C.pend = null; }
+    else {
+      if (now < pd.at) c4Assist(pd, now);
+      else {
+        const hits = []; c4Strike(pd.pr, pd.R, P.yaw, hits); hits.sort((x, y) => x.d - y.d);
+        for (const t of hits) { if (pd.hits.length >= (pd.pr.cleave || 1)) break; if (pd.hits.includes(t.id)) continue; pd.hits.push(t.id); c4Impact(t, pd); }
+        if (now >= pd.end || pd.hits.length >= (pd.pr.cleave || 1)) { if (pd.hits.length) C4C.st.predicted++; C4C.preds.push({ sq: pd.sq, ids: pd.hits, got: [], t: now }); C4C.pend = null; }
+      }
+    }
+  }
+  for (let i = C4C.preds.length - 1; i >= 0; i--) if (now - C4C.preds[i].t > 2000) C4C.preds.splice(i, 1);
+  if (C4C.kb) {   // my knockback: a short slide through the normal collision (the server granted the allowance)
+    const k = C4C.kb, f = Math.min(dt, k.left) / k.T; k.left -= dt; const mx = k.x * f, mz = k.z * f;
+    if (!blocked(P.x + mx, P.z)) P.x += mx; if (!blocked(P.x, P.z + mz)) P.z += mz;
+    if (k.left <= 0) C4C.kb = null;
+  }
+  for (const [id, b] of C4C.proj) {   // projectiles in flight (the server's own path; it ends them with projEnd)
+    b.vy -= b.g * dt; b.x += b.vx * dt; b.y += b.vy * dt; b.z += b.vz * dt; b.life += dt;
+    b.m.position.set(b.x, b.y, b.z); C4C.v3.set(b.vx, b.vy, b.vz).normalize(); b.m.quaternion.setFromUnitVectors(C4C.up, C4C.v3);
+    if (b.life > 1.6 || b.y < -0.5) c4ProjFree(id);
+  }
+  if ((++C4C.fr % 3) === 0) c4Reticle();
+}
+function c4Reticle() {   // the centre dot warms up and grows a thin ring when a swing now would land (melee: the strike shape; ranged: a goblin on the line inside range)
+  const dot = document.getElementById('dot'); if (!dot) return;
+  let k = '';
+  if (GK.mode === 'play' && spawned && !invOpen && !shopOpen) {
+    const C = window.GKC4, G = itemsData(), key = invReady ? myInv.weapon : null, cb = G.combat ? G.combat(key) : null, mine = actors.get(me);
+    if (cb && mine) {
+      if (!cb.ranged && !cb.bolt) { if (c4Strike(C.profile(G, key), cb.range + (G.goblinReach ? G.goblinReach(mine.goblin) : 0), P.yaw, null)) k = 'c4in'; }
+      else {
+        const fx = -Math.sin(P.yaw) * Math.cos(P.pitch), fy = Math.sin(P.pitch), fz = -Math.cos(P.yaw) * Math.cos(P.pitch), ex = cam.position.x, ey = cam.position.y, ez = cam.position.z;
+        for (const [id, a] of actors) { if (id === me || (a.hp != null && a.hp <= 0)) continue; const [r, h] = c4Cap(a); if (C.projHit(ex, ey, ez, ex + fx * cb.range, ey + fy * cb.range, ez + fz * cb.range, 0.05, a.x, a.jy || 0, a.z, r + 0.08, h) >= 0) { k = 'c4in'; break; } }
+      }
+    }
+  }
+  C4C.fric = k ? 0.82 : 1;
+  if (k !== C4C.dotK) { C4C.dotK = k; dot.classList.toggle('c4in', !!k); }
+}
+(() => { const s = document.createElement('style'); s.textContent = '#dot{transition:background .08s,box-shadow .08s,transform .08s}#dot.c4in{background:#ff6a4a;opacity:.95;transform:scale(1.25);box-shadow:0 0 0 4px rgba(255,106,74,.22)}'; document.head.appendChild(s); })();
+function c4Confirm(h) {   // the server's hit for my swing sq: true when my client already played its impact
+  const p = C4C.preds.find(q => q.sq === h.sq) || (C4C.pend && C4C.pend.sq === h.sq ? { ids: C4C.pend.hits, got: [] } : null);
+  if (p && p.ids.includes(h.to) && !p.got.includes(h.to)) { p.got.push(h.to); C4C.st.confirmed++; return true; }
+  if (!h.k) C4C.st.late++; return false;
+}
+function c4Victim(h) {   // a blow on me: stagger (my wind-up is cancelled, my next swing waits) and knockback
+  const now = performance.now();
+  if (h.st) { C4C.stagUntil = now + h.st; const pd = C4C.pend; if (pd && now < pd.at) { C4C.pend = null; VM.t = -1; } VM.shake = Math.max(VM.shake, 0.6); }
+  if (h.kb && GK.mode === 'play') C4C.kb = { x: h.kb[0], z: h.kb[1], T: 0.14, left: 0.14 };
+}
+function c4Msg(d) {
+  if (d.swr) {   // my swing's result: a predicted hit the server did not confirm is rolled back (no number, no health change was ever shown for it)
+    const [sq, n, why] = d.swr, i = C4C.preds.findIndex(q => q.sq === sq), p = i >= 0 ? C4C.preds[i] : null;
+    if (p) { if (p.ids.length > p.got.length) C4C.st.rolledBack += p.ids.length - p.got.length; C4C.preds.splice(i, 1); }
+    if ((why === 'c' || why === 's') && C4C.pend && C4C.pend.sq === sq) C4C.pend = null;
+  }
+  if (d.proj) c4ProjAdd(d.proj);
+  if (d.projEnd) { const e = d.projEnd; if (!e.hit) try { GKVFX.spark({ x: e.x, y: e.y, z: e.z }, 'dust'); } catch (er) {} c4ProjFree(e.id); }
+  if (d.c4g) { const v = actors.get(d.c4g.to); if (v && (d.c4g.to === me || d.c4g.from === me)) combatFloat(d.c4g.k === 'parry' ? 'parried' : 'blocked', C4C.v3.set(v.x, 1.8 * (SCALE[v.goblin] || 1), v.z), '#a9bccc', 0.42); }
+}
+function c4ProjAdd(p) {   // a pooled mesh per projectile: a thin shaft (arrow, bolt, knife) or a pebble (sling stone); no allocation after the pool fills
+  let e = C4C.ppool.find(q => !q.busy);
+  if (!e) { if (C4C.ppool.length >= 16) return; const g = c4ProjAdd.g || (c4ProjAdd.g = new THREE.CylinderGeometry(0.012, 0.018, 0.62, 5)), m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xc9a46a })); m.frustumCulled = false; scene.add(m); e = { m, busy: false }; C4C.ppool.push(e); }
+  const age = clamp((srvNow() - (p.t || srvNow())) / 1000, 0, 0.15), b = { m: e.m, e, x: p.x + p.vx * age, y: p.y + p.vy * age - 0.5 * p.g * age * age, z: p.z + p.vz * age, vx: p.vx, vy: p.vy - p.g * age, vz: p.vz, g: p.g, life: 0 };
+  e.busy = true; e.m.visible = true; e.m.scale.set(p.k === 'stone' ? 3 : 1, p.k === 'stone' ? 0.12 : p.k === 'axe' ? 0.6 : 1, p.k === 'stone' ? 3 : 1); e.m.material.color.setHex(p.k === 'stone' ? 0x8a8780 : p.k === 'bolt' ? 0x9a9aa2 : p.k === 'knife' ? 0xd8dde2 : 0xc9a46a);
+  C4C.proj.set(p.id, b);
+}
+function c4ProjFree(id) { const b = C4C.proj.get(id); if (!b) return; b.e.busy = false; b.m.visible = false; C4C.proj.delete(id); }
+function c4Float(text, pos, color, size) {   // pooled damage numbers: one canvas + texture + sprite per slot, redrawn on reuse
+  let e = C4C.fpool.find(q => !q.busy);
+  if (!e) {
+    if (C4C.fpool.length >= 24) return false;
+    const c = document.createElement('canvas'); c.width = 192; c.height = 96; const tex = new THREE.CanvasTexture(c), sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
+    sp.renderOrder = 999; scene.add(sp); e = { c, g: c.getContext('2d'), tex, sp, busy: false }; C4C.fpool.push(e);
+  }
+  const g = e.g; g.clearRect(0, 0, 192, 96); g.font = '900 60px system-ui,sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round'; g.lineWidth = 10; g.strokeStyle = 'rgba(0,0,0,.88)'; g.strokeText(text, 96, 50); g.fillStyle = color; g.fillText(text, 96, 50); e.tex.needsUpdate = true;
+  e.busy = true; e.sp.visible = true; e.sp.material.opacity = 1; e.sp.scale.set(size * 2, size, 1); e.sp.position.copy(pos);
+  CB.floats.push({ sp: e.sp, t: 0, x: (Math.random() - 0.5) * 0.4, pool: e }); return true;
+}
+function c4Flash(x, y, z) {   // pooled red hit flash on the victim
+  let e = C4C.flpool.find(q => !q.busy);
+  if (!e) { if (C4C.flpool.length >= 8) return false; const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff3a2a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.9 })); scene.add(sp); e = { sp, busy: false }; C4C.flpool.push(e); }
+  e.busy = true; e.sp.visible = true; e.sp.material.opacity = 0.9; e.sp.scale.set(1.3, 1.3, 1); e.sp.position.set(x, y, z); CB.floats.push({ sp: e.sp, t: 0, flash: true, pool: e }); return true;
+}
+GK.c4 = { state: C4C, stats: () => ({ ...C4C.st }) };   // test hook: prediction / confirm / rollback counts
+// COMBAT4-END
 // SOCIAL-BEGIN (reconnect grace overlay + auto-retry, "disconnected" icon, goblin emotes on keys 4-7; see docs/reports/social.md)
 const SOC = (() => {
   const S = { token: null, net: null, rc: null, boot: null, unloading: false, lastEmote: 0 };

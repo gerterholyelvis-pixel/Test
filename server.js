@@ -657,7 +657,7 @@ function c4Fire(m, sw, now) {   // a real projectile: from the attacker's hand a
   }
   const cp = Math.cos(pt), b = { id: (m.projN = (m.projN || 0) + 1), sw, by: p, x: p.x + fx * 0.3, y: eye, z: p.z + fz * 0.3, vx: fx * cp * pj.speed, vy: Math.sin(pt) * pj.speed, vz: fz * cp * pj.speed, g: pj.g, r: pj.r, kind: pj.kind, dist: 0, range: sw.cb.range, L: sw.L, last: srvT() };
   (m.c4proj || (m.c4proj = [])).push(b); C4STAT.proj++;
-  bcast(m, { proj: { id: b.id, by: p.id, sq: sw.sq, x: r2(b.x), y: r2(b.y), z: r2(b.z), vx: r2(b.vx), vy: r2(b.vy), vz: r2(b.vz), g: b.g, k: b.kind, range: b.range } });
+  bcast(m, { proj: { id: b.id, by: p.id, sq: sw.sq, x: r2(b.x), y: r2(b.y), z: r2(b.z), vx: r2(b.vx), vy: r2(b.vy), vz: r2(b.vz), g: b.g, k: b.kind, range: b.range, t: b.last } });
   c4ProjStep(m, b, now);
 }
 function c4ProjStep(m, b, now) {   // advance one projectile to the current server time in 12.5 ms steps; returns false when it ended
