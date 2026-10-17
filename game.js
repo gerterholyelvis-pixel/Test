@@ -4348,6 +4348,19 @@ function netHud() {   // small ping readout, bottom right: green below 80 ms, ye
   if (txt !== NETC.txt) { NETC.txt = txt; NETC.el.textContent = txt; NETC.el.style.color = r < 80 ? '#7be08a' : r < 150 ? '#ffd75e' : '#ff6a5a'; }
 }
 setInterval(netHud, 500);
+// NETQ-BEGIN (connection warning, docs/reports/research-game.md): shown only while the connection is bad, in words (not by colour alone); hidden when the ping readout is on
+const NETQ = { el: null, n: -1, at: 0, txt: '' };
+function netqText(rtt, jit, quietMs) { return quietMs > 2500 ? 'Connection stalled' : rtt > 150 ? 'High ping ' + Math.round(rtt) + ' ms' : jit > 40 ? 'Unstable connection' : ''; }   // the server answers a ping every 2 s, so 2.5 s of silence is a stall
+setInterval(() => {
+  const now = performance.now(); if (NETQ.n !== NETC.rxM) { NETQ.n = NETC.rxM; NETQ.at = now; }
+  const on = GK.mode === 'play' && !window.GK_OFFLINE && NETC.offPong && !(NETC.el && NETC.el.style.display === 'block');
+  const txt = on ? netqText(NETC.rtt, NETC.jit, now - NETQ.at) : '';
+  if (txt === NETQ.txt) return; NETQ.txt = txt;
+  if (!NETQ.el) { NETQ.el = document.createElement('div'); NETQ.el.id = 'gkNetq'; NETQ.el.setAttribute('role', 'status'); NETQ.el.style.cssText = 'position:fixed;right:10px;bottom:8px;z-index:6;padding:4px 9px;background:rgba(40,8,8,.72);border:1px solid #ff6a5a;color:#ffd0c8;font:700 11px/1 system-ui,sans-serif;letter-spacing:.06em;pointer-events:none;text-shadow:0 1px 3px #000;display:none'; document.body.appendChild(NETQ.el); }
+  NETQ.el.textContent = '⚠ ' + txt; NETQ.el.style.display = txt ? 'block' : 'none';
+}, 250);
+GK.netq = { text: netqText };   // tests
+// NETQ-END
 // PERF4: GK.net.stats() = the numbers behind the picture of the other goblins; GK.net.overlay(0|1|2) hides the readout, shows the ping, or shows the full line (rtt, jitter, render delay, snapshots / s, KB/s, corrections in the last minute)
 function netStats() {
   const now = performance.now(), W = NETC.win || (NETC.win = { t: now, b: 0, m: 0, s: 0, kbps: 0, mps: 0, sps: 0 });
@@ -4451,6 +4464,7 @@ const handleMsg0 = d => {
   if (d.lootFail) lootFailFx(d.lootFail);
   if (GK.fun) GK.fun.onMsg(d);   // FUN: kill feed, board, match summary
   if (window.GKSTATSUI) GKSTATSUI.onMsg(d);   // STATS: lifetime stats recorder (statsui.js)
+  if (window.GKDAILY) { const dn = GKDAILY.onMsg(d); if (dn) toastMsg('Daily challenge done (' + dn + '/3)', true); } if (window.GKMUSIC) GKMUSIC.onMsg(d, me); if (d.assist) toastMsg('Assist', true);   // RESEARCH-GAME: daily challenges, adaptive music, assist credit
   if ((d.keep || d.keepOffer) && window.GKKEEPUI) GKKEEPUI.onMsg(d, GK.charId);   // KEEP: stash token updates, bring-in notices, the consolation offer
   if (window.GKLOOT) GKLOOT.onMsg(d);   // LOOT: vault relic, thrown plushie
   if (window.GKHOMEW) GKHOMEW.onMsg(d);   // ELIXIR: counter, Elixir Screen state, toasts, send effects
@@ -4592,7 +4606,7 @@ function showDeathScreen(info) {
     ['Starting weapon', gear.weapon + ' (' + [tierTxt((itemsData().START[type] || {}).weapon), st.attack + ' dmg'].filter(Boolean).join(', ') + ')'], ['Starting armour', gear.armor + ' (' + [tierTxt((itemsData().START[type] || {}).armor), st.health + ' HP'].filter(Boolean).join(', ') + ')'], ['Dropped', [...((info && info.items) || []), ...(info && info.brain ? [info.brain] : [])].map(k => itemName(k) + (tierN(k) != null ? ' (T' + tierN(k) + ')' : '')).join(', ') || 'nothing']];
   const kl = info && info.killer, killedBy = kl ? (kl.npc ? 'a ' : '') + kl.name + (kl.w ? ' (' + kl.w + ')' : '') : '';
   const dhero = [[rsTime(secs), 'Survived'], [n || 1, 'Round'], [(typeof CB !== 'undefined' && CB.kills) | 0, 'Kills']];
-  deathEl = rsShow('dead', rsCard({ big: 'You died', sub: 'Your run', hero: dhero, rows: (killedBy ? [['Killed by', killedBy]] : []).concat(rows.filter(r => r[0] !== 'Survived' && r[0] !== 'Round reached')), note: 'Everything you carried is lost.', btns: [['deathQueue', 'Requeue', true], ['deathMenu', 'Main menu']] }));
+  deathEl = rsShow('dead', rsCard({ big: 'You died', sub: 'Your run', hero: dhero, rows: (killedBy ? [['Killed by', killedBy]] : []).concat(rows.filter(r => r[0] !== 'Survived' && r[0] !== 'Round reached')), mid: (window.GKRECAP ? GKRECAP.deathHtml(info && info.rc) : '') + (window.GKDAILY ? GKDAILY.cardHtml() : ''), /* RECAP, DAILY */ note: 'Everything you carried is lost.', btns: [['deathQueue', 'Requeue', true], ['deathMenu', 'Main menu']] }));
   $('deathQueue').onclick = () => { try { sessionStorage.setItem('gk.requeue', '1'); } catch (e) {} location.reload(); };   // fresh connection, new wheel roll
   $('deathMenu').onclick = () => location.reload();
   if (GK.fun) GK.fun.deathButton(info);   // FUN: SPECTATE
@@ -4827,6 +4841,7 @@ GK.fun = (() => {
     if (S.myName && (f.k === S.myName || f.v === S.myName)) row.className = 'me';
     row.innerHTML = f.msg ? '<b>' + esc(f.k) + '</b>' + esc(f.msg) : f.npc ? '<b class="v">' + esc(f.v) + '</b> ' + (NPCV[f.k] || 'was mauled by') + ' ' + an(f.k) + esc(f.k)
       : '<b>' + esc(f.k) + '</b> ' + (VERB[f.f] || 'killed') + ' <b class="v">' + esc(f.v) + '</b>' + (f.w ? ' with ' + an(f.w) + '<i>' + esc(f.w) + '</i>' : '');
+    if (!f.msg && window.GKRECAP) row.innerHTML += GKRECAP.feedSuffix(f);   // RECAP: assists, streaks, multi-kills, shutdowns
     box.appendChild(row); while (box.children.length > 5) box.removeChild(box.firstChild);
     setTimeout(() => row.classList.add('fade'), 5400); setTimeout(() => row.remove(), 6000);
   }
@@ -4845,11 +4860,20 @@ GK.fun = (() => {
   // ---- spectating
   const alive = () => S.board ? S.board.rows.filter(r => r[4] && r[0] !== me && actors.has(r[0])).map(r => r[0]) : [];
   const nameOfId = id => S.names[id] || 'a goblin';
-  function cycle(dir) { const l = alive(); if (!l.length) return; const i = l.indexOf(S.tgt); S.tgt = l[i < 0 ? (dir > 0 ? 0 : l.length - 1) : (i + dir + l.length) % l.length]; S.ang = 0; barPaint(); }
+  // RECAP-BEGIN (spectator director, docs/reports/research-game.md): follow whoever is fighting; a manual switch turns it off
+  S.fight = {}; S.auto = true; S.autoAt = 0;
+  function director(now) {   // switch only when the followed goblin has been quiet 6 s, another one fought in the last 2.5 s, and the last switch is 5 s old
+    if (!S.auto || now - S.autoAt < 5000) return;
+    const quiet = S.tgt == null || !(now - (S.fight[S.tgt] || 0) < 6000); if (!quiet) return;
+    let best = null, bt = now - 2500; for (const id of alive()) if ((S.fight[id] || 0) > bt) { bt = S.fight[id]; best = id; }
+    if (best != null && best !== S.tgt) { S.tgt = best; S.ang = 0; S.autoAt = now; barPaint(); }
+  }
+  // RECAP-END
+  function cycle(dir) { S.auto = false; /* RECAP: manual choice */ const l = alive(); if (!l.length) return; const i = l.indexOf(S.tgt); S.tgt = l[i < 0 ? (dir > 0 ? 0 : l.length - 1) : (i + dir + l.length) % l.length]; S.ang = 0; barPaint(); }
   function barPaint() {
     if (!S.bar) return; const l = alive(), a = S.tgt != null && actors.get(S.tgt);
     const wh = a ? 'Spectating <b style="color:' + GOLDC + '">' + esc(nameOfId(S.tgt)) + '</b>' : 'Nobody left to watch'; if (S.whoH !== wh) { S.whoH = wh; S.bar.querySelector('.who').innerHTML = wh; }
-    S.bar.querySelector('.hint').textContent = l.length > 1 || (l.length === 1 && l[0] !== S.tgt) ? '← → switch goblin · drag to look' : 'drag to look around';
+    S.bar.querySelector('.hint').textContent = (l.length > 1 || (l.length === 1 && l[0] !== S.tgt) ? '← → switch goblin · drag to look' : 'drag to look around') + (S.auto ? ' · following the action' : '');   // RECAP: director on
   }
   function startSpec(info) {
     css(); if (S.spec) return; S.spec = true; if (deathEl) deathEl.style.display = 'none';
@@ -4869,6 +4893,7 @@ GK.fun = (() => {
   }
   function camera(c, dt) {   // third-person orbit around the followed goblin; returns true when it placed the camera
     if (!S.spec) return false;
+    director(performance.now());   // RECAP
     let a = S.tgt != null ? actors.get(S.tgt) : null;
     const deadNow = S.tgt != null && S.board && S.board.rows.some(r => r[0] === S.tgt && !r[4]);
     if (!a || deadNow) { const l = alive(); if (l.length) { S.tgt = l[0]; a = actors.get(S.tgt); S.ang = 0; barPaint(); } else if (!a) return false; }
@@ -4894,6 +4919,7 @@ GK.fun = (() => {
       + (w ? line('Winner', esc(w.name) + ' <small style="color:#aaa59d">' + esc(gname(w.goblin)) + '</small>') : '')
       + (t ? line('Top killer', esc(t.name) + ' <small style="color:#aaa59d">' + t.kills + (t.kills === 1 ? ' kill' : ' kills') + '</small>') : '')
       + (l ? line('Longest survivor', esc(l.name) + ' <small style="color:#aaa59d">' + mmss(l.secs) + '</small>') : '') + '</div>'
+      + (window.GKRECAP ? GKRECAP.awardsHtml(e.aw) : '') + (window.GKDAILY ? GKDAILY.cardHtml() : '')   // RECAP: highlights; DAILY: today's challenges
       + '<div style="margin-top:14px;padding-top:10px;border-top:1px solid rgba(255,255,255,.12);display:grid;grid-template-columns:auto 1fr auto auto;gap:3px 12px;font-size:13px;font-variant-numeric:tabular-nums">'
       + e.places.map(p => { const c = p.id === me ? GOLDC : '#cfd3dc'; return '<span style="color:#8d887f">#' + p.place + '</span><span style="color:' + c + '">' + esc(p.name) + '</span><span style="color:' + c + '">' + p.kills + ' K</span><span style="color:#8d887f">' + mmss(p.secs) + '</span>'; }).join('') + '</div>'
       + '<div style="display:flex;gap:10px;margin-top:18px"><button class="gkFunBtn o" id="gkEndX" style="flex:1">CLOSE</button><button class="gkFunBtn g" id="gkEndQ" style="flex:1">REQUEUE</button><button class="gkFunBtn w" id="gkEndM" style="flex:1">MAIN MENU</button></div></div>';
@@ -4910,6 +4936,7 @@ GK.fun = (() => {
   function onMsg(d) {
     if (d.players) { const m = d.players.find(p => p.id === me); if (m && m.name) S.myName = m.name; for (const p of d.players) if (p.name) S.names[p.id] = p.name; }
     if (d.feed) feed(d.feed);
+    if (d.hit && !d.hit.thorns) { const t = performance.now(); S.fight[d.hit.from] = t; S.fight[d.hit.to] = t; }   // RECAP: the director's "who is fighting"
     if (d.board) { S.board = d.board; for (const r of d.board.rows) S.names[r[0]] = r[1]; if (S.sbOn) paintBoard(); if (S.spec) barPaint(); }
     if (d.sudden && !S.sudden) suddenBanner();
     if (d.matchEnd) matchEnd(d.matchEnd);

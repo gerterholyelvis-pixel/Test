@@ -435,13 +435,13 @@ function die(ws, p) { // a dead player drops everything where they fell and leav
   m.deaths = (m.deaths || 0) + 1; p.dead = true; p.diedAt = Date.now(); m.dead.push(p);
   if (ws && ws.readyState === 1) m.specs.set(ws, p);   // FUN: a dead human stays subscribed as a spectator (snapshots, hits, feed) until the socket closes
   addDrop(m, p, [...items, brain, ...elixirDeath(m, p)]);   // ELIXIR: carried elixir drops as a flask, the home dies
-  sendTo(ws, { died: { items, brain, by: p.killedBy || null, ...(p.killer ? { killer: p.killer } : null), st: statBlock(m, p) } });   // STATS: st = this goblin's tallies   // killer: { name, npc, w } for the death card
+  sendTo(ws, { died: { items, brain, by: p.killedBy || null, ...(p.killer ? { killer: p.killer } : null), st: statBlock(m, p), ...recapDied(p) } });   // RECAP: rc = damage by source + a tip   // STATS: st = this goblin's tallies   // killer: { name, npc, w } for the death card
   leave(m, ws);
 }
 // FUN-BEGIN (kill feed, board, spectators, match summary; see docs/reports/fun.md)
 function sendFeed(m, killer, victim) {   // {feed:{k,v,w,f}}: killer name, victim name, weapon name, weapon family (the client picks the verb); mystery-enemy kills carry npc:1
   const w = killer.npc ? null : killer.inv && killer.inv.weapon && G.ITEMS[killer.inv.weapon];
-  bcast(m, { feed: { k: killer.name || 'Goblin', v: victim.name || 'Goblin', w: w ? w.name : '', f: killer.npc ? '' : w ? w.family : 'fist', ...(killer.npc ? { npc: 1 } : null) } });
+  bcast(m, { feed: { k: killer.name || 'Goblin', v: victim.name || 'Goblin', w: w ? w.name : '', f: killer.npc ? '' : w ? w.family : 'fist', ...(killer.npc ? { npc: 1 } : null), ...recapFeed(victim) } });   // RECAP: a (assists), st (streak), mk (multi-kill), sh (ended streak)
 }
 function boardRows(m) {   // [id, name, goblin, kills, alive, wins, bot]
   const rows = []; for (const p of m.players.values()) if (!p.npc) rows.push(p); for (const p of m.dead) rows.push(p);
@@ -457,7 +457,7 @@ function endMatch(m, winner) {   // once per match: {matchEnd:{winner, top, long
   const places = order.map((p, i) => ({ id: p.id, name: p.name, goblin: p.goblin, bot: p.bot ? 1 : 0, place: i + 1, kills: p.kills || 0, secs: secs(p) }));
   const top = places.slice().sort((a, b) => b.kills - a.kills || a.place - b.place)[0] || null;
   const run = places.filter(r => r.place > 1).sort((a, b) => b.secs - a.secs || a.place - b.place)[0] || null;   // longest survivor besides the winner (who survived by definition)
-  const w = places[0] || null, msg = JSON.stringify({ matchEnd: { ...(m.timeLimit ? { timeLimit: 1 } : null), ...(m.crownWin ? { crown: 1 } : null), ...(m.decision ? { decision: m.decision } : null), winner: w && { id: w.id, name: w.name, goblin: w.goblin, bot: w.bot, kills: w.kills }, top, longest: run, places, size: places.length, stats: statBlocks(m, order) } });   // STATS: stats = { playerId: block } for the human players
+  const w = places[0] || null, msg = JSON.stringify({ matchEnd: { ...(m.timeLimit ? { timeLimit: 1 } : null), ...(m.crownWin ? { crown: 1 } : null), ...(m.decision ? { decision: m.decision } : null), winner: w && { id: w.id, name: w.name, goblin: w.goblin, bot: w.bot, kills: w.kills }, top, longest: run, places, size: places.length, stats: statBlocks(m, order), ...recapAwards(order) } });   // RECAP: aw = highlights   // STATS: stats = { playerId: block } for the human players
   bcast(m, msg);
   KS5.ended(m, winner);   // KEEP: survivors who did not win get the small consolation
   if (!m.specs.size && !humans(m)) matches.delete(m.id);
@@ -788,13 +788,14 @@ function hitTarget(m, ws, p, tws, t, dmg, now, wname, opts) {   // damage, hit b
   let hp = Math.max(0, t.stats.health - dmg);
   if (hp <= 0 && !t.npc && !t.swUsed && G.hasPerk(t.perks, 'secondwind')) { hp = 1; t.swUsed = true; sendTo(t.ws, { secondWind: 1 }); }   // KNOWLEDGE: Second Wind
   statHit(p, t, t.stats.health - hp);   // STATS
+  recapHit(p, t, t.stats.health - hp, now, wname, opts, cue);   // RECAP
   t.stats.health = hp; t.hurtAt = now; t.hitBy = p.id; m.dirty = true;   // hitBy: a bot notices whoever hurt it at once
   H5.hurt(m, t);   // HALLS: a hit breaks a search
   A5.hurt(m, t, p);   // ACT5: a hit breaks channels and drops carried sacks / buckets
   bcast(m, { hit: { from: p.id, to: t.id, dmg, hp, max: t.stats.maxHealth, dead: hp <= 0, ...(opts && opts.bleed ? { bleed: 1 } : null), ...cue, ...(opts && opts.hg ? { hg: 1 } : null), ...(opts && opts.heavy ? { heavy: 1 } : null), ...(opts && opts.c4x ? opts.c4x : null) } });   // COMBAT4: c4x = { sq, st, kb, blk, k } (swing id, stagger ms, knockback, blocked, projectile kind)
   const th = opts && opts.melee && hp > 0 && !p.dead ? G.armorThorns(t.inv && t.inv.armor) + A5.reflect(m, t, dmg) : 0;   /* ACT5: + the Thorns blessing */   // ARMOUR-3: thorns hurt a melee attacker (never lethal, so no kill bookkeeping is needed)
   if (th && p.stats.health > 1) { const ph = Math.max(1, p.stats.health - th); p.stats.health = ph; p.hurtAt = now; bcast(m, { hit: { from: t.id, to: p.id, dmg: th, hp: ph, max: p.stats.maxHealth, dead: false, thorns: 1 } }); }
-  if (hp <= 0) { p.kills = (p.kills || 0) + 1; const bounty = paceBounty(p, t); t.killedBy = p.id; { const kw = p.npc ? null : p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; t.killer = { name: p.name || 'Goblin', npc: !!p.npc, w: wname || (kw ? kw.name : (p.npc ? '' : 'Fists')) }; } sendTo(ws, { kills: p.kills, ...(bounty ? { bounty } : null) }); mutKill(m, p, t); sendFeed(m, p, t); die(tws, t); }
+  if (hp <= 0) { p.kills = (p.kills || 0) + 1; const bounty = paceBounty(p, t); t.killedBy = p.id; { const kw = p.npc ? null : p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; t.killer = { name: p.name || 'Goblin', npc: !!p.npc, w: wname || (kw ? kw.name : (p.npc ? '' : 'Fists')) }; } sendTo(ws, { kills: p.kills, ...(bounty ? { bounty } : null) }); mutKill(m, p, t); recapKill(m, p, t, now); /* RECAP */ sendFeed(m, p, t); die(tws, t); }
   return true;   // ABILITY: the hit landed (a heavy blow staggers only then)
 }
 function boltWeapon(p) { const w = p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; if (w && G.combat(p.inv.weapon).bolt) return true; if (!rule('staffbolt')) return false; return !!w && (w.family === 'staff' || w.family === 'scepter'); }
@@ -2903,6 +2904,18 @@ const NX = NPCX({ NPC, WORLD, equip, recalc, place, newBrain, newId: () => nextI
 // KEEP-BEGIN (what a winner keeps: keep.js rules, keepsrv.js tokens / store / POST /keep; docs/reports/keep-on-win.md)
 const KS5 = require('./keepsrv.js')({ G, sign, b64u, DBG, sendTo, recalc, isHum, statBlock, matches, originOk, ipOf, fs, path });
 // KEEP-END
+// RECAP-BEGIN (death recap, assist credit, kill streaks, match highlights: pure rules in client/recap5.js; docs/reports/research-game.md)
+// Hooks: hitTarget (recapHit on every landed hit, recapKill before sendFeed), sendFeed (...recapFeed), die ({died}.rc), endMatch ({matchEnd}.aw).
+const RC5 = require('./client/recap5.js');
+function recapHit(p, t, lost, now, wname, opts, cue) { try { RC5.note(t, p, lost, now, wname || recapWeapon(p), { bs: cue && cue.bs, bleed: opts && opts.bleed, heavy: opts && opts.heavy, hg: opts && opts.hg }); } catch (e) {} }
+function recapWeapon(p) { if (p.npc) return ''; const w = p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; return w ? w.name : 'Fists'; }
+function recapKill(m, p, t, now) {   // streaks, multi-kills, shutdowns, assists; the assisters hear {assist: total} so the client can count them
+  try { const x = RC5.kill(p, t, now); if (x.ax) { for (const id of x.ax) { const q = [...m.players.values()].find(o => o.id === id); if (q) sendTo(q.ws, { assist: RC5.credit(q) }); } delete x.ax; } t.rc5fx = x; } catch (e) { t.rc5fx = null; }
+}
+function recapFeed(victim) { const x = victim && victim.rc5fx; if (victim) victim.rc5fx = null; return x || null; }
+function recapDied(p) { try { return { rc: RC5.died(p, Date.now()) }; } catch (e) { return null; } }
+function recapAwards(order) { try { const aw = RC5.awards(order.filter(p => p && !p.npc).map(RC5.rowOf)); return aw.length ? { aw } : null; } catch (e) { return null; } }
+// RECAP-END
 wss.on('connection', (ws, req) => {
   { const ip = ipOf(req); ipCount.set(ip, (ipCount.get(ip) || 0) + 1); ws.once('close', () => { const n = (ipCount.get(ip) || 1) - 1; if (n > 0) ipCount.set(ip, n); else ipCount.delete(ip); }); }   // SECURITY: per-IP socket count
   ws.on('error', () => {});
