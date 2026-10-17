@@ -1,9 +1,6 @@
 node_modules
 .claude/worktrees/
 .gk-secret
-<<<<<<< HEAD
 .gk-keep.json
 .gk-keep.json.tmp
-=======
 tests/.timings.json
->>>>>>> worktree-agent-a2f4b75834f7da133
