@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "test": "node tests/run.js",
+    "test:affected": "node tools/affected.js --run",
     "test:browser": "node tools/perfbench.js --presets low,high --views vault --frames 120 --budget",
     "gameinfo": "node tools/gameinfo.js",
     "gameinfo:pdf": "node tools/gameinfo-pdf.js"
