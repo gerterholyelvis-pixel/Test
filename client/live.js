@@ -17,7 +17,7 @@
     '.gkr-feed{position:fixed;left:14px;bottom:150px;z-index:9990;display:flex;flex-direction:column;gap:3px;pointer-events:none;font:600 16px "Barlow Condensed",Arial,sans-serif;max-width:40vw}',
     '.gkr-feed div{background:#0b0b0ecc;border-left:3px solid #f5c451;color:#efe9d8;padding:3px 9px;border-radius:0 4px 4px 0;animation:gkrIn .2s ease-out}',
     '@keyframes gkrIn{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}',
-    '.gkr-panel{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:99991;width:min(94vw,520px);max-height:88vh;overflow:auto;background:#12100aee;border:1px solid #f5c451;border-radius:8px;color:#efe9d8;font:16px/1.4 "Barlow Condensed",Arial,sans-serif;padding:16px 18px;box-shadow:0 10px 40px #000c}',
+    '.gkr-panel{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:99991;width:min(94vw,520px);max-height:88vh;overflow:auto;background:#12100af7;border:1px solid #f5c451;border-radius:8px;color:#efe9d8;font:16px/1.4 "Barlow Condensed",Arial,sans-serif;padding:16px 18px;box-shadow:0 10px 40px #000c}',
     '.gkr-panel h2{margin:0 0 8px;font-size:24px;color:#f5c451;letter-spacing:.08em;text-transform:uppercase}.gkr-panel h3{margin:12px 0 4px;font-size:15px;color:#c9b77a;letter-spacing:.1em;text-transform:uppercase}',
     '.gkr-panel p{margin:4px 0;color:#d8d0b8}.gkr-panel input{font:600 22px "Barlow Condensed",Arial,sans-serif;letter-spacing:.3em;text-transform:uppercase;width:7em;background:#0b0b0e;color:#fff;border:1px solid #6b5f3c;border-radius:4px;padding:4px 8px;text-align:center}',
     '.gkr-q{display:grid;grid-template-columns:1fr 1fr;gap:6px}.gkr-q button{text-align:left}.gkr-q b{color:#f5c451;margin-right:6px}',
@@ -28,10 +28,10 @@
 
   // ---- tiny helpers ----
   var pillEl = null;
-  function pill(msg, btns) {   // one pill at a time at the top
+  function pill(msg, btns, ttl) {   // one pill at a time at the top
     if (pillEl) pillEl.remove(); pillEl = el('div', { 'class': 'gkr-pill', role: 'alert' }); pillEl.appendChild(el('span', null, msg));
     (btns || []).forEach(function (b) { var x = el('button', b.alt ? { 'class': 'alt' } : null, b.label); x.onclick = function () { if (b.go) b.go(); if (b.close !== false && pillEl) { pillEl.remove(); pillEl = null; } }; pillEl.appendChild(x); });
-    D.body.appendChild(pillEl); return pillEl;
+    D.body.appendChild(pillEl); if (ttl) { var me = pillEl; setTimeout(function () { if (pillEl === me) { me.remove(); pillEl = null; } }, ttl); } return pillEl;
   }
   var feed = null;
   function feedLine(text, ms) { if (!feed) { feed = el('div', { 'class': 'gkr-feed', 'aria-live': 'polite' }); D.body.appendChild(feed); } var d = el('div', null, text); feed.appendChild(d); while (feed.children.length > 4) feed.firstChild.remove(); setTimeout(function () { d.remove(); }, ms || 6000); }
@@ -66,7 +66,7 @@
     var row = el('div', { style: 'display:flex;gap:10px;align-items:center;margin:12px 0;flex-wrap:wrap' }), inp = el('input', { maxlength: '6', placeholder: 'CODE', 'aria-label': 'Room code', autocomplete: 'off', spellcheck: 'false' });
     inp.value = room; inp.addEventListener('keydown', function (e) { e.stopPropagation(); });
     var join = el('button', { 'class': 'gkr-btn' }, 'Use this code'), make = el('button', { 'class': 'gkr-btn alt' }, 'Make a new code');
-    make.onclick = function () { inp.value = newCode(); }; join.onclick = function () { var c = inp.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); if (!ROOM_RE.test(c)) { inp.style.borderColor = '#d33'; return; } setRoom(c); closeDlg(); pill('Room ' + c + ' is set. Press Start, then tell your friends the code.', [{ label: 'OK' }]); };
+    make.onclick = function () { inp.value = newCode(); }; join.onclick = function () { var c = inp.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); if (!ROOM_RE.test(c)) { inp.style.borderColor = '#d33'; return; } setRoom(c); closeDlg(); pill('Room ' + c + ' is set. Press Start, then tell your friends the code.', [{ label: 'OK' }], 10000); };
     row.appendChild(inp); row.appendChild(join); row.appendChild(make); dlg.appendChild(row);
     var foot = el('div', { style: 'display:flex;gap:8px;justify-content:space-between' });
     var leave = el('button', { 'class': 'gkr-btn alt' }, room ? 'Back to public matches' : 'Close'); leave.onclick = function () { if (room) setRoom(''); closeDlg(); };
