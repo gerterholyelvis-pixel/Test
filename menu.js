@@ -98,15 +98,25 @@ syncUI(); GK.applySettings();
 function show(name) {
   for (const p of document.querySelectorAll('.panel')) p.classList.toggle('on', p.id === 'p-' + name);
   if (name === 'chars') renderChars(); if (name === 'inv') renderInv();
-  const f = { main: 'b-start', settings: 's-back', controls: 'c-back', chars: 'ch-back', inv: 'inv-back' }[name];
+  if (name === 'stats') renderStats();   // STATS
+  const f = { main: 'b-start', settings: 's-back', controls: 'c-back', chars: 'ch-back', inv: 'inv-back', stats: 'st-back' }[name];
   setTimeout(() => { const first = name === 'chars' && document.querySelector('#chars-list .cplay'); const el = first || $(f); el && el.focus({ preventScroll: true }); }, 30);
   if (name === 'main') $('b-start').focus();
   curPanel = name; document.querySelector('#menu .col').classList.toggle('sub', name !== 'main'); $('menu').classList.toggle('sub', name !== 'main');
-  document.querySelector('#menu .col').classList.toggle('wide', name === 'chars' || name === 'inv'); document.querySelector('#menu .col').classList.toggle('xwide', name === 'settings' || name === 'controls'); tip(null);
+  document.querySelector('#menu .col').classList.toggle('wide', name === 'chars' || name === 'inv'); document.querySelector('#menu .col').classList.toggle('stats', name === 'stats'); document.querySelector('#menu .col').classList.toggle('xwide', name === 'settings' || name === 'controls'); tip(null);
 }
 let curPanel = 'main';
 $('b-settings').onclick = () => show('settings'); $('b-controls').onclick = () => show('controls');
 $('b-chars').onclick = () => show('chars'); $('b-inv').onclick = () => show('inv');
+{ const cx = $('b-codex'); if (cx) cx.onclick = () => { window.open('/codex', '_blank', 'noopener'); }; }   // CODEX: the reference page (server.js /codex), in a new tab so the menu and any queue stay put
+// STATS-BEGIN: the Stats screen (statsui.js draws it); Reset stats asks for confirmation in the page itself
+function renderStats() { stConfirm(false); try { GKSTATSUI.render($('stats-sheet'), { portrait: portraitEl }); } catch (e) { console.warn('stats failed', e); $('stats-sheet').textContent = 'Stats are not available.'; } }
+function stConfirm(on) { $('st-confirm').hidden = !on; $('st-btns').style.display = on ? 'none' : ''; if (on) $('st-no').focus(); else if (curPanel === 'stats' && document.activeElement && document.activeElement.id === 'st-yes') $('st-back').focus(); }
+$('b-stats').onclick = () => show('stats'); $('st-back').onclick = () => show('main');
+$('st-reset').onclick = () => { stConfirm(true); };
+$('st-no').onclick = () => { stConfirm(false); $('st-reset').focus(); };
+$('st-yes').onclick = () => { try { GKSTATSUI.reset(); } catch (e) {} renderStats(); $('st-back').focus(); };
+// STATS-END
 $('s-back').onclick = $('c-back').onclick = $('ch-back').onclick = $('inv-back').onclick = () => show('main');
 
 // ---------- characters + inventory panels ----------
@@ -258,6 +268,7 @@ function renderInv() {
 }
 addEventListener('keydown', e => {
   if (GK.mode === 'play' || !$('menu') || $('menu').classList.contains('gone')) return;
+  if (e.key === 'Escape' && curPanel === 'stats' && !$('st-confirm').hidden) { stConfirm(false); $('st-reset').focus(); e.preventDefault(); return; }   // STATS: Esc first closes the confirmation
   if (e.key === 'Escape' && curPanel !== 'main') { show('main'); e.preventDefault(); }
   if (curPanel === 'main' && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
     const b = [...document.querySelectorAll('#p-main .mbtn')], i = b.indexOf(document.activeElement);

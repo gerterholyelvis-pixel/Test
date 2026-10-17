@@ -336,6 +336,7 @@ body #roundHud{font-family:var(--ui)!important}
 body #roundHud .t{padding:4px 26px 6px!important;font-family:var(--disp)!important;font-weight:700!important;font-size:clamp(20px,2.8vw,36px)!important;letter-spacing:.1em!important;color:var(--gk-txt)!important;text-shadow:none!important;border-left:1px solid var(--gk-line)!important;border-top:3px solid var(--gk-accent-dim)!important;border-bottom:0!important;border-right:1px solid var(--gk-line)!important}
 body #roundHud .t.warn{color:var(--gk-bad)!important;border-top-color:var(--gk-bad)!important;background:linear-gradient(180deg,rgba(40,10,8,.94),rgba(24,6,6,.86))!important}
 body #roundHud .b{font-family:var(--disp)!important;font-weight:700!important;font-size:clamp(22px,3.6vw,44px)!important}
+body #roundHud .h{border-radius:var(--gk-r)!important;background:linear-gradient(180deg,var(--gk-bg-hi),var(--gk-bg))!important;border:1px solid var(--gk-line)!important;border-left:3px solid var(--gk-accent-dim)!important;color:var(--gold2)!important;font-weight:600!important;font-size:var(--gk-fs-md)!important;letter-spacing:.06em!important;text-shadow:none!important;box-shadow:var(--gk-shadow)!important}
 /* minimap frame */
 #gkMM{border-left-width:1px!important;border-top:3px solid var(--gk-accent-dim)!important;overflow:hidden}
 #gkMMBig canvas{border:1px solid var(--gk-line-hi)!important;border-radius:var(--gk-r)!important}
@@ -411,7 +412,9 @@ body[data-gfx=low] .lg-glint{animation:none;opacity:0}
  background:linear-gradient(90deg,rgba(14,11,9,.66),rgba(14,11,9,.2) 78%,transparent);animation:btnIn .6s cubic-bezier(.2,.8,.2,1) backwards;
  transition:transform .25s cubic-bezier(.2,.8,.2,1),color .2s,background .25s}
 #p-main .mbtn:nth-child(1){animation-delay:.45s}#p-main .mbtn:nth-child(2){animation-delay:.52s}#p-main .mbtn:nth-child(3){animation-delay:.59s}
-#p-main .mbtn:nth-child(4){animation-delay:.66s}#p-main .mbtn:nth-child(5){animation-delay:.73s}#p-main .mbtn:nth-child(6){animation-delay:.8s}
+#p-main .mbtn:nth-child(4){animation-delay:.66s}#p-main .mbtn:nth-child(5){animation-delay:.73s}#p-main .mbtn:nth-child(6){animation-delay:.8s}#p-main .mbtn:nth-child(7){animation-delay:.87s}#p-main .mbtn:nth-child(8){animation-delay:.94s}
+/* CODEX: with 7 or 8 menu buttons the column must still fit a 720 px window: slightly shorter rows and gaps */
+#p-main .btns{gap:clamp(6px,1.3vh,14px)}#p-main .btns .mbtn{--h:clamp(34px,5.6vh,60px)}
 @keyframes btnIn{from{opacity:0;transform:translateX(-22px)}to{opacity:1;transform:none}}
 #p-main .mbtn::before{content:"";position:absolute;inset:auto;left:10px;top:50%;width:9px;height:9px;margin-top:-4.5px;z-index:auto;background:linear-gradient(135deg,var(--gold2),var(--gold3));opacity:.35;transform:rotate(45deg) scale(.55);transition:transform .3s cubic-bezier(.2,.8,.2,1),opacity .25s}
 #p-main .mbtn::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:linear-gradient(90deg,rgba(245,196,81,.55),rgba(245,196,81,.1) 82%,transparent);transition:opacity .25s}
@@ -435,6 +438,46 @@ body:not(.menu):not(.rolling) #tcurtain{display:none}
 body:not(.tready) #menu h1.title,body:not(.tready) #p-main .mbtn{animation-play-state:paused}
 #tcurtain.go{background:radial-gradient(ellipse at 62% 46%,#fff0c0 0%,#ffb84a 30%,#3a1a06 80%);animation:curtainGo .95s ease-in-out both}
 @keyframes curtainGo{0%{opacity:0}35%{opacity:.85}100%{opacity:0}}
+
+/* STATS-BEGIN: the Stats screen of the title menu (markup #p-stats, rendered by statsui.js) and the compact last-match line on the death / victory card */
+#p-main .mbtn:nth-child(7){animation-delay:.87s}
+#p-main .mbtn{--h:clamp(36px,6.7vh,58px)}   /* seven entries now: a little lower so the list clears the footer line at 1080p */
+#menu .col.stats{width:min(900px,94vw)}
+#stats-sheet{outline:0}#stats-sheet:focus-visible{border-color:var(--gold)}
+.st-hero{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--s2);margin-bottom:var(--s3)}
+.st-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:var(--s2) 6px;border:1px solid rgba(245,196,81,.2);background:rgba(255,255,255,.03);text-align:center;min-width:0}
+.st-tile b{font-family:var(--ui);font-weight:700;font-size:clamp(30px,6.2vh,54px);line-height:1;color:var(--gold2);text-shadow:0 0 16px rgba(245,170,50,.3);font-variant-numeric:tabular-nums}
+.st-tile span{margin-top:6px;font-size:var(--t1);letter-spacing:.24em;text-transform:uppercase;color:var(--mut)}
+.st-tile i{font-style:normal;font-size:var(--t1);letter-spacing:.06em;color:var(--teal)}
+.st-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:var(--s3) calc(var(--s3) * 1.6)}
+.st-g h3,h3.st-h{margin:0 0 var(--s1);padding-bottom:var(--s1);font:700 var(--t1)/1 var(--ui);letter-spacing:.34em;text-transform:uppercase;color:var(--gold);border-bottom:1px solid var(--edge);display:flex;align-items:center;gap:10px}
+.st-g h3::before,h3.st-h::before{content:"";width:8px;height:8px;background:var(--gold);transform:rotate(45deg);box-shadow:0 0 8px var(--glow);flex:none}
+h3.st-h{margin-top:var(--s3)}
+.st-rows{display:grid;grid-template-columns:1fr auto;gap:var(--s1) var(--s2);margin:0;font-variant-numeric:tabular-nums}
+.st-rows dt{font-size:var(--t2);color:var(--mut)}.st-rows dd{margin:0;text-align:right;font-size:var(--t2);color:var(--txt);font-weight:600}
+.st-fav{display:flex;align-items:center;gap:var(--s2);margin:var(--s1) 0 var(--s2)}
+.st-fav div{display:flex;flex-direction:column;min-width:0}.st-fav span{font-size:var(--t1);letter-spacing:.22em;text-transform:uppercase;color:var(--mut)}
+.st-fav b{font-size:var(--t3);color:var(--gold2);font-weight:700;letter-spacing:.04em}.st-fav i{font-style:normal;font-size:var(--t1);color:#e8c9a8}
+.st-fav .cport{width:52px;height:52px;flex:none;box-shadow:none;border-width:1px}
+.st-chart{display:block;width:100%;height:auto;max-height:340px;margin:var(--s1) 0 var(--s2)}
+.st-chart .c-w{fill:var(--gold)}.st-chart .c-l{fill:#6b6455}.st-chart .c-bg{fill:rgba(255,255,255,.05)}
+.st-chart text{font:600 13px var(--ui);fill:var(--txt);letter-spacing:.03em}.st-chart .c-t{fill:var(--mut);font-size:12px}.st-chart .c-n.off{fill:#7d7767}.st-chart .c-v{fill:var(--mut);font-variant-numeric:tabular-nums}
+.st-tbl{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:var(--t2);margin-top:var(--s1)}
+.st-tbl caption{text-align:left;padding:0 0 var(--s1);font-size:var(--t1);letter-spacing:.22em;text-transform:uppercase;color:var(--mut)}
+.st-tbl th{padding:4px 8px;text-align:right;font:700 var(--t1)/1.2 var(--ui);letter-spacing:.18em;text-transform:uppercase;color:var(--mut);border-bottom:1px solid var(--edge)}
+.st-tbl td{padding:4px 8px;text-align:right;color:var(--txt);border-bottom:1px solid rgba(255,255,255,.05)}
+.st-tbl th:first-child,.st-tbl td:first-child{text-align:left}
+.st-tbl tr.off td{color:#7d7767}.st-tbl tr.won td:nth-child(3){color:var(--gold2);font-weight:700}
+.st-recent th,.st-recent td{text-align:left}.st-recent td:nth-child(4),.st-recent td:nth-child(5),.st-recent th:nth-child(4),.st-recent th:nth-child(5){text-align:right}
+.st-none,.st-foot{margin-top:var(--s2);font-size:var(--t1);letter-spacing:.06em;color:var(--mut)}
+.st-empty{margin:0 0 var(--s3)}
+.stconf{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:var(--s2);padding:var(--s2) var(--s3);border:1px solid rgba(255,106,42,.5);border-left:3px solid var(--ember);background:rgba(255,106,42,.08);font-size:var(--t2);color:#f0d6bd}
+.stconf[hidden]{display:none}.stconf span{flex:1 1 260px}
+.st-last{margin-top:var(--s2);padding:var(--s2) 0 0;border-top:1px solid var(--edge);text-align:left}
+.st-l1{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:baseline;font-size:var(--t2);color:var(--mut)}.st-l1 b{font-size:var(--t3);color:var(--gold2)}
+.st-l2{margin-top:4px;font-size:var(--t1);letter-spacing:.06em;color:var(--mut)}
+@media (max-width:640px){.st-hero{grid-template-columns:repeat(2,1fr)}.st-recent th:nth-child(1),.st-recent td:nth-child(1){white-space:nowrap}}
+/* STATS-END */
 /* TITLE2-END */
 @media (max-width:720px),(max-height:560px){body #roundHud .b{display:none!important}#gkLeft>div{min-width:0;font-size:var(--gk-fs-sm)!important;padding:5px 10px!important}#gkMM{top:60px!important;transform:scale(.7);transform-origin:top right}#rr{height:28px}}
 </style>
@@ -498,12 +541,14 @@ body:not(.tready) #menu h1.title,body:not(.tready) #p-main .mbtn{animation-play-
   <div class="panel on" id="p-main"><div class="btns">
    <button class="mbtn primary" id="b-start">Start<span class="ar">&#9654;</span></button>
    <button class="mbtn" id="b-chars">Characters<span class="ar">&#9654;</span></button>
+   <button class="mbtn" id="b-stats">Stats<span class="ar">&#9654;</span></button><!-- STATS -->
    <button class="mbtn" id="b-inv">Inventory<span class="ar">&#9654;</span></button>
    <button class="mbtn" id="b-settings">Settings<span class="ar">&#9654;</span></button>
    <button class="mbtn" id="b-controls">Controls<span class="ar">&#9654;</span></button>
    <!-- TIPS -->
    <button class="mbtn" id="b-howto">How to play<span class="ar">&#9654;</span></button>
    <!-- /TIPS -->
+   <!-- CODEX --><button class="mbtn" id="b-codex" type="button" title="Every item, goblin, number and odds in the game (opens in a new tab)">Codex<span class="ar">&#9654;</span></button><!-- /CODEX -->
   </div></div>
 
   <div class="panel" id="p-chars">
@@ -515,6 +560,15 @@ body:not(.tready) #menu h1.title,body:not(.tready) #p-main .mbtn{animation-play-
    </div>
    <div class="brow"><button class="mbtn small" id="ch-back">Back</button></div>
   </div>
+
+  <!-- STATS-BEGIN -->
+  <div class="panel" id="p-stats">
+   <h2 class="ph">Stats</h2>
+   <div class="sheet" id="stats-sheet" tabindex="0" aria-label="Lifetime stats"></div>
+   <div class="stconf" id="st-confirm" role="alertdialog" aria-labelledby="st-ctext" hidden><span id="st-ctext">Erase all of your stats? Saved characters and the stash are kept. This cannot be undone.</span><button class="mbtn small" id="st-no" type="button">Keep stats</button><button class="mbtn small" id="st-yes" type="button">Erase stats</button></div>
+   <div class="brow" id="st-btns"><button class="mbtn small" id="st-back">Back</button><button class="mbtn small" id="st-reset">Reset stats</button></div>
+  </div>
+  <!-- STATS-END -->
 
   <div class="panel" id="p-inv">
    <h2 class="ph">Inventory</h2>
@@ -593,7 +647,7 @@ body:not(.tready) #menu h1.title,body:not(.tready) #p-main .mbtn{animation-play-
      <tr><td><span class="kc">Esc</span></td><td>Close a panel / release the mouse</td></tr>
      <tr><td><span class="kc">Click</span></td><td>Capture the mouse</td></tr>
     </table>
-    <div class="note">Each round, pick a door on your room's control panel. It opens when the timer hits 0:00. Vault doors need picks from 2 different rooms.</div>
+    <div class="note">Round 1 is spent in your base (craft, recycle, brew); the arena opens in round 2. Each round, pick a door on your room's control panel. It opens when the timer hits 0:00. Vault doors need picks from 2 different rooms.</div>
    </div>
    <div class="brow"><button class="mbtn small" id="c-back">Back</button></div>
   </div>
@@ -620,7 +674,7 @@ body:not(.tready) #menu h1.title,body:not(.tready) #p-main .mbtn{animation-play-
  </div>
 </div>
 
-<script src="/audio.js"></script><script src="/feel.js"></script><script src="/vfx.js"></script><script src="/hud5.js"></script><script src="/world.js"></script><script src="/items.js"></script><script src="/save.js"></script><script src="/icons.js"></script><script src="/homebase.js"></script><script src="/homeui.js"></script><script src="/act5ui.js"></script>
+<script src="/audio.js"></script><script src="/feel.js"></script><script src="/vfx.js"></script><script src="/hud5.js"></script><script src="/world.js"></script><script src="/items.js"></script><script src="/stats.js"></script><script src="/save.js"></script><script src="/statsui.js"></script><script src="/icons.js"></script><script src="/homebase.js"></script><script src="/homeui.js"></script><script src="/act5ui.js"></script>
 <script type="module">
 import * as THREE from 'three';
 window.THREE = THREE;

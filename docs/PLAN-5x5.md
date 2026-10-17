@@ -429,6 +429,7 @@ It keeps working:
   - `trapped(room, isOpenFn, roomDoors, vaultDoors, skip)` skips **homes** (their doorway is always open, and the trap check moves to the arena cell outside) and the vault.
   - `isExit` excludes hatches. So a hall whose only open way is the hatch back home counts as trapped and gets an arena door after `TRAP_MS`. A goblin can never be stuck in home + cell for 2 minutes.
   - **Round 1:** everyone steps from home into their cell. 5 s later the guard opens one arena door per occupied cell. Round 1 is never dead.
+  - **Superseded by the home phase (docs/reports/home-phase.md):** round 1 is spent at home with every hatch shut and the guard exempt; round 2 opens the hatches and one exit per occupied home's cell at once.
 - **Dev fast-forward:** `{dbgFF:1}` is honoured only if `DBG && m.phase === 'play' && m.started && !m.ended`. It sets `m.endsAt = Math.min(m.endsAt, now + 10000)` and calls `broadcastRound(m)`. Otherwise it is ignored silently (and counted by the security fuzz).
 - **New match state:**
   - `m.layout` (16)
