@@ -1,0 +1,31 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>icon lab</title>
+<style>html,body{margin:0;background:#16171c}</style>
+<script type="importmap">{"imports":{"three":"/three/three.module.js","three/addons/":"/three/addons/"}}</script></head>
+<body>
+<script src="/items.js"></script><script src="/icons.js"></script>
+<script type="module">
+// Dev page for tools/icon-sheet.js: bakes only the wanted item icons (no game boot) and draws a contact sheet through GKICONS.canvas (frame included).
+//   ?px=160 (bake size)  &filter=armor|util|charm|part|weapon|all|key,key  &cell=160  &cols=8  &small=1 (adds a 40 px strip)  &bg=#16171c
+import * as THREE from 'three';
+const q = new URLSearchParams(location.search), PXN = +q.get('px') || 160;
+window.GK_ICON_PX = PXN;
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); renderer.setSize(64, 64);
+await import('/itemart.js');
+const I = GKITEMS.ITEMS, f = q.get('filter') || 'all', all = GKART.keys();
+const one = (f, k) => { const it = I[k] || {}; if (f === 'all') return true; if (f === 'armor') return it.type === 'armor'; if (f === 'weapon') return it.type === 'weapon'; if (f === 'util') return k.startsWith('x:'); if (f === 'charm') return k.startsWith('c:'); if (f === 'part') return k.startsWith('part:') || k === 'gold' || k.startsWith('m:'); return f === k; }, sel = k => f.split(',').some(t => one(t, k));
+const keys = all.filter(sel);
+const t0 = performance.now();
+await GKART.bake(renderer, { keys, force: true, noCache: true, budget: 60, gap: 0 });
+const bakeMs = Math.round(performance.now() - t0);
+const cell = +q.get('cell') || 160, cols = +q.get('cols') || 8, lab = 16, small = q.get('small') === '1', rows = Math.ceil(keys.length / cols), rowH = cell + lab + (small ? 48 : 0);
+const c = document.createElement('canvas'); c.width = cols * cell; c.height = rows * rowH; const g = c.getContext('2d');
+g.fillStyle = q.get('bg') || '#1b1c22'; g.fillRect(0, 0, c.width, c.height); g.font = '600 11px system-ui,sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+keys.forEach((k, i) => {
+  const x = (i % cols) * cell, y = Math.floor(i / cols) * rowH, it = I[k] || {};
+  const ic = GKICONS.canvas(k, cell - 16); g.drawImage(ic, x + 8, y + 4, cell - 16, cell - 16);
+  g.fillStyle = '#c9c4ba'; g.fillText((it.name || k) + (it.tier ? ' · ' + it.tier[0].toUpperCase() : ''), x + cell / 2, y + cell + 4, cell - 4);
+  if (small) { const s = GKICONS.canvas(k, 40); g.drawImage(s, x + cell / 2 - 20, y + cell + 12, 40, 40); }
+});
+window.__sheet = { n: keys.length, bakeMs, url: c.toDataURL('image/png'), jpg: c.toDataURL('image/jpeg', 0.92) };
+</script></body></html>
