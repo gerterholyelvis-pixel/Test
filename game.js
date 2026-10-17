@@ -471,6 +471,7 @@ function wall(px, pz, rot, kind, len) {   // len: length of the room boundary th
   d.beamM = new THREE.MeshBasicMaterial({ map: beamTex, color: 0xffa020, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false, toneMapped: false });
   d.domeM = new THREE.MeshStandardMaterial({ color: 0x331100, emissive: 0xff2010, emissiveIntensity: 0.6 });
   d.ledM = new THREE.MeshBasicMaterial({ color: 0xff2a1a, toneMapped: false });
+  d.wallL = L;   // PERF4: wall length (the door rest bake hides a fully open sliding leaf only when the wall pocket hides it)
   d.blocker = { door: d }; addRect(px, pz, rot, -dw / 2, dw / 2, -T / 2, T / 2); Object.assign(d.blocker, rects.pop());
   rects.push(d.blocker);
 
@@ -5152,6 +5153,7 @@ function closeShop(noLock) {
 GK.openShop = openShop; GK.closeShop = closeShop;
 // hover: ray from the screen centre against GK.merchantTargets (pushed by the rooms code, userData.roomId = CHEST_ROOMS id)
 const ray = new THREE.Raycaster();
+ray.layers.enableAll();   // PERF4: merged room interiors keep their original meshes on a hidden layer; hover targets must still hit them
 let hoverKind = '';
 function setHover(id, kind) {
   if (id === hoverRoom && (kind || '') === hoverKind) return; hoverRoom = id; hoverKind = kind || '';
@@ -5740,6 +5742,7 @@ function renderWorld(t) {
   fxPrepActors();
   LAMPS.tick(t);   // 5x5: the 9 pooled lamps follow the camera
   if (cam.position.y < H) ROOMART.near(WORLD.roomKeyOf(cam.position.x, cam.position.z));   // 5x5: lazy room dressing, the camera's room and its neighbours first
+  if (PERF4.on) p4dTick();   // PERF4: doors at rest draw their baked meshes
   fxCullBegin();
   R5.tick(t);   // ROOMS5ART: lazy room art queue + update() of the visible art rooms (needs the cull set of this frame)
   const tm = renderer.toneMapping, te = renderer.toneMappingExposure;
@@ -5748,6 +5751,8 @@ function renderWorld(t) {
   else renderer.render(scene, cam);
   renderer.toneMapping = tm; renderer.toneMappingExposure = te;
   fxCullEnd();
+  if (PERF4.on) { if (P4B.on) p4bFind(); else p4mTick(); }   // PERF4: room interior merge (discovery, 1.5 ms of merging, rolling check)
+  PERF4.frameEnd();   // PERF4: GK.perfProbe (dev only; a no-op otherwise)
 }
 // keypad screens and other status displays pulse gently (found by their material signature, the builders stay untouched)
 const fxScreens = [];
@@ -6193,7 +6198,7 @@ const fxBlob = { mesh: null };
 function fxBuildBlobs() {
   const boxes = [], bb = new THREE.Box3(), ws = new Set(worldStatic), actorGroups = new Set([...actors.values()].map(a => a.group));
   for (const o of scene.children) {
-    if (ws.has(o) || actorGroups.has(o) || o === fxBlob.mesh || o.name === 'fxMerged' || o.userData.r5 || o.matrixAutoUpdate !== false) continue;   // ROOMS5ART wrappers carry their own grime
+    if (ws.has(o) || actorGroups.has(o) || o === fxBlob.mesh || o.name === 'fxMerged' || o.isBatchedMesh /* PERF4 */ || o.userData.r5 || o.matrixAutoUpdate !== false) continue;   // ROOMS5ART wrappers carry their own grime
     o.updateMatrixWorld(true);
     o.traverseVisible(c => {
       const m = c.material; if (!c.isMesh || c.isInstancedMesh || !m || Array.isArray(m) || m.transparent || !m.isMeshStandardMaterial) return;
@@ -6230,6 +6235,355 @@ function fxBuildBlobs() {
 fxBuildBlobs();
 layoutHooks.push(() => { fxCull.cls = new WeakMap(); try { fxBuildBlobs(); } catch (e) { console.warn('contact shadows skipped', e); } fxApplyQuality(true); });
 GK.gfx = { get fx() { return fx; }, cull: fxCull, merge: fxMergeStats, blob: fxBlob, quality: fxQ };   // test hook
+// PERF4-BEGIN matrix freeze (docs/reports/perf-4-client.md). ?perf4=0 switches the pass off, for before / after measurements.
+// three's per-frame scene.updateMatrixWorld() was about a quarter of all CPU: the Scene itself has matrixAutoUpdate on, so updateMatrix() flags it dirty every frame and that
+// forces a world-matrix multiply on every one of the ~9000 objects, and ~2700 nodes inside static rooms (door parts, kit groups, room art) recomposed their local matrix every frame.
+// Now: the Scene never moves (matrixAutoUpdate off, so no forced cascade; three still walks the tree and multiplies only what is dirty). Inside frozen top-level objects
+// (matrixAutoUpdate === false, the builders' convention for static rooms) every node that still has matrixAutoUpdate on is "watched" instead: its matrix is recomposed only on a
+// frame where its position / quaternion / scale actually changed (door leaves, wheels, bolts, rotors, kit rollers keep animating exactly as before, a frame never lags).
+// New or rebuilt rooms (lazy room art, layout interiors) are picked up by a rolling scan of a few top-level objects per frame.
+const PERF4 = { on: !/[?&]perf4=0/.test(location.search), watch: [], si: 0, pruneAt: 0, t0: 0, probe: null };
+GK.perf4 = PERF4;
+function perf4WatchNode(o) {
+  if (o._p4w) return; o._p4w = true; o.updateMatrix(); o.matrixAutoUpdate = false;
+  const p = o.position, q = o.quaternion, s = o.scale;
+  PERF4.watch.push({ o, px: p.x, py: p.y, pz: p.z, qx: q.x, qy: q.y, qz: q.z, qw: q.w, sx: s.x, sy: s.y, sz: s.z });
+}
+function perf4Scan(root) {   // a frozen top-level object: watch every node that still recomposes its matrix every frame
+  const st = [root];
+  while (st.length) { const o = st.pop(), ch = o.children; for (let i = 0; i < ch.length; i++) { const c = ch[i]; if (c.matrixAutoUpdate && !c.isCamera && !c._p4w) perf4WatchNode(c); if (c.children.length) st.push(c); } }
+}
+function perf4Tick() {   // before scene.updateMatrixWorld: recompose the watched nodes that moved; scan 8 top-level objects (a full sweep about every second); prune detached nodes every 3 s
+  const W = PERF4.watch;
+  for (let i = 0; i < W.length; i++) {
+    const e = W[i], o = e.o; if (o.matrixAutoUpdate) continue;   // switched back on by its owner: three recomposes it as usual
+    const p = o.position, q = o.quaternion, s = o.scale;
+    if (p.x !== e.px || p.y !== e.py || p.z !== e.pz || q.x !== e.qx || q.y !== e.qy || q.z !== e.qz || q.w !== e.qw || s.x !== e.sx || s.y !== e.sy || s.z !== e.sz) {
+      e.px = p.x; e.py = p.y; e.pz = p.z; e.qx = q.x; e.qy = q.y; e.qz = q.z; e.qw = q.w; e.sx = s.x; e.sy = s.y; e.sz = s.z; o.updateMatrix();
+    }
+  }
+  const ch = scene.children, n = ch.length;
+  for (let k = 0; k < 8 && n; k++) { const o = ch[PERF4.si++ % n]; if (o.matrixAutoUpdate === false && !o.isLight && !o.isCamera) perf4Scan(o); }
+  const now = performance.now();
+  if (now > PERF4.pruneAt) {
+    PERF4.pruneAt = now + 3000; let j = 0;
+    for (let i = 0; i < W.length; i++) { let r = W[i].o; while (r.parent) r = r.parent; if (r === scene) W[j++] = W[i]; else W[i].o._p4w = false; }
+    W.length = j;
+  }
+}
+if (PERF4.on) {
+  scene.updateMatrix(); scene.matrixAutoUpdate = false; scene.updateMatrixWorld(true);
+  const umw = THREE.Object3D.prototype.updateMatrixWorld;
+  scene.updateMatrixWorld = function (force) { perf4Tick(); umw.call(this, force); if (P4B.on) p4bSync(); else p4mCheckDrawn(); };   // every render path of the game scene (plain render, composer RenderPass) goes through this
+}
+// GK.perfProbe(frames): dev-only frame probe (?debug=1 or ?perf=1): draw calls and triangles summed over every renderer.render of a frame (composer passes included),
+// render passes, CPU ms of the game frame (frame() start to the end of renderWorld) and inside renderer.render, positive JS heap growth per frame.
+PERF4.frameEnd = () => {
+  const P = PERF4.probe; if (!P) return;
+  const now = performance.now(); P.cpu += now - PERF4.t0; P.frames++;
+  const h = performance.memory ? performance.memory.usedJSHeapSize : 0; if (P.heap && h > P.heap) P.grow += h - P.heap; P.heap = h;
+  if (P.frames >= P.n) { PERF4.probe = null; renderer.render = P.orig; renderer.info.autoReset = P.auto; const f = P.frames;
+    P.res({ frames: f, calls: Math.round(P.calls / f), tris: Math.round(P.tris / f), passes: +(P.passes / f).toFixed(1), cpuMs: +(P.cpu / f).toFixed(2), renderMs: +(P.rms / f).toFixed(2), heapKB: +(P.grow / Math.max(1, f - 1) / 1024).toFixed(1), programs: renderer.info.programs ? renderer.info.programs.length : 0, gfx: GK.settings.gfx }); }
+};
+if (/[?&](debug|perf)=1/.test(location.search)) GK.perfProbe = (n = 120) => new Promise(res => {
+  if (PERF4.probe) { res(null); return; }
+  const r = renderer, info = r.info, orig = r.render, P = PERF4.probe = { n, res, orig, auto: info.autoReset, frames: 0, calls: 0, tris: 0, passes: 0, cpu: 0, rms: 0, grow: 0, heap: 0 };
+  info.autoReset = false;
+  r.render = function (s, c) { const a = performance.now(), c0 = info.render.calls, t0 = info.render.triangles; orig.call(this, s, c); P.rms += performance.now() - a; P.calls += info.render.calls - c0; P.tris += info.render.triangles - t0; P.passes++; if (info.render.calls > 1e7) info.reset(); };
+});
+// Door rest bake. Doors were half of the draw calls of a big view (a skull door 28 calls, a vault door 41, after the PERF2 merge): PERF2 merges per moving part (wall,
+// leaf, each wheel and ring), so a material used on 4 parts costs 4 calls. A door spends nearly all its time at rest (fully closed or fully open), and at rest nothing in it
+// moves except the beacon rotors and the scanner bars. So for each rest pose the door's opaque meshes (instanced rivets and chains expanded) are baked into one mesh per
+// material in the wall group's space, built one door per frame, cached for both poses. While the door rests the bake is drawn and the live parts are hidden; the moment
+// it moves the live parts come back. Same materials (the door code keeps animating colours and lamps), same geometry, same transforms: the picture does not change.
+// Also at rest: a fully open sliding leaf sits inside the wall pocket (hidden by the wall on both faces) and is not drawn, and beacon beams whose opacity has faded to
+// zero (skull doors at rest) are not drawn. Transparent parts, sprites, lasers, scanner bars, rotors and the loot doors' swappable art always stay live.
+const P4D = { doors: [], queue: [], gfx: null, built: 0 };
+function p4dEligible(o) {
+  if (!o.isMesh || o.isSkinnedMesh || Array.isArray(o.material) || o.onBeforeRender !== FX_OBR) return false;
+  const m = o.material, g = o.geometry; if (!m || m.transparent || !g || !g.attributes.position || Object.keys(g.morphAttributes).length || g.drawRange.start || g.drawRange.count !== Infinity) return false;   // (geometry groups are ignored with a single material)
+  if (o.isInstancedMesh && (o.instanceColor || o.count < 1)) return false;
+  return !Object.values(g.attributes).some(a => a.isInterleavedBufferAttribute);
+}
+function p4dInit() {
+  for (const d of doors) {
+    if (d.hatch) continue;
+    let root = d.leaf; while (root.parent && root.parent !== scene) root = root.parent;
+    const ex = new Set(), add = o => o && o.traverse(c => ex.add(c));
+    for (const o of d.rots) add(o); for (const o of d.scan || []) add(o); for (const o of d.lasers || []) add(o); for (const o of d.merchPlates || []) add(o);
+    if (d.art) for (const k in d.art) d.art[k].forEach(add);
+    const nodes = []; root.traverse(o => { if (!ex.has(o) && p4dEligible(o)) nodes.push(o); });
+    const leafSet = new Set(); d.leaf.traverse(o => leafSet.add(o));
+    const pocket = d.slide && d.wallL && d.wallL / 2 >= (DW + 0.15) + (d.dw - 0.04) / 2 + 0.1;   // the open leaf ends inside the wall
+    d.p4 = { root, nodes, leafSet, pocket, bake: [null, null], state: -1, prevP: -1, queued: [false, false] };
+    P4D.doors.push(d);
+  }
+}
+const _p4M = new THREE.Matrix4(), _p4I = new THREE.Matrix4(), _p4R = new THREE.Matrix4();
+function p4MergeGeo(parts, names) {   // parts [{g: BufferGeometry, m: Matrix4}] with the same attribute layout -> one indexed geometry (mirrored transforms re-wound, normals by the normal matrix)
+  let nv = 0, ni = 0; for (const p of parts) { nv += p.g.attributes.position.count; ni += p.g.index ? p.g.index.count : p.g.attributes.position.count; }
+  const out = new THREE.BufferGeometry(), idx = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni);
+  const arrs = {}; for (const n of names) { const a0 = parts[0].g.attributes[n]; arrs[n] = new a0.array.constructor(nv * a0.itemSize); }
+  let vo = 0, io = 0; const v = new THREE.Vector3(), nm = new THREE.Matrix3();
+  for (const p of parts) {
+    const g = p.g, cnt = g.attributes.position.count, flip = p.m.determinant() < 0; nm.getNormalMatrix(p.m);
+    for (const n of names) {
+      const a = g.attributes[n], dst = arrs[n], sz = a.itemSize;
+      if (n === 'position' || n === 'normal' || n === 'tangent') {
+        for (let i = 0; i < cnt; i++) { v.fromBufferAttribute(a, i); if (n === 'position') v.applyMatrix4(p.m); else v.applyMatrix3(nm).normalize(); const k = (vo + i) * sz; dst[k] = v.x; dst[k + 1] = v.y; dst[k + 2] = v.z; if (sz === 4) dst[k + 3] = a.getW(i) * (flip ? -1 : 1); }
+      } else if (a.array.length >= cnt * sz) dst.set(a.array.subarray(0, cnt * sz), vo * sz);
+      else for (let i = 0; i < cnt; i++) for (let c = 0; c < sz; c++) dst[(vo + i) * sz + c] = a.getComponent(i, c);
+    }
+    if (g.index) { const ix = g.index.array, n = g.index.count; for (let i = 0; i < n; i += 3) { idx[io + i] = ix[i] + vo; idx[io + i + 1] = ix[i + (flip ? 2 : 1)] + vo; idx[io + i + 2] = ix[i + (flip ? 1 : 2)] + vo; } io += n; }
+    else { for (let i = 0; i < cnt; i += 3) { idx[io + i] = vo + i; idx[io + i + 1] = vo + i + (flip ? 2 : 1); idx[io + i + 2] = vo + i + (flip ? 1 : 2); } io += cnt; }
+    vo += cnt;
+  }
+  for (const n of names) { const a0 = parts[0].g.attributes[n]; out.setAttribute(n, new THREE.BufferAttribute(arrs[n], a0.itemSize, a0.normalized)); }
+  out.setIndex(new THREE.BufferAttribute(idx, 1)); out.computeBoundingSphere(); out.computeBoundingBox();
+  return out;
+}
+function p4dBuild(d, s) {   // bake rest pose s (0 closed, 1 open) from the current world matrices
+  const P = d.p4, root = P.root; root.updateMatrixWorld(true); _p4I.copy(root.matrixWorld).invert();
+  const buckets = new Map(), skipLeaf = s === 1 && P.pocket, used = [];
+  for (const o of P.nodes) {
+    if (skipLeaf && P.leafSet.has(o)) continue;
+    let vis = true; for (let p = o; p && p !== root; p = p.parent) if (!p.visible) { vis = false; break; } if (!vis) continue;
+    const g = o.geometry, key = o.material.uuid + '|' + o.renderOrder + '|' + o.layers.mask + '|' + Object.keys(g.attributes).sort().map(n => n + g.attributes[n].itemSize + g.attributes[n].array.constructor.name + g.attributes[n].normalized).join();
+    let b = buckets.get(key); if (!b) buckets.set(key, b = { mat: o.material, ro: o.renderOrder, layers: o.layers.mask, names: Object.keys(g.attributes), parts: [] });
+    _p4R.multiplyMatrices(_p4I, o.matrixWorld);
+    if (o.isInstancedMesh) for (let i = 0; i < o.count; i++) { o.getMatrixAt(i, _p4M); b.parts.push({ g, m: _p4R.clone().multiply(_p4M) }); }
+    else b.parts.push({ g, m: _p4R.clone() });
+    used.push(o);
+  }
+  const grp = new THREE.Group(); grp.name = 'perf4DoorBake'; grp.matrixAutoUpdate = false; grp.visible = false;
+  for (const b of buckets.values()) {
+    const m = new THREE.Mesh(p4MergeGeo(b.parts, b.names), b.mat); m.renderOrder = b.ro; m.layers.mask = b.layers; m.matrixAutoUpdate = false; m.name = 'perf4DoorBake'; grp.add(m);
+  }
+  root.add(grp); grp.updateMatrixWorld(true);
+  P.bake[s] = { grp, used, skipLeaf, gfx: GK.settings.gfx }; P4D.built++;
+}
+function p4dApply(d, s) {   // s: -1 live, 0 / 1 the rest bake of that pose
+  const P = d.p4, cur = P.state >= 0 ? P.bake[P.state] : null;
+  if (cur) { cur.grp.visible = false; for (const o of cur.used) o.visible = true; if (cur.skipLeaf) d.leaf.visible = true; }
+  const nb = s >= 0 ? P.bake[s] : null;
+  if (nb) { for (const o of nb.used) o.visible = false; nb.grp.visible = true; if (nb.skipLeaf) d.leaf.visible = false; }
+  P.state = nb ? s : -1;
+}
+function p4dTick() {   // renderWorld, before culling
+  if (!P4D.doors.length) return;
+  if (P4D.gfx !== GK.settings.gfx) {   // the preset swaps the rivet / chain meshes (PERF2 detail): rebake lazily
+    P4D.gfx = GK.settings.gfx; P4D.queue.length = 0;
+    for (const d of P4D.doors) { const P = d.p4; p4dApply(d, -1); for (let s = 0; s < 2; s++) { const b = P.bake[s]; if (b) { root4Dispose(b.grp); P.bake[s] = null; } P.queued[s] = false; } }
+  }
+  for (let i = 0; i < P4D.doors.length; i++) {
+    const d = P4D.doors[i], P = d.p4;
+    const rest = d.p === P.prevP && (d.p === 0 || d.p === 1) ? d.p : -1; P.prevP = d.p;
+    if (P4B.on) { const lv = !(rest === 1 && P.pocket); if (d.leaf.visible !== lv) d.leaf.visible = lv; for (let k = 0; k < d.rots.length; k++) { const r = d.rots[k], v = d.beamM.opacity > 0.002; if (r.visible !== v) r.visible = v; } continue; }   // batched: no bake needed, only the hidden pocket leaf and the faded beams
+    if (rest >= 0 && !P.bake[rest] && !P.queued[rest]) { P.queued[rest] = true; P4D.queue.push(d, rest); }
+    const want = rest >= 0 && P.bake[rest] ? rest : -1;
+    if (want !== P.state) p4dApply(d, want);
+    for (let k = 0; k < d.rots.length; k++) { const r = d.rots[k], v = d.beamM.opacity > 0.002; if (r.visible !== v) r.visible = v; }   // faded beacon beams draw nothing
+  }
+  if (P4D.queue.length) {   // one bake per frame (about 1 ms), only while that pose is still the door's rest pose
+    const d = P4D.queue.shift(), s = P4D.queue.shift(); d.p4.queued[s] = false;
+    if (d.p === s && d.p4.prevP === s) { try { p4dBuild(d, s); } catch (e) { console.warn('door bake skipped', e); d.p4.bake[s] = null; d.p4.nodes = []; } }
+  }
+}
+function root4Dispose(grp) { if (grp.parent) grp.parent.remove(grp); grp.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
+if (PERF4.on) try { p4dInit(); } catch (e) { console.warn('door bake off', e); P4D.doors.length = 0; }
+GK.perf4.doors = P4D;
+// Room interior merge. A loot room's kit (merchant counter, shelves, knowledge tree, workbench, recycler, chest stand...) is hundreds of small meshes: a merchant room was
+// 510 draw calls when seen through its open door. Each frozen, room-tagged top-level object is observed for 1.5 s; its opaque meshes whose world matrix, visibility,
+// material and geometry did not change are merged per material (additive glow pieces too), one material per frame-slice of about 1.5 ms. The originals stay in place
+// (raycasts, station targets, logic, userData) on a layer the camera does not draw (P4M.LAYER). A rolling check (400 originals per frame) watches them: the moment one
+// moves, hides, swaps material or geometry, or leaves the scene, its whole material group is un-merged and the originals draw again. Animated nodes are never merged.
+const P4M = { LAYER: 30, recs: new Map(), queue: [], items: [], ci: 0, si: 0, merged: 0, meshes: 0, unmerged: 0, doorRoots: null };
+const p4mSnap = o => { const e = o.matrixWorld.elements, a = new Float64Array(16); for (let i = 0; i < 16; i++) a[i] = e[i]; return a; };
+const p4mSame = (o, a) => { const e = o.matrixWorld.elements; for (let i = 0; i < 16; i++) if (e[i] !== a[i]) return false; return true; };
+function p4mEligible(o) {
+  if (!o.isMesh || o.isInstancedMesh || o.isSkinnedMesh || Array.isArray(o.material) || o.onBeforeRender !== FX_OBR || o.layers.mask !== 1) return false;
+  const m = o.material, g = o.geometry; if (!m || !g || !g.attributes.position || Object.keys(g.morphAttributes).length || g.drawRange.count !== Infinity || g.drawRange.start) return false;
+  if (m.transparent && !(m.depthWrite === false && m.blending === THREE.AdditiveBlending)) return false;   // ordinary see-through parts keep their own sort order
+  if (Object.values(g.attributes).some(a => a.isInterleavedBufferAttribute)) return false;
+  for (let p = o; p; p = p.parent) { if (!p.visible) return false; if (p.parent === scene) break; }   // visible (whether it moves is decided by watching its world matrix)
+  return true;
+}
+function p4mFind() {   // rolling discovery: 4 top-level objects per frame
+  if (!P4M.doorRoots) P4M.doorRoots = new Set(P4D.doors.map(d => d.p4.root));
+  const ch = scene.children, n = ch.length, now = performance.now();
+  for (let k = 0; k < 4 && n; k++) {
+    const o = ch[P4M.si++ % n]; if (P4M.recs.has(o) || o.matrixAutoUpdate !== false || o.isLight || P4M.doorRoots.has(o) || o.name === 'fxMerged') continue;
+    const cls = fxCull.cls.get(o); if (!cls || !cls.length) continue;   // room-tagged objects only (always-drawn ones stay as they are)
+    const cands = []; o.traverse(c => { if (c !== o && p4mEligible(c)) cands.push({ o: c, mw: p4mSnap(c), mat: c.material, geo: c.geometry, pv: c.geometry.attributes.position.version }); });
+    if (cands.length < 6) { P4M.recs.set(o, { root: o, state: 'small', n: o.children.length }); continue; }
+    P4M.recs.set(o, { root: o, state: 'observe', t: now, cands, buckets: [] });
+  }
+  for (const r of P4M.recs.values()) {   // rooms rebuilt after a layout change come back with new children: look again
+    if (r.root.parent !== scene) { for (const b of r.buckets || []) p4mUnmerge(b); P4M.recs.delete(r.root); }
+    else if (r.state === 'small' && r.root.children.length !== r.n) P4M.recs.delete(r.root);
+    else if (r.state === 'observe' && now - r.t > 1500) {
+      r.state = 'queued'; const bk = new Map();
+      for (const c of r.cands) {
+        const o = c.o; if (!p4mEligible(o) || !p4mSame(o, c.mw) || o.material !== c.mat || o.geometry !== c.geo || o.geometry.attributes.position.version !== c.pv) continue;
+        const g = o.geometry, key = o.material.uuid + '|' + o.renderOrder + '|' + Object.keys(g.attributes).sort().map(n => n + g.attributes[n].itemSize + g.attributes[n].array.constructor.name + g.attributes[n].normalized).join();
+        let b = bk.get(key); if (!b) bk.set(key, b = { rec: r, mat: o.material, ro: o.renderOrder, names: Object.keys(g.attributes), items: [], mesh: null, dead: false }); b.items.push(c);
+      }
+      r.cands = null; for (const b of bk.values()) if (b.items.length >= 2) { r.buckets.push(b); P4M.queue.push(b); }
+    }
+  }
+}
+function p4mBuild(b) {
+  const root = b.rec.root; if (root.parent !== scene) { b.dead = true; return; }
+  for (const c of b.items) if (!p4mEligible(c.o) || !p4mSame(c.o, c.mw) || c.o.material !== b.mat || c.o.geometry !== c.geo) { b.dead = true; return; }   // changed while queued: leave it live
+  _p4I.copy(root.matrixWorld).invert();
+  const parts = b.items.map(c => ({ g: c.geo, m: new THREE.Matrix4().multiplyMatrices(_p4I, c.o.matrixWorld) }));
+  const m = new THREE.Mesh(p4MergeGeo(parts, b.names), b.mat); m.renderOrder = b.ro; m.matrixAutoUpdate = false; m.name = 'perf4Merged'; m._p4m = true;
+  root.add(m); m.updateMatrixWorld(true); b.mesh = m;
+  for (const c of b.items) { c.o.layers.set(P4M.LAYER); c.b = b; P4M.items.push(c); }
+  P4M.merged += b.items.length; P4M.meshes++;
+}
+function p4mUnmerge(b) {
+  if (b.dead) return; b.dead = true; P4M.unmerged++;
+  for (const c of b.items) if (c.o.layers.mask === 1 << P4M.LAYER) c.o.layers.set(0);
+  if (b.mesh) { if (b.mesh.parent) b.mesh.parent.remove(b.mesh); b.mesh.geometry.dispose(); b.mesh = null; }
+}
+function p4mTick() {
+  p4mFind();
+  const t0 = performance.now();
+  while (P4M.queue.length && performance.now() - t0 < 1.5) { const b = P4M.queue.shift(); if (!b.dead) { try { p4mBuild(b); } catch (e) { console.warn('room merge skipped', e); p4mUnmerge(b); } } }
+  const I = P4M.items; let n = Math.min(300, I.length);
+  while (n-- > 0 && I.length) {   // rolling check of the hidden originals in rooms that are not drawn this frame (the drawn ones are checked every frame, p4mCheckDrawn)
+    if (P4M.ci >= I.length) P4M.ci = 0;
+    const c = I[P4M.ci], b = c.b;
+    if (b.dead) { I[P4M.ci] = I[I.length - 1]; I.pop(); continue; }
+    if (!p4mOk(c, b)) p4mUnmerge(b);
+    P4M.ci++;
+  }
+}
+function p4mOk(c, b) {
+  const o = c.o; if (!(o.visible && o.material === b.mat && o.geometry === c.geo && o.geometry.attributes.position.version === c.pv && o.layers.mask === 1 << P4M.LAYER && p4mSame(o, c.mw))) return false;
+  const root = b.rec.root; let p = o.parent; while (p && p !== root) { if (!p.visible) return false; p = p.parent; }
+  return p === root && root.parent === scene;
+}
+function p4mCheckDrawn() {   // inside scene.updateMatrixWorld, right after the world matrices are current and before anything is drawn: a merged room that is about to be drawn
+  if (!fxCull.active) return;   // is checked in full, so an original that just moved / hid is drawn live in this very frame
+  const vis = fxCull.vis;
+  for (const r of P4M.recs.values()) {
+    if (!r.buckets || !r.buckets.length || !r.root.visible) continue;
+    const k = fxCull.cls.get(r.root); if (!k || !fxAny(k, vis)) continue;
+    for (let i = 0; i < r.buckets.length; i++) { const b = r.buckets[i]; if (b.dead || !b.mesh) continue; for (let j = 0; j < b.items.length; j++) if (!p4mOk(b.items[j], b)) { p4mUnmerge(b); break; } }
+  }
+}
+GK.perf4.merge = P4M;
+// Static batching (WEBGL_multi_draw: Chrome / Edge; elsewhere the door bake and the room merge above do the job). Every opaque (or additive) mesh of a built-in material
+// inside a room-tagged, frozen top-level object (room shells, kits, door parts, rivets and chains, room art) is mirrored into one BatchedMesh per material: one draw
+// call per material for the whole visible world instead of one per mesh. The original stays where it is (raycasts, logic, animation) on a layer the camera does not
+// draw. Right before each frame is drawn (scene.updateMatrixWorld, after culling) the mirror follows it: an instance is drawn only when its original would be (the room
+// culler's verdict on the top-level object, every visible flag up the chain), and an original that moved (door leaves, wheels, bolts, animated kit parts) copies its
+// world matrix into its instance. A changed material or geometry, or an original that leaves the scene, drops the mirror and the original draws itself again.
+// A new batch is compiled in the background (compileAsync) before it replaces anything, so batching never stalls a frame on a shader compile.
+const P4B = { on: false, LAYER: 30, batches: new Map(), roots: new Map(), src: new WeakMap(), cand: new Map(), boot: true, si: 0, sources: 0, ready: 0, pending: 0, dropped: 0 };
+P4B.on = PERF4.on && !/[?&]batch=0/.test(location.search) && renderer.extensions.has('WEBGL_multi_draw') && !!THREE.BatchedMesh;
+const P4B_MATS = m => m.isMeshStandardMaterial || m.isMeshBasicMaterial || m.isMeshLambertMaterial || m.isMeshPhongMaterial || m.isMeshToonMaterial || m.isMeshMatcapMaterial;
+const P4B_OBC = THREE.Material.prototype.onBeforeCompile;
+function p4bEligible(o) {
+  if (!o.isMesh || o.isSkinnedMesh || o.isBatchedMesh || Array.isArray(o.material) || o.onBeforeRender !== FX_OBR || o.layers.mask !== 1 || P4B.src.has(o)) return false;
+  if (o.isInstancedMesh && (o.instanceColor || o.morphTexture)) return false;
+  const m = o.material, g = o.geometry; if (!m || !P4B_MATS(m) || m.onBeforeCompile !== P4B_OBC || m.customProgramCacheKey !== THREE.Material.prototype.customProgramCacheKey) return false;
+  if (m.transparent && !(m.depthWrite === false && m.blending === THREE.AdditiveBlending)) return false;   // see-through parts keep three's per-object back-to-front sort
+  if (!g || !g.attributes.position || Object.keys(g.morphAttributes).length || g.drawRange.start || g.drawRange.count !== Infinity) return false;
+  for (const n in g.attributes) if (g.attributes[n].isInterleavedBufferAttribute) return false;
+  return true;
+}
+function p4bKey(o) { const g = o.geometry; return o.material.uuid + '|' + o.renderOrder + '|' + !!g.index + '|' + Object.keys(g.attributes).sort().map(n => n + g.attributes[n].itemSize + g.attributes[n].array.constructor.name + g.attributes[n].normalized).join(); }
+function p4bBatch(key, o, nv, ni) {   // one batch per material, render order and vertex layout; sized for what it holds (grown by doubling)
+  let b = P4B.batches.get(key); if (b) return b;
+  const bm = new THREE.BatchedMesh(16, Math.max(256, nv * 2), Math.max(512, ni * 2), o.material);
+  bm.name = 'perf4Batch'; bm.frustumCulled = false; bm.perObjectFrustumCulled = true; bm.sortObjects = !!o.material.transparent; bm.renderOrder = o.renderOrder; bm.matrixAutoUpdate = false; bm.visible = false;
+  b = { key, mat: o.material, bm, geo: new Map(), ready: false, srcs: new Set(), nvis: 0 }; P4B.batches.set(key, b); P4B.pending++;
+  return b;
+}
+const _p4bM = new THREE.Matrix4(), _p4bI = new THREE.Matrix4();
+function p4bGeo(b, g, flip) {   // geometry id in the batch (shared by every mesh that uses the same geometry; mirrored meshes get a re-wound copy)
+  const k = flip ? 'f' + g.uuid : g.uuid; let e = b.geo.get(k); if (e) { e.refs++; return e.id; }
+  let src = g;
+  if (flip) { src = g.clone(); if (src.index) { const ix = src.index.array; for (let i = 0; i < ix.length; i += 3) { const t = ix[i + 1]; ix[i + 1] = ix[i + 2]; ix[i + 2] = t; } } }
+  const bm = b.bm, nv = src.attributes.position.count, ni = src.index ? src.index.count : 0;
+  if (bm.unusedVertexCount < nv || (src.index && bm.unusedIndexCount < ni)) bm.setGeometrySize(Math.max(bm._maxVertexCount * 2, bm._maxVertexCount + nv * 2), Math.max(bm._maxIndexCount * 2, bm._maxIndexCount + ni * 2));
+  const id = bm.addGeometry(src); if (flip) src.dispose();
+  b.geo.set(k, e = { id, refs: 1 }); return id;
+}
+function p4bAdd(o, rec) {
+  const g = o.geometry, b = p4bBatch(p4bKey(o), o, g.attributes.position.count, g.index ? g.index.count : 0), bm = b.bm, flip = o.matrixWorld.determinant() < 0, gid = p4bGeo(b, g, flip), n = o.isInstancedMesh ? o.count : 1, ids = [];
+  for (let i = 0; i < n; i++) { if (bm._instanceInfo.length >= bm.maxInstanceCount && !bm._availableInstanceIds.length) bm.setInstanceCount(bm.maxInstanceCount * 2); const id = bm.addInstance(gid); bm.setVisibleAt(id, false); ids.push(id); }
+  const s = { o, b, rec, gk: flip ? 'f' + g.uuid : g.uuid, geo: g, ids, mw: new Float64Array(16), iv: -1, vis: false, flip, dead: false };
+  p4bPlace(s); P4B.src.set(o, s); b.srcs.add(s); rec.srcs.push(s); P4B.sources++;
+  if (b.ready) o.layers.set(P4B.LAYER);
+}
+function p4bPlace(s) {   // copy the original's world matrix (and its instance matrices) into the batch
+  const o = s.o, e = o.matrixWorld.elements; for (let i = 0; i < 16; i++) s.mw[i] = e[i];
+  if (o.isInstancedMesh) { s.iv = o.instanceMatrix.version; for (let i = 0; i < s.ids.length; i++) { o.getMatrixAt(i, _p4bI); s.b.bm.setMatrixAt(s.ids[i], _p4bM.multiplyMatrices(o.matrixWorld, _p4bI)); } }
+  else s.b.bm.setMatrixAt(s.ids[0], o.matrixWorld);
+}
+function p4bShow(s, vis) { if (vis === s.vis) return; s.vis = vis; const b = s.b; b.nvis += vis ? 1 : -1; for (let i = 0; i < s.ids.length; i++) b.bm.setVisibleAt(s.ids[i], vis); }
+function p4bRemove(s) {
+  if (s.dead) return; s.dead = true; p4bShow(s, false);
+  const b = s.b; P4B.src.delete(s.o); b.srcs.delete(s); P4B.sources--; P4B.dropped++;
+  for (const id of s.ids) b.bm.deleteInstance(id);
+  const e = b.geo.get(s.gk); if (e && --e.refs <= 0) { b.bm.deleteGeometry(e.id); b.geo.delete(s.gk); }
+  if (s.o.layers.mask === 1 << P4B.LAYER) s.o.layers.set(0);
+}
+function p4bFind() {   // rolling discovery (3 top-level objects per frame, more while starting): frozen, room-tagged objects; each is rescanned every few seconds for new parts
+  const ch = scene.children, n = ch.length, t0 = performance.now(), C = P4B.cand;
+  for (let k = 0; k < Math.min(n, 3) || (k < n && P4B.boot && performance.now() - t0 < 3); k++) {
+    const o = ch[P4B.si++ % n]; if (P4B.si >= n * 2) P4B.boot = false;
+    if (o.matrixAutoUpdate !== false || o.isLight || o.isBatchedMesh) continue;
+    const cls = fxCull.cls.get(o); if (!cls || !cls.length) continue;   // always-drawn objects stay as they are
+    let rec = P4B.roots.get(o); if (!rec) P4B.roots.set(o, rec = { root: o, srcs: [], shown: true });
+    const st = [o];
+    while (st.length) {
+      const c = st.pop(); for (let i = 0; i < c.children.length; i++) st.push(c.children[i]);
+      if ((c !== o || c.isMesh) && p4bEligible(c)) {   // a material's first mesh waits for a second one: a batch of one would only add a shader variant
+        const key = p4bKey(c), b = P4B.batches.get(key);
+        try {
+          if (b) p4bAdd(c, rec);
+          else { let l = C.get(key); if (!l) C.set(key, l = []); if (!l.some(x => x.o === c)) l.push({ o: c, rec }); if (l.length >= 2) { C.delete(key); for (const x of l) if (x.o.parent && p4bEligible(x.o)) p4bAdd(x.o, x.rec); } }
+        } catch (e) { console.warn('batch skipped', e.message); }
+      }
+    }
+  }
+  for (const b of P4B.batches.values()) if (!b.ready && !b.compiling && b.srcs.size) {   // compile in the background, then swap the originals out
+    b.compiling = true; const done = () => { if (b.ready) return; b.ready = true; P4B.pending--; P4B.ready++; scene.add(b.bm); for (const s of b.srcs) if (s.o.layers.mask === 1) s.o.layers.set(P4B.LAYER); };
+    try { if (renderer.compileAsync) renderer.compileAsync(b.bm, cam, scene).then(done, done); else done(); } catch (e) { done(); }
+  }
+}
+function p4bSync() {   // right before drawing: the mirror follows its originals (visibility, matrices, identity); an empty batch is not drawn at all
+  const L = 1 << P4B.LAYER;
+  for (const rec of P4B.roots.values()) {
+    const root = rec.root, S = rec.srcs;
+    if (root.parent !== scene) { for (let i = 0; i < S.length; i++) p4bRemove(S[i]); P4B.roots.delete(root); continue; }
+    if (!root.visible) { if (rec.shown) { rec.shown = false; for (let i = 0; i < S.length; i++) if (!S[i].dead) p4bShow(S[i], false); } continue; }
+    rec.shown = true; let dead = 0;
+    for (let i = 0; i < S.length; i++) {
+      const s = S[i]; if (s.dead) { dead++; continue; }
+      const o = s.o; let vis = o.visible, p = o;
+      while (p !== root) { p = p.parent; if (!p) break; if (!p.visible) vis = false; }
+      if (p !== root || o.material !== s.b.mat || o.geometry !== s.geo || o.layers.mask !== (s.b.ready ? L : 1) || (o.isInstancedMesh && o.count !== s.ids.length)) { p4bRemove(s); dead++; continue; }
+      if (vis) {
+        const e = o.matrixWorld.elements, m = s.mw;
+        if (e[12] !== m[12] || e[13] !== m[13] || e[14] !== m[14] || e[0] !== m[0] || e[1] !== m[1] || e[2] !== m[2] || e[4] !== m[4] || e[5] !== m[5] || e[6] !== m[6] || e[8] !== m[8] || e[9] !== m[9] || e[10] !== m[10] || (o.isInstancedMesh && o.instanceMatrix.version !== s.iv)) {
+          if ((o.matrixWorld.determinant() < 0) !== s.flip) { p4bRemove(s); dead++; continue; }   // mirrored now: re-added with a re-wound copy on the next scan
+          p4bPlace(s);
+        }
+      }
+      p4bShow(s, vis);
+    }
+    if (dead > 32 && dead > S.length / 4) rec.srcs = S.filter(s => !s.dead);
+  }
+  for (const b of P4B.batches.values()) { const v = b.ready && b.nvis > 0; if (b.bm.visible !== v) b.bm.visible = v; }
+}
+GK.perf4.batch = P4B;
+// PERF4-END
 // FX-END
 // ROOMART-BEGIN (room art: floor trims, skirting caps, ceiling beams, wall seams, door hazard stripes, goblin graffiti decals, scattered props, vault treasure dressing, chest/mystery/merchant mood accents.
 // Visual only, no collision, no new lights. Per room the geometry is baked into a few merged static meshes (vertex-coloured solid, gold, ceiling, alpha decals, emissive accents) so the FX room culling handles them.
@@ -7678,6 +8032,7 @@ const JUMP = (() => {
 // JUMP-END
 function frame(now) {
   const dt = clamp((now - last) / 1000, 0.001, 0.05); last = now; const t = now / 1000;
+  PERF4.t0 = performance.now();   // PERF4: frame CPU for GK.perfProbe
   if (GK.mode !== 'play' && GK.mode !== 'dead' && GK.mode !== 'win') { vmHide(); GK.menu && GK.menu.render(now, dt); requestAnimationFrame(frame); return; }
   if (GK.mode === 'win' && WINSTAGE.on) { if (GK.feel) GK.feel.tick(dt, now); winStageRender(now, dt); requestAnimationFrame(frame); return; }   // MENU2: the victory stage replaces the world view
   panelTick();
