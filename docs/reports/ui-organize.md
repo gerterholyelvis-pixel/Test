@@ -7,3 +7,9 @@
 **Tested**: tests/uiorg.test.js (9), fskeep regex relaxed for the new gate, `npm run check`, drv.js smoke at 1280x720 (Esc opens, N ignored inside, Resume, F1 view; screens `docs/screens/pause-*.jpg`).
 **Not done** (audit found workbench/WBUI already has search, sort, craftable-first, missing hints): inventory grouping/favourite UI, shop list unification, HUD regrouping, Elixir sections. Controls view scrolls at 720p (System group below the fold). Leave uses `location.reload()`.
 **Merger notes**: server.js CLIENT_JS gained 'uiorg'; run `npm run map`.
+
+## Part 2 (inventory, controls, HUD audit)
+- **Inventory** (game.js INVORG block): SORT button (locked first, then kind, best tier; swaps via the normal `mv` message), LOCK button (client-side favourite on the held item, diamond badge, blocks drop incl. right-click, persisted in `gk.locks`), shift-click quick-equips gear. Existing tooltip already compares to the equipped item; hotbar already shows keys 1-3. The backpack has 9 slots and no stacks, so grouping and stacking are not applicable.
+- **Controls view** is two columns and fits 720p. **HUD**: measured element rectangles at 1280x720, 1920x1080, 2560x1440 in the home phase: no overlaps (only the lobby line inside the HUD box, by design).
+- **Tested**: uiorg test (+1 wiring), drv.js smoke (inventory opens with Sort/Lock, key list). Screens: docs/screens/inv-org.jpg, pause-keys.jpg.
+- **Not done**: recycle/sell inside the inventory panel (needs server station flow), shop/merchant/Elixir section restructure (homeui.js and the Elixir Screen are being edited by other agents), arena-phase HUD overlap check.

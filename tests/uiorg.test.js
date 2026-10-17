@@ -32,6 +32,10 @@ run('uiorg', [
     eq(U.stack(L).find(e => e.key === 'a').n, 3); eq(U.filterEntries(L, 'bo').length, 1); eq(U.filterEntries(L, '', 'armor').length, 1);
     eq(U.groupBy(U.stack(L), 'kind').map(g => g.id), ['weapon', 'armor']); eq(U.toggleFav({}, 'x'), { x: 1 }); eq(U.toggleFav({ x: 1 }, 'x'), {});
   }],
+  ['inventory organising is wired: Sort, Lock, shift-click equip, locked items cannot be dropped, two-column key list', () => {
+    const g = rd('game.js'); for (const w of ['INVORG-BEGIN', 'INVORG-END', 'invOrgButtons()', 'invQuickEquip(id)', 'invLocked(invGet(myInv, id))', "net.send({ mv: ['b' + j"]) assert(g.includes(w), w);
+    assert(rd('uiorg.js').includes("classList.add('wide')"), 'controls view is two columns');
+  }],
   ['wiring: served, loaded, movement gated, mute honoured, no window.confirm', () => {
     assert(/CLIENT_JS = new Set\(\[[^\]]*'uiorg'/.test(rd('server.js')), 'CLIENT_JS'); assert(rd('index.html').includes('/uiorg.js'), 'script tag');
     assert(rd('game.js').includes('!GK.locked && !GK.pauseOpen'), 'movement gate'); assert(/set\(\)\.mute \? 0/.test(rd('audio.js')), 'audio mute');
