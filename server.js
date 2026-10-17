@@ -613,6 +613,7 @@ function c4Eval(sw) {   // one look at the swing at the current server time (con
     if (O.d - tr > 0.35 && !c4Los(m, p.x, ay + 1, p.z, O.cx, O.cy, O.cz)) continue;   // walls, closed doors, crates, barrels, pillars between (bodies touching always connect)
     (cand || (cand = [])).push({ tws, t, d: O.d });
   }
+  if (h0) { C4STAT.evalMs += Number(process.hrtime.bigint() - h0) / 1e6; C4STAT.evals++; }   // the look itself (rewind, geometry, line of sight), not the damage it causes
   if (cand) {
     cand.sort((a, b) => a.d - b.d);
     for (const c of cand) {
@@ -622,7 +623,6 @@ function c4Eval(sw) {   // one look at the swing at the current server time (con
       if (sw.done) break;   // the attacker died (thorns cannot kill, but a parry staggers)
     }
   }
-  if (h0) { C4STAT.evalMs += Number(process.hrtime.bigint() - h0) / 1e6; C4STAT.evals++; }
   if (!sw.done && (sw.n >= (sw.pr.cleave || 1) || T >= sw.end)) c4Done(sw, 'e');
 }
 function c4Guard(m, p, t, sw, now) { try { return (C4HOOKS.guard && C4HOOKS.guard(m, p, t, sw)) || C4.guard(t.guard, now, t.x, t.z, t.yaw, p.x, p.z); } catch (e) { return null; } }
