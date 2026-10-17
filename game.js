@@ -3860,7 +3860,7 @@ const A_EARS = {};
     u.legs[0].rotation.z = -(0.03 + 0.07 * walk * S2); u.legs[1].rotation.z = 0.03 + 0.07 * walk * S2;
     u.legs[0].scale.y = 1 + 0.15 * S2 * walk - 0.15 * lift0; u.legs[1].scale.y = 1 + 0.15 * S2 * walk - 0.15 * lift1;
     u.legs[0].position.y = u.legs[1].position.y = 0.58;
-    const sw = a.swing > 0 && a.swing < 1 ? a.swing : -1, ant = sw < 0 ? 0 : sstep(0, 0.28, sw) * (1 - sstep(0.28, 0.46, sw)), lun = sw < 0 ? 0 : sstep(0.28, 0.46, sw) * (1 - sstep(0.52, 1, sw));   // swing: wind up (crouch, lean back), then lunge
+    const sw = a.swing > 0 && a.swing < 1 ? a.swing : a.chg ? 0.25 : -1, ant = sw < 0 ? 0 : sstep(0, 0.28, sw) * (1 - sstep(0.28, 0.46, sw)), lun = sw < 0 ? 0 : sstep(0.28, 0.46, sw) * (1 - sstep(0.52, 1, sw));   // swing: wind up (crouch, lean back), then lunge
     if (sw >= 0) { u.legs[0].rotation.x += 0.3 * lun - 0.1 * ant; u.legs[1].rotation.x += -0.3 * lun + 0.1 * ant; u.legs[0].scale.y -= 0.06 * ant; u.legs[1].scale.y -= 0.06 * ant; }
     rig.position.y = -0.115 * sc * S2 * S2 * walk - 0.035 * f - 0.05 * sc * ant; rig.rotation.z = S * 0.075 * walk + Math.sin(t * 0.7 + id * 2.1) * 0.018 * idle; rig.rotation.x = 0.05 * walk + 0.12 * run - 0.1 * ant + 0.16 * lun;
     const sq = (1 - 2 * S2) * walk;   // stretched while the legs pass under the body, squashed when they spread
@@ -4449,7 +4449,8 @@ const handleMsg0 = d => {
   if (window.GKRULES) GKRULES.onMsg(d);   // RULES: experimental rules (inert unless the server advertises them)
   if (d.died) showDeathScreen(d.died);
   if (d.won) showVictory(d.won);
-  if (d.swing != null || d.hit || d.kills != null || d.match) combatMsg(d);   // COMBAT
+  if (d.swing != null || d.hit || d.kills != null || d.match || d.dodge) combatMsg(d);   // COMBAT (BALANCE-3: a lone {dodge} message used to be dropped)
+  if (d.dash != null || d.charge != null || (d.hit && (d.hit.bs || d.hit.rage || d.hit.heavy))) GK.abil && GK.abil.onMsg(d);   // ABILITY
   if (d.you) me = d.you;
   if (d.dbg === 1 || (d.matchStart && d.matchStart.dbg === 1)) GK.dbg = true;   // DEV: the server runs with GK_DEBUG (shows the skip-to-0:10 button)
   if (d.round || d.sel || d.open) applyRound(d);
@@ -8051,6 +8052,56 @@ const JUMP = (() => {
   return J;
 })();
 // JUMP-END
+// ABILITY-BEGIN (docs/reports/balance-3.md; numbers in items.js ABIL, server side in server.js ABILITY): double-tap a direction or C to dash, hold the right mouse button to wind up a heavy blow
+const ABIL5 = (() => {
+  const A = () => itemsData().ABIL, st = { dashAt: -1e9, until: 0, dir: [0, 0], tap: {}, chg: 0 }, DIRS = { KeyW: [1, 0], KeyS: [-1, 0], KeyA: [0, -1], KeyD: [0, 1] };
+  const live = () => GK.mode === 'play' && !invOpen && !shopOpen && spawned && !GK.locked && !GK.carryHeavy;
+  const world = (f, s) => { let x = -Math.sin(P.yaw) * f + Math.cos(P.yaw) * s, z = -Math.cos(P.yaw) * f - Math.sin(P.yaw) * s; const l = Math.hypot(x, z); return l ? [x / l, z / l] : [-Math.sin(P.yaw), -Math.cos(P.yaw)]; };
+  function dash(f, s) {
+    const D = A() && A().DASH, now = performance.now(); if (!D || !live() || now < st.dashAt + D.cd) return;
+    st.dashAt = now; st.until = now + D.ms; st.dir = world(f, s); if (st.chg) release(false);
+    net.send({ dash: 1 }); snd('swing', { vol: 0.5 }); try { GK.feel && GK.feel.kick && GK.feel.kick(0.4); } catch (e) {}
+  }
+  function charge() {
+    const mine = actors.get(me), H = A() && A().HEAVY, now = performance.now();
+    if (!H || !live() || !mine || st.chg || !invReady || !A().heavyFor(myInv.weapon) || now < CB.nextAt) return;
+    st.chg = now; mine.chg = true; net.send({ charge: 1 });
+  }
+  function release(strike) {
+    const mine = actors.get(me), H = A().HEAVY, now = performance.now(), held = now - st.chg; st.chg = 0; if (mine) mine.chg = false;
+    if (!strike || !mine || !live() || held < H.chargeMs - 40) { net.send({ charge: 0 }); return; }
+    const cb = itemsData().combat(myInv.weapon); CB.last = now; CB.nextAt = now + cb.cd * H.cdMul;
+    mine.swing = 1e-4; vmSwing(mine, true); net.send({ atk: 1, heavy: 1 }); snd('swing', { fam: mine.vmFam });
+  }
+  addEventListener('keydown', e => {
+    if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || (e.target && /INPUT|TEXTAREA/.test(e.target.tagName))) return;
+    if (e.code === 'KeyC') { const f = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0), s = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0); dash(f, s); return; }
+    const d = DIRS[e.code]; if (!d) return; const now = performance.now();
+    if (now - (st.tap[e.code] || -1e9) < 260) { st.tap[e.code] = -1e9; dash(d[0], d[1]); } else st.tap[e.code] = now;
+  });
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+  canvas.addEventListener('mousedown', e => { if (e.button === 2) charge(); });
+  addEventListener('mouseup', e => { if (e.button === 2 && st.chg) release(true); });
+  addEventListener('blur', () => { if (st.chg) release(false); });
+  function move(dt, f, s) {   // -> extra metres this frame and a multiplier on the walk
+    const a = A(), now = performance.now(); if (!a) return { dx: 0, dz: 0, mul: 1 };
+    const v = now < st.until ? a.DASH.dist / a.DASH.ms * 1000 * dt : 0;
+    return { dx: st.dir[0] * v, dz: st.dir[1] * v, mul: st.chg ? a.HEAVY.moveMul : 1 };
+  }
+  function onMsg(d) {
+    if (d.dash != null && d.dash !== me) { const a = actors.get(d.dash); if (a) snd('swing', { x: a.x, z: a.z, vol: 0.4 }); }
+    if (d.charge != null && d.charge !== me) { const a = actors.get(d.charge); if (a) a.chg = !d.off; }   // the wind-up pose (crouch, lean back) is the warning
+    if (d.swing != null) { const a = actors.get(d.swing); if (a) a.chg = false; }
+    const h = d.hit; if (!h || (h.to !== me && h.from !== me)) return;
+    const v = actors.get(h.to); if (!v) return;
+    const tag = h.bs ? 'backstab' : h.rage ? 'rage' : h.heavy ? 'stagger' : null;
+    if (tag) combatFloat(tag, new THREE.Vector3(v.x, 2.25 * (SCALE[v.goblin] || 1), v.z), h.heavy ? '#ffb347' : '#ff7a5c', 0.36);
+    if (h.heavy && h.to === me) { const n = performance.now(), cd = itemsData().combat(invReady ? myInv.weapon : null).cd; CB.nextAt = Math.max(CB.nextAt, n + A().HEAVY.staggerMs); CB.last = Math.max(CB.last, n + A().HEAVY.staggerMs - cd); if (st.chg) release(false); }   // staggered: no swing for a moment
+  }
+  return { move, onMsg, dash, st };
+})();
+GK.abil = ABIL5;
+// ABILITY-END
 function frame(now) {
   const dt = clamp((now - last) / 1000, 0.001, 0.05); last = now; const t = now / 1000;
   PERF4.t0 = performance.now();   // PERF4: frame CPU for GK.perfProbe
@@ -8067,6 +8118,7 @@ function frame(now) {
     const sp = (GK.carryHeavy ? 4.6 * 0.7 : keys.has('ShiftLeft') || keys.has('ShiftRight') ? 7.5 : 4.6) * ((itemsData().SPEED || [])[mine.goblin] || (0.85 + 0.15 * SCALE[mine.goblin])) * (invReady && itemsData().armorSpeed ? itemsData().armorSpeed(myInv.armor) : 1) * (window.GKUSE ? GKUSE.speedMul() : 1);   // ARMOUR-2: worn armour speed   // BALANCE: class speed table (items.js SPEED, shared with the server): small fastest, big slowest
     let mx = -Math.sin(P.yaw) * f + Math.cos(P.yaw) * s, mz = -Math.cos(P.yaw) * f - Math.sin(P.yaw) * s;
     const len = Math.hypot(mx, mz) || 1; mx = mx / len * sp * dt * (f || s ? 1 : 0); mz = mz / len * sp * dt * (f || s ? 1 : 0);
+    if (GK.abil) { const ab = GK.abil.move(dt, f, s); mx = mx * ab.mul + ab.dx; mz = mz * ab.mul + ab.dz; }   // ABILITY: the dash burst, slower while winding up a heavy blow
     const ox = P.x, oz = P.z;
     if (!blocked(P.x + mx, P.z)) P.x += mx;
     if (!blocked(P.x, P.z + mz)) P.z += mz;
