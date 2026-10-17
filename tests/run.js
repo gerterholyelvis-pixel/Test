@@ -18,7 +18,7 @@ const { spawn, execFileSync } = require('child_process'), fs = require('fs'), pa
 const ROOT = path.join(__dirname, '..'), TIMES = path.join(__dirname, '.timings.json');
 // Known load-sensitive files (docs/reports: bot tick cost, refused moves, sprinter speed check, regen timing, gang cap, hunt timing).
 const TAGS = { 'bots.test.js': '@timing', 'bots-ai.test.js': '@timing', 'bots-combat.test.js': '@timing', 'security.test.js': '@timing', 'combat.test.js': '@timing',
-  'netcode.test.js': '@timing', 'balance.test.js': '@timing', 'utility.test.js': '@timing', 'armour3.test.js': '@timing', 'fun.test.js': '@timing', 'elixir-home.test.js': '@timing',
+  'netcode.test.js': '@timing', 'balance.test.js': '@timing', 'utility.test.js': '@timing', 'armour3.test.js': '@timing', 'fun.test.js': '@timing', 'elixir-home.test.js': '@timing', 'netperf.test.js': '@timing',
   'bots5-sim.test.js': '@timing @tier slow' };   // 30 s of simulated matches plus a per-sweep CPU budget: not a unit test
 
 const argv = process.argv.slice(2), has = f => argv.includes(f), val = (f, d) => { const a = argv.find(x => x === f || x.startsWith(f + '=')); if (!a) return d; if (a.includes('=')) return a.split('=').slice(1).join('='); const v = argv[argv.indexOf(a) + 1]; return v && !v.startsWith('-') ? v : d; };
