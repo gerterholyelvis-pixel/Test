@@ -11,7 +11,7 @@
 //   GKVFX.trail(id, tip, base, hex)                call every frame while a weapon swings: feeds one pooled ribbon (id = any string/number)
 //   GKVFX.bolt(id, pos, hex, dt)                   call every frame for a flying bolt: soft comet tail; GKVFX.boltHit(pos, hex) for the impact
 //   GKVFX.foot(id, phase, speed, x, z, jy, surf, scale, camX, camZ)   footstep puffs on the foot plant; surf: 'dust' | 'gold' | 'mystic'
-//   GKVFX.land(x, z, surf)  GKVFX.jump(x, z, surf) dust ring on landing / take-off
+//   GKVFX.land(x, z, surf, y)  GKVFX.jump(x, z, surf, y) dust ring on landing / take-off (y: surface height, CLIMB)
 //   GKVFX.dissolve(x, z, height, hex)              death: 1.3 s of motes rising off the body and sinking into the loot pile
 //   GKVFX.glint(pos, hex, n)                       pickup / chest sparkle; GKVFX.ring(x, z, hex, r) a floor shockwave ring (kill confirm)
 //   GKVFX.elixir(pos, dt)  GKVFX.vault(pos, dt, radius)  GKVFX.crown(pos, dt)  GKVFX.embers(pos, dt, radius)
@@ -135,23 +135,23 @@
   // ---- footsteps, landing, jump ----
   const STEP = {};   // actor id -> last foot index
   const SURF = { dust: [0xd4cdbd, 0xb4ac9a, 0], gold: [0xfff0a0, 0xffc933, 1], mystic: [0xc8a8ff, 0x8a5cff, 1] };
-  function puffs(x, z, n, surf, big) {
+  function puffs(x, z, n, surf, big, y0) {   // CLIMB: y0 = the surface height (crate tops)
     const S = SURF[surf] || SURF.dust, P = S[2] ? ADD : NRM;
     for (let i = 0; i < n; i++) {
       const a = rnd() * 6.283, s = (S[2] ? 0.5 : 0.35) * (big ? 2.2 : 1) * (0.4 + rnd() * 0.6);
       hex(S[0]); mixTo(S[1], rnd());
-      emit(P, x + Math.cos(a) * 0.12, 0.05, z + Math.sin(a) * 0.12, Math.cos(a) * s, 0.25 + rnd() * 0.3, Math.sin(a) * s, 0.55 + rnd() * 0.35, S[2] ? 0.05 : 0.2 * (big ? 1.4 : 1), cr, cg, cb, S[2] ? -0.4 : 0.1, 2.2, S[2] ? 0 : 1.6, S[2] ? 0.9 : 0.3);
+      emit(P, x + Math.cos(a) * 0.12, 0.05 + (y0 || 0), z + Math.sin(a) * 0.12, Math.cos(a) * s, 0.25 + rnd() * 0.3, Math.sin(a) * s, 0.55 + rnd() * 0.35, S[2] ? 0.05 : 0.2 * (big ? 1.4 : 1), cr, cg, cb, S[2] ? -0.4 : 0.1, 2.2, S[2] ? 0 : 1.6, S[2] ? 0.9 : 0.3);
     }
   }
   V.foot = function (id, phase, speed, x, z, jy, surf, scale, camX, camZ) {
     if (!V.ready || cur().k < 1) return;
     const idx = Math.floor(phase / Math.PI), last = STEP[id]; STEP[id] = idx;
-    if (last === undefined || idx === last || speed < 1.8 || jy > 0.05) return;
+    if (last === undefined || idx === last || speed < 1.8 || jy > 0.05 || surf === 'none') return;
     const dx = x - camX, dz = z - camZ; if (dx * dx + dz * dz > 144) return;   // beyond 12 m: skip
     puffs(x, z, n_(speed > 4.5 ? 3 : 2), surf, false);
   };
-  V.land = function (x, z, surf) { if (V.ready && cur().k >= 1) puffs(x, z, n_(7), surf, true); };
-  V.jump = function (x, z, surf) { if (V.ready && cur().k >= 1) puffs(x, z, n_(4), surf, true); };
+  V.land = function (x, z, surf, y) { if (V.ready && cur().k >= 1) puffs(x, z, n_(7), surf, true, y); };
+  V.jump = function (x, z, surf, y) { if (V.ready && cur().k >= 1) puffs(x, z, n_(4), surf, true, y); };
   V.forget = id => { delete STEP[id]; };
 
   // ---- bolts ----

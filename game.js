@@ -2612,7 +2612,7 @@ window.GKRULES = (() => {
   }
   function loop() {
     R.raf = 0; const now = performance.now(), live = R.bolts.size || R.crown; if (!live) return;
-    for (const [id, b] of R.bolts) { const t = (now - b.t0) / 1000; b.spr.position.set(b.x + b.vx * t, 1.1, b.z + b.vz * t); try { GKVFX.bolt(id, b.spr.position, 0xb89cff, 0.016); } catch (e) {} /* VFX */ if (t * 10 > b.range + 1) { scene.remove(b.spr); R.bolts.delete(id); } }
+    for (const [id, b] of R.bolts) { const t = (now - b.t0) / 1000; b.spr.position.set(b.x + b.vx * t, b.y != null ? b.y + 0.2 : 1.1, b.z + b.vz * t);   /* CLIMB: the server sends the bolt height */ try { GKVFX.bolt(id, b.spr.position, 0xb89cff, 0.016); } catch (e) {} /* VFX */ if (t * 10 > b.range + 1) { scene.remove(b.spr); R.bolts.delete(id); } }
     if (R.crown && R.ring) { const k = Math.min(1, (R.crown.p0 + (now - R.crown.t0) / R.crown.ms)); R.ring.geometry.setDrawRange(0, Math.max(0, Math.round(k * 96)) * 6); R.ring.rotation.z = now * 0.0006; }
     R.raf = requestAnimationFrame(loop);
   }
@@ -2634,7 +2634,7 @@ window.GKRULES = (() => {
       if (!d.crown) { R.crown = null; t.style.display = 'none'; if (R.ring) { scene.remove(R.ring); R.ring = null; } }
       else { R.crown = { p0: d.crown.p, t0: performance.now(), ms: d.crown.ms }; t.style.display = ''; t.textContent = (d.crown.id === me ? 'YOU ARE' : d.crown.name + ' IS') + ' CLAIMING THE CROWN ' + Math.ceil(d.crown.ms * (1 - d.crown.p) / 1000) + 's'; ringMesh(); kick(); }
     }
-    if (d.bolt) { const b = d.bolt, spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow(), color: 0xb89cff, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })); spr.scale.set(0.7, 0.7, 1); scene.add(spr); R.bolts.set(b.id, { spr, x: b.x, z: b.z, vx: b.vx, vz: b.vz, range: b.range, t0: performance.now() }); snd('swing', { x: b.x, z: b.z }); kick(); }
+    if (d.bolt) { const b = d.bolt, spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow(), color: 0xb89cff, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })); spr.scale.set(0.7, 0.7, 1); scene.add(spr); R.bolts.set(b.id, { spr, x: b.x, z: b.z, y: b.y, vx: b.vx, vz: b.vz, range: b.range, t0: performance.now() }); snd('swing', { x: b.x, z: b.z }); kick(); }
     if (d.boltEnd) { const b = R.bolts.get(d.boltEnd.id); if (b) { try { GKVFX.boltHit(b.spr.position, 0xb89cff); GKVFX.boltEnd(d.boltEnd.id); } catch (e) {} /* VFX */ scene.remove(b.spr); R.bolts.delete(d.boltEnd.id); } }
     if (d.showdown && !R.showdown) { R.showdown = 1; toastMsg('THREE GOBLINS LEFT: every door is open!', false, 3500); }   // PACE
     if (d.klaxon) { toastMsg('KLAXON: doors close at the end of the round!', false); for (let i = 0; i < 3; i++) setTimeout(() => snd('tickLast'), i * 350); }
@@ -3833,7 +3833,7 @@ const A_EARS = {};
     u.arms[1].userData.el.rotation.x = P.hold; u.arms[0].userData.el.rotation.x = -0.3;
     // blob shadow and name tag
     const sh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: glowTex, color: 0x000000, transparent: true, opacity: 0.55, depthWrite: false }));
-    sh.rotation.x = -Math.PI / 2; sh.position.y = 0.03; sh.scale.setScalar(1.1 * SCALE[type] * b * 1.4); root.add(sh);
+    sh.rotation.x = -Math.PI / 2; sh.position.y = 0.03; sh.scale.setScalar(1.1 * SCALE[type] * b * 1.4); root.add(sh); sh.userData.s0 = sh.scale.x; u.blob = sh;   // CLIMB: JUMP.pose keeps it on the ground under the feet
     const nameCol = type === 4 ? '#ffd75e' : type === 3 ? '#c9a6ff' : '#f1f1f1';
     const label = window.GKTAGS ? window.GKTAGS.nameTag(NAMES[type], nameCol) : new THREE.Sprite(new THREE.SpriteMaterial({ map: textTex(NAMES[type], nameCol, null, 512, 96, 'bold 52px system-ui'), transparent: true, depthWrite: false }));   // UI-TAGS: one shared atlas texture (client/ui/tags.js)
     if (!window.GKTAGS) label.scale.set(1.6, 0.3, 1); label.position.y = (GOB_TAGY[type] || 1.95) * SCALE[type]; root.add(label); u.label = label;   // UNIQUE: tag above the wizard hat / king crown
@@ -4418,7 +4418,7 @@ const handleMsg0 = d => {
   if (d.s) return netSnap(d.s);   // NET: fast position snapshots (hot path)
   if (d.pong != null) return netPong(d);
   if (d.emote || d.token || d.resumed || d.resumeFail) SOC.onMsg(d);   // SOCIAL
-  if (d.fix) { NETC.fix = d.fix; NETC.fixN++; NETC.fixT.push(performance.now()); }   // PERF4: counted for GK.net.stats()
+  if (d.fix) { NETC.fix = d.fix; NETC.fixN++; NETC.fixT.push(performance.now()); JUMP.fix(d.fix); }   // PERF4: counted for GK.net.stats(); CLIMB: a third element is my corrected feet height
   /* FEEL-BEGIN */ if (GK.feel) GK.feel.onMsg(d); /* FEEL-END */
   if (window.GKACT5) GKACT5.pre(d);   // ACT5UI: breach by door -> by side, arc labels
   if (GK.r5) GK.r5.onMsg(d);   // ROOMS5ART: trees / vb / treasury / crown / breach fields and the match start / end
@@ -8017,43 +8017,67 @@ const SOC = (() => {
 })();
 GK.social = SOC;
 // SOCIAL-END
-// JUMP-BEGIN (Space: a cosmetic hop. y moves only my camera, my goblin, the viewmodel and the snapshot; collision, doors, ranges and hits stay 2D, so jumping dodges nothing; server side is the JUMP block in server.js)
+// JUMP-BEGIN (Space: a real jump. CLIMB: one vertical model shared with the server (world.js vstep / groundY): gravity, 1.2 m apex, auto step <= 0.35 m, coyote time, a jump buffer,
+// crate tops you can stand on; the server validates the height like x / z (server.js JUMP block). docs/reports/climb.md)
 const JUMP = (() => {
-  const H = 0.9, T = 0.55, G = 8 * H / (T * T), V0 = 4 * H / T, COYOTE = 0.08, BUF = 0.1, DIPT = 0.26;   // 0.9 m apex, 0.55 s in the air
-  const J = { y: 0, vy: 0, air: false, buf: 0, coy: COYOTE, dipT: 9 };
+  const C = WORLD.CLIMB, DIPT = 0.26;
+  const J = { y: 0, vy: 0, air: false, buf: 0, coy: C.COYOTE, dipT: 9, cy: 0, force: false, dipK: 1, top: null, hint: (() => { try { return localStorage.getItem('gkClimbHint') ? 9 : 0; } catch (e) { return 0; } })() };
   const active = () => GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked && spawned;
-  const dip = () => { const k = J.dipT / DIPT; return k >= 1 ? 0 : Math.sin(Math.PI * Math.min(1, k * 1.6)) * (1 - k); };   // 0..1 landing bump
-  const start = () => { J.air = true; J.vy = V0; J.coy = 0; J.buf = 0; snd('hup'); try { GKVFX.jump(P.x, P.z, vfxSurf(P.x, P.z)); } catch (e) {} /* VFX */ };
+  const dip = () => { const k = J.dipT / DIPT; return k >= 1 ? 0 : Math.sin(Math.PI * Math.min(1, k * 1.6)) * (1 - k) * J.dipK; };   // 0..1 landing bump, deeper after a long fall
+  const surf = () => J.top ? 'wood' : null;   // footstep / landing surface of the top I stand on
   J.key = e => {
     if (e.code !== 'Space') return;
     const tg = e.target && e.target.tagName; if (tg === 'INPUT' || tg === 'TEXTAREA' || e.ctrlKey || e.metaKey || e.altKey) return;
     if (!active()) return;
     e.preventDefault();   // no page scroll, no focused button pressed
-    if (!e.repeat) J.buf = BUF;
+    if (!e.repeat) J.buf = C.BUF;
   };
-  J.step = (dt, on) => {
-    if (!on) J.buf = 0; else J.buf = Math.max(0, J.buf - dt);
+  J.step = (dt, on) => {   // after the horizontal move: stability push (walls still block it), then gravity / jump / landing
     J.dipT += dt;
-    if (!J.air) { J.coy = COYOTE; if (on && J.buf > 0) start(); }   // coyote: there are no ledges yet, so the grace never decides anything; a jump pressed after walking off one would still count for 80 ms
-    if (J.air) {
-      J.y += J.vy * dt - 0.5 * G * dt * dt; J.vy -= G * dt;
-      if (J.y <= 0) { J.y = 0; J.vy = 0; J.air = false; J.dipT = 0; snd('thud'); try { GKVFX.land(P.x, P.z, vfxSurf(P.x, P.z)); } catch (e) {} /* VFX */ if (on && J.buf > 0) start(); }
-    }
+    if (!spawned) { J.y = J.cy = J.vy = 0; J.air = false; J.buf = 0; return; }
+    const y0 = J.y, [px, pz, ev] = WORLD.climbFrame(J, P.x, P.z, RAD, CHEST_ROOMS, dt, on);
+    if (px !== P.x || pz !== P.z) { if (!blocked(px, P.z)) P.x = px; if (!blocked(P.x, pz)) P.z = pz; const mine = actors.get(me); if (mine) { mine.x = P.x; mine.z = P.z; } }
+    J.top = J.air ? null : WORLD.topAt(P.x, P.z, CHEST_ROOMS, J.y);
+    if (ev === 'jump') { snd('hup'); try { GKVFX.jump(P.x, P.z, vfxSurf(P.x, P.z), y0); } catch (e) {} /* VFX */ J.force = true; }
+    else if (ev === 'land') { const f = J.fall || 0; J.dipT = 0; J.dipK = clamp(0.6 + f / 9, 0.6, 1.4); snd('thud', { surf: surf(), vol: clamp(0.5 + f / 10, 0.5, 1.1) }); try { GKVFX.land(P.x, P.z, vfxSurf(P.x, P.z), J.y); } catch (e) {} /* VFX */ J.force = true; if (J.y > 0.3) J.hint = 9; }
+    else if (ev === 'step') J.force = true;
+    // camera height: follows the arc exactly in the air, eases over a step up / down so the view never pops
+    if (J.air || !spawned) J.cy = J.y; else J.cy += (J.y - J.cy) * Math.min(1, dt * 14);
+    if (Math.abs(J.cy - J.y) > 0.6) J.cy = J.y - Math.sign(J.y - J.cy) * 0.6;
   };
-  J.camY = () => J.y - (GK.settings.bob === false ? 0 : 0.07 * dip());   // landing dip follows the head bob setting
-  J.vmY = () => (J.air ? 0.035 * clamp(J.vy / V0, -0.5, 1) : 0) - (GK.settings.bob === false ? 0 : 0.05 * dip());
-  J.tail = () => (J.y > 0.004 ? [Math.round(J.y * 100)] : []);   // 4th element of {m}: height in cm, only while airborne
-  J.pose = (a, u, id, dt) => {   // after GA.anim: ears flop (rising: down, falling: up, landing: a bounce), remote hop sounds
-    const y = a.jy || 0, py = a.jyP || 0; a.jyP = y;
-    if (id !== me && dt > 0) { const o = { x: a.x, z: a.z }; if (py < 0.01 && y > 0.03) snd('hup', o); else if (py > 0.03 && y < 0.01) snd('thud', o); }
-    const vy = dt > 0 ? (y - py) / dt : 0, air = y > 0.01;
-    let tg = air ? clamp(vy / 5, -1, 1) : 0; if (!air && py > 0.01) a.jfl = 1;   // landing: ears slap down
+  J.fix = f => { if (f.length > 2 && Number.isFinite(f[2])) { J.y = Math.min(J.y, f[2]); J.vy = Math.min(J.vy, 0); J.air = J.y > 0.01; } };   // the server put my feet lower
+  J.camY = () => J.cy - (GK.settings.bob === false ? 0 : 0.07 * dip());   // landing dip follows the head bob setting
+  J.vmY = () => (J.air ? 0.035 * clamp(J.vy / C.V0, -0.5, 1) : 0) - (GK.settings.bob === false ? 0 : 0.05 * dip());
+  J.tail = () => (J.y > 0.004 ? [Math.round(J.y * 100)] : []);   // 4th element of {m}: feet height in cm (absent = on the floor)
+  J.sendNow = () => { const f = J.force; J.force = false; return f; };   // a take-off / landing frame is sent at once, so the server sees every grounded moment
+  J.surf = () => surf();
+  J.pose = (a, u, id, dt) => {   // after GA.anim: squash and stretch, ears flop (rising: down, falling: up, landing: a bounce), remote hop sounds; feet on the surface, blob shadow on the ground under them
+    const y = a.jy || 0, py = a.jyP == null ? y : a.jyP; a.jyP = y;
+    const gy = id === me ? WORLD.groundY(a.x, a.z, CHEST_ROOMS, J.air ? J.y : y + 0.05) : WORLD.groundY(a.x, a.z, CHEST_ROOMS, y + 0.05), air = y > gy + 0.03, pAir = !!a.jAir; a.jAir = air;
+    if (id !== me && dt > 0) { const o = { x: a.x, z: a.z }; if (!pAir && air && y > py + 0.02) snd('hup', o); else if (pAir && !air) snd('thud', o); }
+    const vy = dt > 0 ? (y - py) / dt : 0;
+    let tg = air ? clamp(vy / 5, -1, 1) : 0; if (!air && pAir) { a.jfl = 1; a.jsq = -1; }   // landing: ears slap down, body squashes
     a.jfl = (a.jfl || 0) + (tg - (a.jfl || 0)) * Math.min(1, dt * (air ? 16 : 9));
+    const sk = air ? clamp(vy / C.V0, -0.6, 1) * 0.07 : (a.jsq || 0) * 0.11; a.jsq = (a.jsq || 0) * Math.max(0, 1 - dt * 9); if (Math.abs(a.jsq) < 0.01) a.jsq = 0;
+    if (u.rig && (Math.abs(sk) > 0.002 || a.jsk)) { const b = (SCALE[u.type] || 1) * (u.sz || 1), s = Math.abs(sk) > 0.002 ? sk : 0; u.rig.scale.set(b * (1 - s * 0.5), b * (1 + s), b * (1 - s * 0.5)); a.jsk = s !== 0; }
+    if (u.blob) { u.blob.position.y = gy - y + 0.03; const k = clamp(1 - (y - gy) / 2.2, 0.45, 1); u.blob.scale.setScalar(u.blob.userData.s0 * k); u.blob.material.opacity = 0.55 * k; }
+    a.gy = gy;
     if (Math.abs(a.jfl) < 0.01 || !u.earL) return;
     for (let i = 0; i < 2; i++) { const ear = i ? u.earR : u.earL, s = i ? 1 : -1; ear.rotation.z += s * 0.85 * a.jfl; ear.rotation.x += 0.3 * a.jfl; }
   };
+  // a quiet one-time hint: the first time a crate is close and in front of me, "Space: jump onto it" fades in under the crosshair for a moment (never again once I have stood on a top)
+  J.hintTick = dt => {
+    if (J.hint >= 9) { if (J.hintEl) { J.hintEl.remove(); J.hintEl = null; try { localStorage.setItem('gkClimbHint', '1'); } catch (e) {} } return; }
+    if (!active() || J.air) return;
+    let el = J.hintEl; const near = WORLD.propsAt(P.x, P.z, CHEST_ROOMS).some(p => p.climb && p.h > 0.4 && Math.hypot(p.x - P.x, p.z - P.z) < p.r + 1.6 && ((p.x - P.x) * -Math.sin(P.yaw) + (p.z - P.z) * -Math.cos(P.yaw)) > 0.3);
+    if (near && !el) { el = J.hintEl = document.createElement('div'); el.style.cssText = 'position:fixed;left:50%;top:58%;transform:translateX(-50%);z-index:6;pointer-events:none;font:600 13px/1 system-ui,sans-serif;color:#efe6cf;text-shadow:0 1px 3px #000;opacity:0;transition:opacity .4s'; el.innerHTML = '<span style="display:inline-block;padding:2px 7px;margin-right:6px;border:1px solid rgba(239,230,207,.6);border-radius:4px;font-size:11px">SPACE</span>jump onto it'; document.body.appendChild(el); }
+    if (!el) return;
+    J.hint = near ? Math.min(8, J.hint + dt) : J.hint; el.style.opacity = near && J.hint < 6 ? '0.85' : '0';
+    if (J.hint >= 6 && !near) J.hint = 9;
+  };
   return J;
 })();
+GK.jump = JUMP;
 // JUMP-END
 // ABILITY-BEGIN (docs/reports/balance-3.md; numbers in items.js ABIL, server side in server.js ABILITY): double-tap a direction or C to dash, hold the right mouse button to wind up a heavy blow
 const ABIL5 = (() => {
@@ -8125,13 +8149,13 @@ function frame(now) {
     const ox = P.x, oz = P.z;
     if (!blocked(P.x + mx, P.z)) P.x += mx;
     if (!blocked(P.x, P.z + mz)) P.z += mz;
-    if (WORLD.slide && (mx || mz)) { const [qx, qz] = WORLD.slide(ox, oz, P.x, P.z, RAD, CHEST_ROOMS); if (qx !== P.x || qz !== P.z) { const bz0 = P.z; P.x = blocked(qx, bz0) ? ox : qx; P.z = blocked(P.x, qz) ? oz : qz; } }   // SOLID: slide around crates, barrels, urns and the pedestal (world.js footprints, shared with the server)
+    if (WORLD.slide && (mx || mz)) { const [qx, qz] = WORLD.slide(ox, oz, P.x, P.z, RAD, CHEST_ROOMS, false, JUMP.y);   /* CLIMB: tops within a step of my feet are walkable */ if (qx !== P.x || qz !== P.z) { const bz0 = P.z; P.x = blocked(qx, bz0) ? ox : qx; P.z = blocked(P.x, qz) ? oz : qz; } }   // SOLID: slide around crates, barrels, urns and the pedestal (world.js footprints, shared with the server)
     run.dist += Math.hypot(P.x - ox, P.z - oz);
     P.speed += (Math.hypot(P.x - ox, P.z - oz) / dt - P.speed) * Math.min(1, dt * 12);
     mine.x = P.x; mine.z = P.z; mine.yaw = P.yaw; mine.speed = P.speed;
-    sendT += dt; if (sendT > 0.05) { sendT = 0; net.send({ m: [+P.x.toFixed(2), +P.z.toFixed(2), +P.yaw.toFixed(3), ...JUMP.tail()] }); }
+    sendT += dt; if (sendT > 0.05 || JUMP.sendNow()) { sendT = 0;   /* CLIMB: take-off and landing frames go out at once */ net.send({ m: [+P.x.toFixed(2), +P.z.toFixed(2), +P.yaw.toFixed(3), ...JUMP.tail()] }); }
   }
-  JUMP.step(dt, !!(mine && spawned && GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked));   // JUMP
+  JUMP.step(dt, !!(mine && spawned && GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked)); JUMP.hintTick(dt);   // JUMP / CLIMB
   // doors
   for (const d of doors) {
     if (d.hatch) {   // 5x5: home hatches are open archways; HOME PHASE: the round-1 grille drops / rises (d.p 0 = shut, 1 = open; the blocker lets you through above 0.86)
@@ -8183,7 +8207,7 @@ function frame(now) {
     u.label.visible = id !== me && GK.settings.tags;
     if (window.GKTAGS && u.label.visible) { const tb = CB.bars.get(id), td = Math.hypot(cam.position.x - a.x, cam.position.y - (g.position.y + u.label.position.y), cam.position.z - a.z); window.GKTAGS.fit(u.label, td, true); if (tb && tb.sp.visible) window.GKTAGS.fit(tb.sp, td, true); }   // UI-TAGS: clamp size, fade up close
     const walk = clamp(a.speed / 3.5, 0, 1); a.phase += dt * a.speed * 2.7 / Math.pow(SCALE[u.type] || 1, 0.6);   // stride rate follows the leg length (small goblins scurry, big ones lumber) so the feet stay planted
-    try { GKVFX.foot(id, a.phase, a.speed, a.x, a.z, a.jy || 0, vfxSurf(a.x, a.z), 1, cam.position.x, cam.position.z); } catch (e) {} // VFX: footstep puffs
+    try { GKVFX.foot(id, a.phase, a.speed, a.x, a.z, (a.jy || 0) - (a.gy || 0), a.gy ? 'none' : vfxSurf(a.x, a.z), 1, cam.position.x, cam.position.z); } catch (e) {} // VFX: footstep puffs (CLIMB: height above the surface; no dust on crate tops / the dais)
     /* PERF2-BEGIN: far goblins refresh their pose every 2nd / 3rd frame (the skipped dt is carried over); distant ones also drop to simpler geometry */
     let adt = dt;
     if (PERF2_ON) {
