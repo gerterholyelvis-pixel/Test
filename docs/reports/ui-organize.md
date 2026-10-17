@@ -1,0 +1,15 @@
+# ui-organize: in-game Menu, key list, mute (partial pass)
+
+**Changed**: new `uiorg.js` (pure decisions + DOM; served via CLIENT_JS, loaded after fskeep.js). Small edits: game.js movement gate (`!GK.pauseOpen`), audio.js `level()` honours `settings.mute`, menu.js mute default + title Settings checkbox, index.html (script tag, Mute row, Controls rows for C dash / right mouse / Esc,P / ?,F1 / N).
+- **Menu**: always-visible "Menu" corner button (bottom right, play only) plus Esc / P. Panel: Resume, Settings (graphics preset, dynamic res, FOV; audio with Mute and volumes; mouse sens, invert, head bob; name tags, minimap), Controls, How to Play, Stats, Codex, Report / Privacy, Leave game (in-page confirm, warns items are lost, then reload = normal disconnect to the title menu).
+- Match keeps running; while open game.js ignores movement and uiorg swallows all other keys; Esc steps back from a sub view then resumes; panels still close first on Esc. Esc with the pointer locked (no keydown) is caught via pointerlockchange. `GK.panelOpen/closePanels` are wrapped so fskeep.js treats the menu as a panel; nothing calls exitFullscreen. Closing re-locks the pointer.
+- `?` / F1 opens the key list; N mutes (persisted in gk.settings). Pure helpers (sort with favourites, group, stack, filter, rarity table) are in uiorg.js and tested, not yet wired to the inventory.
+**Tested**: tests/uiorg.test.js (9), fskeep regex relaxed for the new gate, `npm run check`, drv.js smoke at 1280x720 (Esc opens, N ignored inside, Resume, F1 view; screens `docs/screens/pause-*.jpg`).
+**Not done** (audit found workbench/WBUI already has search, sort, craftable-first, missing hints): inventory grouping/favourite UI, shop list unification, HUD regrouping, Elixir sections. Controls view scrolls at 720p (System group below the fold). Leave uses `location.reload()`.
+**Merger notes**: server.js CLIENT_JS gained 'uiorg'; run `npm run map`.
+
+## Part 2 (inventory, controls, HUD audit)
+- **Inventory** (game.js INVORG block): SORT button (locked first, then kind, best tier; swaps via the normal `mv` message), LOCK button (client-side favourite on the held item, diamond badge, blocks drop incl. right-click, persisted in `gk.locks`), shift-click quick-equips gear. Existing tooltip already compares to the equipped item; hotbar already shows keys 1-3. The backpack has 9 slots and no stacks, so grouping and stacking are not applicable.
+- **Controls view** is two columns and fits 720p. **HUD**: measured element rectangles at 1280x720, 1920x1080, 2560x1440 in the home phase: no overlaps (only the lobby line inside the HUD box, by design).
+- **Tested**: uiorg test (+1 wiring), drv.js smoke (inventory opens with Sort/Lock, key list). Screens: docs/screens/inv-org.jpg, pause-keys.jpg.
+- **Not done**: recycle/sell inside the inventory panel (needs server station flow), shop/merchant/Elixir section restructure (homeui.js and the Elixir Screen are being edited by other agents), arena-phase HUD overlap check.

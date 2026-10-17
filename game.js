@@ -148,7 +148,7 @@ function textTex(text, color, bg, w = 512, h = 128, font = 'bold 64px system-ui'
 // ---------- materials ----------
 const M = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.7, envMapIntensity: 0.5, ...o });
 const plaster = M(0xffffff, { map: plasterTex, bumpMap: bumpTex, bumpScale: 0.9, roughness: 0.92, envMapIntensity: 0.3 });
-const floorM = M(0xffffff, { map: floorTex, roughnessMap: floorRoughTex, bumpMap: floorBumpTex, bumpScale: 1.2, roughness: 1, envMapIntensity: 1.0 });
+const floorM = M(0xe9e7e1, { map: floorTex, roughnessMap: floorRoughTex, bumpMap: floorBumpTex, bumpScale: 1.2, roughness: 1, envMapIntensity: 1.0 });
 const ceilM = M(0xf4f4f1, { map: plasterTex, roughness: 0.95, emissive: 0xdedad2, emissiveIntensity: 0.55 });
 const trimM = M(0xfafafa, { roughness: 0.45 });
 const steelM = M(0xa9b6c6, { map: steelTex, metalness: 0.85, roughness: 0.42, envMapIntensity: 1 });
@@ -372,7 +372,8 @@ function dfxUpdate(dt) {
 }
 try { GKVFX.init(THREE, scene, cam, renderer, () => GK.settings.gfx); } catch (e) { console.error('vfx init failed', e); } // VFX (vfx.js: pooled particles, see its header for the API)
 function doorBurst(d) {
-  const big = d.kind === 'vault', nd = big ? 90 : 34, ns = big ? 60 : 22, hw = d.dw / 2, R1 = Math.random;
+  const big = d.kind === 'vault'; if (big) GK.vaultKick = performance.now();   // ARENAFX: the vault's gold glows brighter for 1.6 s when one of its doors opens
+  const nd = big ? 90 : 34, ns = big ? 60 : 22, hw = d.dw / 2, R1 = Math.random;
   const wx = (lx, lz) => d.gx + d.ax[0] * lx + d.az[0] * lz, wz = (lx, lz) => d.gz + d.ax[1] * lx + d.az[1] * lz;
   for (let k = 0; k < nd; k++) {
     const lx = (R1() * 2 - 1) * hw, s = R1() < 0.5 ? -1 : 1, lz = s * (0.3 + R1() * 0.5), vx = (R1() - 0.5) * 0.6, vz = s * (0.5 + R1() * 1.3);
@@ -660,7 +661,7 @@ const LAMPS = (() => {
     for (const p of pool) { const r = want.find(w => w.key === (p.want || p.key)); if (r && !keep.has(r.key)) keep.add(r.key); else todo.push(p); }
     for (const r of want) if (!keep.has(r.key)) { const p = todo.shift(); if (!p) break; p.want = r.key; }
   }
-  const _v = new THREE.Vector3(); let lastT = -1;
+  const _v = new THREE.Vector3(), _lampHue = new THREE.Color(); let lastT = -1;
   function tick(t) {   // t: seconds (renderWorld's clock)
     const dt = lastT < 0 ? 1 : Math.max(0, Math.min(0.1, t - lastT)); lastT = t;
     const p = cam.position, out = p.y > H || Math.abs(p.x) > WORLD.LIM || Math.abs(p.z) > WORLD.LIM, here = out ? '' : WORLD.roomKeyOf(p.x, p.z), now = performance.now();
@@ -671,7 +672,7 @@ const LAMPS = (() => {
       assign(rank(cx, cz, out || here === 'c-1' ? null : here));
     }
     for (const q of pool) {
-      if (q.want !== q.key) { q.k -= dt / FADE; if (q.k <= 0) { q.k = 0; q.key = q.want; const r = WORLD.roomRect(q.key); if (r) { const v = r.kind === 'vault'; q.l.position.set(r.cx, H - (v ? 1.2 : 0.7), r.cz); q.l.color.setHex(v ? 0xfff0dc : 0xfff6ea); } } }
+      if (q.want !== q.key) { q.k -= dt / FADE; if (q.k <= 0) { q.k = 0; q.key = q.want; const r = WORLD.roomRect(q.key); if (r) { const v = r.kind === 'vault'; q.l.position.set(r.cx, H - (v ? 1.2 : 0.7), r.cz); q.l.color.setHex(v ? 0xfff0dc : 0xfff6ea); const hue = !v && window.HUD5 ? HUD5.cellHue(r.key) : null; if (hue != null) q.l.color.lerp(_lampHue.setHex(hue), 0.16); } } }   // ARENAHUE: a lit hall glows faintly in its compass colour (colour of a hex lerp, no new light)
       else if (q.k < 1) q.k = Math.min(1, q.k + dt / FADE);
       { const hp = q.want === q.key && q.key && q.key[0] === 'c' && GK.r5 && GK.r5.lampAt(q.key); if (hp) q.l.position.set(hp[0], hp[1], hp[2]); }   // ROOMS5ART: a home's lamp hangs under its false ceiling
       const r = q.key && WORLD.roomRect(q.key); q.l.intensity = r ? base(r) * q.k : 0;
@@ -1625,7 +1626,7 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
     const L = WORLD.HOME_LAYOUT, id = cr.id, iron = steelDark, brass = brassM, wood = mat('hpWood', () => M(0x6b4a2a, { roughness: 0.82 }));
     if (window.GK5ART && window.GK5ART.home) {   // INTEGRATION: the art home draws the pump, screen and lockbox; these are only the invisible E-prompt targets at the art anchors (HOME_LAYOUT)
       const hit = (kind, x, y, z, w, h, d) => { const o = new THREE.Mesh(kgeo('hpHit' + w + h + d, () => new THREE.BoxGeometry(w, h, d)), proxyM); o.position.set(x, y, z); o.visible = false; g.add(o); regStation(kind, o, id); };
-      hit('pump', L.pump[0], 0.9, L.pump[1], 1.1, 1.8, 1.1); hit('screen', L.screen[0] - 0.2, 1.5, L.screen[1], 0.7, 1.4, 1.5); hit('box', L.box[0], 0.4, L.box[1], 0.9, 0.8, 1.1);
+      hit('pump', L.pump[0], 0.9, L.pump[1], 1.1, 1.8, 1.1); hit('screen', L.screen[0] - 0.2, 1.5, L.screen[1], 0.7, 1.4, 1.5); hit('box', L.box[0], 0.4, L.box[1], 0.9, 0.8, 1.1); hit('camera', L.cam[0], 1.2, L.cam[1] + 0.2, 1.0, 2.4, 1.0);   // CAMTERM: the terminal prompt target
       return;
     }
     const glass = mat('hpGlass', () => new THREE.MeshStandardMaterial({ color: 0xbfeaff, transparent: true, opacity: 0.26, roughness: 0.08, metalness: 0.1, depthWrite: false }));
@@ -2483,7 +2484,7 @@ const fmtT = ms => { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.fl
 // ----- round state (fed by applyRound; the local clock interpolates between server updates) -----
 const RS = { n: 0, endAt: 0, dur: 0, sel: {}, open: [], shut: [], fizzled: [], votes: 0, selJ: '{}', openJ: '[]', flashUntil: 0, fizzUntil: 0, homeLock: false, arenaUntil: 0 };
 GK.homeLocked = () => RS.homeLock;   // HOME PHASE: round 1, the hatches are shut
-GK.homeReach = (kind, d) => !window.GKHOMEBASE || !GKHOMEBASE.inReach || GKHOMEBASE.inReach(kind, d);   // QA-FULL: pump / screen / lockbox prompt only within the server's reach
+GK.homeReach = (kind, d, room) => (kind !== 'c' || (window.GKHOMEW && GKHOMEW.camOwned(room))) && !window.GKHOMEBASE || !GKHOMEBASE.inReach || GKHOMEBASE.inReach(kind, d);   // QA-FULL: pump / screen / lockbox prompt only within the server's reach
 GK.doorView = () => RS;   // DOORS-PERSIST: the wall maps read the open / barred doors
 const roundLeft = () => Math.max(0, RS.endAt - performance.now());
 function applyRound(d) {
@@ -4773,7 +4774,7 @@ window.GKHUD5 = (() => {
     const dbg = !!GK.dbg && play; if (dbg !== dbgOn) { dbgOn = dbg; hud.debug(dbg); }
     if (!play) return;
     const k = roomKeyAt(P.x, P.z);
-    if (k !== lastRoom) { lastRoom = k; const t = typeAt(k); if (t) hud.enterRoom(k, t); }
+    if (k !== lastRoom) { lastRoom = k; const t = typeAt(k); if (t) hud.enterRoom(k, t); else if (H.cellSide(k) && WORLD.HALL_THEME[+k]) { const th = WORLD.HALL_THEME[+k], sd = H.cellSide(k); hud.enterRoom(k, 'hall', { info: ['ROOM ' + (+k + 1) + ' · ' + th.toUpperCase(), H.hexCss(H.cellHue(k)), H.SIDE_WORD[sd] + ' hall'] }); } }   // ARENAHUE: a plain hall announces its number, theme and compass side
     if (S.crown && GK.minimap) GK.minimap.redraw();
     { const cr = hud.el && hud.el.querySelector('.gk5-cr'), quiet = !S.crown && k !== WORLD.VAULT_KEY; if (cr && cr.style.visibility !== (quiet ? 'hidden' : '')) cr.style.visibility = quiet ? 'hidden' : ''; }   // QA-FULL: the crown claim list sat in the middle of the view all match after any claim; now only while someone gains, the alarm runs, or I am in the vault
   }, 200);
@@ -4961,6 +4962,7 @@ function paintSlot(el, id) {
   if (el.dataset.lab) { const l = document.createElement('span'); l.className = 'kl'; l.textContent = el.dataset.lab; el.appendChild(l); }
   if (k != null) {
     el.appendChild(mkIcon(k, size));
+    if (invLocked(k)) { const lk = document.createElement('span'); lk.textContent = '◆'; lk.title = 'Locked'; lk.style.cssText = 'position:absolute;right:3px;top:1px;font:800 12px system-ui,sans-serif;color:#ffd75e;pointer-events:none;text-shadow:0 1px 2px #000'; el.appendChild(lk); }   // INVORG
     const tn = tierN(k); if (tn != null) { const b = document.createElement('span'); b.textContent = 'T' + tn; b.style.cssText = 'position:absolute;right:3px;bottom:2px;padding:0 4px;border-radius:4px;font:800 10px/14px system-ui,sans-serif;color:#0c0a06;pointer-events:none;background:' + (TIER_COL[(infoOf(k) || {}).tier] || '#9aa0a8'); el.appendChild(b); }
     else if (infoOf(k) && infoOf(k).family === 'brain') { const b = document.createElement('span'); b.textContent = '+' + fmtN(infoOf(k).gain); b.style.cssText = 'position:absolute;right:3px;bottom:2px;padding:0 4px;border-radius:4px;font:800 10px/14px system-ui,sans-serif;color:#0c0a06;pointer-events:none;background:#f08aa8'; el.appendChild(b); }
   } else if (id === 'weapon' || id === 'armor' || id === 'charm') { const c = mkIcon(id === 'weapon' ? 'w:sword' : id === 'charm' ? 'c:heart' : 'a:vest', size); c.className = 'sil'; el.appendChild(c); }
@@ -5022,6 +5024,7 @@ function moveInv(from, to) {
 }
 function dropSlot(id) {
   if (!id || invGet(myInv, id) == null) return;
+  if (invLocked(invGet(myInv, id))) { flashBad(id); invOrgHint('Locked: unlock it first (Lock button)'); return; }   // INVORG
   invDrop(myInv, id); net.send({ drop: id }); if (held === id) held = null; paintAll(); hideTip();
   const mine = actors.get(me); if (mine) showStats(null, mine.goblin);
 }
@@ -5055,7 +5058,7 @@ function buildInv() {
   const closeBtn = document.createElement('button'); closeBtn.textContent = 'CLOSE'; closeBtn.style.cssText = 'border:0;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font-weight:800';
   const eatBtn = document.createElement('button'); eatBtn.textContent = 'EAT / USE'; eatBtn.id = 'invEat'; eatBtn.style.cssText = 'border:1px solid #8be28b;background:rgba(40,120,50,.35);color:#b8f5b8';
   eatBtn.onclick = () => { const k = held && invGet(myInv, held); if (k && infoOf(k) && (infoOf(k).family === 'brain' || infoOf(k).use || infoOf(k).type === 'charm')) eatSlot(held); else { hintEl.style.color = '#ff8a7a'; hintEl.textContent = 'Pick up a brain or a utility item first, then press Eat / Use (or double-click it)'; setTimeout(() => { hintEl.style.color = '#8d8880'; hintEl.textContent = 'Right-click an item to drop it  ·  Tab / I / E to close'; }, 2200); } };
-  foot.append(hintEl, eatBtn, dropBtn, closeBtn);
+  foot.append(hintEl, ...invOrgButtons(), eatBtn, dropBtn, closeBtn);   // INVORG
   invEl.addEventListener('dblclick', e => { const el = e.target.closest && e.target.closest('.gks'); if (el && el.dataset.id) { held = null; eatSlot(el.dataset.id); } });
   panel.append(main, qwrap, foot); invEl.appendChild(panel);
   ghostEl = document.createElement('div'); ghostEl.style.cssText = 'position:fixed;z-index:70;display:none;pointer-events:none;filter:drop-shadow(0 4px 8px #000);transform:translate(-50%,-50%)';
@@ -5066,6 +5069,7 @@ function buildInv() {
   invEl.addEventListener('click', e => {
     const id = slotOf(e); if (e.target.closest('button')) return;
     if (!id) { if (e.target === invEl) { if (held) { held = null; paintAll(); } else closeInv(); } return; }   // FULLSCREEN-2: a click outside the bag closes it
+    if (e.shiftKey && held == null && invQuickEquip(id)) return;   // INVORG: shift-click gear = equip it
     if (held == null) { if (invGet(myInv, id) != null) { held = id; hideTip(); paintAll(); ghostAt(e); } } else moveInv(held, id);
   });
   invEl.addEventListener('contextmenu', e => { e.preventDefault(); const id = held || slotOf(e); if (id) dropSlot(id); });
@@ -5100,6 +5104,36 @@ function applyMatch(m) {
   lobbyEl.textContent = (lo === hi ? v(lo) : lo + '-' + hi + ' victories');
 }
 GK.showStats = () => { if (statsEl) statsEl.style.display = GK.mode === 'play' ? 'block' : 'none'; syncHotbar(); };
+// INVORG-BEGIN (inventory organising, docs/reports/ui-organize.md): Sort (favourites, then best tier, then kind) by swapping backpack slots with the normal mv message, Lock (client-side favourite: blocks drop, sorts first), shift-click quick-equip. uiorg.js holds the pure parts.
+const LOCKS = (() => { try { return JSON.parse(localStorage.getItem('gk.locks') || '{}') || {}; } catch (e) { return {}; } })();
+const invLocked = k => !!LOCKS[k];
+function invOrgHint(t) { if (!hintEl) return; hintEl.style.color = '#ff8a7a'; hintEl.textContent = t; setTimeout(() => { hintEl.style.color = '#8d8880'; hintEl.textContent = 'Right-click drops  ·  Shift-click equips  ·  Tab / I / E closes'; }, 2200); }
+function invQuickEquip(id) {
+  const k = invGet(myInv, id); if (k == null || id[0] === 'w' || id === 'armor' || id === 'charm') return false;
+  const it = infoOf(k), to = it && (it.type === 'weapon' ? 'weapon' : it.type === 'armor' ? 'armor' : it.type === 'charm' ? 'charm' : null);
+  if (!to) return false; moveInv(id, to); return true;
+}
+function invSortBackpack() {
+  if (!window.GKUIORG) return;
+  const ents = myInv.backpack.filter(k => k != null).map(k => { const i = infoOf(k) || {}; return { key: k, name: i.name || String(k), tier: i.tier, kind: i.type || '' }; });
+  const want = GKUIORG.sortEntries(ents, 'kind', LOCKS).map(e => e.key); while (want.length < 9) want.push(null);
+  for (let i = 0; i < 9; i++) {
+    if (myInv.backpack[i] === want[i]) continue;
+    const j = myInv.backpack.findIndex((k, x) => x > i && k === want[i]); if (j < 0) continue;
+    if (!canMove(myInv, 'b' + j, 'b' + i)) continue; invMove(myInv, 'b' + j, 'b' + i); net.send({ mv: ['b' + j, 'b' + i] });
+  }
+  held = null; paintAll();
+}
+function invToggleLock() {
+  const k = held ? invGet(myInv, held) : null; if (k == null) { invOrgHint('Pick up an item first, then press Lock'); return; }
+  if (LOCKS[k]) delete LOCKS[k]; else LOCKS[k] = 1; try { localStorage.setItem('gk.locks', JSON.stringify(LOCKS)); } catch (e) {}
+  held = null; paintAll();
+}
+function invOrgButtons() {
+  const mk = (t, fn, tip) => { const b = document.createElement('button'); b.textContent = t; b.title = tip; b.onclick = fn; b.style.cssText = 'border:1px solid rgba(255,215,94,.5);background:rgba(255,215,94,.08);color:#ffd75e'; return b; };
+  return [mk('SORT', invSortBackpack, 'Locked items first, then by kind and best tier'), mk('LOCK', invToggleLock, 'Pick up an item, then Lock: it cannot be dropped and sorts first')];
+}
+// INVORG-END
 GK.getInv = () => JSON.parse(JSON.stringify(myInv));
 GK.openInventory = openInv; GK.closeInventory = closeInv;
 addEventListener('keydown', e => {
@@ -5270,22 +5304,22 @@ function setHover(id, kind) {
   hoverTip.innerHTML = 'Press <b style="padding:1px 6px;border-radius:4px;background:#ffd75e;color:#1a1405">E</b> to ' + (hoverKind === 'r' ? 'recycle' : hoverKind === 'w' ? 'craft' : hoverKind === 'k' ? 'study' : 'trade'); hoverTip.style.display = /* FEEL: shown by feel.js */ false ? 'block' : 'none';
 }
 function merchantHoverTick() {
-  const T = PERF2_ON ? perf2HoverTargets() : [...(GK.merchantTargets || []), ...(GK.stationTargets || []).filter(o => o && o.userData && (o.userData.station === 'recycler' || o.userData.station === 'workbench' || o.userData.station === 'knowledge' || o.userData.station === 'screen' || o.userData.station === 'pump' || o.userData.station === 'box'))];   // PERF2: list cached (was rebuilt with a spread and a closure every frame)
+  const T = PERF2_ON ? perf2HoverTargets() : [...(GK.merchantTargets || []), ...(GK.stationTargets || []).filter(o => o && o.userData && (o.userData.station === 'recycler' || o.userData.station === 'workbench' || o.userData.station === 'knowledge' || o.userData.station === 'screen' || o.userData.station === 'pump' || o.userData.station === 'box' || o.userData.station === 'camera'))];   // PERF2: list cached (was rebuilt with a spread and a closure every frame)
   lootPromptTick();
   if (GK.mode !== 'play' || invOpen || shopOpen || !inside || !spawned || !T.length) { if (hoverRoom >= 0) setHover(-1); return; }
   if (PERF2_ON && !perf2HoverNear(T)) { setHover(-1); return; }   // PERF2: nothing within 20 m, so the ray cannot reach (it is 7 m long): skip the raycast over every merchant, recycler and workbench model
   if (GK.perf5 && GK.perf5.hoverSkip(T)) return;   // PERF5: the hover ray (2 to 4 ms next to the home stations) runs on every 3rd frame, and only when the view moved
   cam.updateMatrixWorld(); ray.setFromCamera({ x: 0, y: 0 }, cam); ray.far = 7;
   const hit = ray.intersectObjects(T, true)[0]; let id = -1, kind = '';
-  if (hit) { for (let o = hit.object; o; o = o.parent) { const u = o.userData; if (!u || u.roomId == null) continue; id = u.roomId; kind = u.station === 'recycler' ? 'r' : u.station === 'workbench' ? 'w' : u.station === 'knowledge' ? 'k' : u.station === 'screen' ? 's' : u.station === 'pump' ? 'p' : u.station === 'box' ? 'b' : 'm';
-    if ((kind === 'p' || kind === 's' || kind === 'b') && GK.homeReach && !GK.homeReach(kind, Math.hypot(P.x - o.matrixWorld.elements[12], P.z - o.matrixWorld.elements[14]))) { id = -1; kind = ''; }   // QA-FULL: the pump / screen / lockbox only answer within the server's range (2.5 / 3 / 1.5 m): no prompt that ends in "Too far"
+  if (hit) { for (let o = hit.object; o; o = o.parent) { const u = o.userData; if (!u || u.roomId == null) continue; id = u.roomId; kind = u.station === 'recycler' ? 'r' : u.station === 'workbench' ? 'w' : u.station === 'knowledge' ? 'k' : u.station === 'screen' ? 's' : u.station === 'pump' ? 'p' : u.station === 'box' ? 'b' : u.station === 'camera' ? 'c' : 'm';
+    if ((kind === 'p' || kind === 's' || kind === 'b' || kind === 'c') && GK.homeReach && !GK.homeReach(kind, Math.hypot(P.x - o.matrixWorld.elements[12], P.z - o.matrixWorld.elements[14]), id)) { id = -1; kind = ''; }   // QA-FULL: the pump / screen / lockbox only answer within the server's range (2.5 / 3 / 1.5 m): no prompt that ends in "Too far"
     break; } }
   setHover(id, kind);
 }
 GK.hover = () => ({ room: hoverRoom, kind: hoverKind });
 function stationInteract() {   // E while looking at a merchant, recycler or workbench opens it; true if it did
   if (hoverRoom < 0 || invOpen || shopOpen || GK.mode !== 'play') return false;
-  if ((hoverKind === 's' || hoverKind === 'p' || hoverKind === 'b') && window.GKHOMEW) return GKHOMEW.interact(hoverKind, hoverRoom);   // ELIXIR: Elixir Screen, pump, lockbox
+  if ((hoverKind === 's' || hoverKind === 'p' || hoverKind === 'b' || hoverKind === 'c') && window.GKHOMEW) return GKHOMEW.interact(hoverKind, hoverRoom);   // ELIXIR: Elixir Screen, pump, lockbox
   if (hoverKind === 'r') openStation('recycle', hoverRoom); else if (hoverKind === 'w' || hoverKind === 'k') openStation('craft', hoverRoom); else openShop(hoverRoom);   // KNOWLEDGE: the tree and the bench open the same screen. QA-FULL: "else openShop" had slipped into this comment, so E never opened a merchant
   return true;
 }
@@ -5774,6 +5808,7 @@ function fxApplyQuality(force) {
 function renderWorld(t) {
   fxMat.uTime.value = t;
   for (const s of fxScreens) s.m.emissiveIntensity = s.base * (0.82 + 0.18 * Math.sin(t * 2.1 + s.ph));
+  if (GK.roomart) GK.roomart.flick(t);   // ARENAFX
   fxPrepActors();
   LAMPS.tick(t);   // 5x5: the 9 pooled lamps follow the camera
   if (cam.position.y < H) ROOMART.near(WORLD.roomKeyOf(cam.position.x, cam.position.z));   // 5x5: lazy room dressing, the camera's room and its neighbours first
@@ -6099,7 +6134,7 @@ function perf2HoverTargets() {
   const mt = GK.merchantTargets, st = GK.stationTargets, nm = mt ? mt.length : 0, ns = st ? st.length : 0, h = perf2Hov, m0 = nm ? mt[0] : null, m1 = nm ? mt[nm - 1] : null, s0 = ns ? st[0] : null, s1 = ns ? st[ns - 1] : null;
   if (h.mt !== mt || h.st !== st || h.nm !== nm || h.ns !== ns || h.m0 !== m0 || h.m1 !== m1 || h.s0 !== s0 || h.s1 !== s1) {
     h.mt = mt; h.st = st; h.nm = nm; h.ns = ns; h.m0 = m0; h.m1 = m1; h.s0 = s0; h.s1 = s1;
-    h.T = [...(mt || []), ...(st || []).filter(o => o && o.userData && (o.userData.station === 'recycler' || o.userData.station === 'workbench' || o.userData.station === 'knowledge' || o.userData.station === 'screen' || o.userData.station === 'pump' || o.userData.station === 'box'))];
+    h.T = [...(mt || []), ...(st || []).filter(o => o && o.userData && (o.userData.station === 'recycler' || o.userData.station === 'workbench' || o.userData.station === 'knowledge' || o.userData.station === 'screen' || o.userData.station === 'pump' || o.userData.station === 'box' || o.userData.station === 'camera'))];
   }
   return h.T;
 }
@@ -6875,10 +6910,11 @@ const ROOMART = (() => {
   const goldVM = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 1, envMapIntensity: 1.4, emissive: 0x3a2000, emissiveIntensity: 0.6 });
   const MOOD = { chest: 0xffb02e, mystery: 0xa04dff, merchant: 0x22e0cc };
   const moodM = {}; for (const k in MOOD) moodM[k] = new THREE.MeshStandardMaterial({ color: 0x15110c, emissive: MOOD[k], emissiveIntensity: 2.3, roughness: 0.55 });
-  const AW = 1024, AH = 2048;
-  const CELLS = { gob: [0, 0, 512, 256], crown: [512, 0, 256, 256], tally: [768, 0, 256, 256], arrow: [0, 256, 256, 256], mine: [256, 256, 256, 256], king: [512, 256, 512, 256], haz: [0, 512, 1024, 128], kingme: [0, 640, 512, 256], face: [512, 640, 256, 256], scr: [768, 640, 256, 256], grime: [0, 896, 512, 128], scuff: [512, 896, 256, 128], crack: [768, 896, 256, 128], warrR: [0, 1024, 512, 256], warrL: [512, 1024, 512, 256], path: [0, 1280, 256, 256], drag: [256, 1280, 256, 256], claw: [0, 1536, 256, 256], scorch: [256, 1536, 256, 256], sawdust: [512, 1536, 512, 128], rm0: [0, 1792, 128, 128], rm1: [128, 1792, 128, 128], rm2: [256, 1792, 128, 128], rm3: [384, 1792, 128, 128], rm5: [512, 1792, 128, 128], rm6: [640, 1792, 128, 128], rm7: [768, 1792, 128, 128], rm8: [896, 1792, 128, 128] };
+  const AW = 1024, AH = 2304;   // ARENAHUE: +256 px for the stencil cells of all 24 non-vault cells
+  const CELLS = { gob: [0, 0, 512, 256], crown: [512, 0, 256, 256], tally: [768, 0, 256, 256], arrow: [0, 256, 256, 256], mine: [256, 256, 256, 256], king: [512, 256, 512, 256], haz: [0, 512, 1024, 128], kingme: [0, 640, 512, 256], face: [512, 640, 256, 256], scr: [768, 640, 256, 256], grime: [0, 896, 512, 128], scuff: [512, 896, 256, 128], crack: [768, 896, 256, 128], warrR: [0, 1024, 512, 256], warrL: [512, 1024, 512, 256], path: [0, 1280, 256, 256], drag: [256, 1280, 256, 256], claw: [0, 1536, 256, 256], scorch: [256, 1536, 256, 256], sawdust: [512, 1536, 512, 128] };
+  { let n = 0; for (let k = 0; k < 25; k++) if (k !== 12) { CELLS['rm' + k] = [(n % 8) * 128, 1792 + 128 * ((n / 8) | 0), 128, 128]; n++; } }   // ARENAHUE: one stencil cell per non-vault arena cell (24 = 3 rows of 8)
   // ROOMID: every grid room gets its own paint colour (wainscot band, floor inlay, pipe collars, a stencilled room number): the same white facility, but you can tell where you are
-  const ROOM_ACC = { 0: 0x6f9a86, 1: 0x6f8fb4, 2: 0xc27c5e, 3: 0xa7799b, 5: 0xcba44a, 6: 0x5f9ea0, 7: 0xbb6f7a, 8: 0x8ea352 };
+  const ROOM_ACC = {}; for (let k = 0; k < 25; k++) { const h = k === 12 ? null : HUD5.cellHue(k); if (h != null) ROOM_ACC[k] = h; }   // ARENAHUE (hud5.js): the colour is the compass side of the vault; the same table tints the minimap
   const accOf = key => ROOM_ACC[key] == null ? null : new THREE.Color(ROOM_ACC[key]);
   const SIZES = { gob: [1.5, 0.75], crown: [0.75, 0.75], tally: [0.7, 0.7], arrow: [0.95, 0.95], mine: [0.8, 0.8], king: [1.5, 0.75], warr: [1.6, 0.8], kingme: [2.0, 1.0], face: [0.9, 0.9], scr: [0.9, 0.9], warrR: [1.6, 0.8], warrL: [1.6, 0.8] };
   const GW = { gob: 4.0, crown: 2.0, tally: 2.0, mine: 2.2, king: 4.2, kingme: 4.5, face: 2.6, scr: 2.4, warr: 3.4 };   // wall graffiti widths in metres (readable from across the room)
@@ -7343,6 +7379,14 @@ const ROOMART = (() => {
       const wdt = e.d.dw + 0.5, dep = wdt / 8, c = new V3(e.lp.x + e.sl.x * 0.95, 0.007, e.lp.z + e.sl.z * 0.95);
       D.quad(c, new V3(0, 1, 0), new V3(e.t.z, 0, -e.t.x), wdt / 2, dep / 2, uvr('haz'), WHITE);
     }
+    // 4b. ARENAHUE floor frame: a double inlay line in the room's compass colour 1.5 m inside the walls, broken 0.9 m either side of every doorway (the door lanes stay clean)
+    if (acc && !r.vault) {
+      const fl0 = acc.clone().multiplyScalar(0.72), fl1 = acc.clone().lerp(WHITE, 0.3);
+      for (let w = 0; w < 4; w++) {
+        for (const [a, b] of segs(r, w, 1.56, 0.9)) wbox(S, r, w, a - 0.06, b + 0.06, 0, 0.009, 1.5, 1.62, fl0);
+        for (const [a, b] of segs(r, w, 1.7375, 0.9)) wbox(S, r, w, a, b, 0, 0.008, 1.72, 1.755, fl1);
+      }
+    }
     // 5. props, near walls and corners only, kept clear of door gaps
     const occ = [], free = (x, z, rad) => !occ.some(o => Math.hypot(o[0] - x, o[1] - z) < o[2] + rad + 0.12);
     if (r.kind === 'chest' && r.type === 'home') { const K = WORLD.HOME_LAYOUT.crate, B = WORLD.HOME_LAYOUT.bench, Rc = WORLD.HOME_LAYOUT.recycler; crate(A, K[0], K[1], 0.35, 0.83, rnd); occ.push([K[0], K[1], 0.6], [B[0], B[1], 1.3], [Rc[0], Rc[1], 1.0]); }   // 5x5: the home's solid crate (world.js 'hcrate') and the station footprints
@@ -7689,11 +7733,54 @@ const ROOMART = (() => {
     const k0 = nearKey || WORLD.VAULT_KEY; nearKey = null; near(k0);   // a new layout: the rooms around the camera now, the rest in idle time
     if (typeof fxCull !== 'undefined') fxCull.cls = new WeakMap();
   }
-  return { story, init() { try { build(); layoutHooks.push(() => { try { build(); } catch (e) { console.warn('roomart layout skipped', e); } }); } catch (e) { console.warn('roomart skipped', e); } }, built, glints, near, pending: () => ALL.filter(stale).length,
+  const flick = t => { emberM.emissiveIntensity = 2.6 * (0.78 + 0.2 * Math.sin(t * 9.1) + 0.12 * Math.sin(t * 23.7 + 1.3)); goldVM.emissiveIntensity = 0.6 * (0.86 + 0.14 * Math.sin(t * 1.4)) + (GK.vaultKick && GK.settings.ambfx !== false ? 1.6 * Math.max(0, 1 - (performance.now() - GK.vaultKick) / 1600) : 0); };   // ARENAFX: cold-fire embers flicker, gold glows slowly (two uniforms, no cost)
+  return { story, flick, init() { try { build(); layoutHooks.push(() => { try { build(); } catch (e) { console.warn('roomart layout skipped', e); } }); } catch (e) { console.warn('roomart skipped', e); } }, built, glints, near, pending: () => ALL.filter(stale).length,
     step(from) { const h = hopsFrom(from || anchor), k = ALL.filter(stale).sort((a, b) => (h[a] === undefined ? 99 : h[a]) - (h[b] === undefined ? 99 : h[b]))[0]; if (!k) return false; runOne(k); return true; } };   // PERF5: the loading step builds every room before GO
 })();
 ROOMART.init(); GK.roomart = ROOMART;   // test hook: ROOMART.story = room key -> [x, z, theme] of its story corner
 // ROOMART-END
+// ARENAFX-BEGIN (docs/reports/arena-polish.md): ambient effects of the arena in ONE Points draw call, animated in the vertex shader (no per-frame CPU, no lights):
+// embers over the cold campfires of the story corners, steam over kitchen stew pots, mist over cistern pools, sparkles over shrine fonts, gold sparks round the vault relic.
+// Quality: the first N particles are the "essential" tier (Low draws only those), the rest need Medium or higher; GK.settings.ambfx === false (or ?ambfx=0) turns all of it off.
+{
+  const P = [];   // [tier, x, y, z, rise, size, r, g, b, alpha, drift, speed]
+  const rnd = (a, b) => a + Math.random() * (b - a), add = (n, tier0, x, y, z, rad, rise, size, c, a, drift, speed) => { for (let i = 0; i < n; i++) { const t = Math.random() * 6.283, d = rad * Math.sqrt(Math.random()); P.push([i < tier0 ? 0 : 1, x + Math.cos(t) * d, y, z + Math.sin(t) * d, rise, size * rnd(0.7, 1.3), c[0], c[1], c[2], a, drift, speed * rnd(0.7, 1.3)]); } };
+  for (let i = 0; i < WORLD.NARENA; i++) {
+    const [cx, cz] = rc(i), s = WORLD.storyOf(i);
+    if (s && s.theme === 0) add(10, 5, cx + s.x, 0.25, cz + s.z, 0.3, 1.5, 0.07, [1.0, 0.55, 0.2], 0.9, 0.25, 0.22);
+    for (const p of WORLD.hallPieces(i)) {
+      if (p.h === 'cauldron') add(9, 4, p.x, 0.95, p.z, 0.18, 1.3, 0.2, [0.86, 0.88, 0.9], 0.38, 0.35, 0.16);
+      else if (p.h === 'pool') add(16, 6, p.x, 0.12, p.z, 0.9, 0.7, 0.28, [0.6, 0.8, 0.92], 0.2, 0.3, 0.07);
+      else if (p.h === 'font') add(7, 3, p.x, 0.85, p.z, 0.3, 0.9, 0.06, [0.55, 1.0, 0.9], 0.85, 0.2, 0.2);
+    }
+  }
+  add(16, 8, WORLD.RELIC.x, 1.15, WORLD.RELIC.z, 0.7, 1.8, 0.07, [1.0, 0.82, 0.38], 0.9, 0.3, 0.2);
+  P.sort((a, b) => a[0] - b[0]);
+  const n0 = P.filter(p => p[0] === 0).length, pos = new Float32Array(P.length * 3), sd = new Float32Array(P.length * 4), col = new Float32Array(P.length * 4), rs = new Float32Array(P.length);
+  P.forEach((p, i) => { pos.set([p[1], p[2], p[3]], i * 3); sd.set([Math.random(), p[11], p[5], p[10]], i * 4); col.set([p[6], p[7], p[8], p[9]], i * 4); rs[i] = p[4]; });
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('aSeed', new THREE.BufferAttribute(sd, 4)); geo.setAttribute('aCol', new THREE.BufferAttribute(col, 4)); geo.setAttribute('aRise', new THREE.BufferAttribute(rs, 1));
+  const mat = new THREE.ShaderMaterial({
+    uniforms: fxMat, transparent: true, depthWrite: false,
+    vertexShader: `attribute vec4 aSeed; attribute vec4 aCol; attribute float aRise; uniform float uTime; uniform float uHeight; varying vec4 vC;
+      void main(){
+        float life = fract(aSeed.x + uTime * aSeed.y); vec3 p = position;
+        p.y += life * aRise; p.x += sin(uTime * 0.9 + aSeed.x * 40.0) * aSeed.w * life; p.z += cos(uTime * 0.7 + aSeed.x * 31.0) * aSeed.w * life;
+        vec4 mv = modelViewMatrix * vec4(p, 1.0); gl_Position = projectionMatrix * mv;
+        gl_PointSize = clamp(aSeed.z * (0.7 + life * 0.8) * projectionMatrix[1][1] * uHeight * 0.5 / max(-mv.z, 0.1), 1.5, 24.0);
+        vC = vec4(aCol.rgb, aCol.a * smoothstep(0.0, 0.12, life) * smoothstep(1.0, 0.55, life) * smoothstep(26.0, 12.0, -mv.z));
+      }`,
+    fragmentShader: `varying vec4 vC; void main(){ float d = length(gl_PointCoord - 0.5) * 2.0; float a = 1.0 - smoothstep(0.0, 1.0, d); gl_FragColor = vec4(vC.rgb, a * a * vC.a);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }`
+  });
+  const pts = new THREE.Points(geo, mat); pts.frustumCulled = false; pts.renderOrder = 5; pts.matrixAutoUpdate = false; scene.add(pts); GK.arenaFx = { pts, n0, n: P.length };
+  const q = new URLSearchParams(location.search).get('ambfx');
+  const apply = () => { const on = GK.settings.ambfx !== false && q !== '0'; pts.visible = on; geo.setDrawRange(0, GK.settings.gfx === 'low' ? n0 : P.length); };
+  apply(); setInterval(apply, 1000);
+}
+// ARENAFX-END
 // ROOMS5ART-BEGIN (docs/reports/room-art-integration.md): the art modules rooms5art-home / trees-a / trees-b / vault (window.GK5ART, loaded by index.html) built into the real arena.
 // 8 homes (c0, c2 .. c14), 4 tree rooms (cells 6 8 16 18), 4 vaultbreaker rooms (7 11 13 17) and the vault dressing (12) are built lazily, nearest first (the camera's room and its 2-hop
 // neighbours at one room per frame, the rest in idle time), each inside a frozen wrapper group so the FX room culling hides it with its room; update() runs only for rooms in the cull set.
@@ -7736,7 +7823,7 @@ const R5 = (() => {
   const colorOf = id => { const a = actors.get(id); return a && a.goblin != null ? [0xffd75e, 0xff9a5e, 0x9ae06e, 0x6fc8ff, 0xc89aff][a.goblin % 5] : 0xffd75e; };
   function homeState(key) {   // GK.state.homes[key] = { pump 0..1, alert, dead, lv: { lock, alarm, sentry, lockbox } }; the own home also reads the pump tank
     const hs = (GK.state && GK.state.homes && GK.state.homes[key]) || {}, lv = hs.lv || {}, tank = GK.myHome === key && GK.state && GK.state.tankCap ? GK.state.tank / GK.state.tankCap : null;
-    return { pump: Math.max(0, Math.min(1, hs.pump != null ? hs.pump : tank != null ? tank : 0.55)), alert: !!hs.alert, dead: !!hs.dead, lock: lv.lock | 0, alarm: lv.alarm | 0, sentry: lv.sentry | 0, lockbox: lv.lockbox | 0 };
+    return { pump: Math.max(0, Math.min(1, hs.pump != null ? hs.pump : tank != null ? tank : 0.55)), alert: !!hs.alert, dead: !!hs.dead, lock: lv.lock | 0, alarm: lv.alarm | 0, sentry: lv.sentry | 0, lockbox: lv.lockbox | 0, camera: lv.camera | 0 };
   }
   const BUILD = {
     home(key) {
@@ -7747,9 +7834,9 @@ const R5 = (() => {
       e.lamp = [c.cx + (la.x * cs + la.z * sn) * K, 3.1, c.cz + (-la.x * sn + la.z * cs) * K];   // under the false ceiling: the pooled lamp of this room moves here
       e.sync = () => {
         const nm = homeOwner(c.id); if (nm !== owner) { owner = nm; home.setOwner(owner, col); }
-        const s = homeState(key), sig = [s.pump.toFixed(2), s.alert ? 1 : 0, s.dead ? 1 : 0, s.lock, s.alarm, s.sentry, s.lockbox].join();
+        const s = homeState(key), sig = [s.pump.toFixed(2), s.alert ? 1 : 0, s.dead ? 1 : 0, s.lock, s.alarm, s.sentry, s.lockbox, s.camera].join();
         if (sig === e.hs) return; e.hs = sig;
-        home.setPumpLevel(s.pump); home.setPumpAlert(s.alert); home.setScreenPower(!s.dead); home.setUpgrade('lock', s.lock); home.setUpgrade('alarm', s.alarm); home.setUpgrade('sentry', s.sentry); home.setUpgrade('lockbox', s.lockbox);
+        home.setPumpLevel(s.pump); home.setPumpAlert(s.alert); home.setScreenPower(!s.dead); home.setUpgrade('lock', s.lock); home.setUpgrade('alarm', s.alarm); home.setUpgrade('sentry', s.sentry); home.setUpgrade('lockbox', s.lockbox); home.setUpgrade('camera', s.camera);
       };
       e.update = (dt, t) => home.update(t); e.dispose = () => home.dispose();
       return e;
@@ -8659,7 +8746,7 @@ function frame(now) {
   const mine = actors.get(me);
   feel2Tick();   // FEEL2: buffered / held attack
   // my movement
-  if (mine && spawned && GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked) {
+  if (mine && spawned && GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked && !GK.pauseOpen) {   // UIORG: menu open = no movement
     const f = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
     const s = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
     const sp = (GK.carryHeavy ? 4.6 * 0.7 : keys.has('ShiftLeft') || keys.has('ShiftRight') ? 7.5 : 4.6) * ((itemsData().SPEED || [])[mine.goblin] || (0.85 + 0.15 * SCALE[mine.goblin])) * (invReady && itemsData().armorSpeed ? itemsData().armorSpeed(myInv.armor) : 1) * (window.GKUSE ? GKUSE.speedMul() : 1);   // ARMOUR-2: worn armour speed   // BALANCE: class speed table (items.js SPEED, shared with the server): small fastest, big slowest
@@ -8985,7 +9072,7 @@ const LOOT = window.GKLOOT = (() => {
 const GKUSE = window.GKUSE = (() => {
   const UT = k => (itemsData().ITEMS || {})[k] || {};
   let tonicEnd = 0, lastKey = null;
-  const FAIL = { now: 'Not now', busy: 'Not yet', full: 'You are at full health', sudden: 'Nothing heals in sudden death', door: 'No open door close by', room: 'Use it in a room with a panel', item: 'Cannot use that' };
+  const FAIL = { now: 'Not now', busy: 'Not yet', full: 'You are at full health', sudden: 'Regen potions and wedges do not work in sudden death', door: 'No open door close by', room: 'Use it in a room with a panel', item: 'Cannot use that' };
   const note = (text, col) => {   // short floating note, the same family as the knowledge gain text but smaller
     const f = document.createElement('div'); f.textContent = text;
     f.style.cssText = 'position:fixed;left:50%;top:50%;transform:translateX(-50%);z-index:90;pointer-events:none;color:' + (col || '#ffe9a8') + ';font:700 20px system-ui,sans-serif;letter-spacing:.04em;text-shadow:0 2px 8px #000';
@@ -9158,6 +9245,10 @@ const HOMEW = window.GKHOMEW = (() => {
   const ringHome = () => { const e = GK.r5 && GK.r5.room(GK.myHome); if (e && e.api.ringAlarm) e.api.ringAlarm(); };
   const ui = GKHOMEUI.createHomeUI({ root: document.body, send: m => net.send(m), onClose: () => { shopOpen = false; panelKind = ''; keys.clear(); lockNow(); } });
   const mine = room => GK.myHome && 'c' + room === GK.myHome;
+  // CAMTERM: the Camera Terminal overlay (camterm.js). The server owns every rule and sends the frames; this only shows them.
+  const camClose = () => { shopOpen = false; panelKind = ''; keys.clear(); lockNow(); };
+  const cam = window.GKCAM ? GKCAM.createCamUI({ root: document.body, send: m => net.send(m), snd, n: W.N, vaultKey: W.VAULT_KEY, onClose: camClose }) : null;
+  const camOwned = room => !!(mine(room) && hs && !hs.dead && hs.lv && hs.lv.camera > 0);
   function mapState() {
     const cells = [];
     for (let i = 0; i < W.NARENA; i++) cells.push({ key: String(i), gx: i % W.N, gy: Math.floor(i / W.N), kind: String(i) === W.VAULT_KEY ? 'vault' : 'arena', label: String(i) === W.VAULT_KEY ? 'V' : '' });
@@ -9174,6 +9265,11 @@ const HOMEW = window.GKHOMEW = (() => {
       if (!hs) { ui.toast('info', 'The screen is warming up'); return true; }
       shopOpen = true; panelKind = 'home'; keys.clear(); try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
       ui.open(state()); return true;
+    }
+    if (kind === 'c') {   // CAMTERM
+      if (!camOwned(room) || !cam) { ui.toast('info', 'Not your terminal'); snd('deny'); return true; }
+      shopOpen = true; panelKind = 'home'; keys.clear(); try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
+      cam.open({ level: hs.lv.camera, elixir }); return true;
     }
     if (kind === 'p') { net.send({ pump: 1 }); return true; }
     if (mine(room)) { ui.toast('info', 'Your lockbox: manage it on the Elixir Screen'); return true; }
@@ -9200,7 +9296,7 @@ const HOMEW = window.GKHOMEW = (() => {
   }, 1000);
   function onMsg(d) {
     if (d.matchStart || d.queue) { hs = null; elixir = 0; ui.setElixir(null); bells.clear(); gas.clear(); gs.homes = {}; gs.tank = gs.tankCap = undefined; }
-    if (d.elixir !== undefined) { elixir = d.elixir | 0; ui.setElixir(elixir, 120); if (ui.isOpen() && hs) ui.update(state()); }
+    if (d.elixir !== undefined) { elixir = d.elixir | 0; cam && cam.setElixir(elixir); ui.setElixir(elixir, 120); if (ui.isOpen() && hs) ui.update(state()); }
     if (d.home) {
       hs = d.home; if (ui.isOpen()) ui.update(state());
       hput(hs.key, { pump: hs.tankCap ? hs.tank / hs.tankCap : 0, lv: hs.lv || {}, dead: !!hs.dead }); gs.tank = hs.tank; gs.tankCap = hs.tankCap;
@@ -9218,6 +9314,8 @@ const HOMEW = window.GKHOMEW = (() => {
     if (d.brewed) ui.toast('good', 'Brewed ' + itemName(d.brewed.key));
     if (d.brewFail) ui.toast('info', REASON[d.brewFail] || 'Cannot brew that');
     if (d.homeFx) fx(d.homeFx);
+    if (cam && d.cam !== undefined) cam.frame(d.cam);   // CAMTERM: a frame, or null when the session ended
+    if (d.camRes) { if (d.camRes.end) { cam && cam.close(true); ui.toast('info', d.camRes.reason); } else if (cam && cam.isOpen()) cam.result(d.camRes); else if (d.camRes.reason) ui.toast('info', d.camRes.reason); }
   }
   // Refine and Brew live on the recycler / workbench panels (game.js hooks): they only show where the server will accept them
   const inHome = room => { const c = CHEST_ROOMS[room]; return !!c && c.type === 'home'; };
@@ -9237,7 +9335,7 @@ const HOMEW = window.GKHOMEW = (() => {
     for (const b of brewRow.querySelectorAll('button')) b.style.opacity = elixir >= (b.dataset.brew === 'heal' ? 8 : 12) ? 1 : 0.45;
   }
   return {
-    onMsg, interact, shut: () => ui.close(false), decorateCraft, paintBrew, dbgSend: m => { if (GK.dbg) net.send(m); },   // GK_DEBUG servers only (screenshots, tests)
+    onMsg, interact, camOwned, shut: () => { ui.close(false); cam && cam.close(false); }, decorateCraft, paintBrew, dbgSend: m => { if (GK.dbg) net.send(m); },   // GK_DEBUG servers only (screenshots, tests)
     elixir: () => elixir, benchLv: () => (hs && hs.lv && hs.lv.bench) | 0, recEff: () => (hs ? K.recyclerEff({ lv: hs.lv, dead: hs.dead }) : 0.5),
     canRefine: room => !!hs && !hs.dead && elixir >= 4 && mine(room) && inHome(room),
     bellAt: (x, z) => { if (!bells.size) return false; const k = W.roomKeyOf(x, z), t = bells.get(k); return t != null && t > performance.now(); },
@@ -9534,7 +9632,7 @@ window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw,
     brain: 'Eat a goblin brain for 5% of its knowledge. Each brain is also a knowledge point for a perk at the workbench.',
     lowhp: 'Death loses EVERYTHING you carry. Run through a door if you must.',
     vaultOpen: 'THE VAULT is open: scoop the coffers, grab the relic, and stand on the dais to claim the crown.',
-    sudden: 'Sudden death: the outer rooms are venting and only THE VAULT heals. Get to the vault!',
+    sudden: 'Sudden death: the outer rooms are venting. Only THE VAULT heals fully; bandages and draughts work at half strength. Get to the vault!',
   };
   let st = { on: true, seen: {} };
   try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && typeof s === 'object') st = { on: s.on !== false, seen: s.seen && typeof s.seen === 'object' ? s.seen : {} }; } catch (e) {}

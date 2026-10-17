@@ -20,7 +20,7 @@
   const rnd = (a, b) => a + Math.random() * (b - a);
   const num = (v, d) => (typeof v === 'number' && isFinite(v) ? v : d);
   const set = () => (window.GK && window.GK.settings) || {};
-  const level = k => clamp(num(set()[k], k === 'vol' ? 0.8 : k === 'sfx' ? 0.9 : 0.5), 0, 1);
+  const level = k => set().mute ? 0 : clamp(num(set()[k], k === 'vol' ? 0.8 : k === 'sfx' ? 0.9 : 0.5), 0, 1);
 
   function ensure() {
     if (ctx) return ctx;
@@ -515,8 +515,10 @@
 
   // ---------- ambient room hum (a bit deeper in the vault) ----------
   let amb = null;
-  function ambient(zone) {   // zone: 'room' | 'chest' | 'vault' | 'sudden' | null (off)
+  const SIDE_STEP = { N: 0, NE: 1, E: 2, SE: 3, S: 4, SW: 5, W: 6, NW: 7 };   // ARENAHUE: semitone step of the plain-room hum per compass side (walk round the arena and the hum drifts up a fifth)
+  function ambient(zone, side) {   // zone: 'room' | 'chest' | 'vault' | 'sudden' | null (off); side: compass side of a 5x5 hall (optional)
     if (!ctx) return;
+    const sk = zone === 'room' && SIDE_STEP[side] !== undefined ? side : '';
     if (!amb) {
       const mk = (type, f, g) => { const o = ctx.createOscillator(), gn = ctx.createGain(); o.type = type; o.frequency.value = f; gn.gain.value = g; o.connect(gn); gn.connect(amb.mix); o.start(); return { o, gn }; };
       amb = { mix: ctx.createGain(), zone: null };
@@ -527,10 +529,11 @@
       amb.ng = ctx.createGain(); amb.ng.gain.value = 0.35; ns.connect(amb.nf); amb.nf.connect(amb.ng); amb.ng.connect(amb.mix); ns.start();
       const lfo = ctx.createOscillator(), lg = ctx.createGain(); lfo.frequency.value = 0.11; lg.gain.value = 70; lfo.connect(lg); lg.connect(amb.nf.frequency); lfo.start();
     }
-    if (zone === amb.zone) return;
-    amb.zone = zone; const t = ctx.currentTime;
+    if (zone === amb.zone && sk === amb.side) return;
+    amb.zone = zone; amb.side = sk; const t = ctx.currentTime;
     // per-zone colour: [level, drone Hz, upper drone Hz, sub gain, noise cutoff]
-    const Z = { room: [0.13, 55, 110.4, 0, 260], chest: [0.09, 62, 124, 0, 200], vault: [0.2, 41, 82.4, 0.5, 170], sudden: [0.23, 38, 76, 0.7, 140] }, z = Z[zone] || Z.room;
+    const Z = { room: [0.13, 55, 110.4, 0, 260], chest: [0.09, 62, 124, 0, 200], vault: [0.2, 41, 82.4, 0.5, 170], sudden: [0.23, 38, 76, 0.7, 140] }, z = (Z[zone] || Z.room).slice();
+    if (sk) { const m = Math.pow(2, SIDE_STEP[sk] / 12); z[1] *= m; z[2] *= m; z[4] += SIDE_STEP[sk] * 14; }
     amb.mix.gain.setTargetAtTime(zone ? z[0] : 0, t, 0.8);
     if (zone) {
       amb.a.o.frequency.setTargetAtTime(z[1], t, 0.9); amb.b.o.frequency.setTargetAtTime(z[1] * 1.013, t, 0.9);

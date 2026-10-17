@@ -245,6 +245,7 @@ function charmScore(c, who) {
 function useNow(o) {
   if (o.roll > o.items) return null;   // a weaker bot forgets its pockets now and then
   const f = o.hp / Math.max(1, o.max), miss = o.max - o.hp, quiet = (!o.foes || o.near > 7) && o.hurtAgo > 2500;
+  if (o.sudden && o.heal > 0 && f < 0.35 && (o.near > 3 || o.hurtAgo > 1500)) return 'heal';   // SUDDEN: half-strength heal items still work; only in an emergency
   if (!o.sudden && o.heal > 0) {
     if (f < 0.3 && (o.near > 3 || o.hurtAgo > 1500)) return 'heal';   // emergency: drink when not being hit this very moment
     if (quiet && (miss >= o.heal * 0.8 || f < 0.55)) return 'heal';   // patch up when safe, without wasting the potion (below 55% waste does not matter)
