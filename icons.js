@@ -71,33 +71,78 @@
   function nails(g) { g.fillStyle = steel; for (const [x, y] of [[-0.1, 0.2], [0.1, 0.28], [-0.05, 0.4], [0.07, 0.15]]) circ(g, x, y, 0.025); }
   function spikes(g, x, y, r, n) { g.fillStyle = steel; for (let i = 0; i < n; i++) { const a = i * 6.2832 / n; poly(g, [[x + Math.cos(a - 0.2) * r, y + Math.sin(a - 0.2) * r], [x + Math.cos(a) * r * 1.5, y + Math.sin(a) * r * 1.5], [x + Math.cos(a + 0.2) * r, y + Math.sin(a + 0.2) * r]]); } }
   function shirt(g, a, b) { poly2(g, [[-0.18, 0.1], [0.18, 0.1], [0.38, 0.28], [0.3, 0.42], [0.22, 0.36], [0.22, 0.9], [-0.22, 0.9], [-0.22, 0.36], [-0.3, 0.42], [-0.38, 0.28]], a, b); }
-  function draw(ctx, key, x, y, size) {
-    const baked = window.GKART && GKART.icon(key);   // ITEMART: icon rendered from the 3D model (itemart.js) once baked
-    if (baked) { ctx.save(); ctx.imageSmoothingQuality = 'high'; ctx.drawImage(baked, x, y, size, size); ctx.restore(); upBadge(ctx, window.GKITEMS && GKITEMS.ITEMS[key], x, y, size); return; }
-    const it = window.GKITEMS && (window.GKITEMS.info ? window.GKITEMS.info(key) : window.GKITEMS.ITEMS[key]), tier = (it && TIER[it.tier]) || TIER.common;
+  // ICONFRAME: every icon sits in the same tier frame (docs/reports/item-art-4.md). Drawn at paint time, so it stays crisp at 40 px (hotbar) and 160 px (inventory) and costs nothing to bake.
+  // Escalating materials: common bone, uncommon iron, rare silver, mythic gold, legendary violet, transcendent prismatic. The socket gem and the plate tint carry the tier accent colour (ART.md).
+  const FR = {
+    common: { hi: '#d4c8aa', lo: '#7d735d', plate: ['#2c2a25', '#1b1a17'], glow: null, gem: null },
+    uncommon: { hi: '#bcc4ce', lo: '#565d66', plate: ['#262b2e', '#191c1f'], glow: '#7fe08a', ga: 0.12, gem: null },
+    rare: { hi: '#f4f8fc', lo: '#93a2b6', plate: ['#202c42', '#131a29'], glow: '#4a8dff', ga: 0.3, gem: '#4a8dff' },
+    mythic: { hi: '#ffe58c', lo: '#b07a08', plate: ['#2d2145', '#170f2b'], glow: '#a455ff', ga: 0.36, gem: '#a455ff' },
+    legendary: { hi: '#d9b8ff', lo: '#6a3fc0', plate: ['#3d2314', '#1d1008'], glow: '#ff9a1a', ga: 0.42, gem: '#ff9a1a' },
+    transcendent: { hi: '#ffffff', lo: '#8ad8ff', plate: ['#143038', '#0b1a20'], glow: '#3ff0ff', ga: 0.4, gem: '#3ff0ff', prism: true },
+  };
+  FR.class = FR.common;
+  const RISK = new Set(['x:bait']);   // items with a downside for the owner; `risk` or `cursed` on an item in items.js marks it too
+  function rr(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+  function frame(g, tier, x, y, s) {
+    const P = FR[tier] || FR.common, m = s * 0.035, w = s - 2 * m, r = s * 0.15, lw = Math.max(1.3, s * 0.04), px = x + m, py = y + m;
+    g.save(); rr(g, px, py, w, w, r);
+    const pg = g.createLinearGradient(0, py, 0, py + w); pg.addColorStop(0, P.plate[0]); pg.addColorStop(1, P.plate[1]); g.fillStyle = pg; g.fill(); g.clip();
+    if (P.glow) { const gr = g.createRadialGradient(x + s / 2, y + s * 0.6, 0, x + s / 2, y + s * 0.6, s * 0.6); gr.addColorStop(0, P.glow + Math.round(P.ga * 255).toString(16).padStart(2, '0')); gr.addColorStop(1, P.glow + '00'); g.fillStyle = gr; g.fillRect(px, py, w, w); }
+    const hl = g.createRadialGradient(px + w * 0.25, py + w * 0.15, 0, px + w * 0.25, py + w * 0.15, w * 0.8); hl.addColorStop(0, 'rgba(255,255,255,.09)'); hl.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = hl; g.fillRect(px, py, w, w);   // soft top-left key light, the same in every frame
+    g.restore();
+    rr(g, px, py, w, w, r);
+    let bg; if (P.prism && g.createConicGradient) { bg = g.createConicGradient(0.6, x + s / 2, y + s / 2); ['#ff8ad0', '#ffd98a', '#9aff9a', '#7ae6ff', '#b49aff', '#ff8ad0'].forEach((c, i) => bg.addColorStop(i / 5, c)); }
+    else { bg = g.createLinearGradient(px, py, px + w, py + w); bg.addColorStop(0, P.hi); bg.addColorStop(0.5, P.prism ? '#bfe9ff' : P.lo); bg.addColorStop(1, P.hi); }
+    g.lineWidth = lw; g.strokeStyle = bg; g.stroke();
+    rr(g, px + lw * 0.95, py + lw * 0.95, w - lw * 1.9, w - lw * 1.9, Math.max(1, r - lw)); g.lineWidth = Math.max(1, s * 0.012); g.strokeStyle = 'rgba(255,255,255,.13)'; g.stroke();   // inner bevel
+    if (P.gem) {   // socket gem in the top edge; escalates with the tier
+      const gx = x + s / 2, gy = py, d = s * (tier === 'rare' ? 0.06 : 0.075);
+      g.beginPath(); g.moveTo(gx, gy - d); g.lineTo(gx + d * 0.8, gy); g.lineTo(gx, gy + d); g.lineTo(gx - d * 0.8, gy); g.closePath(); g.fillStyle = P.gem; g.fill(); g.lineWidth = Math.max(1, s * 0.016); g.strokeStyle = 'rgba(10,8,6,.85)'; g.stroke();
+      g.fillStyle = 'rgba(255,255,255,.7)'; g.beginPath(); g.moveTo(gx - d * 0.3, gy - d * 0.1); g.lineTo(gx, gy - d * 0.65); g.lineTo(gx + d * 0.12, gy - d * 0.1); g.closePath(); g.fill();
+    }
+  }
+  function badges(ctx, it, key, x, y, size, o) {
+    const lw = Math.max(1, size * 0.025);
+    if (it && it.up) {   // KNOWLEDGE: a small gold plus marks a reforged item (top right, inside the frame)
+      const r = size * 0.115, cx = x + size - size * 0.035 - r * 1.25, cy = y + size * 0.035 + r * 1.25, gr = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.35, 0, cx, cy, r);
+      gr.addColorStop(0, '#fff0a8'); gr.addColorStop(1, '#e0a420'); ctx.save(); ctx.fillStyle = gr; ctx.strokeStyle = '#2a1c04'; ctx.lineWidth = lw; ctx.beginPath(); ctx.arc(cx, cy, r, 0, 6.2832); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#2a1c04'; const w = r * 1.1, h = r * 0.34; ctx.fillRect(cx - w / 2, cy - h / 2, w, h); ctx.fillRect(cx - h / 2, cy - w / 2, h, w); ctx.restore();
+    }
+    if ((it && (it.risk || it.cursed)) || RISK.has(key)) {   // risk / cursed: a red hazard triangle top left and a red tint on the rim
+      const t = size * 0.17, cx = x + size * 0.035 + t * 0.9, cy = y + size * 0.035 + t * 0.95; ctx.save(); ctx.beginPath(); ctx.moveTo(cx, cy - t * 0.8); ctx.lineTo(cx + t * 0.9, cy + t * 0.7); ctx.lineTo(cx - t * 0.9, cy + t * 0.7); ctx.closePath(); ctx.fillStyle = '#d8283a'; ctx.fill(); ctx.strokeStyle = '#2a0408'; ctx.lineWidth = lw; ctx.stroke(); ctx.fillStyle = '#fff'; ctx.fillRect(cx - t * 0.07, cy - t * 0.35, t * 0.14, t * 0.5); ctx.fillRect(cx - t * 0.07, cy + t * 0.25, t * 0.14, t * 0.14); ctx.restore();
+    }
+    if (o && o.count > 1) {   // stack count, bottom left
+      const txt = '×' + o.count, fs = Math.max(8, size * 0.2); ctx.save(); ctx.font = '800 ' + fs + 'px system-ui,sans-serif'; const w = ctx.measureText(txt).width + fs * 0.5, h = fs * 1.15, bx = x + size * 0.07, by = y + size - size * 0.07 - h;
+      rr(ctx, bx, by, w, h, h * 0.35); ctx.fillStyle = 'rgba(10,9,8,.82)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = lw * 0.7; ctx.stroke(); ctx.fillStyle = '#f4efe2'; ctx.textBaseline = 'middle'; ctx.fillText(txt, bx + fs * 0.25, by + h / 2 + fs * 0.04); ctx.restore();
+    }
+    if (o && o.charge != null) {   // charge / durability bar along the bottom edge
+      const bw = size * 0.62, bh = Math.max(2, size * 0.045), bx = x + (size - bw) / 2, by = y + size - size * 0.085 - bh, c = Math.max(0, Math.min(1, o.charge));
+      ctx.save(); rr(ctx, bx, by, bw, bh, bh / 2); ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.fill(); if (c > 0) { rr(ctx, bx, by, Math.max(bh, bw * c), bh, bh / 2); ctx.fillStyle = c < 0.25 ? '#ff5a4a' : c < 0.6 ? '#ffc933' : '#7fe08a'; ctx.fill(); } ctx.restore();
+    }
+  }
+  function draw(ctx, key, x, y, size, opts) {
+    const it = window.GKITEMS && (window.GKITEMS.info ? window.GKITEMS.info(key) : window.GKITEMS.ITEMS[key]), noFrame = opts && opts.frame === false, inner = noFrame ? size : size * 0.86, off = (size - inner) / 2, baked = window.GKART && GKART.icon(key);   // ITEMART: icon rendered from the 3D model (itemart.js) once baked
+    if (!noFrame) frame(ctx, it && it.tier, x, y, size);
+    if (baked) { ctx.save(); ctx.imageSmoothingQuality = 'high'; ctx.drawImage(baked, x + off, y + off + (noFrame ? 0 : size * 0.01), inner, inner); ctx.restore(); badges(ctx, it, key, x, y, size, opts); return; }
+    const tier = (it && TIER[it.tier]) || TIER.common;
     steel = tier[0];
-    ctx.save(); ctx.translate(x + size / 2, y + size * 0.04); ctx.scale(size * 0.92, size * 0.92); ctx.lineJoin = 'round';
-    if (tier[1]) { const gr = ctx.createRadialGradient(0, 0.5, 0, 0, 0.5, 0.62); gr.addColorStop(0, tier[1] + '77'); gr.addColorStop(1, tier[1] + '00'); ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(0, 0.5, 0.62, 0, 6.2832); ctx.fill(); }
+    ctx.save(); ctx.translate(x + size / 2, y + off + inner * 0.04); ctx.scale(inner * 0.92, inner * 0.92); ctx.lineJoin = 'round';
     ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = size * 0.04;
     const fam = it && it.family, fn = DRAW[key] || (it && it.base && DRAW[it.base]) || DRAW_FAMILY[fam] || DRAW['w:' + fam] || DRAW['a:' + fam] || (g => { g.fillStyle = '#888'; g.fillRect(-0.2, 0.3, 0.4, 0.4); });
     try { fn(ctx); } catch (e) {}
-    ctx.restore(); steel = '#b8c2cc'; upBadge(ctx, it, x, y, size);
-  }
-  function upBadge(ctx, it, x, y, size) {   // KNOWLEDGE: a small gold plus marks a reforged item
-    if (!it || !it.up) return; const r = size * 0.13, cx = x + size - r * 1.25, cy = y + r * 1.25;
-    ctx.save(); ctx.fillStyle = '#ffd75e'; ctx.strokeStyle = '#2a1c04'; ctx.lineWidth = Math.max(1, size * 0.025); ctx.beginPath(); ctx.arc(cx, cy, r, 0, 6.2832); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#2a1c04'; const w = r * 1.1, h = r * 0.32; ctx.fillRect(cx - w / 2, cy - h / 2, w, h); ctx.fillRect(cx - h / 2, cy - w / 2, h, w); ctx.restore();
+    ctx.restore(); steel = '#b8c2cc'; badges(ctx, it, key, x, y, size, opts);
   }
   const live = [];   // ITEMART: canvases handed out before their icon was baked; they repaint when it arrives
-  function paint(c, key, size) { const g = c.getContext('2d'), d = c.width / size; g.setTransform(d, 0, 0, d, 0, 0); g.clearRect(0, 0, size, size); draw(g, key, 0, 0, size); }
-  function canvas(key, size) {
-    const c = document.createElement('canvas'), d = Math.min(window.devicePixelRatio || 1, 2); c.width = c.height = Math.round(size * d); c.style.width = c.style.height = size + 'px'; paint(c, key, size);
-    if (!(window.GKART && GKART.icon(key))) { if (live.length > 600) live.splice(0, 300); live.push({ r: typeof WeakRef !== 'undefined' ? new WeakRef(c) : { deref: () => c }, key, size }); }
+  function paint(c, key, size, opts) { const g = c.getContext('2d'), d = c.width / size; g.setTransform(d, 0, 0, d, 0, 0); g.clearRect(0, 0, size, size); draw(g, key, 0, 0, size, opts); }
+  function canvas(key, size, opts) {
+    const c = document.createElement('canvas'), d = Math.min(window.devicePixelRatio || 1, 2); c.width = c.height = Math.round(size * d); c.style.width = c.style.height = size + 'px'; paint(c, key, size, opts);
+    if (!(window.GKART && GKART.icon(key))) { if (live.length > 600) live.splice(0, 300); live.push({ r: typeof WeakRef !== 'undefined' ? new WeakRef(c) : { deref: () => c }, key, size, opts }); }
     return c;
   }
   window.addEventListener('gkart-icons', e => {   // refresh the icons that are already showing
     const done = new Set((e.detail && e.detail.keys) || []);
-    for (let i = live.length; i--;) { const o = live[i], c = o.r.deref(); if (!c) { live.splice(i, 1); continue; } const k = window.GKART && GKART.canon(o.key); if (k && done.has(k) && GKART.icon(o.key)) { paint(c, o.key, o.size); live.splice(i, 1); } }
+    for (let i = live.length; i--;) { const o = live[i], c = o.r.deref(); if (!c) { live.splice(i, 1); continue; } const k = window.GKART && GKART.canon(o.key); if (k && done.has(k) && GKART.icon(o.key)) { paint(c, o.key, o.size, o.opts); live.splice(i, 1); } }
   });
-  window.GKICONS = { draw, canvas };
+  window.GKICONS = { draw, canvas, frame, FRAMES: FR };
 })();

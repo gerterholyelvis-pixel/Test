@@ -110,17 +110,19 @@ function reach(inRoom, free, sx, sz) {
   if (fail) process.exit(1);
   // ---- live server: a human teleported into a loot room / arena room is never locked in longer than TRAP_MS (+ slack) ----
   const TRAP = 1500, srv = await L.startServer({ GK_MATCH_SIZE: '8', GK_QUEUE_MS: '100', GK_ROUND_MS: '2500', GK_NEXT_ROUND_MS: '2500', GK_READY_MS: '300', GK_TRAP_MS: String(TRAP), GK_BOT_GRACE_MS: '60000', GK_SUDDEN_ROUND: '99', GK_MAX_ROUND: '99' });
-  const srv5 = await L.startServer({ GK_ROUND_MS: '60000' });   // the default 5 s guard
+  const srv5 = await L.startServer({ GK_ROUND_MS: '9000' });   // the default 5 s guard; round 1 (the home phase) lasts 9 s
   let bad = 1;
   try {
     bad = await L.run('doorguard', [
-      ['live: round 1, a goblin who stays in his home: about 5 s after GO the guard opens a plain door of his arena cell (hint first), never the hatch or a vault door', async () => {
-        const c = await connect(srv5.port, 'name=Homebody&goblin=2&wins=0'); const go = c.state.countdown.at, home = c.state.matchStart.spawn.home;
-        eq(c.state.open, [], 'no door open at GO');
-        await c.until(x => x.state.open && x.state.open.length >= 1, 9000, 'the guard opens a door');
-        const dt = Date.now() - go; assert(dt >= 4000 && dt <= 7500, 'the guard opened a door ' + dt + ' ms after GO (want ~5000)');
-        const cell = L.cellOf(home); const hi = c.msgs.findIndex(m => m.exitHint), ei = c.msgs.findIndex(m => m.exitOpen != null), exitDoor = ei >= 0 ? c.msgs[ei].exitOpen : -1; assert(hi >= 0 && hi < ei, 'the exitHint comes before the exitOpen'); assert(W.ROOM_DOORS[cell].includes(c.state.open[0]) && W.DOORS[c.state.open[0]].kind === 'arena', 'door ' + c.state.open[0] + ' is not a plain door of cell ' + cell);
-        assert(exitDoor === c.state.open[0], 'exitOpen did not name the opened door');
+      ['live: home phase: in round 1 the guard leaves a goblin at home alone (no hint, no door, his hatch is shut); round 2 opens a plain door of his cell at once, and the default 5 s guard holds again from round 2', async () => {
+        const c = await connect(srv5.port, 'name=Homebody&goblin=2&wins=0'); const home = c.state.matchStart.spawn.home, cell = L.cellOf(home);
+        eq(c.state.open, [], 'no door open at GO'); eq(c.state.homeLock, 1, 'round 1 says the homes are shut');
+        await sleep(6500);
+        eq(c.state.open, [], 'the guard opened nothing in the home phase'); assert(!c.msgs.some(m => m.exitHint || m.exitOpen != null), 'no exit hint in the home phase');
+        await c.until(x => x.state.round.n === 2, 6000, 'round 2');
+        assert(!c.msgs.slice().reverse().find(m => m.round).homeLock, 'round 2 has no home lock');
+        const ex = c.state.open.filter(d => W.ROOM_DOORS[cell].includes(d));
+        assert(ex.length >= 1 && ex.every(d => W.DOORS[d].kind === 'arena'), 'round 2 opened a plain door of cell ' + cell + ': ' + JSON.stringify(c.state.open));
         await c.close();
       }],
       ['live: occupied rooms (loot rooms, homes and arena rooms) always regain an exit within the grace time, with a hint first', async () => {
