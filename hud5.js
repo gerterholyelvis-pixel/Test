@@ -97,7 +97,7 @@
         if (labels && kind === 'home' && state.homes && state.homes[a.id]) ops.push({ t: 'text', x: a.cx, z: a.cz, dy: 13, text: state.homes[a.id], color: mine ? '#f5c451' : 'rgba(240,226,190,.7)', size: 10 });
       }
     }
-    for (const d of state.open || []) ops.push({ t: 'door', x: d.x, z: d.z, h: d.h ? 1 : 0, color: d.open ? '#6dff9a' : d.vault ? '#b9892a' : '#8a3b2c' });
+    for (const d of state.open || []) ops.push({ t: 'door', x: d.x, z: d.z, h: d.h ? 1 : 0, color: d.open ? '#6dff9a' : d.shut ? '#ff9a2a' : d.vault ? '#b9892a' : '#8a3b2c' });   // DOORS-PERSIST: open = open for good; shut = a vault door barred this round
     // vault door breach: a crack bar along the vault edge, side by side
     const b = state.breach;
     if (b) for (const s in b) {
@@ -273,6 +273,7 @@
 
     // ---- round state: 15 s warning + round start banner
     let round = -1, endAt = 0, curVb = null, nextVb = null, warned = -1, sudden = false;
+    const REKEY_DELAY = cfg.rekeyDelay != null ? cfg.rekeyDelay : 3400;   // QA-FULL: the round banners (feel.js, game.js) last about 3.2 s
     function roundState(rs) {
       if (!rs) return;
       if (rs.vb) curVb = rs.vb; if ('vbNext' in rs) nextVb = rs.vbNext || null;
@@ -280,7 +281,7 @@
         endAt = clock() + (r.left || 0);
         if (r.n !== round) {
           const first = round < 0; round = r.n;
-          if (!first || (r.dur && r.left > r.dur - 8000)) { if (curVb && sideOf(curVb).length) showBanner(rekeyHtml('Vault re-keyed', curVb), 4200); }
+          if (!first || (r.dur && r.left > r.dur - 8000)) { if (curVb && sideOf(curVb).length) { const html = rekeyHtml('Vault re-keyed', curVb); later('bnRekey', () => showBanner(html, 4200), REKEY_DELAY); } }   // QA-FULL: after the round-start banners ("Round N", "The arena is open"), not on top of them
         }
       }
       if (rs.sudden !== undefined) setSudden(!!rs.sudden);
