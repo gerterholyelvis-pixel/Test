@@ -70,8 +70,8 @@ const angDiff = (a, b) => { let d = (a - b) % (2 * Math.PI); if (d > Math.PI) d 
         const [cx, cz] = W.rc(c.state.matchStart.spawn.box); c.send({ tp: [cx, cz + 5] }); c.send({ m: [cx, cz + 5, 0] }); await sleep(150);
         await lab(c, { near: [cx, cz], yaw: 0, scanAfter: 60000 }); await sleep(300);
         c.send({ m: [cx, cz + 5, 0] }); await sleep(100);
-        const hits = stamps(c, d => d.hit && d.hit.to === bot.id); for (let i = 0; i < 4 && !hits.length; i++) { c.send({ atk: 1 }); await sleep(500); } assert(hits.length, 'my arrow never hit the bot');
-        const th = hits[0], want = Math.PI; let turned = 0;   // the yaw that looks at me (+z)
+        const hits = stamps(c, d => d.hit && d.hit.to === bot.id); let shot = 0; for (let i = 0; i < 4 && !hits.length; i++) { shot = shot || Date.now(); c.send({ atk: 1 }); await sleep(500); } assert(hits.length, 'my arrow never hit the bot');
+        const th = Math.min(hits[0], shot || hits[0]), want = Math.PI; let turned = 0;   // BOTS6: the bot also hears the shot, so it may turn before the arrow lands: count from the shot or the hit, whichever came first   // the yaw that looks at me (+z)
         for (let i = 0; i < 40 && !turned; i++) { await sleep(50); const s = snaps.filter(q => q.id === bot.id && q.t >= th).find(q => angDiff(q.yaw, want) < 0.6); if (s) turned = s.t - th; }
         assert(turned, 'the bot never turned toward the shooter'); console.log('         turned toward me ' + turned + ' ms after the hit'); assert(turned >= 150, 'it turned instantly (' + turned + ' ms)'); assert(turned < 1400, 'it took ' + turned + ' ms');
         await c.close();

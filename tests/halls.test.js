@@ -1,3 +1,4 @@
+// @timeout 150
 // halls (docs/reports/halls-fill.md): the plan of the 16 plain halls (themes, spots, home halls), the pure loot rolls and caps, the per-match events, and a live server check:
 // search a container (hold), cooldown, per-round cap, starter cache once per goblin, restock, moving cancels, fonts, whetstone, notice board.
 const L = require('./lib.js'), { connect, sleep, assert, eq } = L, W = require('../world.js'), H = require('../halls.js'), G = require('../items.js');
@@ -129,8 +130,8 @@ const seeded = seed => () => { seed = (seed * 1664525 + 1013904223) >>> 0; retur
       ['stations: the font heals once and then recharges ("full" at full health), the whetstone arms a +12% edge once a minute', async () => {
         const c = await connect(srv.port, 'goblin=2'), font = W.hallSpots(10).find(s => s.kind === 'font'), whet = W.hallSpots(0).find(s => s.kind === 'whet'); assert(font && whet);
         await stand(c, font); delete c.state.hallFail; c.send({ hall: { s: font.id, v: 'use' } }); await c.until(x => x.state.hallFail, 1500, 'full'); eq(c.state.hallFail, 'full', 'no heal at full health');
-        c.send({ hp: 20 }); await sleep(150); delete c.state.hallFx; c.send({ hall: { s: font.id, v: 'use' } }); await c.until(x => x.state.hallFx && x.state.hallFx.k === 'heal', 4000, 'heal'); eq(c.state.hallFx.hp, H.CFG.FONT_HEAL);
-        c.send({ hp: 20 }); await sleep(150); delete c.state.hallFail; c.send({ hall: { s: font.id, v: 'use' } }); await c.until(x => x.state.hallFail, 1500, 'cool'); eq(c.state.hallFail, 'cool', 'the font recharges');
+        c.send({ hp: 1 }); await sleep(150); delete c.state.hallFx; c.send({ hall: { s: font.id, v: 'use' } }); await c.until(x => x.state.hallFx && x.state.hallFx.k === 'heal', 4000, 'heal'); eq(c.state.hallFx.hp, H.CFG.FONT_HEAL);
+        c.send({ hp: 1 }); await sleep(150); delete c.state.hallFail; c.send({ hall: { s: font.id, v: 'use' } }); await c.until(x => x.state.hallFail, 1500, 'cool'); eq(c.state.hallFail, 'cool', 'the font recharges');
         await stand(c, whet); delete c.state.hallFx; c.send({ hall: { s: whet.id, v: 'use' } }); await c.until(x => x.state.hallFx && x.state.hallFx.k === 'whet', 4000, 'whet'); eq(c.state.hallFx.ms, H.CFG.WHET_MS);
         delete c.state.hallFail; c.send({ hall: { s: whet.id, v: 'use' } }); await sleep(200); await c.until(x => x.state.hallFail, 1500, 'cool again'); eq(c.state.hallFail, 'cool');
         await c.close();

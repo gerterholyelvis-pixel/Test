@@ -85,10 +85,10 @@ const dg = o => BG.danger(Object.assign({ send: null, home: false, hp: 1, warden
       assert(BG.charmScore(heart, { aggr: 0.2, caution: 1 }) > BG.charmScore(fang, { aggr: 0.2, caution: 1 }), 'cautious: heart');
       assert(BG.charmScore(magnet, { greed: 1 }) > BG.charmScore(magnet, { greed: 0 }), 'greedy: magnet');
     }],
-    ['consumables: heal when safe without waste, drink in an emergency, never in sudden death; regen only alone', () => {
+    ['consumables: heal when safe without waste, drink in an emergency, emergency only in sudden death; regen only alone', () => {
       eq(use({ hp: 60, heal: 30, foes: 0 }), 'heal'); eq(use({ hp: 90, heal: 30 }), null, 'no waste'); eq(use({ hp: 50, max: 100, heal: 60 }), 'heal', 'at half health a big potion is fine'); eq(use({ hp: 60, heal: 30, foes: 1, near: 3, hurtAgo: 400 }), null, 'mid-fight at 60%: keep fighting');
       eq(use({ hp: 20, heal: 30, foes: 1, near: 5, hurtAgo: 400 }), 'heal', 'emergency'); eq(use({ hp: 20, heal: 30, foes: 1, near: 1.5, hurtAgo: 200 }), null, 'not while being hit point blank');
-      eq(use({ hp: 20, heal: 30, sudden: true }), null, 'useless in sudden death'); eq(use({ hp: 70, regen: true }), 'regen'); eq(use({ hp: 70, regen: true, foes: 1, near: 9 }), null, 'regen: alone only');
+      eq(use({ hp: 20, heal: 30, sudden: true }), 'heal', 'sudden death: an emergency heal still works (half strength)'); eq(use({ hp: 70, heal: 30, sudden: true }), null, 'sudden death: no topping up'); eq(use({ hp: 20, regen: true, sudden: true }), null, 'regen potions stay off'); eq(use({ hp: 70, regen: true }), 'regen'); eq(use({ hp: 70, regen: true, foes: 1, near: 9 }), null, 'regen: alone only');
       eq(use({ hp: 20, heal: 30, roll: 0.9, items: 0.45 }), null, 'easy bots forget their pockets sometimes');
     }],
     ['consumables: smoke and tonic to escape, a trap in the doorway behind it, the feather when low; bombs on groups or a busy goblin; trap at the home hatch', () => {

@@ -301,6 +301,11 @@ table.keys td:last-child{font-size:var(--t2);line-height:1.15;color:#d8d2bf}
 #qpips i.on{background:var(--gold);border-color:var(--gold2);box-shadow:0 0 10px var(--glow)}
 #qpips i.rdy{background:var(--teal);border-color:#aef6e6;box-shadow:0 0 10px rgba(56,214,180,.6)}
 @media (max-width:760px){#roll{flex-direction:column;gap:2vh}#wheelBox{--S:min(58vh,86vw)}#rside{width:min(440px,90vw);border-left:0;border-image:none;padding-left:0;text-align:center}#qpips{justify-content:center}}
+/* WHEELHOST-BEGIN: room for the host beside the wheel (menuhost.js); hidden on narrow screens */
+#host{position:absolute;left:-30%;top:0;width:130%;height:100%;pointer-events:none;z-index:2}
+@media (min-width:761px){#wheelBox{--S:min(86vh,calc((100vw - 12vw - min(380px,30vw)) / 1.3));margin-left:calc(var(--S)*.3)}#rside{width:min(380px,30vw)}}
+@media (max-width:760px){#host{display:none}}
+/* WHEELHOST-END */
 </style>
 <style>
 /* UI-SYSTEM (T14): one design language for the in-match HUD, every panel, tooltips, prompts and the other screens now being added (Elixir screen, room HUD, knowledge workbench).
@@ -798,6 +803,7 @@ h3.st-h{margin-top:var(--s3)}
     </section>
     <section class="sg"><h3>Audio</h3>
      <!-- FEEL-BEGIN -->
+     <div class="row chk"><label for="s-mute">Mute all sound <span class="fskey">N</span></label><input id="s-mute" type="checkbox"></div>
      <div class="row"><label for="s-vol">Master volume</label><input id="s-vol" type="range" min="0" max="1" step="0.01"><output id="o-vol"></output></div>
      <div class="row"><label for="s-sfx">Effects volume</label><input id="s-sfx" type="range" min="0" max="1" step="0.01"><output id="o-sfx"></output></div>
      <div class="row"><label for="s-amb">Ambient volume</label><input id="s-amb" type="range" min="0" max="1" step="0.01"><output id="o-amb"></output></div>
@@ -853,6 +859,11 @@ h3.st-h{margin-top:var(--s3)}
      <tr><td><span class="kc">V</span></td><td>Overview camera</td></tr>
      <tr><td><span class="kc">F</span></td><td>Toggle fullscreen (hold Esc to leave)</td></tr>
      <tr><td><span class="kc">M</span></td><td>Big map (minimap on or off in Settings)</td></tr>
+     <tr><td><span class="kc">C</span></td><td>Dash (or double-tap a direction)</td></tr>
+     <tr><td><span class="kc">Right mouse</span></td><td>Heavy blow (hold to wind up)</td></tr>
+     <tr><td><span class="kc">Esc</span><span class="kc">P</span></td><td>Menu: resume, settings, leave (the match keeps running)</td></tr>
+     <tr><td><span class="kc">?</span><span class="kc">F1</span></td><td>Key list in the match</td></tr>
+     <tr><td><span class="kc">N</span></td><td>Mute or unmute all sound</td></tr>
      <tr><td><span class="kc">Esc</span></td><td>Close a panel (E also closes) / release the mouse</td></tr>
     </table>
     <div class="note">Round 1 is spent in your home (collect elixir, upgrade on the Elixir Screen, craft, recycle); in round 2 your hatch opens onto your hall and nothing else. Each round, pick a door on your room's control panel: it opens when the timer hits 0:00 and stays open for the rest of the match. Vault doors need picks from 2 different rooms. Hold the vault dais to claim the crown.</div>
@@ -864,7 +875,7 @@ h3.st-h{margin-top:var(--s3)}
 </div>
 
 <div id="roll">
- <div id="wheelBox"><canvas id="wheel"></canvas></div>
+ <div id="wheelBox"><canvas id="wheel"></canvas><canvas id="host"></canvas></div>
  <div id="rside">
   <div id="rolling">
    <p class="rk">The horde decides</p>
@@ -882,7 +893,7 @@ h3.st-h{margin-top:var(--s3)}
  </div>
 </div>
 
-<script src="/audio.js"></script><script src="/feel.js"></script><script src="/vfx.js"></script><script src="/hud5.js"></script><script src="/world.js"></script><script src="/halls.js"></script><script src="/affix.js"></script><script src="/mutators.js"></script><script src="/items.js"></script><script src="/combat4.js"></script><script src="/combat5.js"></script><script src="/stats.js"></script><script src="/save.js"></script><script src="/statsui.js"></script><script src="/keep.js"></script><script src="/keepui.js"></script><script src="/icons.js"></script><script src="/homebase.js"></script><script src="/homeui.js"></script><script src="/wbui.js"></script><script src="/act5ui.js"></script><script src="/fskeep.js"></script>
+<script src="/audio.js"></script><script src="/feel.js"></script><script src="/vfx.js"></script><script src="/hud5.js"></script><script src="/world.js"></script><script src="/halls.js"></script><script src="/affix.js"></script><script src="/mutators.js"></script><script src="/items.js"></script><script src="/combat4.js"></script><script src="/combat5.js"></script><script src="/stats.js"></script><script src="/save.js"></script><script src="/statsui.js"></script><script src="/keep.js"></script><script src="/keepui.js"></script><script src="/icons.js"></script><script src="/homebase.js"></script><script src="/homeui.js"></script><script src="/camterm.js"></script><script src="/wbui.js"></script><script src="/act5ui.js"></script><script src="/fskeep.js"></script><script src="/uiorg.js"></script><script src="/menuhost.js"></script>
 
 <script type="module">
 import * as THREE from 'three';

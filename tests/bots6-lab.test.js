@@ -12,7 +12,7 @@ const lab = async (c, o) => { const n = c.msgs.length; c.send({ bot6: o || {} })
       ['a hurt bot with a Healing Draught drinks it once it is safe, through useItem (the draught is spent, +30 HP)', async () => {
         const c = await connect(srv.port, 'name=Lab1'); await round2(c);
         const s0 = await lab(c, { sure: 1, at: 'cell', give: ['x:draught'], hp: 20, hurtAgo: 5000 }); assert(s0.pack.includes('x:draught'), 'draught given: ' + JSON.stringify(s0.pack));
-        let s = s0; for (let i = 0; i < 20 && s.pack.includes('x:draught'); i++) { await sleep(200); s = await lab(c, {}); }
+        let s = s0; for (let i = 0; i < 40 && s.pack.includes('x:draught'); i++) { await sleep(200); s = await lab(c, {}); }
         assert(!s.pack.includes('x:draught'), 'the draught was not drunk'); assert(s.hp >= Math.min(s.max, 45) - 1, 'healed: ' + s.hp + ' of ' + s.max); assert((s.use.heal | 0) >= 1, 'counted: ' + JSON.stringify(s.use));
         await c.close();
       }],

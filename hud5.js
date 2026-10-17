@@ -62,6 +62,22 @@
     for (const a of ATTACHED) if (Math.abs(x - a.cx) <= a.w / 2 && Math.abs(z - a.cz) <= a.h / 2) return a.id;
     return null;
   };
+  // ARENAHUE-BEGIN (colour-coded cells, docs/reports/arena-polish.md): the paint colour of a 5x5 cell is the compass side of the vault it lies on
+  // (N blue, NE violet, E rose, SE orange, S gold, SW olive, W green, NW teal). Rooms, stencils and the minimap use the same table, so a colour
+  // seen on a wall tells you where you stand relative to the crown. The vault (12) has none. Pure: tested in tests/hud5.test.js.
+  const SIDE_HUE = { N: 0x5b8fd0, NE: 0x8a72c8, E: 0xc4607e, SE: 0xd9774a, S: 0xd1a43a, SW: 0x93a844, W: 0x4fa882, NW: 0x44a5ad };
+  const cellSide = id => {   // 'N'... for cell 0..24 except the vault (null); outer edge cells go by the edge they touch, corners are diagonal, the inner ring goes by its direction
+    const n = +id; if (!(n >= 0 && n < 25) || n === 12) return null;
+    const dx = (n % 5) - 2, dz = Math.floor(n / 5) - 2, ax = Math.abs(dx), az = Math.abs(dz);
+    let sx = Math.sign(dx), sz = Math.sign(dz);
+    if (ax === 2 && az < 2) sz = 0; else if (az === 2 && ax < 2) sx = 0;
+    return (sz < 0 ? 'N' : sz > 0 ? 'S' : '') + (sx > 0 ? 'E' : sx < 0 ? 'W' : '');
+  };
+  const SIDE_WORD = { N: 'North', NE: 'North-east', E: 'East', SE: 'South-east', S: 'South', SW: 'South-west', W: 'West', NW: 'North-west' };
+  const hexCss = h => '#' + h.toString(16).padStart(6, '0');
+  const cellHue = id => { const s = cellSide(id); return s ? SIDE_HUE[s] : null; };
+  const cellCss = (id, a) => { const h = cellHue(id); return h == null ? null : 'rgba(' + (h >> 16) + ',' + ((h >> 8) & 255) + ',' + (h & 255) + ',' + a + ')'; };
+  // ARENAHUE-END
   const sideOfVb = key => { for (const s in VB_CELLS) if (VB_CELLS[s] === key) return s; return null; };
 
   // mapOps(state, opts) -> array of drawing instructions in WORLD units (x,z metres). Icons carry a pixel size flag.
@@ -77,7 +93,7 @@
     const labels = big;
     for (const a of ARENA) {
       const v = a.id === VAULT, here = a.id === my;
-      ops.push({ t: 'rect', x: a.cx, z: a.cz, w: a.w - .5, h: a.h - .5, fill: v ? 'rgba(201,150,30,.55)' : here ? 'rgba(214,190,140,.3)' : 'rgba(200,180,140,.18)', stroke: v ? '#ffc933' : here ? '#e8d6a0' : 'rgba(170,150,110,.7)', lw: v ? 2.2 : 1.1 });
+      ops.push({ t: 'rect', x: a.cx, z: a.cz, w: a.w - .5, h: a.h - .5, fill: v ? 'rgba(201,150,30,.55)' : here ? 'rgba(214,190,140,.3)' : cellCss(a.id, .3) || 'rgba(200,180,140,.18)', stroke: v ? '#ffc933' : here ? '#e8d6a0' : 'rgba(170,150,110,.7)', lw: v ? 2.2 : 1.1 });
       let k = null, name = null;
       if (v) { k = 'crown'; name = 'Vault'; }
       else if (vb[a.id]) { k = vb[a.id]; name = k === 'counting' ? 'Counting' : SHORT[k]; }
@@ -300,7 +316,7 @@
     // ---- room banners
     let lastRm = '', lastRmT = 0;
     function enterRoom(key, type, opts) {
-      const i = INFO[type]; if (!i) return false;
+      const i = INFO[type] || (opts && opts.info); if (!i) return false;   // opts.info = [title, colour, line]: a plain hall's own banner (ARENAHUE)
       const now = clock(); if (lastRm === key + type && now - lastRmT < 20000) return false;
       lastRm = key + type; lastRmT = now;
       rm.querySelector('.n').textContent = i[0]; rm.querySelector('.n').style.color = i[1];
@@ -359,6 +375,6 @@
     return api;
   }
 
-  const HUD5 = { createHud5, mapOps, drawMap, paintIcon, cellAt, ARENA, ATTACHED, INFO, VB_CELLS, TREE_CELLS, LIM, fmt };
+  const HUD5 = { createHud5, mapOps, drawMap, paintIcon, cellAt, cellSide, cellHue, SIDE_HUE, SIDE_WORD, hexCss, ARENA, ATTACHED, INFO, VB_CELLS, TREE_CELLS, LIM, fmt };
   if (typeof module !== 'undefined' && module.exports) module.exports = HUD5; else root.HUD5 = HUD5;
 })(typeof window !== 'undefined' ? window : this);
