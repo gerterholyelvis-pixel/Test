@@ -440,7 +440,7 @@ function statusLights(g, d, y) {
     glowSprite(g, d.halo, 1.3, 0, y, s * (T / 2 + 0.3));
   }
 }
-let hatchWoodM = null;
+let hatchWoodM = null, hatchIronM = null;
 function wall(px, pz, rot, kind, len) {   // len: length of the room boundary this wall closes (the wall is T longer so it overlaps the corners)
   const g = new THREE.Group(); g.position.set(px, 0, pz); g.rotation.y = rot; scene.add(g);
   const L = len + T, dw = kind === 'vault' ? VW : DW, dh = kind === 'vault' ? VH : DHT;
@@ -455,6 +455,12 @@ function wall(px, pz, rot, kind, len) {   // len: length of the room boundary th
     for (const s of [-1, 1]) bx(g, 0.3, dh + 0.1, T + 0.2, s * (dw / 2 + 0.15), (dh + 0.1) / 2, 0, wood, 1);
     bx(g, dw + 0.9, 0.34, T + 0.26, 0, dh + 0.12, 0, wood, 1);
     const d = { id: doors.length, open: true, hatch: true, kind, slide: false, p: 1, gx: px, gz: pz, dw, dh, ax: [Math.cos(rot), -Math.sin(rot)], az: [Math.sin(rot), Math.cos(rot)], flash: 0, leaf: new THREE.Group(), wheels: [], rings: [], bolts: [], rots: [], dyn: [], scan: [], lasers: [], blocker: null };
+    // HOME PHASE (docs/reports/home-phase.md): in round 1 an iron grille closes the archway (d.locked); it rises into the lintel when the arena opens. Open = d.p 1 (the grille is hidden, the blocker is off).
+    const iron = hatchIronM || (hatchIronM = M(0x2a2a2e, { roughness: 0.45, metalness: 0.85 })), bars = new THREE.Group(), nb = 7;
+    for (let i = 0; i < nb; i++) bx(bars, 0.07, dh - 0.04, 0.07, -dw / 2 + 0.12 + i * (dw - 0.24) / (nb - 1), (dh - 0.04) / 2, 0, iron, 1);
+    for (const y of [0.55, dh * 0.62]) bx(bars, dw - 0.08, 0.1, 0.11, 0, y, 0, iron, 1);
+    bars.position.y = dh + 0.05; bars.visible = false; d.leaf.add(bars); d.bars = bars; d.locked = false;
+    d.blocker = { door: d }; addRect(px, pz, rot, -dw / 2, dw / 2, -T / 2, T / 2); Object.assign(d.blocker, rects.pop()); rects.push(d.blocker);
     g.add(d.leaf); doors.push(d); return;
   }
   const light = new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0xff1a1a, emissiveIntensity: 2 }); statusMats.push(light);
@@ -2466,7 +2472,8 @@ const doorLabel = (key, id) => {
 const fmtT = ms => { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
 
 // ----- round state (fed by applyRound; the local clock interpolates between server updates) -----
-const RS = { n: 0, endAt: 0, dur: 0, sel: {}, open: [], fizzled: [], votes: 0, selJ: '{}', openJ: '[]', flashUntil: 0, fizzUntil: 0 };
+const RS = { n: 0, endAt: 0, dur: 0, sel: {}, open: [], fizzled: [], votes: 0, selJ: '{}', openJ: '[]', flashUntil: 0, fizzUntil: 0, homeLock: false, arenaUntil: 0 };
+GK.homeLocked = () => RS.homeLock;   // HOME PHASE: round 1, the hatches are shut
 const roundLeft = () => Math.max(0, RS.endAt - performance.now());
 function applyRound(d) {
   const now = performance.now();
@@ -2477,6 +2484,7 @@ function applyRound(d) {
       const mySel = RS.sel[roomKeyAt(P.x, P.z)];
       if (Array.isArray(d.fizzled) && d.fizzled.length && mySel !== undefined && d.fizzled.includes(mySel)) RS.fizzUntil = now + 2800;
     }
+    { const hl = !!d.homeLock; if (hl !== RS.homeLock) { if (RS.homeLock && !hl) { RS.arenaUntil = now + 3200; RS.flashUntil = now + 3200; } RS.homeLock = hl; if (GK.setHomeLock) GK.setHomeLock(hl, RS.n === 0); } }   // HOME PHASE: the server's round state says whether the hatches are shut (round 1)
     RS.n = d.round.n; RS.endAt = now + (+d.round.left || 0); RS.dur = +d.round.dur || 0;
   }
   if (Number.isFinite(d.vaultVotes) && d.vaultVotes !== RS.votes) { RS.votes = d.vaultVotes; panelsDirty(); }
@@ -2679,18 +2687,21 @@ GK.tipAim = () => { const a = cpAim, b = a && a.p.buttons[a.i]; return b ? doorL
     '#roundHud .t.warn{color:#ff4343;border-color:#ff4343;background:rgba(40,6,6,.78);animation:rhPulse .5s ease-in-out infinite alternate}' +
     '#roundHud .b{margin-top:10px;font-weight:900;font-size:clamp(28px,5.5vw,60px);letter-spacing:.14em;color:#ffd24a;text-shadow:0 0 18px #ff9a00,0 3px 10px #000;animation:rhBanner 2.2s ease-out forwards;display:none}' +
     '#roundHud .b.f{color:#ff4a3a;font-size:clamp(20px,3.6vw,38px);text-shadow:0 0 16px #a00,0 3px 10px #000}' +
+    '#roundHud .h{display:none;margin:8px auto 0;padding:5px 16px 6px;border-radius:10px;background:rgba(14,10,4,.74);border:1px solid rgba(255,200,90,.55);color:#ffd98a;font-weight:800;font-size:clamp(14px,2vw,20px);letter-spacing:.04em;font-variant-numeric:tabular-nums;text-shadow:0 2px 6px #000;width:max-content;max-width:92vw;animation:rhIn .6s ease-out}' +
+    '@keyframes rhIn{0%{opacity:0;transform:translateY(-6px) scale(.9)}100%{opacity:1;transform:none}}' +
     '@keyframes rhPulse{from{transform:scale(1)}to{transform:scale(1.14)}}@keyframes rhBanner{0%{opacity:0;transform:scale(.7)}12%{opacity:1;transform:scale(1.08)}20%{transform:scale(1)}80%{opacity:1}100%{opacity:0}}';
   document.head.appendChild(css);
-  const hud = document.createElement('div'); hud.id = 'roundHud'; hud.innerHTML = '<div class="t"></div><div class="b">DOORS OPENING</div><div class="b f">THE VAULT NEEDS 2 PLAYERS - TURN WASTED</div>';
+  const hud = document.createElement('div'); hud.id = 'roundHud'; hud.innerHTML = '<div class="t"></div><div class="h"></div><div class="b">DOORS OPENING</div><div class="b f">THE VAULT NEEDS 2 PLAYERS - TURN WASTED</div>';
   document.body.appendChild(hud);
-  const tEl = hud.children[0], bEl = hud.children[1], fEl = hud.children[2]; let shownBanner = 0, shownFizz = 0, lastTxt = '', lastWarn = null;
+  const tEl = hud.children[0], hEl = hud.children[1], bEl = hud.children[2], fEl = hud.children[3]; let shownBanner = 0, shownFizz = 0, lastTxt = '', lastWarn = null, lastHome = '';
   setInterval(() => {
     const show = GK.mode === 'play' && RS.n > 0; hud.style.display = show ? 'block' : 'none'; if (!show) return;
     const left = roundLeft(), now = performance.now();
     const txt = 'ROUND ' + RS.n + '  ' + fmtT(left), warn = left <= 5000;
     if (txt !== lastTxt) { tEl.textContent = txt; lastTxt = txt; }
     if (warn !== lastWarn) { tEl.classList.toggle('warn', warn); lastWarn = warn; }
-    if (now < RS.flashUntil) { if (shownBanner !== RS.flashUntil) { shownBanner = RS.flashUntil; bEl.style.display = 'none'; void bEl.offsetWidth; bEl.style.display = 'block'; } }
+    { const h = RS.homeLock ? 'Prepare in your base: the arena opens in ' + fmtT(left) : ''; if (h !== lastHome) { if (!h || !lastHome) hEl.style.display = h ? 'block' : 'none'; hEl.textContent = h; lastHome = h; } }   // HOME PHASE: round 1 line under the timer
+    if (now < RS.flashUntil) { if (shownBanner !== RS.flashUntil) { shownBanner = RS.flashUntil; bEl.textContent = now < RS.arenaUntil ? 'THE ARENA IS OPEN' : 'DOORS OPENING'; bEl.style.display = 'none'; void bEl.offsetWidth; bEl.style.display = 'block'; } }
     else if (shownBanner) { shownBanner = 0; bEl.style.display = 'none'; }
     if (now < RS.fizzUntil) { if (shownFizz !== RS.fizzUntil) { shownFizz = RS.fizzUntil; fEl.style.display = 'none'; void fEl.offsetWidth; fEl.style.display = 'block'; } }
     else if (shownFizz) { shownFizz = 0; fEl.style.display = 'none'; }
@@ -4008,7 +4019,8 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
   // same round machine as server.js, run locally: 30 s first round, 45 s after; bots pick a door in their room each round
   const rs = { n: 1, dur: 120000, endsAt: performance.now() + 120000, sel: {}, open: [], fizzled: [] };   // 5x5: every round is 2 minutes, as on the server (offline: tree rooms and vaultbreakers are visual only, no special rules)
   const isVault = id => DINFO[id].kind === 'vault', votes = () => Object.keys(rs.sel).filter(k => isVault(rs.sel[k])).length;
-  const rmsg = () => ({ round: { n: rs.n, left: Math.max(0, rs.endsAt - performance.now()), dur: rs.dur }, sel: { ...rs.sel }, open: rs.open.slice(), vaultVotes: votes(), fizzled: rs.fizzled.slice() });
+  const rmsg = () => ({ round: { n: rs.n, left: Math.max(0, rs.endsAt - performance.now()), dur: rs.dur }, sel: { ...rs.sel }, open: rs.open.slice(), vaultVotes: votes(), fizzled: rs.fizzled.slice(), ...(rs.n === 1 ? { homeLock: 1 } : null) });   // HOME PHASE: round 1 is spent at home, as on the server
+  const homeExits = () => { for (const p of list) { const c = String(WORLD.CHEST[+p.home.slice(1)].parent), ds = (ROOM_DOORS[c] || []).filter(id => !isVault(id)); if (ds.length && !ds.some(id => rs.open.includes(id))) rs.open.push(ds[Math.floor(Math.random() * ds.length)]); } };   // HOME PHASE: round 2 opens one door of every home's cell (server.js homeOpen)
   const emitRound = () => net.onmessage && net.onmessage(rmsg());
   const botPlan = () => { for (const b of list) if (b.bot) b.selAt = performance.now() + 1500 + Math.random() * (rs.dur - 6000); };
   // COMBAT-BEGIN offline simulation of the server's combat: bots have health, fight back within 6 m, drop loot when killed; same rules as server.js (items.js combat())
@@ -4179,13 +4191,15 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
   setInterval(() => {
     const now = performance.now();
     if (!rs.started) { rs.endsAt = now + rs.dur; return; }   // round 1 waits for Enter, as on the server
-    if (now >= rs.endsAt) { const picked = [...new Set(Object.values(rs.sel))], ok = votes() >= 2; rs.open = picked.filter(d => ok || !isVault(d)); rs.fizzled = ok ? [] : picked.filter(isVault); rs.sel = {}; rs.n++; rs.dur = 120000; rs.endsAt = now + rs.dur; botPlan(); emitRound(); return; }
+    if (now >= rs.endsAt) { const picked = [...new Set(Object.values(rs.sel))], ok = votes() >= 2; rs.open = picked.filter(d => ok || !isVault(d)); rs.fizzled = ok ? [] : picked.filter(isVault); rs.sel = {}; rs.n++; if (rs.n === 2) homeExits(); rs.dur = 120000; rs.endsAt = now + rs.dur; botPlan(); emitRound(); return; }
     for (const b of list) if (b.bot && b.selAt && now >= b.selAt) { b.selAt = 0; const k = roomKeyAt(b.x, b.z), ids = ROOM_DOORS[k]; if (ids && rs.sel[k] === undefined) { const vs = ids.filter(isVault), pool = vs.length && Math.random() < 0.5 ? vs : ids; rs.sel[k] = pool[Math.floor(Math.random() * pool.length)]; emitRound(); } }
   }, 200);
   setInterval(emitRound, 1000);
   setInterval(() => {
     for (const b of list) {
       if (!b.bot || b.chase) continue;
+      if (rs.n === 1 && roomKeyAt(b.tx, b.tz) !== b.home) { [b.tx, b.tz] = WORLD.randomPoint(b.home); b.homeHold = true; }   // HOME PHASE: offline bots potter about at home in round 1
+      else if (rs.n > 1 && b.homeHold) { b.homeHold = false; const hc = WORLD.CHEST[+b.home.slice(1)]; [b.tx, b.tz] = rc(hc.parent); }   // the arena is open: walk out into the cell
       const dx = b.tx - b.x, dz = b.tz - b.z, d = Math.hypot(dx, dz);
       if (d < 0.3) {
         b.wait -= 0.05;
@@ -4512,7 +4526,7 @@ GK.showDeathScreen = showDeathScreen;
     dsc.length = 0; for (let i = 0; i < disc.length; i++) if (disc[i]) dsc.push('c' + CHEST_ROOMS[i].id);
     ST.me.x = P.x; ST.me.z = P.z; ST.me.yaw = P.yaw; ST.myHome = GK.myHome;
     ST.vb = H.vb; ST.vbNext = H.vbNext; ST.trees = H.trees; ST.armed = H.armed; ST.breach = H.breach; ST.crown = H.crown;
-    for (let id = 0; id < ND; id++) if (dKind[id] !== 2) ST.open[id].open = !!openF[id];
+    for (let id = 0; id < ND; id++) ST.open[id].open = dKind[id] !== 2 ? !!openF[id] : !RS.homeLock;   // HOME PHASE: the hatches show shut in round 1
     ST.actors.length = 0;
     actors.forEach((a, id) => { if (id === me || a.npc || (vis[keyIdx(a.x, a.z)] !== 1 && !(window.GKUSE2 && GKUSE2.reveal()) && !(window.GKHOMEW && GKHOMEW.bellAt(a.x, a.z)) && !(window.GKACT5 && GKACT5.pulsed(id)))) return; ST.actors.push(a); });   // GKHOMEW.bellAt: a room with a Bell send running shows its goblins
   }
@@ -7654,7 +7668,10 @@ function frame(now) {
   JUMP.step(dt, !!(mine && spawned && GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked));   // JUMP
   // doors
   for (const d of doors) {
-    if (d.hatch) continue;   // 5x5: home hatches are open archways (no leaf, nothing to animate)
+    if (d.hatch) {   // 5x5: home hatches are open archways; HOME PHASE: the round-1 grille drops / rises (d.p 0 = shut, 1 = open; the blocker lets you through above 0.86)
+      const tp = d.locked ? 0 : 1; if (d.p !== tp) { d.p = clamp(d.p + (tp ? 1 : -1) * dt / 1.4, 0, 1); d.bars.position.y = d.p * (d.dh + 0.05); d.bars.visible = d.p < 0.995; }
+      continue;
+    }
     const near = d.open, prev = d.p;   // doors open/close from the round state (GK.setDoorsOpen)
     const vault = !d.slide, dur = vault ? 2.4 : 0.8;
     d.p = clamp(d.p + (near ? 1 : -1) * dt / dur, 0, 1);
@@ -7857,6 +7874,7 @@ GK.applySettings = () => { renderer.setPixelRatio(fxPixelRatio()); fxApplyQualit
 GK.doors = doors;
 GK.fxDebug = { get fx() { return fx; }, cam };   // test hook: post-effects state and the world camera
 GK.setDoorsOpen = ids => { const set = new Set(ids); doors.forEach(d => d.open = d.hatch || set.has(d.id)); };   // ids of doors that are open right now (a home's hatch is always open)
+GK.setHomeLock = (on, snap) => { for (const d of doors) if (d.hatch) { d.locked = !!on; if (snap) { d.p = on ? 0 : 1; d.bars.position.y = d.p * (d.dh + 0.05); d.bars.visible = !!on; } } };   // HOME PHASE: round 1 shuts every hatch (snap: no drop animation on the first round state)
 GK.skipMenu = () => {   // for tests: straight into the rooms, with the title menu hidden as a real Enter would
   const mn = $('menu'); if (mn) mn.classList.add('gone'); document.body.classList.remove('menu');
   GK.mode = 'play'; GK.start();   // joins the queue; the match start and the countdown follow
