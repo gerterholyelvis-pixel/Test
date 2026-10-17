@@ -25,14 +25,14 @@ const perf2Lod = { meshes: new WeakMap(), hi: new Map(), geo: new Map(), queue: 
 // PERF2-END
 const CS = WORLD.CS;                      // chest room size
 const WEAPONS = ['Rusty Sword', 'Battle Axe', 'War Spear', 'Spiked Mace', 'Short Bow', 'Dagger'];
-// 16 attached rooms behind the perimeter cells (world.js CHEST, clockwise from the NW corner): even ids are HOMES (10x10), odd ids are loot rooms (8x8).
+// 20 attached rooms behind the 20 outward wall segments (world.js CHEST, 5 per side, positions 1..5): positions 2 and 4 are HOMES (10x10, WORLD.HOME_IDS), 1, 3, 5 loot rooms (8x8, WORLD.LOOT_IDS).
 // Loot room types (the server sends the layout): 'chest' (a chest with a random weapon), 'mystery' (question mark, contents decided later), 'merchant' (merchant goblin behind glass,
 // knowledge tree, workbench, recycler), 'forge' (Master Forge: a workbench) and 'grand' (Grand Recycler). Until the layout arrives homes show as homes and loot rooms as chest rooms.
 const LAYOUT_TYPES = ['home', 'forge', 'grand', 'chest', 'mystery', 'merchant'];
 const CHEST_ROOMS = [];
 const layoutHooks = [];   // functions called with the type array when the match's random room layout is known (room interiors, door emblems, maps and panels are built/updated from it)
 for (const c of WORLD.CHEST) CHEST_ROOMS.push({ ...c, type: c.home ? 'home' : 'chest' });   // geometry (cx, cz, wallX, wallZ, dx, dz, size, home) comes from world.js
-function applyLayout(types, mystery) {   // types: 16 strings in CHEST_ROOMS order; mystery: 16 entries, null or the contents of that mystery room (GKITEMS.randomMystery)
+function applyLayout(types, mystery) {   // types: WORLD.NATT (20) strings in CHEST_ROOMS order; mystery: 20 entries, null or the contents of that mystery room (GKITEMS.randomMystery)
   if (!Array.isArray(types) || types.length !== CHEST_ROOMS.length || !types.every(t => LAYOUT_TYPES.includes(t))) return;
   types.forEach((t, i) => { CHEST_ROOMS[i].type = t; CHEST_ROOMS[i].mystery = t === 'mystery' && mystery && mystery[i] ? mystery[i] : null; });
   GK.layout = types.slice(); GK.mystery = CHEST_ROOMS.map(c => c.mystery); for (const f of layoutHooks) { try { f(GK.layout, GK.mystery); } catch (e) { console.error(e); } }
@@ -675,7 +675,7 @@ GK.lamps = LAMPS;   // test hook
 // LAMPS-END
 scene.add(new THREE.HemisphereLight(0xffffff, 0xeeebe4, 2.1));
 // walls and doors from WORLD.WALLS (doors in WORLD.DOORS id order, so doors[i].id === i matches the server): arena 'skull' doors, vault doors, loot doors (retyped from the layout), home hatches;
-// then the 4 bare outer corner walls. The attached rooms' own walls are part of their shell (CHEST block); here they only get collision boxes (the client used to rely on server corrections there).
+// then any bare outer wall (none with 20 attached rooms). The attached rooms' own walls are part of their shell (CHEST block); here they only get collision boxes (the client used to rely on server corrections there).
 for (const w of WORLD.WALLS) {
   if (w.att !== undefined) { addRect(w.x, w.z, w.rot, -w.len / 2, w.len / 2, -T / 2, T / 2); continue; }
   wall(w.x, w.z, w.rot, w.door == null ? null : w.kind === 'arena' ? 'skull' : w.kind === 'loot' ? 'chest' : w.kind, w.len);
@@ -2447,7 +2447,7 @@ if (GK.layout && GK.CHEST_ROOMS) { /* the rooms agent calls buildMysteryContents
 }
 // MAP-END
 // PANEL-BEGIN (door control panels and round logic on the client: owned by the rounds agent)
-// Door graph: WORLD.DOORS (one canonical id order shared with server.js), room keys: '0'..'24' arena rooms, 'c0'..'c15' attached rooms.
+// Door graph: WORLD.DOORS (one canonical id order shared with server.js), room keys: '0'..'24' arena rooms, 'c0'..'c19' attached rooms.
 // ROOM_DOORS (client) lists the votable doors of each room, sorted N, E, S, W: a home's hatch is always open and never on a panel.
 const PDIRS = ['NORTH', 'EAST', 'SOUTH', 'WEST'];
 const ROOM_DOORS = {}, DINFO = WORLD.DOORS.map(d => ({ id: d.id, a: d.a, b: d.b, da: d.da, db: d.db, kind: d.kind === 'arena' ? 'skull' : d.kind === 'loot' ? 'chest' : d.kind }));
@@ -3983,7 +3983,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
   const myWins = Math.max(0, (opts && opts.wins) | 0);
   const simSlots = [0, 1, 2, 3, 4, 5, 6, 7].sort(() => Math.random() - 0.5);   // 5x5: every goblin starts in a home of its own (offline: the free homes in random order)
   const mk = bot => {
-    const slot = simSlots.length ? simSlots.pop() : Math.floor(Math.random() * 8), home = WORLD.homeOf(slot), hc = WORLD.CHEST[2 * slot], box = hc.parent, [cx, cz] = rc(box);
+    const slot = simSlots.length ? simSlots.pop() : Math.floor(Math.random() * 8), home = WORLD.homeOf(slot), hc = WORLD.CHEST[+home.slice(1)], box = hc.parent, [cx, cz] = rc(box);
     const [x, z] = WORLD.randomPoint(home);
     const goblin = !bot && opts && opts.goblin != null ? opts.goblin | 0 : roll();
     return { id: nid++, goblin, box, home, x, z, yaw: Math.atan2(-(hc.wallX - x), -(hc.wallZ - z)), bot, tx: cx, tz: cz, wait: Math.random() * 2, seq, inv: startInv(goblin), know: (itemsData().KNOWLEDGE || [])[goblin] != null ? itemsData().KNOWLEDGE[goblin] : STATS[goblin].knowledge, parts: Object.fromEntries((itemsData().PARTS || []).map(p => [p.key, 0])), gold: itemsData().START_GOLD != null ? itemsData().START_GOLD : 100, wins: bot ? Math.max(0, myWins + Math.floor(Math.random() * 3) - 1) : myWins };
@@ -4456,7 +4456,7 @@ function showDeathScreen(info) {
 GK.showDeathScreen = showDeathScreen;
 // MINIMAP-BEGIN (HUD minimap top right + M overlay; see docs/reports/minimap.md). Reads RS, DINFO, actors, P, CHEST_ROOMS. No lights, no per-frame allocation: redraws at most 10 Hz and only when the signature changes.
 (() => {
-  const WD = window.GKWORLD, LIM = WD.LIM, NA = WD.NARENA, NR = NA + CHEST_ROOMS.length;   // 5x5: room index = arena 0..24, then attached rooms 25..40 (NR = outside)
+  const WD = window.GKWORLD, LIM = WD.LIM, NA = WD.NARENA, NR = NA + CHEST_ROOMS.length;   // 5x5: room index = arena 0..24, then attached rooms 25..44 (NR = outside)
   const st = document.createElement('style');
   st.textContent = '#gkMM{position:fixed;top:84px;right:12px;z-index:29;pointer-events:none;display:none;line-height:0;border:2px solid #c9a13a;border-radius:10px;box-shadow:inset 0 0 0 1px #5a4513,0 0 0 1px #2a1e08,0 4px 16px rgba(0,0,0,.65);overflow:hidden}'
     + '#gkMMBig{position:fixed;inset:0;z-index:60;pointer-events:none;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.5)}'
@@ -4502,7 +4502,7 @@ GK.showDeathScreen = showDeathScreen;
   function arrowPx(g, r, fill, line) { g.beginPath(); g.moveTo(0, -r * 1.35); g.lineTo(r * .95, r * .95); g.lineTo(0, r * .5); g.lineTo(-r * .95, r * .95); g.closePath(); g.fillStyle = fill; g.fill(); g.lineWidth = 1.5; g.strokeStyle = line; g.stroke(); }
   function tickMark(g, r) { g.lineWidth = 2.2; g.strokeStyle = '#5dff8a'; g.lineCap = 'round'; g.beginPath(); g.moveTo(-r * .6, 0); g.lineTo(-r * .1, r * .55); g.lineTo(r * .7, -r * .5); g.stroke(); g.lineCap = 'butt'; }
   const actorSig = (a, id) => { if (id === me || a.npc) return; sigH = (sigH * 31 + Math.round(a.x * 2)) | 0; sigH = (sigH * 31 + Math.round(a.z * 2)) | 0; };
-  // HUD5: the map is drawn from HUD5.mapOps (25 arena cells, 16 attached rooms, special room icons, breach bars). Fog of war stays: loot rooms show once discovered, goblins only where I can see.
+  // HUD5: the map is drawn from HUD5.mapOps (25 arena cells, 20 attached rooms, special room icons, breach bars). Fog of war stays: loot rooms show once discovered, goblins only where I can see.
   const ST = { me: { x: 0, z: 0, yaw: 0 }, discovered: [], open: WD.DOORS.map(d => ({ x: d.wall.x, z: d.wall.z, h: d.axis === 'x' ? 1 : 0, open: d.kind === 'hatch', vault: d.kind === 'vault' })), actors: [], layout: {}, homes: {}, crown: null };
   function hud5State() {
     const H = window.GKHUD5 ? GKHUD5.S : {}, lay = ST.layout, homes = ST.homes, dsc = ST.discovered;
@@ -6845,7 +6845,7 @@ const ROOMART = (() => {
     return r;
   };
   const dispose = key => { for (const m of built.get(key) || []) { scene.remove(m); m.geometry.dispose(); const i = ceilings.indexOf(m); if (i >= 0) ceilings.splice(i, 1); } built.delete(key); };
-  // 5x5 (docs/PLAN-5x5.md 4.1): 41 rooms are too many to dress at load, so the dressing is lazy. near(key) builds the camera's room and its 2-hop neighbours at once
+  // 5x5 (docs/PLAN-5x5.md 4.1): 45 rooms are too many to dress at load, so the dressing is lazy. near(key) builds the camera's room and its 2-hop neighbours at once
   // (called every frame, it returns early unless the room changed); everything else is built one room per idle slot, nearest first by door hops.
   const sigOf = cr => cr.type + (cr.mystery ? ':' + cr.mystery.kind : '');
   const attSig = new Map(), ALL = WORLD.ROOMS.map(r => r.key), ADJ = {};

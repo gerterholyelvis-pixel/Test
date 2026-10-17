@@ -100,7 +100,7 @@ async function pair(srv) {   // a third goblin keeps the match alive when one of
         dbg(a, { n: 100 }); a.send({ tp: at(ha, 'screen', 1, 0) }); await sleep(100);
         a.send({ base: { send: 'rats', room: cellB } }); await a.until(c => c.state.homeRes && c.state.homeRes.reason === 'round1', 1500, 'round 1 refused');
         await a.until(c => c.state.round.n >= 2, 8000, 'round 2');
-        for (const [id, room, why] of [['rats', W.VAULT_KEY, 'vault'], ['rats', ha, 'own'], ['leech', cellB, 'target'], ['rats', 'c1', 'target'], ['nope', cellB, 'unknown']]) {
+        for (const [id, room, why] of [['rats', W.VAULT_KEY, 'vault'], ['rats', ha, 'own'], ['leech', cellB, 'target'], ['rats', 'c' + W.LOOT_IDS[0], 'target'], ['nope', cellB, 'unknown']]) {
           const k = mark(a); a.send({ base: { send: id, room } }); await a.until(c => since(c, k, 'homeRes').length > 0, 1500, 'reply ' + why); await sleep(300);
           eq(since(a, k, 'homeRes')[0].reason, why, id + ' to ' + room); eq(a.state.elixir, 100, 'nothing charged for a refusal');
         }
