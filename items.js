@@ -397,7 +397,7 @@
   // BALANCE3-BEGIN (docs/reports/balance-3.md; tools/balsim.js measures every number here). The damage cap, the staff bolt and the two abilities, shared by server, client, bots and the Codex.
   // DMG_CAP: one blow never carries more than x1.75 of its weapon's damage, whatever stacks on it (Wolf Fang, Rage Brew, backstab, berserker rage, Fury, the Oak ambush, the heavy blow).
   // The defender's own reduction (thick hide) still applies after the cap.
-  const DMG_CAP = 1.75, STAFF_BOLT = { dmg: 16, cd: 900 }, POINT_BLANK = { r: 2, mul: 0.6 };   // POINT_BLANK: bows, crossbows, slings and thrown weapons hit for 60% inside 2 m (not bolts)
+  const DMG_CAP = 1.75, STAFF_BOLT = { dmg: 16, cd: 900 }, POINT_BLANK = { r: 2, mul: 0.7 };   // POINT_BLANK: bows, crossbows, slings and thrown weapons hit for 70% inside 2 m (not bolts)
   const goblinTaken = t => t && !t.npc && gob(t.goblin).perk === 'thickhide' ? GOB_PERKS.thickhide.taken : 1;
   const capHit = (base, dmg, tgt) => base > 0 ? Math.min(dmg, Math.max(1, Math.round(base * DMG_CAP * goblinTaken(tgt)))) : dmg;
   // ABILITY: everyone has a DASH (double-tap a direction, or C): a quick 3 m burst with a short window in which blows miss, on a cooldown. Heavy weapons (hammer, axe, mace,

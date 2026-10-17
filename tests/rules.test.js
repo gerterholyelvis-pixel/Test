@@ -1,5 +1,5 @@
 // experimental rules (GK_RULES): off = nothing changes, on = the rule works. See docs/reports/rules-experimental.md
-const L = require('./lib.js'), { connect, sleep, assert, eq } = L, W = require('../world.js');
+const L = require('./lib.js'), { connect, sleep, assert, eq } = L, W = require('../world.js'), G = require('../items.js');
 const VN = L.vaultNeighbours()[0], D = L.doors(), door = (a, b) => D.find(d => (d.a === a && d.b === b) || (d.a === b && d.b === a)).id;
 const count = (c, k) => c.msgs.filter(m => m[k] !== undefined && m[k] !== null).length;
 const equip = async (c, key) => { c.send({ give: key }); await c.until(x => x.state.inv.backpack[0] === key, 2000, key); c.send({ mv: ['b0', 'weapon'] }); await c.until(x => x.state.inv.weapon === key, 2000, 'equipped'); };
@@ -49,11 +49,11 @@ const equip = async (c, key) => { c.send({ give: key }); await c.until(x => x.st
         const [a, b] = await pair(offTwo); a.send({ tp: W.rc(0) }); b.send({ tp: [W.rc(0)[0] + 3, W.rc(0)[1]] }); await sleep(150);
         a.send({ m: [W.rc(0)[0], W.rc(0)[1], -Math.PI / 2] }); a.send({ atk: 1 }); await sleep(900); eq(count(a, 'bolt'), 0); assert(!b.msgs.some(m => m.hit), 'nobody was hit'); await a.close(); await b.close();
       }],
-      ['staffbolt on: a bolt flies 3 m, deals 9, 1.0 s cooldown', async () => {
+      ['staffbolt on: a bolt flies 3 m, deals items.js STAFF_BOLT damage, then its cooldown', async () => {
         const [a, b] = await pair(staff); eq(a.state.rules, ['staffbolt']); const [x, z] = W.rc(0); a.send({ tp: [x, z] }); b.send({ tp: [x + 3, z] }); await sleep(150);
         await equip(a, 'w:staff'); a.send({ m: [x, z, -Math.PI / 2] }); a.send({ atk: 1 });
         await a.until(c => c.msgs.some(m => m.bolt && m.bolt.by === c.state.you), 1000, 'bolt message'); const t0 = Date.now(); setTimeout(() => a.send({ atk: 1 }), 120);   // a second shot 120 ms after the first, well inside the 1 s cooldown (not timed from the end of the flight: that raced the machine load)
-        await a.until(c => c.msgs.some(m => m.hit && m.hit.from === c.state.you && m.hit.dmg === 9), 3000, 'bolt hit for 9'); assert(Date.now() - t0 > 150, 'a bolt is slow, not instant');
+        await a.until(c => c.msgs.some(m => m.hit && m.hit.from === c.state.you && m.hit.dmg === G.STAFF_BOLT.dmg), 3000, 'bolt hit for ' + G.STAFF_BOLT.dmg); assert(Date.now() - t0 > 150, 'a bolt is slow, not instant');
         await a.until(c => c.msgs.some(m => m.boltEnd && m.boltEnd.hit), 1000, 'boltEnd');
         await sleep(200); eq(count(a, 'bolt'), 1, 'second shot inside the cooldown is ignored');
         await sleep(900); a.send({ atk: 1 }); await a.until(c => count(c, 'bolt') === 2, 1500, 'second bolt after the cooldown'); await a.close(); await b.close();
