@@ -13,6 +13,7 @@ module.exports = function keepServer(D) {
   const MIN_GAP_MS = envMs('GK_KEEP_GAP_MS', DBG ? 0 : 90000);     // one offer per character per 90 s (win farming, scripted queues)
   const FILE = process.env.GK_KEEP_FILE || (DBG ? '' : path.join(__dirname, '.gk-keep.json'));
   const STORE_MAX = 50000;
+  const NOIDLE = DBG && process.env.GK_KEEP_NOIDLE === '1';   // tests: a {win:1} debug win counts as a real one
 
   // ---- tokens
   const kSign = o => { const body = b64u(JSON.stringify(o)); return body + '.' + sign('keep|' + body); };
@@ -102,7 +103,7 @@ module.exports = function keepServer(D) {
     if (how === 'second' && !p.keepVer) return null;   // an unsaved goblin that did not win has no character to keep anything for
     const now = Date.now(), wins = how === 'second' ? p.wins : Math.min(9999, p.wins + 1);
     let why = '';
-    const st = statBlock(m, p), idle = KEEP.idleWin(st, p.kills | 0, how);
+    const st = statBlock(m, p), idle = !NOIDLE && KEEP.idleWin(st, p.kills | 0, how);
     if (idle) why = 'idle';
     else if (m.goAt && now - m.goAt < MIN_PLAY_MS) why = 'short';
     else if (now - (lastOffer.get(c) || 0) < MIN_GAP_MS) why = 'rate';
@@ -129,9 +130,9 @@ module.exports = function keepServer(D) {
     if (!originOk(q)) return out(403, { err: 'origin' });
     const now = Date.now(); if (now - rateAt > 60000) { RATE.clear(); rateAt = now; }
     const ip = ipOf(q), n = (RATE.get(ip) || 0) + 1; RATE.set(ip, n); if (n > (DBG ? 600 : 30)) return out(429, { err: 'rate' });
-    let body = '', big = false;
-    q.on('data', d => { if (big) return; body += d; if (body.length > 8192) { big = true; out(413, { err: 'size' }); try { q.destroy(); } catch (e) {} } });
-    q.on('end', () => { if (big) return; let d; try { d = JSON.parse(body); } catch (e) { return out(400, { err: 'json' }); } try { const [code, o] = op(d || {}); out(code, o); } catch (e) { console.error('keep', e); out(500, { err: 'server' }); } });
+    let body = '', got = 0;
+    q.on('data', d => { got += d.length; if (got <= 8192) body += d; else if (got > 65536) { try { q.destroy(); } catch (e) {} } });   // too big: answered 413 at the end; a flood is cut off
+    q.on('end', () => { if (got > 8192) return out(413, { err: 'size' }); let d; try { d = JSON.parse(body); } catch (e) { return out(400, { err: 'json' }); } try { const [code, o] = op(d || {}); out(code, o); } catch (e) { console.error('keep', e); out(500, { err: 'server' }); } });
     q.on('error', () => {});
   }
   function op(d) {
