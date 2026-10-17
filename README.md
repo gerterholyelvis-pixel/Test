@@ -64,6 +64,8 @@ The server serves `dist/` only when it matches the current sources; otherwise it
 | `GK_TRUST_PROXY` | off | `1` behind a proxy: the client IP comes from `X-Forwarded-For` (per-IP limits) |
 | `GK_ORIGINS` | same host | Comma list of page origins allowed to open a game socket |
 | `GK_MAX_PER_IP` | 8 | Sockets per IP |
+| `GK_TRUST_PROXY` (a number N) | off | N trusted proxies in a row (host only = `1`, CDN + host = `2`): the Nth entry from the right of `X-Forwarded-For` is the client, earlier entries are ignored |
+| `GK_CONN_BURST`, `GK_CONN_EVERY_MS` | 12, 2500 | Join-flood limit per client address: a burst of 12 connections, then one every 2.5 s (loopback is exempt unless set) |
 | `GK_MAX_MATCHES` | 200 | Matches per server; above it players see "Servers are full, retrying" |
 | `GK_LOG` | text | `json`: one JSON object per log line |
 | `GK_DRAIN_MS` | 2000 | Grace period after SIGTERM before the process exits |

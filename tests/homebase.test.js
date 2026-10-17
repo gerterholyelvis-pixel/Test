@@ -7,7 +7,7 @@ const ctx = (o) => ({ sender: 'a', senderRoom: 'home-a', round: 2, elixir: 100, 
     ['balance: whole tree about 425 elixir against 168 base income per match', () => {
       const tree = H.treeCost(), income = H.baseIncomeMatch(E.MATCH_ROUNDS, E.ROUND_MS);
       eq(income, 168); eq(E.baseIncome(14 * 60000), 168); eq(E.baseIncome(E.ROUND_MS), 24);
-      assert(tree >= 400 && tree <= 460, 'tree cost ' + tree + ' should be about 425');
+      assert(tree >= 400 && tree <= 520, 'tree cost ' + tree + ' should be about 505 (425 plus the Camera Terminal 65)');
       assert(tree > 2 * income, 'the tree must be unaffordable in full (a build must be chosen)');
       assert(tree - 2 * 168 > 0 && 168 > 60, 'sanity');
       const cheapest = Math.min(...H.ORDER.map(id => H.nextCost(H.createHome('a'), id)));
@@ -16,7 +16,7 @@ const ctx = (o) => ({ sender: 'a', senderRoom: 'home-a', round: 2, elixir: 100, 
     ['upgrade prices match the plan', () => {
       const c = id => H.UPGRADES[id].levels.map(l => l.cost);
       eq(c('pump'), [20, 45]); eq(c('bench'), [40]); eq(c('recycler'), [25, 50]); eq(c('lockbox'), [20, 35]); eq(c('pad'), [30]);
-      eq(c('lock'), [25, 50]); eq(c('alarm'), [10]); eq(c('snare'), [15]); eq(c('sentry'), [60]); eq(c('guard'), [15]);
+      eq(c('lock'), [25, 50]); eq(c('alarm'), [10]); eq(c('snare'), [15]); eq(c('sentry'), [60]); eq(c('guard'), [15]); eq(c('camera'), [25, 40]);
     }],
     ['buy follows level order, spends elixir, and refuses past max or when short', () => {
       const h = H.createHome('a'), me = { elixir: 100 };

@@ -64,7 +64,7 @@
   function promptFor(A) {
     if (A.cpAim) return GK.cpAimOpen && GK.cpAimOpen() ? '' : 'Select door';   // DOORS-PERSIST: an open door needs no vote
     const h = A.hover();
-    if (h && h.room >= 0) return h.kind === 'r' ? ((GK.layout || [])[h.room] === 'grand' ? 'Use the Grand Recycler' : 'Use recycler') : h.kind === 'w' ? ((GK.layout || [])[h.room] === 'forge' ? 'Use the Master Forge' : 'Use crafting bench') : h.kind === 'k' ? 'Study the knowledge tree' : h.kind === 's' ? 'Open the Elixir Screen' : h.kind === 'p' ? 'Collect elixir from the pump' : h.kind === 'b' ? (GK.myHome === 'c' + h.room ? 'Your lockbox' : 'Crack the lockbox') : 'Trade with merchant';
+    if (h && h.room >= 0) return h.kind === 'r' ? ((GK.layout || [])[h.room] === 'grand' ? 'Use the Grand Recycler' : 'Use recycler') : h.kind === 'w' ? ((GK.layout || [])[h.room] === 'forge' ? 'Use the Master Forge' : 'Use crafting bench') : h.kind === 'k' ? 'Study the knowledge tree' : h.kind === 's' ? 'Open the Elixir Screen' : h.kind === 'p' ? 'Collect elixir from the pump' : h.kind === 'c' ? 'Use the Camera Terminal' : h.kind === 'b' ? (GK.myHome === 'c' + h.room ? 'Your lockbox' : 'Crack the lockbox') : 'Trade with merchant';
     { const ap = window.GKACT5 && GKACT5.prompt(); if (ap) return ap; }
     { const hp = window.GKHALL && GKHALL.prompt(); if (hp) return hp; }   // HALLS: the container / station in reach   // ACT5UI: the anchor of a tree room / vaultbreaker / the vault in reach
     if (A.nearestPile()) return 'Loot bag';
@@ -150,7 +150,7 @@
       const P = A.P, mine = A.actors.get(A.me), myKey = A.roomKeyAt(P.x, P.z);
       a && a.setListener(P.x, P.z, P.yaw);
       sudT -= dt; if (sudT <= 0) { sudT = 1; sudden = !!document.getElementById('gkSudTag'); }
-      a && A.spawned && a.ambient(sudden ? 'sudden' : myKey === (window.GKWORLD ? GKWORLD.VAULT_KEY : '12') ? 'vault' : myKey && myKey[0] === 'c' ? 'chest' : 'room');
+      a && A.spawned && a.ambient(sudden ? 'sudden' : myKey === (window.GKWORLD ? GKWORLD.VAULT_KEY : '12') ? 'vault' : myKey && myKey[0] === 'c' ? 'chest' : 'room', window.HUD5 && myKey ? HUD5.cellSide(myKey) : null);   // ARENAHUE: the room hum is pitched by the compass side
       // low health: a soft heartbeat that quickens as it gets worse (the sound is dropped first when busy)
       if (mine && mine.hp > 0 && mine.maxHp > 0 && A.spawned) {
         const fr = mine.hp / mine.maxHp;
