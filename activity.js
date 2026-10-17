@@ -300,8 +300,8 @@
     rekey(st, type, ctx) { const s = specs[type]; if (s && s.rekey) s.rekey(st, ctx); },
     sudden(st, type, ctx) { const s = specs[type]; if (s && s.sudden) s.sudden(st, ctx); },
     // the public snapshot: spec.view(st) if given, else a copy without keys starting with "_" (private/secret state)
-    view(st, type) {
-      const s = specs[type]; if (s && s.view) return s.view(st);
+    view(st, type, now) {
+      const s = specs[type]; if (s && s.view) return s.view(st, now);   // now: time-derived fields (the Graft vise turning 'ready')
       const o = {}; for (const k of Object.keys(st || {})) if (k[0] !== '_') o[k] = st[k]; return o;
     },
   };

@@ -4667,7 +4667,7 @@ GK.showDeathScreen = showDeathScreen;
     ST.vb = H.vb; ST.vbNext = H.vbNext; ST.trees = H.trees; ST.armed = H.armed; ST.breach = H.breach; ST.crown = H.crown;
     for (let id = 0; id < ND; id++) { ST.open[id].open = dKind[id] !== 2 ? !!openF[id] : !RS.homeLock; ST.open[id].shut = RS.shut.length > 0 && RS.shut.includes(id); }   // HOME PHASE: the hatches show shut in round 1; DOORS-PERSIST: barred vault doors
     ST.actors.length = 0;
-    actors.forEach((a, id) => { if (id === me || a.npc || (vis[keyIdx(a.x, a.z)] !== 1 && !(window.GKUSE2 && GKUSE2.reveal()) && !(window.GKHOMEW && GKHOMEW.bellAt(a.x, a.z)) && !(window.GKACT5 && GKACT5.pulsed(id)))) return; ST.actors.push(a); });   // GKHOMEW.bellAt: a room with a Bell send running shows its goblins
+    actors.forEach((a, id) => { if (id === me || a.npc || (window.GKACT5 && GKACT5.hiddenAt(a.x, a.z)) || (vis[keyIdx(a.x, a.z)] !== 1 && !(window.GKUSE2 && GKUSE2.reveal()) && !(window.GKHOMEW && GKHOMEW.bellAt(a.x, a.z)) && !(window.GKACT5 && GKACT5.pulsed(id)))) return; ST.actors.push(a); });   // GKHOMEW.bellAt: a room with a Bell send running shows its goblins
   }
   function arrows(g, ids, ip, lw, col, skipOpen) {   // door-pick arrows (last round's picks, Panel Lens picks); skipOpen: not for a door that is open now (DOORS-PERSIST)
     g.strokeStyle = col; g.fillStyle = col; g.lineWidth = lw * ip;
@@ -7719,7 +7719,9 @@ const R5 = (() => {
   function treeMap() {   // { cell: server tree type }: the server's roll (array in cell order, or { cell: type }) once all 4 are valid, else the placeholder
     const src = S('trees'); if (tmVal && src === tmSrc && (src || ph.ts === st.seed)) return tmVal;
     const out = {}; if (src) WORLD.TREE_CELLS.forEach((c, i) => { const k = WORLD.treeKind(Array.isArray(src) ? src[i] : src[c]); if (k) out[c] = k; });
-    tmSrc = src; return (tmVal = Object.keys(out).length === WORLD.TREE_CELLS.length ? out : phTrees());
+    tmSrc = src; tmVal = Object.keys(out).length === WORLD.TREE_CELLS.length ? out : phTrees();
+    if (!src) CHEST_ROOMS.trees = tmVal;   // TREE-FIX: the offline demo's placeholder trees block like their art too (a server roll sets CHEST_ROOMS.trees in onMsg)
+    return tmVal;
   }
   function vbMap(src) {   // { cell: vaultbreaker type } or null when the field is missing or partial
     const out = {}; if (src) for (const c of Object.values(VBS)) { const t = src[c]; if (VB_TYPES.includes(t)) out[c] = t; }
@@ -7825,6 +7827,7 @@ const R5 = (() => {
   }
   function reset() { for (const k of [...entries.keys()]) drop(k); failed.clear(); nearKey = null; hops = {}; order = ALL.slice(); lastT = -1; tmVal = null; }
   function onMsg(d) {
+    { const tr = d.trees || (d.matchStart && d.matchStart.trees); if (tr || d.matchStart) CHEST_ROOMS.trees = tr || null; }   // TREE-FIX: collision (WORLD.slide / inProp get CHEST_ROOMS as `types`) needs the tree type of each tree cell, else only the trunk r 1.1 blocked and the server pushed the walker out of posts, vats, the Well stump and the Oak arch
     if (d.matchStart || d.resumed) {
       const m = d.matchStart || d, ps = m.players || d.players || []; if (d.matchStart) reset(); ended = false; started = true;
       st.seed = ps.map(p => p.id + ':' + (p.name || '')).join('|') || 'match'; for (const k of ['breach', 'treasury', 'crown', 'alarm', 'bars']) st[k] = null;
@@ -9264,13 +9267,14 @@ window.GKACT5 = (() => {
       const b = {}; for (const k of Object.keys(d.breach)) { const s = sideOfDoor[k] || (SIDES.includes(k) ? k : null); if (s) b[s] = d.breach[k]; }
       d.breach = b; A.breach = b;
     }
-    if (d.actMe && d.actMe.chan && !d.actMe.chan.label) d.actMe.chan.label = LABEL[d.actMe.chan.n] || (U.LABELX && U.LABELX[d.actMe.chan.n]) || '';   // VBX: station channels
+    if (d.actMe && d.actMe.chan && !d.actMe.chan.label) d.actMe.chan.label = LABEL[d.actMe.chan.n] || (U.LABELX && U.LABELX[d.actMe.chan.n]) || (/^stone\d/.test(d.actMe.chan.n) ? 'Waking the root-stone' : '');   // VBX: station channels; TREE-FIX: the Elder stones run channels named stone0..2
     if (d.actMe && d.actMe.timing && !d.actMe.timing.label) d.actMe.timing.label = 'Press E in the green';
   }
   let flashes = {};   // memory lanterns lit by a touch: key:a -> until (ms of performance.now)
   function onMsg(d) {
-    if (d.matchStart) { for (const k in rooms) delete rooms[k]; A.me = {}; A.crown = null; A.sudden = false; A.breach = {}; A.pulse = null; flashes = {}; GK.carryHeavy = false; }
-    if (d.round) A.sudden = !!d.sudden || A.sudden;
+    if (d.matchStart) { for (const k in rooms) delete rooms[k]; A.me = {}; A.crown = null; A.sudden = false; A.breach = {}; A.pulse = null; A.hidden = []; flashes = {}; GK.carryHeavy = false; }
+    if (d.round) A.sudden = !!d.sudden || A.sudden;   // TREE-FIX: a held Hollow Oak is hidden from every map (roundState.hidden lists the cells)
+    if (d.round) A.hidden = (d.hidden || []).map(String);
     if (d.actS && d.actS.r != null) rooms[d.actS.r] = { type: d.actS.type, st: d.actS.st || {}, e: d.actS.e || 0, tSeen: performance.now(), prev: rooms[d.actS.r] && rooms[d.actS.r].st };
     if (d.actMe !== undefined) { A.me = d.actMe || {}; GK.carryHeavy = !!(A.me.carry && A.me.carry.heavy); }
     if (d.crown !== undefined) A.crown = d.crown;
@@ -9399,7 +9403,7 @@ window.GKACT5 = (() => {
       case 'oak': call(api, 'setWarden', st.held ? 1 : 0); break;
       case 'elder': {
         const need = st.need || 20000, lit = (st.stones || []).filter(s => s.lit).length;
-        (st.stones || []).forEach((s, i) => { const c = chOf(st, 'stone' + i); call(api, 'setStone', i, s.lit ? 1 : clamp01(((s.prog | 0) + (c ? now - (c.t0 - r.e) : 0)) / need)); });
+        (st.stones || []).forEach((s, i) => { const c = chOf(st, 'stone' + i); call(api, 'setStone', i, s.lit ? 1 : clamp01(((s.prog | 0) + (c ? Math.min(250, performance.now() - r.tSeen) : 0)) / need)); });   // TREE-FIX: s.prog already counts the running channel (server ticks add dt); adding the channel time again drew the gauge at double speed
         call(api, 'setWake', st.phase === 'waking' || st.phase === 'seed' ? 1 : st.phase === 'withered' ? 0 : lit / 3 * 0.6); call(api, 'setSeed', st.phase === 'seed'); call(api, 'setWithered', st.phase === 'withered'); break;
       }
     }
@@ -9436,7 +9440,7 @@ window.GKACT5 = (() => {
       if (e.kind === 'tree') { if (r.type === e.type) driveTree(e, r); } else if (e.kind === 'vb') driveVb(e, r);
     } catch (x) { if (!apply.warned) { apply.warned = 1; console.warn('act5 art', x); } }
   }
-  return { pre, onMsg, key: e => press(e.code), prompt: () => cur && !cur.busy ? cur.acts[0].label + (cur.acts[0].hold ? ' (hold)' : '') : '', apply, rooms, A, pulsed: id => !!(A.pulse && A.pulse.until > performance.now() && A.pulse.ids.has(id)), recompute, cur: () => cur };
+  return { pre, onMsg, key: e => press(e.code), prompt: () => cur && !cur.busy ? cur.acts[0].label + (cur.acts[0].hold ? ' (hold)' : '') : '', apply, rooms, A, hiddenAt: (x, z) => { if (!A.hidden || !A.hidden.length) return false; const k = W.roomKeyOf(x, z); return A.hidden.includes(k) && roomKeyAt(P.x, P.z) !== k; }, pulsed: id => !!(A.pulse && A.pulse.until > performance.now() && A.pulse.ids.has(id)), recompute, cur: () => cur };
 })();
 // ACT5UI-END
 // HALLS-BEGIN (docs/reports/halls-fill.md): the human side of the plain halls. World.js says where the spots are, halls5.js (server) judges; this shows the E prompt of the nearest spot in reach, sends
