@@ -57,7 +57,7 @@ run('fskeep', [
     const g = R('game.js'), idx = R('index.html'), srv = R('server.js');
     assert(!g.includes('CLOSE (ESC)') && !R('homeui.js').includes('CLOSE (ESC)'), 'close buttons say E');
     assert(g.includes("e.code === 'KeyE' && invOpen"), 'E closes the inventory');
-    assert(/if \(mine && spawned && GK\.mode === 'play' && !invOpen && !shopOpen && !GK\.locked\)/.test(g), 'movement gate has no pointer-lock condition');
+    assert(/if \(mine && spawned && GK\.mode === 'play' && !invOpen && !shopOpen && !GK\.locked( && !GK\.pauseOpen)?\)/.test(g), 'movement gate has no pointer-lock condition');
     assert(!/document\.fullscreenElement\) requestLock/.test(g), 'relock is not tied to fullscreen');
     assert(/CLIENT_JS = new Set\(\[[^\]]*'fskeep'/.test(srv), 'fskeep served');
     assert(idx.indexOf('/fskeep.js') > 0 && idx.indexOf('/fskeep.js') < idx.indexOf("import('/menu.js')"), 'loaded before menu.js');
