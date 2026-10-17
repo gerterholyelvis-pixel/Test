@@ -352,7 +352,7 @@ function reforge(m, p, slot) {   // {reforge: slotId}: needs the Reforge perk, a
   return null;
 }
 const BOT_PERKS = ['medic', 'thrifty', 'gourmet', 'scrapper', 'secondwind'];   // bots only take perks that act on their own (no map reading, no reforging)
-function botLearn(m, p) { for (const id of BOT_PERKS) if (!learn(m, p, id)) return; }
+function botLearn(m, p) { for (const id of BOT_PERKS) if (!learn(m, p, id)) { bu(m, p, 'know.learn'); return; } }   // BOTUSE: counted
 // KNOWLEDGE-END
 function recycle(m, p, slot) { // returns null on success or a failure reason
   if (typeof slot !== 'string' || !/^(b[0-8]|q[0-2])$/.test(slot)) return 'item';
@@ -1072,10 +1072,10 @@ function equipBest(m, p) {   // put the best weapon/armour from the backpack and
   const slots = () => [...p.inv.backpack.map((k, i) => ['b' + i, k]), ...(p.inv.quick || []).map((k, i) => ['q' + i, k])];
   const t6 = p.brain && p.brain.tac6, wv = t6 ? wval6 : BN.weaponValue;   // BOTS6: weapons by weaponScore, armour by the fighting style, the charm that suits the bot
   const w = BN.best(slots().map(s => s[1]), info, wv, p.inv.weapon ? wv(info(p.inv.weapon)) : -1);
-  if (w) move(p, slots().find(s => s[1] === w)[0], 'weapon');
+  if (w) { move(p, slots().find(s => s[1] === w)[0], 'weapon'); bu(m, p, 'equip.weapon'); }   // BOTUSE
   const av = t6 ? aval6(p) : armorVal;
   const a = BN.best(slots().map(s => s[1]), info, av, p.inv.armor ? av(info(p.inv.armor)) : 0);
-  if (a) move(p, slots().find(s => s[1] === a)[0], 'armor');
+  if (a) { move(p, slots().find(s => s[1] === a)[0], 'armor'); bu(m, p, 'equip.armor'); }   // BOTUSE
   if (t6) charm6(p);
   else if (!p.inv.charm) { const c = slots().find(s => s[1] && info(s[1]) && info(s[1]).type === 'charm'); if (c) move(p, c[0], 'charm'); }   // USE2: bots wear a charm
   m.dirty = true;
@@ -1418,7 +1418,7 @@ function lootNearby(m, p, dt, now) {   // walk to useful loot piles in this room
   const b = p.brain; let best = null, bd = 8 + 12 * b.greed;   // AI: greedy bots walk further for loot
   for (const dr of m.drops) {
     if (b.skip.has(dr.id) || roomKeyOf(dr.x, dr.z) !== p.room) continue;
-    if (!dr.items.some(k => G.isBrain(k) || BN.healValue(info(k)) > 0 || betterW(p.inv.weapon, k) || betterA(p.inv.armor, k) || useful2(k))) { b.skip.add(dr.id); continue; }
+    if (!dr.items.some(k => G.isBrain(k) || BN.healValue(info(k)) > 0 || betterW(p.inv.weapon, k) || betterA(p.inv.armor, k) || useful2(k) || gamble5(p, k))) { b.skip.add(dr.id); continue; }
     const d = Math.hypot(dr.x - p.x, dr.z - p.z); if (d < bd) { bd = d; best = dr; }
   }
   if (!best) return false;
@@ -1426,7 +1426,7 @@ function lootNearby(m, p, dt, now) {   // walk to useful loot piles in this room
   for (let i = best.items.length - 1; i >= 0; i--) {
     const k = best.items[i];
     if (G.isBrain(k)) loot(m, p, [best.id, i, 'eat']);
-    else if (BN.healValue(info(k)) > 0 || betterW(p.inv.weapon, k) || betterA(p.inv.armor, k) || useful2(k)) loot(m, p, [best.id, i, 'take']);
+    else if (BN.healValue(info(k)) > 0 || betterW(p.inv.weapon, k) || betterA(p.inv.armor, k) || useful2(k) || gamble5(p, k)) loot(m, p, [best.id, i, 'take']);
   }
   b.skip.add(best.id); equipBest(m, p); return true;
 }
@@ -1437,8 +1437,8 @@ function roomGoals(m, p) {   // once per visit: claim a chest/mystery prize, buy
   if (L === 'merchant') {
     const shop = m.shops[id]; let bi = -1, bg = 0;
     shop.forEach((it, i) => { if (it.sold || it.price > p.gold) return; const g = G.ITEMS[it.key].type === 'weapon' ? (betterW(p.inv.weapon, it.key) ? G.ITEMS[it.key].attack - (p.inv.weapon ? info(p.inv.weapon).attack : 0) : 0) : (betterA(p.inv.armor, it.key) ? (armorVal(G.ITEMS[it.key]) - (p.inv.armor ? armorVal(info(p.inv.armor)) : 0)) / 2 : 0); if (g > bg) { bg = g; bi = i; } });
-    if (bi >= 0) buy(m, p, id, bi);
-  } else claim(m, p);
+    if (bi >= 0 && !buy(m, p, id, bi)) bu(m, p, 'merchant.buy');   // BOTUSE
+  } else if (!claim(m, p)) bu(m, p, L === 'chest' ? 'chest.claim' : 'mystery.claim');   // BOTUSE
   equipBest(m, p); botStations(m, p);   // LOOT: recycle junk, craft tier 0
   equipBest(m, p);
 }
@@ -1459,6 +1459,7 @@ const slotOf5 = (p, k) => BOT_SLOTS.find(s => getSlot(p.inv, s) === k);
 const healCount5 = p => { let n = 0; for (const x of [...p.inv.backpack, ...p.inv.quick]) if (x && (BN.healValue(info(x)) > 0 || (B6 && healOf6(info(x)) > 0))) n++; return n; };   // BOTS6: draughts and bandages count (they carry `n`, not `heal`)
 function b5Init(m, p) { const b = p.brain; if (!b.p5) { b.p5 = BG.persona(Math.random); if (b.L6) { if (b.L6.skill != null) b.p5.skill = b.L6.skill; b.p5.spoil = Math.random() < b.L6.spoil; b.p5.heist *= b.L6.tokens; } /* BOTS6: the level's press skill, sabotage share and heist weight */ p.skill = b.p5.skill; b.d5 = {}; b.vr5 = {}; b.w5 = {}; } return b; }
 function knowLeft5(m, p) { if (!m.act) return 0; const u = ACTF.limit.used(m.act.L, p, 'know'); return Math.max(0, Math.min(ACTF.C.TREE_KNOW_ROUND - u.round, ACTF.C.TREE_KNOW_MATCH - u.match)); }
+const UTIL5 = { 'x:smoke': 1.6, 'x:bomb': 2, 'x:trap': 1.8, 'x:tonic': 1.4, 'x:lockpick': 2.5 };   // consumables bots craft when they carry none (their value next to a gear upgrade)
 function bestCraft5(p, type) {   // the best upgrade this bench type makes from the parts the bot carries (weapon or armour over what it wears, a heal when it has none)
   let sum = 0; for (const k in p.parts) sum += p.parts[k] || 0; if (!sum) return null;
   const cur = { attack: p.inv.weapon && info(p.inv.weapon) ? info(p.inv.weapon).attack || 0 : 0, armor: p.inv.armor && info(p.inv.armor) ? armorVal(info(p.inv.armor)) : 0, heals: healCount5(p) };
@@ -1467,11 +1468,18 @@ function bestCraft5(p, type) {   // the best upgrade this bench type makes from 
     const bc = G.benchCraft(p, r, type, p.perks); if (bc.why) continue;
     let ok = true; for (const k in bc.cost) if ((p.parts[k] || 0) < bc.cost[k]) { ok = false; break; } if (!ok) continue;
     const o = G.ITEMS[r.out]; if (!o) continue;
-    const v = BG.craftValue({ type: o.type, attack: o.attack, score: o.type === 'armor' ? armorVal(o) : undefined, heal: BN.healValue(o) }, cur);
+    let v = BG.craftValue({ type: o.type, attack: o.attack, score: o.type === 'armor' ? armorVal(o) : undefined, heal: BN.healValue(o) }, cur);
+    if (!v && UTIL5[r.out] && !invCount(p, r.out) && (r.out !== 'x:lockpick' || (p.brain.v5 || 0) > 2)) v = UTIL5[r.out];   // BOTUSE: a bomb, trap, smoke or tonic it will use (use6), the lockpick for the vault vote
     if (v > bv) { bv = v; best = r; }
   }
   return best;
 }
+function oakWay5(key, p) { const r = WORLD.roomRect(key), lx = p.x - r.cx, lz = p.z - r.cz; return Math.abs(lx) < 0.3 && lz > 1.2 && lz < 3.9 ? null : [r.cx, r.cz + 3.7]; }   // the Hollow Oak's nook opens to the south: null when already in the lane
+const keep5 = (p, s) => collector5(p) && s === 'b' + spare5(p);   // ... and does not recycle that one
+const collector5 = p => { const b = p.brain; if (!b) return false; if (b.sp5 === undefined) b.sp5 = Math.random() < (b.lvl === 'easy' ? 0.25 : 0.6); return b.sp5; };   // a bot that keeps one cheap spare to trade away: feed it to the Gambler's Root, put it up at the auction block, offer it to the Keystone bowl
+function gamble5(p, k) { const it = G.ITEMS[k]; return !!it && (it.type === 'weapon' || it.type === 'armor') && (it.tierN | 0) <= 2 && collector5(p) && spare5(p) < 0; }   // BOTUSE: it picks up one cheap piece of gear for that
+function spare5(p) { for (let i = 0; i < 9; i++) { const k = p.inv.backpack[i], it = k && G.ITEMS[k]; if (it && (it.type === 'weapon' || it.type === 'armor') && (it.tierN | 0) <= 2 && k !== p.inv.weapon && k !== p.inv.armor) return i; } return -1; }   // BOTUSE: a spare cheap weapon or armour a curious bot can feed the Gambler's Root
+function junkSlot5(p) { for (let i = 0; i < 12; i++) { const k = i < 9 ? p.inv.backpack[i] : p.inv.quick[i - 9]; if (k && isJunkW(p, k)) return i; } return -1; }   // BOTUSE: a slot (act5 numbering) holding a junk item
 function junk5(p) { let n = 0; for (const s of BOT_SLOTS) { const k = getSlot(p.inv, s); if (k && isJunkW(p, k)) n++; } return n; }
 function kind5(m, p, key) {   // the bot's view of a room: home (its own) | foreign | forge | grand | tree | vb | vault | vent | other
   if (key === VK) return 'vault'; if (TREE5.has(key)) return 'tree'; if (VB5C.has(key)) return 'vb';
@@ -1490,7 +1498,7 @@ function treeInfo5(m, p, key, now, base) {   // the `b` object of rooms5-trees.j
       if (junkSlot < 0 && isJunkW(p, k)) junkSlot = i; if (G.isBrain(k)) brain = true; else if (k === 'x:huskbrain') husk++; else if (k === 'x:scion') scions++; else if (BN.healValue(info(k)) > 0) heals++;
     }
     o = { now, round: m.round, sudden: !!m.sudden, knowLeft: knowLeft5(m, p), hpFrac: hpFrac(p), aggr: b.aggr, greed: b.greed, coop: b.p5.coop > 0.5,
-      brainOf: brain ? 'goblin' : husk ? 'husk' : null, scions, junk: junkSlot >= 0, junkSlot, healItems: heals, hasGear: !!p.inv.weapon, cautious: b.caution > 0.5 };
+      brainOf: brain ? 'goblin' : husk ? 'husk' : null, scions, junk: junkSlot >= 0, junkSlot, healItems: heals, elixir: p.elixir | 0, hasGear: !!p.inv.weapon, cautious: b.caution > 0.5 };
   }
   return Object.assign({}, o, { anchor: id => an[id] ? { x: an[id].x, z: an[id].z, r: an[id].r + 0.3 } : null, others });   // the hints' near() (r + 1.0) widened to just inside the server reach (r + 1.4): anchors stand on solid props now
 }
@@ -1498,12 +1506,13 @@ function vbInfo5(m, p, key, now) {   // the `info` object of VB5.botHint
   const b = p.brain, H = m.act.H, wantVault = (b.v5 || 0) > 4 || m.round >= 3, wantNoVault = !wantVault && b.p5.spoil, ram = H.st.ram;
   return { now, round: m.round, sudden: !!m.sudden, gold: p.gold || 0, metal: (p.parts && p.parts.metal) || 0, has: k => invCount(p, k === 'x:wedge' ? 'x:ironwedge' : k) > 0,
     aggression: b.aggr, greed: b.greed, wantVault, wantNoVault, rivalArmed: !!H.st.keystone.armed && b.lit5 !== m.round,
-    defend: wantNoVault && VB5M.typeAt(H, key) === 'ram' && !!ram && ram.handles.some(h => h != null && h !== p.id) };
+    defend: wantNoVault && VB5M.typeAt(H, key) === 'ram' && !!ram && ram.handles.some(h => h != null && h !== p.id),
+    tourP: b.L6 ? Math.min(1, b.L6.tokens * 0.8) : 0.4, junkSlot: junkSlot5(p) /* BOTUSE: the heist stations tour (vbx5.js tourHint) */ };
 }
 function hint5(m, p, key, now, base) {   // {score, next, maxStay, type} for an activity room
   const A = m.act; if (!A) return null;
-  if (TREE5.has(key)) { const t = A.trees[key], sp = t && ACTF.get(t.type); if (!sp || !sp.bot || !sp.bot.score) return null; const bi = treeInfo5(m, p, key, now, base); return { score: sp.bot.score(bi, p, t.st) * p.brain.p5.tree, next: () => sp.bot.next(bi, p, t.st), maxStay: sp.bot.maxStay || 45000, type: t.type }; }
-  if (VB5C.has(key)) { const h = VB5M.botHint(A.H, key, p, vbInfo5(m, p, key, now)); return { score: h.score * p.brain.p5.heist, next: () => h.next, maxStay: h.maxStay || 45000, type: VB5M.typeAt(A.H, key) }; }
+  if (TREE5.has(key)) { const t = A.trees[key], sp = t && ACTF.get(t.type); if (!sp || !sp.bot || !sp.bot.score) return null; let bi = treeInfo5(m, p, key, now, base), sc = null; if (curious5(p, t.type)) { bi = Object.assign({}, bi, { coop: true, aggr: Math.max(bi.aggr, 0.7), greed: Math.max(bi.greed, 0.55) }); if (t.type === 'gambler' && !bi.junk) { const js = spare5(p); if (js >= 0) bi.junk = true, bi.junkSlot = js; } const nx = sp.bot.next(bi, p, t.st); if (nx && nx.go !== 'exit') sc = 2.5; } /* BOTUSE: a type it has not tried yet */ const sc0 = sp.bot.score(bi, p, t.st) * p.brain.p5.tree; return { score: sc == null ? sc0 : Math.max(sc0, sc), next: () => sp.bot.next(bi, p, t.st), maxStay: sp.bot.maxStay || 45000, type: t.type }; }
+  if (VB5C.has(key)) { const h = VB5M.botHint(A.H, key, p, vbInfo5(m, p, key, now)), ty = VB5M.typeAt(A.H, key); return { score: Math.max(h.score * p.brain.p5.heist, curious5(p, 'vb:' + ty) ? 2.5 : 0) /* BOTUSE: a heist room it has not looked at yet */, next: () => h.next, maxStay: h.maxStay || 45000, type: ty }; }
   return null;
 }
 function vaultWant5(m, p, now) {
@@ -1541,7 +1550,7 @@ function b5Station(m, p) {   // roomGoals hook: own home, the Forge and the Gran
   const b = b5Init(m, p), kind = kind5(m, p, p.room);
   if (kind !== 'home' && kind !== 'forge' && kind !== 'grand' && kind !== 'foreign') return false;
   if (kind !== 'foreign' && !b.g5 && b.d5[p.room] !== m.round) {
-    const junk = junk5(p), has = kind === 'home' ? junk > 0 || !!bestCraft5(p, 'normal') || hpFrac(p) < 0.75 || (typeof botHomeWant === 'function' && botHomeWant(m, p, Date.now()) > 0) : kind === 'forge' ? !!bestCraft5(p, 'master') : junk > 0;
+    const junk = junk5(p), has = kind === 'home' ? junk > 0 || !!bestCraft5(p, 'normal') || hpFrac(p) < 0.75 || (typeof botHomeWant === 'function' && botHomeWant(m, p, Date.now()) > 0) || !!chore5(m, p, Date.now()) : kind === 'forge' ? !!bestCraft5(p, 'master') : junk > 0;
     if (has) b5Pick(m, p, p.room, Date.now());
   }
   return true;
@@ -1588,8 +1597,9 @@ function act5Think(m, p, now, dt) {   // the bot is in its activity room: follow
     next = { verb: 'use', a: g.memA, mem: 1 };
   }
   const aid = next.go || next.stay || next.a, a = an[aid]; if (!a) { leave5(m, p, now, 'anchor'); return false; }
+  if (type === 'oak' && aid === 'nook') { const w = oakWay5(key, p); if (w) { walk5(m, p, w[0], w[1], dt, now); return true; } if (Math.hypot(p.x - a.x, p.z - a.z) > 0.5) { walk5(m, p, a.x, a.z, dt, now); return true; } idleLook(m, p, now); if (g.sbu !== aid) { g.sbu = aid; bu(m, p, buKey5(key, type, aid)); (b.nv5 || (b.nv5 = {}))[type] = 1; } return true; }   // BOTUSE: the nook is a walk-in arch: line up with its mouth, walk in, stand there (the Warden's nook)
   const obs = obstaclesFor(m, key), free = (x, z) => obs.length ? BN.pushOut(x, z, obs, BN.BOT_R, p.x, p.z) : [x, z], there = pt => Math.hypot(p.x - pt[0], p.z - pt[1]) < 0.4;   // anchors sit on solid props (trunks, posts, stations): aim at the free spot next to them
-  if (next.stay) { const pt = free(a.x, a.z); if (!there(pt) && Math.hypot(p.x - a.x, p.z - a.z) > Math.min(0.9, (a.r || 1) * 0.6)) walk5(m, p, pt[0], pt[1], dt, now); else idleLook(m, p, now); return true; }
+  if (next.stay) { const pt = free(a.x, a.z); if (!there(pt) && Math.hypot(p.x - a.x, p.z - a.z) > Math.min(0.9, (a.r || 1) * 0.6)) walk5(m, p, pt[0], pt[1], dt, now); else { idleLook(m, p, now); if (g.sbu !== aid) { g.sbu = aid; bu(m, p, buKey5(key, type, aid)); if (TREE5.has(key)) (b.nv5 || (b.nv5 = {}))[type] = 1; } } return true; }   // BOTUSE: standing at a nook, a node or the dais counts
   if (!BG.inReach(a, p.x, p.z, 1.25)) {   // walk up to the anchor (go, or before a verb); the server's reach is r + 1.4
     const pt = free(...BG.standPoint(a, p.x, p.z, R.cx, R.cz));
     if (!there(pt)) { walk5(m, p, pt[0], pt[1], dt, now); return true; }
@@ -1610,6 +1620,7 @@ function act5Think(m, p, now, dt) {   // the bot is in its activity room: follow
   if (type === 'keystone' && next.verb === 'use') b.lit5 = m.round;
   const bag = TREE5.has(key) ? S.tree : VB5C.has(key) ? S.vb : S.vault, users = TREE5.has(key) ? S.treeU : VB5C.has(key) ? S.vbU : null;
   bag[type] = (bag[type] || 0) + 1; if (users) users[p.id] = 1;
+  bu(m, p, buKey5(key, type, aid)); if (TREE5.has(key)) (b.nv5 || (b.nv5 = {}))[type] = 1;   // BOTUSE
   g.nextAt = now + (next.verb === 'tap' ? rnd(420, 650) : rnd(380, 750));
   return true;
 }
@@ -1619,12 +1630,13 @@ function stationSpot5(key, kind) {   // in front of the home bench / the Forge b
 }
 function station5(m, p, now, dt) {   // home work at the bench and recycler (owner), the Master Forge, the Grand Recycler; resting at home when hurt
   const b = p.brain, g = b.g5, key = p.room, S = st5(m);
-  if (!g.counted) { g.counted = 1; S[g.kind] = (S[g.kind] || 0) + 1; }
+  if (!g.counted) { g.counted = 1; S[g.kind] = (S[g.kind] || 0) + 1; bu(m, p, 'visit.' + g.kind); }
   const hp = g.kind === 'home' && homeShut(m);   // HOME PHASE: round 1 is spent at home: work, then potter about and check the bench again, until the doors open
   if (hp) g.hp5 = 1; else if (g.hp5 && !p.crafting) { S.hpOut = (S.hpOut | 0) + 1; leave5(m, p, now, 'arenaOpen'); return false; }   // the arena is open: walk out (a running craft finishes first)
   if (!hp && (now - g.since > 32000 || (m.sudden && g.kind === 'home'))) { leave5(m, p, now, 'stationTime'); return false; }
   if (p.crafting) { idleLook(m, p, now); return true; }   // wait out craftMs at the bench (a hit or leaving cancels it and refunds)
   if (g.roam) { if (now < g.nextAt) { if (Math.hypot(p.x - g.roam[0], p.z - g.roam[1]) > 0.6) walk5(m, p, g.roam[0], g.roam[1], dt, now); else idleLook(m, p, now); return true; } g.roam = null; }   // HOME PHASE: a short walk round the home between bench checks
+  if (g.ch5 && chore5go(m, p, now, dt, g)) return true;   // BOTUSE: on the way to the pump or the Elixir Screen
   if (g.sent6 === 2 && send6(m, p, now, dt, g)) return true;   // BOTS6: on the way to the Elixir Screen
   const sp = g.spot || (g.spot = stationSpot5(key, g.kind));
   if (B5LOG === 'station') console.log('B5', p.id, g.kind, key, sp.map(Math.round), Math.round(p.x * 10) / 10, Math.round(p.z * 10) / 10, junk5(p), JSON.stringify(p.inv.backpack), p.inv.weapon);
@@ -1635,13 +1647,14 @@ function station5(m, p, now, dt) {   // home work at the bench and recycler (own
   try {
     const home = typeof homeAt === 'function' ? homeAt(m, key) : null;   // ELIXIR: a home's stations follow the player paths ({recycle} -> homeRecycle with its upgrade and Refine, owner-only craft)
     if (home && HB.canUseStation && !HB.canUseStation(home, p.id)) { leave5(m, p, now, 'owner'); return false; }
-    if (hasStation(m, p, 'recycler')) for (const s of BOT_SLOTS) { const k = getSlot(p.inv, s); if (k && isJunkW(p, k)) { if (!(home && typeof homeRecycle === 'function' ? homeRecycle(m, p, s, (p.elixir | 0) >= 4 + 12) : recycle(m, p, s))) S.recycled++; else g.recFail = (g.recFail | 0) + 1; if (g.recFail > 2) break; return true; } }   // refine (100%) while the bot keeps 12 elixir in reserve
+    if (hasStation(m, p, 'recycler')) for (const s of BOT_SLOTS) { const k = getSlot(p.inv, s); if (k && isJunkW(p, k) && !keep5(p, s)) { const rf5 = (p.elixir | 0) >= 4 + 12; if (!(home && typeof homeRecycle === 'function' ? homeRecycle(m, p, s, rf5) : recycle(m, p, s))) { S.recycled++; bu(m, p, g.kind === 'grand' ? 'grand.recycle' : 'home.recycle'); if (home && rf5) bu(m, p, 'home.refine'); } else g.recFail = (g.recFail | 0) + 1; if (g.recFail > 2) break; return true; } }   // refine (100%) while the bot keeps 12 elixir in reserve
     const bench = stationAt(m, p, 'workbench');
-    if (bench && typeof brewAt === 'function' && (p.elixir | 0) >= 8 && !healCount5(p) && !g.brewed) { g.brewed = 1; try { if (!brewAt(m, p, 'heal')) S.brewed++; } catch (e) {} return true; }   // ELIXIR: a Healing Draught when it carries no heal
-    if (bench && g.crafts < 3) { const r = bestCraft5(p, bench.type); if (r) { g.crafts++; if (!craft(m, p, r.id)) S.crafted++; return true; } }
+    if (bench && typeof brewAt === 'function' && (p.elixir | 0) >= 8 && !healCount5(p) && !g.brewed) { g.brewed = 1; try { if (!brewAt(m, p, 'heal')) { S.brewed++; bu(m, p, 'home.brew'); } } catch (e) {} return true; }   // ELIXIR: a Healing Draught when it carries no heal
+    if (bench && g.crafts < 3) { const r = bestCraft5(p, bench.type); if (r) { g.crafts++; if (!craft(m, p, r.id)) { S.crafted++; bu(m, p, g.kind === 'forge' ? 'forge.craft' : 'home.craft'); } return true; } }
     if (knowBench(m, p)) botLearn(m, p);
     equipBest(m, p);
     if (g.kind === 'home' && b.tac6 && !hp && g.sent6 !== 1 && send6(m, p, now, dt, g)) return true;   // BOTS6: a send from the Elixir Screen (walk up to it, press)
+    if (g.kind === 'home' && chore5pick(m, p, now, g)) return true;   // BOTUSE: empty the pump, shop and use the Elixir Screen like a player
     if (g.kind === 'home' && hpFrac(p) < 0.75 && !m.sudden && now - g.since < 26000) { if (!g.rest) { g.rest = 1; S.rested++; } return true; }   // heal up at home before going out again
     if (g.kind === 'home' && now - g.since < 1300) return true;   // ELIXIR: botHomes (1 Hz) empties the pump and buys upgrades while the bot is home
   } finally { f5('station', t0); }
@@ -1673,14 +1686,14 @@ function vote5(m, p, now) {   // every ~1.5 s: vote in each room the bot passes 
     const vd = (ROOM_DOORS[room] || []).find(d => VAULT.includes(d)); if (vd == null || (!rule('doorclose') && everOpen(m, vd))) return;   // DOORS-PERSIST: an open vault door needs no vote
     let others = 0; for (const k in m.sel) if (k !== room && VAULT.includes(m.sel[k])) others++;
     if (others >= 1 && m.sel[room] !== vd && b.coop5 !== m.round && (b.v5 || 0) > 2 && !b.p5.spoil && !(m.sealed && m.sealed[room]) && !humanIn(m, room) && (m.sel[room] == null || [...m.players.values()].some(q => q.bot && q.id === m.selBy[room]))) {
-      b.coop5 = m.round; m.sel[room] = vd; m.selBy[room] = p.id; S.coop++; broadcastRound(m);   // co-op: a second room's vault vote completes the rule
+      b.coop5 = m.round; m.sel[room] = vd; m.selBy[room] = p.id; S.coop++; bu(m, p, 'vault.coop'); broadcastRound(m);   // co-op: a second room's vault vote completes the rule
     }
     if (m.sel[room] === vd && m.selBy[room] === p.id) {
       if (b.vp5 !== m.round) { b.vp5 = m.round; S.vaultPicks++; }
       if (vaultVotes(m) < 2) {
         const sl = slotOf5(p, 'x:lockpick');
-        if (sl && !(m.picked && m.picked[room])) { if (!useItem(m, p, sl, now)) S.lockpicks++; }
-        else if (rule('bribe') && (p.gold || 0) >= BRIBE.cost + 15 && !((m.bribes && m.bribes[room]) > 0) && (m.endsAt - now < 30000 || b.greed < 0.4)) { if (!bribe(m, p)) S.bribes++; }
+        if (sl && !(m.picked && m.picked[room])) { if (!useItem(m, p, sl, now)) { S.lockpicks++; bu(m, p, 'vault.lockpick'); } }
+        else if (rule('bribe') && (p.gold || 0) >= BRIBE.cost + 15 && !((m.bribes && m.bribes[room]) > 0) && (m.endsAt - now < 30000 || b.greed < 0.4)) { if (!bribe(m, p)) { S.bribes++; bu(m, p, 'vault.bribe'); } }
       }
     }
   } finally { f5('vote', t0); }
@@ -1690,6 +1703,7 @@ function b5Think(m, p, now, dt) {   // from botThink (after fights and flight): 
   S.seen[p.id] = 1; if (p.room !== p.home) S.left[p.id] = 1;
   if (S.vr !== m.round) { S.vr = m.round; if (S.vOpen == null && !m.sudden && VAULT.some(d => m.open.includes(d))) S.vOpen = m.round; }   // the first round a vault door stood open (before sudden death)
   vote5(m, p, now);
+  if (p.room === VK && m.act && m.act.vault.gaining === p.id && b.cc5 !== m.round) { b.cc5 = m.round; bu(m, p, 'crown.claim'); }   // BOTUSE: standing on the dais with the claim running
   { const t0 = process.hrtime.bigint(), moving = (b.route.length > 0 || now - (b.mv5 || 0) < 300) && b.mode !== 'flee', ms = BG.watch(b.w5, p.x, p.z, p.room, now, moving);   // stuck watchdog: wanting to move but not moving
     if (ms > 6000) { S.stuck++; if (b.w5.last && now - b.w5.last < 20000 && Math.hypot(p.x - b.w5.lx, p.z - b.w5.lz) < 1) S.hardStuck++; b.w5.last = now; b.w5.lx = p.x; b.w5.lz = p.z; b.w5.t = now; b.route = []; b.nav = {}; if (b.g5 && b.g5.room === p.room) leave5(m, p, now, 'stuck'); else b.g5 = null; b.idleUntil = now + 200; }
     f5('watch', t0); }
@@ -1700,7 +1714,7 @@ function b5Think(m, p, now, dt) {   // from botThink (after fights and flight): 
     if (!b.g5) return false;
   }
   if (g.room !== p.room) return false;   // still on the way
-  if (!g.since) { g.since = now; b.route = []; if (GOAL5.has(g.room)) S.visits[g.kind]++; }
+  if (!g.since) { g.since = now; b.route = []; if (GOAL5.has(g.room)) { S.visits[g.kind]++; bu(m, p, 'visit.' + g.kind); if (g.kind === 'vb') (b.nv5 || (b.nv5 = {}))['vb:' + g.type] = 1; } }
   if (g.kind === 'home' || g.kind === 'forge' || g.kind === 'grand') return station5(m, p, now, dt);
   const t0 = process.hrtime.bigint(); try { return act5Think(m, p, now, dt); } finally { f5('act', t0); }
 }
@@ -1714,7 +1728,7 @@ function bot5Stat(m) {   // GK_DEBUG {bot5:1}: this match's bot stats for tests/
   const claims = m.act ? V5M.view(m.act.vault, { now: Date.now() }).claims : [];
   return { round: m.round, ended: !!m.ended, sudden: !!m.sudden, tree: S.tree, vb: S.vb, vault: S.vault, treeUsers: Object.keys(S.treeU).length, vbUsers: Object.keys(S.vbU).length, home: S.home, forge: S.forge, grand: S.grand,
     crafted: S.crafted, recycled: S.recycled, brewed: S.brewed, rested: S.rested, bribes: S.bribes, coop: S.coop, lockpicks: S.lockpicks, vaultPicks: S.vaultPicks, stuck: S.stuck, hardStuck: S.hardStuck, rekey: S.rekey, vaultOpen: S.vOpen == null ? null : S.vOpen,
-    left: Object.keys(S.left).length, bots: Object.keys(S.seen).length, alive: bots.filter(q => !q.dead).length, visits: S.visits, leaveWhy: S.leaveWhy, trees: m.trees, vbLayout: m.vb, claims, lab: lab ? { id: lab.id, room: lab.room, goal: lab.brain.g5 ? lab.brain.g5.room : null, know: lab.stats.knowledge, gold: lab.gold, pack: lab.inv.backpack.filter(Boolean) } : null, rewards: m.act ? Object.fromEntries(Object.entries(m.act.log).map(([k, v]) => [k, v.n])) : {}, f5: BS.f5 || null, sweeps: BS.n, sweepMean: BS.n ? BS.sum / BS.n : 0, b6: B6 ? bot6Stat(m) : null };   // BOTS6
+    left: Object.keys(S.left).length, bots: Object.keys(S.seen).length, alive: bots.filter(q => !q.dead).length, visits: S.visits, leaveWhy: S.leaveWhy, trees: m.trees, vbLayout: m.vb, claims, lab: lab ? { id: lab.id, room: lab.room, goal: lab.brain.g5 ? lab.brain.g5.room : null, know: lab.stats.knowledge, gold: lab.gold, pack: lab.inv.backpack.filter(Boolean) } : null, rewards: m.act ? Object.fromEntries(Object.entries(m.act.log).map(([k, v]) => [k, v.n])) : {}, f5: BS.f5 || null, sweeps: BS.n, sweepMean: BS.n ? BS.sum / BS.n : 0, b6: B6 ? bot6Stat(m) : null, bu: m.bu || {} };   // BOTS6, BOTUSE
 }
 // HALLS-BOT: an idle bot in a plain hall walks to a container or station in reach and uses it through H5.act (the rules and caps of a human apply; ~one search per 10 s at most)
 function hallBot(m, p, now, dt) {
@@ -1729,7 +1743,7 @@ function hallBot(m, p, now, dt) {
   }
   const sp = H5.BYID.get(h.id);
   if (!sp || sp.key !== p.room || now > h.until) { h.id = null; h.next = now + 6000; return false; }
-  if (Math.hypot(p.x - sp.x, p.z - sp.z) <= sp.r + 1.0) { H5.act(m, p, { s: sp.id, v: 'use' }, now); h.id = null; h.next = now + 8000; return true; }
+  if (Math.hypot(p.x - sp.x, p.z - sp.z) <= sp.r + 1.0) { H5.act(m, p, { s: sp.id, v: 'use' }, now); bu(m, p, sp.role === 'cont' ? (sp.kind === 'cache' ? 'hall.cache' : 'hall.container') : 'hall.' + sp.kind); h.id = null; h.next = now + 8000; return true; }
   stepTo(m, p, sp.sx, sp.sz, dt, now); return true;
 }
 // BOTS5-END
@@ -1929,13 +1943,14 @@ function send6(m, p, now, dt, g) {   // station5 at home: botgoals sendPick (a P
     const homes = [], v = m.act && m.act.vault;
     for (const k in m.homes) { const x = m.homes[k], o = x.ref; homes.push({ room: k, kills: o ? o.kills | 0 : 0, claim: v && o ? ACTF.capture.total(v.cap, o.id) / 1000 : 0, dead: !!x.dead || !o || !!o.dead, hops: ALLD[p.home] && ALLD[p.home][k] != null ? ALLD[p.home][k] : 9, me: k === p.home }); }
     g.pick6 = BG.sendPick(homes, { elixir: p.elixir | 0, round: m.round, reserve: 8, sends: b.L6.sends, roll: Math.random() });
+    if (!g.pick6) g.pick6 = roomSend5(m, p, now);   // BOTUSE: a nasty for the room where it lately saw goblins
     if (!g.pick6) { g.sent6 = 1; return false; }
     g.sent6 = 2; g.s6t = now;
   }
   const [sx, sz] = hAnchor(p.home, 'screen');
   if (Math.hypot(p.x - sx, p.z - sz) > HB.SCREEN_RANGE - 0.5) { if (now - g.s6t > 6000) { g.sent6 = 1; return false; } walk5(m, p, sx, sz, dt, now); return true; }
   g.sent6 = 1; baseMsg(m, p, { send: g.pick6.id, room: g.pick6.room }, now);
-  if (m.sentRound[p.id] === m.round) st6(m).sends++;
+  if (m.sentRound[p.id] === m.round) { st6(m).sends++; bu(m, p, 'screen.send.' + g.pick6.id); }
   g.nextAt = now + rnd(450, 900); return true;
 }
 function duel6Lab(m, o) {   // GK_DEBUG {duel6:{a:{w, arm, tac}, b:{w, arm, tac}}}: the two living bots of this match meet in one plain hall, same goblin type, full health,
@@ -1960,17 +1975,78 @@ function bot6Lab(m, sender, o) {   // GK_DEBUG {bot6:{lvl, sure, give, at ('cell
   if (typeof o.lvl === 'string') { b.L6 = BG.lvlOf(o.lvl); b.lvl = b.L6.name; b.react = b.L6.react; }
   if (o.sure) b.L6 = Object.assign({}, b.L6, { dodge: 1, items: 1 });   // no dice: the behaviour always fires
   if (Array.isArray(o.give)) for (const k of o.give) if (G.ITEMS[k]) giveItem(p, k);
+  if (Number.isFinite(o.elixir)) p.elixir = Math.max(0, Math.min(EX.CARRY_CAP, Math.floor(o.elixir)));   // BOTUSE: carried elixir for the screen tests (tests/botuse.test.js)
+  if (o.home && typeof o.home === 'object') { const h = homeAt(m, p.home); if (h) { for (const k in o.home.lv || {}) if (HB.UPGRADES[k]) h.lv[k] = o.home.lv[k] | 0; if ('armed' in o.home) h.snareArmed = !!o.home.armed; if ('ammo' in o.home) h.ammo = o.home.ammo | 0; } if (Array.isArray(o.home.list)) b.bl5 = o.home.list.filter(x => HB.UPGRADES[x]); }   // BOTUSE: upgrades, snare and sentry state (tests/botuse.test.js)
   if (o.at) { const c = o.at === 'cell' ? RB[String(WORLD.CHEST[+p.home.slice(1)].parent)] : null, x = c ? c.cx + 1 : +o.at[0], z = c ? c.cz + 1 : +o.at[1], pr = p.room; place(p, x, z); noteRoom(m, p, pr); Object.assign(b, { route: [], g5: null, mode: '', tgt: null, idleUntil: now + 4000, pauseUntil: 0 }); }
   if (Number.isFinite(o.hp)) { p.stats.health = Math.max(1, Math.min(p.stats.maxHealth, Math.round(o.hp))); p.hurtAt = now - (+o.hurtAgo || 0); }
   if (typeof o.send === 'string' && HB.SENDS[o.send]) { m.sends = m.sends || []; m.sends.push({ kind: o.send, from: sender.id, room: p.room, warnAt: now, startsAt: now + HB.TELEGRAPH_MS, endsAt: now + 20000, id: (m.sendN = (m.sendN || 0) + 1), by: sender, byName: 'Lab' }); }
   if (o.bomb) { m.bombs = m.bombs || []; m.bombs.push({ id: 9000 + (m.tossId = (m.tossId || 0) + 1), x: p.x + 0.8, z: p.z, room: p.room, from: now, at: now + 1500, by: sender, n: 22, r: 2.5 }); }
   m.dirty = true; const S = st6(m);
-  return { id: p.id, room: p.room, x: p.x, z: p.z, hp: p.stats.health, max: p.stats.maxHealth, pack: [...p.inv.backpack, ...p.inv.quick].filter(Boolean), mode: b.mode, lvl: b.lvl, use: S.use, danger: S.danger, dodge: S.dodge };
+  return { id: p.id, room: p.room, x: p.x, z: p.z, hp: p.stats.health, max: p.stats.maxHealth, pack: [...p.inv.backpack, ...p.inv.quick].filter(Boolean), mode: b.mode, lvl: b.lvl, use: S.use, danger: S.danger, dodge: S.dodge, elixir: p.elixir | 0 };
 }
 function bot6Stat(m) {   // part of GK_DEBUG {bot5:1}: levels by bot id and the BOTS6 tallies
   const S = st6(m); return { lvl: S.lvl, dead: m.dead.filter(q => q.bot).map(q => q.id), use: S.use, styles: S.styles, flank: S.flank, behind: S.behind, window: S.window, kite: S.kite, dodge: S.dodge, danger: S.danger, sends: S.sends, gaveUp: S.gaveUp, truce: S.truce, defend: S.defend, regroup: S.regroup, heard: S.heard, f6: BS.f6 || 0 };
 }
 // BOTS6-END
+// BOTUSE-BEGIN (docs/reports/bots-use.md): per-feature usage counts of the bots (m.bu[feature] = {n, by: {botId: n}, lvl: {level: n}}), read by GK_DEBUG {bot5:1} (field `bu`)
+// and tests/sim-botuse.js. Counting is one object bump at a call site that went through the player path; the extra behaviours that use more of the game are bu*() below.
+function bu(m, p, feat, n) {
+  if (!p || !p.bot) return; const u = m.bu || (m.bu = {}), e = u[feat] || (u[feat] = { n: 0, by: {}, lvl: {} }), l = (p.brain && p.brain.lvl) || 'x';
+  e.n += n || 1; e.by[p.id] = (e.by[p.id] | 0) + 1; e.lvl[l] = (e.lvl[l] | 0) + 1;
+}
+const buKey5 = (key, type, aid) => TREE5.has(key) ? 'tree.' + type : VB5C.has(key) ? (/^[SG]\d/.test(aid) ? 'vbx.' + type + '.' + aid : 'vb.' + type) : 'vault.' + aid;   // the counter name of an activity step
+const CUR5 = { easy: 0.45, normal: 0.8, hard: 0.95 };   // the share of bots that try a tree type they have not used yet, even when its hint is weak
+function curious5(p, type) { const b = p.brain, c = b.cu5 || (b.cu5 = {}); if (c[type] === undefined) c[type] = Math.random() < (CUR5[b.lvl] || 0.8); return c[type] && !(b.nv5 && b.nv5[type]); }
+const ELX_SCALE = DBG && +process.env.GK_ELX_SCALE > 0 ? +process.env.GK_ELX_SCALE : 1;   // GK_DEBUG: the pumps run this many times faster (the sim plays 30 s rounds; a real round is 120 s)
+function buList5(lvl) {   // a bot's shopping list in order (a repeat is the next level): every bot starts with the pump, then follows its own taste; easy bots buy few and cheap ones
+  const sh = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  if (lvl === 'easy') return ['pump', 'alarm', Math.random() < 0.5 ? 'guard' : 'pad'];
+  const mid = sh(['alarm', 'lock', 'recycler', 'snare', 'bench', 'guard', 'pad']); if (lvl === 'hard') mid.splice(Math.floor(Math.random() * 2), 0, 'sentry');   // a hard bot likes the crossbow early
+  return ['pump', ...mid, 'pump', 'lock', 'recycler'];
+}
+function chore5(m, p, now) {   // the next thing worth doing at the home pump or Elixir Screen: {at: 'pump'|'screen', msg?, f?} or null (a player's list: empty the tank, buy upgrades, distill, re-arm)
+  const h = homeAt(m, p.home); if (!h || h.dead || m.sudden || p.dead) return null;
+  const lvl = (p.brain && p.brain.lvl) || 'normal', el = p.elixir | 0, res = lvl === 'easy' ? 4 : 8;
+  if (EX.tick(h.pump, now) >= (lvl === 'easy' ? 16 : 8) && el < EX.CARRY_CAP - 4) return { at: 'pump' };
+  const need = {}, b = p.brain, list = b.bl5 || (b.bl5 = buList5(lvl)); if (b.dst5 === undefined) b.dst5 = Math.random() < 0.5; let all = true;
+  for (const id of list) { need[id] = (need[id] || 0) + 1; if (HB.level(h, id) < need[id]) { all = false; if (el >= HB.nextCost(h, id) + res) return { at: 'screen', msg: { buy: id }, f: 'screen.buy.' + id }; break; } }
+  if (lvl === 'easy') return null;
+  if (h.lv.snare && !h.snareArmed && el >= 15 + res) return { at: 'screen', msg: { act: 'snareRearm' }, f: 'screen.rearm' };
+  if (h.lv.sentry && (h.ammo | 0) < HB.SENTRY.shots && el >= 10 + res) return { at: 'screen', msg: { act: 'sentryAmmo' }, f: 'screen.ammo' };
+  if ((all ? el >= 20 + 30 : b.dst5 && el >= 20 + res + 4) && (p.distills | 0) < EX.DISTILL_MAX) return { at: 'screen', msg: { act: 'distill' }, f: 'screen.distill' };
+  return null;
+}
+function chore5pick(m, p, now, g) {   // station5 at home: start a chore (walk to its prop); a handful per visit
+  if ((g.chF | 0) >= 3 || (g.chN | 0) >= 8) return false;
+  const c = chore5(m, p, now); if (!c) return false;
+  g.ch5 = Object.assign(c, { until: now + 8000 }); return true;
+}
+function chore5go(m, p, now, dt, g) {   // walk up to the pump / screen (within the server's reach), then send the player message ({pump:1} -> pumpUse, {base} -> baseMsg: range and rate gates apply)
+  const c = g.ch5;
+  if (now > c.until || m.sudden) { g.ch5 = null; g.chF = (g.chF | 0) + 1; return false; }
+  const [ax, az] = hAnchor(p.home, c.at);
+  if (Math.hypot(p.x - ax, p.z - az) > (c.at === 'pump' ? EX.PUMP_RANGE : HB.SCREEN_RANGE) - 0.5) { walk5(m, p, ax, az, dt, now); return true; }
+  if (now < g.nextAt) { idleLook(m, p, now); return true; }
+  g.nextAt = now + rnd(450, 900); g.ch5 = null; g.chN = (g.chN | 0) + 1; const e0 = p.elixir | 0;
+  if (c.at === 'pump') { pumpUse(m, p, now); if ((p.elixir | 0) > e0) bu(m, p, 'pump.collect'); else g.chF = (g.chF | 0) + 1; }
+  else { baseMsg(m, p, c.msg, now); if ((p.elixir | 0) < e0) bu(m, p, c.f); else g.chF = (g.chF | 0) + 1; }
+  return true;
+}
+let HEALHALL5 = null;
+function hall5(m, p, key) {   // pickDest term: halls with a heal font or a stew pot pull a hurt bot (the hall bot then drinks or eats through H5.act)
+  if (m.sudden || hpFrac(p) >= 0.7) return 0;
+  if (!HEALHALL5) { HEALHALL5 = new Set(); try { for (const s of H5.SPOTS) if (s.kind === 'font' || s.kind === 'stew') HEALHALL5.add(s.key); } catch (e) { /* no spots */ } }
+  return HEALHALL5.has(key) ? 3 : 0;
+}
+const SEND_KINDS = { normal: ['bell', 'jam', 'gas', 'spike'], hard: ['gas', 'rats', 'spike', 'bell', 'jam'] };
+function roomSend5(m, p, now) {   // a nasty (gas, rats, bell, jam, spike) for the room where the bot saw goblins in the last 90 s or heard a fight in the last 40 s (what it knows, not where everyone is): {id, room} or null
+  const b = p.brain, L = b.L6, kinds = SEND_KINDS[b.lvl]; if (!kinds || !L || m.round < 2 || Math.random() > L.sends) return null;
+  let room = null, t = 0; for (const q of m.players.values()) { const e = q !== p && !q.dead && !q.npc && b.mem && b.mem[q.id]; if (e && e.room !== p.home && e.room !== VK && now - e.t < 90000 && e.t > t) { t = e.t; room = e.room; } }
+  for (const k in b.r6) if (k !== p.home && k !== VK && now - b.r6[k] < 40000 && b.r6[k] > t && isArena(k)) { t = b.r6[k]; room = k; }   // a fight it heard counts too
+  if (!room) return null;
+  const aff = kinds.filter(k => HB.SENDS[k].cost + 4 <= (p.elixir | 0)).sort((x, y) => HB.SENDS[y].cost - HB.SENDS[x].cost); return aff.length ? { id: aff[Math.random() < 0.6 ? 0 : Math.floor(Math.random() * aff.length)], room } : null;   // the dearest it can pay, mostly
+}
+// BOTUSE-END
 function pickDest(m, p, now) {   // idle: where to go next (claimable rooms, the merchant, the vault later, hunting, otherwise wander in the room)
   const b = p.brain, dist = reach(m, p.room), here = new Set(), hunt = {};
   const c5 = p.bot ? b5Prep(m, p, now, dist) : null;   // BOTS5
@@ -1992,6 +2068,7 @@ function pickDest(m, p, now) {   // idle: where to go next (claimable rooms, the
     else s += (b.seen[key] ? 0 : 1);
     const hw = b.tac6 ? BG.memWeight(b.r6, key, now, b.L6.mem) : hunt[key] ? 1 : 0;   // BOTS6: hunt where goblins were seen or heard lately, not where the server knows they are
     if (m.round >= 3 && hw > 0) s += (m.sudden ? 0.6 : 2.5) * (0.4 + b.aggr) * hw;   // AI: aggressive bots hunt
+    if (p.bot) s += hall5(m, p, key);   // BOTUSE: a hurt bot heads for a hall with a heal font or stew pot
     if (c6 && c6[key]) s += c6[key];   // BOTS6: defend the home on its alarm, come back to a fight after healing   // in sudden death everyone converges on the vault (and its relic), not on whoever is in the next room
     if (m.sudden && key === VK && now >= b.sdAt) s += 7;   // AI: patient bots head for the vault later
     if (key === b.avoidRoom && now < b.avoidUntil) s -= 9;   // AI: not back into the room it ran from, yet
@@ -2338,12 +2415,12 @@ const BOT_SLOTS = [...Array.from({ length: 9 }, (_, i) => 'b' + i), 'q0', 'q1', 
 const isJunkW = (p, k) => { const it = G.ITEMS[k]; return !!it && (it.type === 'weapon' ? !betterW(p.inv.weapon, k) : it.type === 'armor' && !betterA(p.inv.armor, k)) && !!G.recycleYield(k); };   // ARMOUR-3: spare armour that is no upgrade is junk too
 const botNeedsStation = p => BOT_SLOTS.some(s => { const k = getSlot(p.inv, s); return k && isJunkW(p, k); });
 function botStations(m, p) {   // in a merchant room or a stations mystery room: recycle junk weapons, then craft the best tier 0 recipe the parts pay for
-  if (hasStation(m, p, 'recycler')) for (const s of BOT_SLOTS) { const k = getSlot(p.inv, s); if (k && isJunkW(p, k) && !recycle(m, p, s)) BS.rec = (BS.rec || 0) + 1; }
+  if (hasStation(m, p, 'recycler')) for (const s of BOT_SLOTS) { const k = getSlot(p.inv, s); if (k && isJunkW(p, k) && !keep5(p, s) && !recycle(m, p, s)) { BS.rec = (BS.rec || 0) + 1; bu(m, p, 'merchant.recycle'); } }   // BOTUSE
   if (knowBench(m, p)) botLearn(m, p);   // KNOWLEDGE: spend knowledge points on the bot perks
   if (knowBench(m, p) && !p.crafting) {   // STATIONS: price and gate every recipe at THIS bench's type (the Master Forge is cheaper and reaches higher tiers)
     const stn = stationAt(m, p, 'workbench') || stationAt(m, p, 'knowledge'); let best = null, bv = -1;
     for (const r of G.RECIPES) { const bc = G.benchCraft(p, r, stn.type, p.perks); if (bc.why || (r.tier !== 0 && stn.type !== 'master') || !Object.keys(bc.cost).every(k => (p.parts[k] || 0) >= bc.cost[k])) continue; const o = G.ITEMS[r.out], v = o.attack || o.health || 0; if (!v) continue; if (v > bv) { bv = v; best = r; } }
-    if (best && !craft(m, p, best.id)) BS.cra = (BS.cra || 0) + 1;
+    if (best && !craft(m, p, best.id)) { BS.cra = (BS.cra || 0) + 1; bu(m, p, 'merchant.craft'); }   // BOTUSE
   }
 }
 function botLab(m, ws, p, cmd) {   // GK_DEBUG only, for tests. 'station': make the first loot room (WORLD.LOOT_IDS[0]) a merchant and drop a bot with junk into it. {near:[x,z]}: put a bot there. Any command replies with counters and the lab bot's state.
@@ -2382,7 +2459,7 @@ function homesInit(m, now) {   // at GO: a home record and a pump for every gobl
   m.homes = {}; m.sends = []; m.sentRound = {};
   for (const p of m.players.values()) if (!p.npc && typeof p.home === 'string' && WORLD.CHEST[+p.home.slice(1)]) {
     p.elixir = 0; p.distills = 0; p.oils = 0; p.elxRoom = p.room;
-    m.homes[p.home] = Object.assign(HB.createHome(p.id), { key: p.home, ref: p, pump: Object.assign(EX.createPump(now, 1), mutMul(m, 'pump') !== 1 ? { mul: mutMul(m, 'pump') } : null), pickSeen: {} });
+    m.homes[p.home] = Object.assign(HB.createHome(p.id), { key: p.home, ref: p, pump: Object.assign(EX.createPump(now, 1), mutMul(m, 'pump') * ELX_SCALE !== 1 ? { mul: mutMul(m, 'pump') * ELX_SCALE } : null), pickSeen: {} });
     sendElixir(p);
   }
 }
@@ -2598,7 +2675,7 @@ const BOT_BUYS = ['pump', 'alarm', 'pump', 'lock', 'recycler', 'snare', 'lock', 
 function botHomes(m, now) {
   if (now - (m.elxBotAt || 0) < 1000) return; m.elxBotAt = now;
   for (const p of m.players.values()) {
-    if (!p.bot || p.dead || !p.entered) continue; const h = homeAt(m, p.home); if (!h || h.dead || p.room !== h.key) continue;
+    if (!p.bot || p.dead || !p.entered || (B6 && p.brain && p.brain.tac6)) continue; const h = homeAt(m, p.home); if (!h || h.dead || p.room !== h.key) continue;   // BOTUSE: BOTS6 bots walk to the pump and the screen (chore5)
     if (EX.tick(h.pump, now) >= 12) { const r = EX.collect(h.pump, p.elixir | 0, now, true); p.elixir = r.carried; }
     const need = {}; let want = null; for (const id of BOT_BUYS) { need[id] = (need[id] || 0) + 1; if (HB.level(h, id) < need[id]) { want = id; break; } }
     if (want && (p.elixir | 0) >= HB.nextCost(h, want) + 8) { const r = HB.buy(h, want, p); if (r.ok && want === 'pump') EX.setLevel(h.pump, HB.pumpLevel(h), now); }

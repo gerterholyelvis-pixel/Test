@@ -529,6 +529,44 @@
     return out;
   }
   const ctxSudden = info => !!info.sudden;
+  // BOTUSE-BEGIN (docs/reports/bots-use.md): a bot with nothing else to do in a heist room tries the stations it can afford, each once a round. The pick is kept 6 s so
+  // a walking bot does not change its mind every tick. info.tourP (0..1, the level) is the share of bots that look around; info.junkSlot is a slot with a junk item (-1 none).
+  const TOUR_GATED = { ram: ['S1', 'S3'], locksmith: ['S1', 'S3'], counting: ['S2'], keystone: ['S1', 'S3'] };
+  function tourHint(H, cell, t, p, info, out) {
+    const nx = out.next; if (!H.x || !p.brain || !(info.tourP > 0)) return out;
+    const b = p.brain, tr = b.tr5 || (b.tr5 = { u: {}, cur: null, lk: {}, s: {} }), now = info.now || 0, c = tr.cur, s0 = H.st[t], mine = s0._tx && s0._tx[p.id];
+    if (mine && ANCH.includes(mine.anchor)) return out;   // a rhythm is open: finish it
+    if (nx && !nx.idle && !(nx.a && ANCH.includes(nx.a)) && ((tr.lk[H.round + ':' + t] | 0) >= 2 || (s0._tm && s0._tm[p.id]) || (s0.ch || []).some(q => q.pid === p.id))) return out;   // the main heist keeps its turn (two looks around a round, never in the middle of an attempt)
+    if (c && c.t === t && c.round === H.round && now - c.at < 6000) { out.next = c.next; return out; }
+    if (gate(p, H, 9) >= info.tourP * 100 || info.sudden) return out;
+    const st = H.st[t], x = H.x.st[t], js = info.junkSlot | 0, has = info.has || (() => false), o = [];
+    if (t === 'ram') {
+      if (x.head < K.HEAD_MAX && partsOf(p, 'metal') >= K.FORGE_COST.metal) o.push(['S1', { verb: 'use', a: 'S1', x: 0 }]);
+      if (lim(H, p, 'climb', K.CLIMB_ROUND, K.CLIMB_MATCH)) o.push(['S2', { verb: 'use', a: 'S2' }]);
+      if (x.planks < K.PLANK_MAX && partsOf(p, 'wood') >= K.SAW_COST.wood) o.push(['S3', { verb: 'use', a: 'S3', x: 0 }]);
+      if (x.chant < K.CHANT_MAX) o.push(['S4', { verb: 'use', a: 'S4' }]);
+    } else if (t === 'locksmith') {
+      if (lim(H, p, 'prac', 1, null)) o.push(['S2', { verb: 'use', a: 'S2' }]);
+      if (partsOf(p, 'cloth') >= K.FELT_COST.cloth && !(x.felt > now)) o.push(['S3', { verb: 'use', a: 'S3' }]);
+      if (x.opened < K.SAFE_ROUND && lim(H, p, 'safe', 1, null)) o.push(['S4', { verb: 'use', a: 'S4', x: gate(p, H, 3) % K.SAFE_DIALS }]);
+      if (has('x:blank') && !has('x:skeleton') && lim(H, p, 'sk', 1, null)) o.push(['S1', { verb: 'use', a: 'S1' }]);
+    } else if (t === 'counting') {
+      if (used(H, p, 'wage') < K.WAGE_CAP) o.push(['S1', { verb: 'use', a: 'S1' }]);
+      if (!x.lot && js >= 0 && info.junkSlot != null) o.push(['S2', { verb: 'use', a: 'S2', x: js }]);
+      if ((info.gold || 0) >= K.LEDGER_FEE + 25 && lim(H, p, 'ledger', K.LEDGER_ROUND, null)) o.push(['S3', { verb: 'use', a: 'S3' }]);
+      if ((info.gold || 0) < 100 && info.round <= K.LOAN_LAST && !debtOf(H, p.id) && lim(H, p, 'loan', null, K.LOAN_MATCH) && (st._box || 0) >= K.LOAN) o.push(['S4', { verb: 'use', a: 'S4', x: 0 }]);
+    } else {
+      if (!has('x:runecharge') && partsOf(p, 'metal') >= 1 && partsOf(p, 'bone') >= 1 && lim(H, p, 'carve', K.CARVE_ROUND, K.CARVE_MATCH)) o.push(['S1', { verb: 'use', a: 'S1' }]);
+      if (!attuned(H, p) && lim(H, p, 'rite', 1, null) && !(x.rite && now < x.rite.end)) o.push(['S2', { verb: 'use', a: 'S2' }]);
+      if (info.junkSlot != null && js >= 0 && lim(H, p, 'offer', K.OFFER_ROUND, K.OFFER_MATCH)) o.push(['S3', { verb: 'use', a: 'S3', x: js }]);
+      if (x.node.holder == null) o.push(['S4', { verb: 'use', a: 'S4' }]);
+    }
+    const free = o.filter(e => tr.u[t + ':' + e[0]] !== H.round); if (!free.length) return out;
+    const fresh = free.filter(e => !tr.s[t + ':' + e[0]]), pool0 = fresh.length ? fresh : free;   // a station it has never tried first
+    const gated = pool0.filter(e => (TOUR_GATED[t] || []).includes(e[0])), pool = gated.length ? gated : pool0;   // one it can only do because it carries the means (parts, a blank, a spare item) before the free ones
+    const e = pool[gate(p, H, 10) % pool.length]; tr.u[t + ':' + e[0]] = H.round; tr.s[t + ':' + e[0]] = 1; tr.cur = { t, round: H.round, at: now, next: e[1] }; tr.lk[H.round + ':' + t] = (tr.lk[H.round + ':' + t] | 0) + 1; out.next = e[1]; return out;
+  }
+  // BOTUSE-END
 
   // ---- the codex rows (tools/gameinfo.js): station, room, what it does, reward, risk
   const CODEX = [
@@ -551,8 +589,9 @@
   ].map(([type, name, what, reward, risk]) => ({ type, name, what, reward, risk }));
 
   const bind = k => { VK = Object.assign({}, VK, k); };
+  const botHintX = (H, cell, t, p, info, out) => tourHint(H, cell, t, p, info, botHint(H, cell, t, p, info, out));   // BOTUSE: the station tour after the usual hint
   const VBX = { K, ANCH, CODEX, bind, attach, owns, verb, tick, leave, hurt, roundEnd, rekey, newRound, view, meX, meTiming, strikeMul, onStrike, winchWin, planks, takePlank,
-    noiseMul, pinMul, lightMs, feedMs, onBribe, onWrit, botHint, ledgerLines };
+    noiseMul, pinMul, lightMs, feedMs, onBribe, onWrit, botHint: botHintX, tourHint, ledgerLines };
   root.VBX = VBX;
   if (typeof module !== 'undefined' && module.exports) module.exports = VBX;
 })(typeof window !== 'undefined' ? window : globalThis);
