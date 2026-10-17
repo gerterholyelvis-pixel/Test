@@ -78,12 +78,13 @@ function staticFor(url) {   // -> { body, type, cc } or null (404)
   return null;
 }
 const SEC_HEADERS = { 'x-content-type-options': 'nosniff', 'referrer-policy': 'same-origin' };
+const REL = require('./release.js')({ root: ROOT_DIR, secHeaders: SEC_HEADERS, csp: () => CSP, stats: () => ({ matches: matches.size, sockets: wss.clients.size }) });   // RELEASE: /healthz, /version, /privacy, icons, dist/ in production, compression, 404 page, graceful shutdown (docs/RELEASE.md)
 const srv = http.createServer((q, r) => {
   try {
+    if (REL.route(q, r)) return;   // RELEASE
     const e = q.method === 'GET' || q.method === 'HEAD' ? staticFor(q.url || '/') : null;
-    if (!e) { r.writeHead(404, { ...SEC_HEADERS, 'content-type': 'text/plain' }); return r.end('Not found'); }
-    r.writeHead(200, { ...SEC_HEADERS, 'content-type': e.type, 'cache-control': e.cc, 'content-security-policy': e.csp || CSP });
-    r.end(q.method === 'HEAD' ? undefined : e.body);
+    if (!e) return REL.notFound(q, r);   // RELEASE: an HTML page for browsers, plain 'Not found' otherwise
+    REL.send(q, r, 200, { 'content-type': e.type, 'cache-control': e.cc, 'content-security-policy': e.csp || CSP }, e);   // RELEASE: compressed in production
   } catch (err) { try { r.writeHead(500); r.end(); } catch (e2) {} }
 });
 buildCsp(); if (!process.env.GK_DEBUG) codexInit();   // CODEX
@@ -2264,4 +2265,5 @@ wss.on('connection', (ws, req) => {
 });
 
 srv.on('error', e => { console.error('listen failed', e); process.exit(1); });   // SECURITY: the uncaughtException handler must not turn a port clash into a silent zombie
-srv.listen(process.env.PORT || 3000, () => console.log('Goblin King on :' + (process.env.PORT || 3000)));
+REL.shutdown(srv, () => wss);   // RELEASE: SIGTERM / SIGINT drain
+srv.listen(process.env.PORT || 3000, () => console.log('Goblin King on :' + (process.env.PORT || 3000) + (REL.PROD ? ' (production, ' + (REL.dist().on ? 'dist ' + REL.VERSION.version : 'source files') + ')' : '')));

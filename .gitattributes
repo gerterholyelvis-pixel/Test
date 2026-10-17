@@ -1,0 +1,26 @@
+# Line endings (docs/RELEASE.md, "Repo hygiene"). Every text file in the repository is stored with LF (checked: git ls-files --eol shows no i/crlf).
+# text=auto keeps it that way: Git converts CRLF to LF when a file is added, and each checkout uses the platform's ending (core.autocrlf / core.eol).
+# Nothing is renormalised by this file, so no existing file changes. Do not add a global eol=lf here while many branches are open.
+* text=auto
+
+# shell scripts must stay LF even on Windows checkouts
+*.sh text eol=lf
+
+# binaries: never diffed or converted
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.glb binary
+*.ogg binary
+*.mp3 binary
+*.wav binary
+
+# generated: collapse in diffs and keep out of language stats
+package-lock.json -diff linguist-generated=true
+docs/game-info.html linguist-generated=true

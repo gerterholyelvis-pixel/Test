@@ -1,14 +1,20 @@
 {
-  "name": "test",
-  "version": "1.0.0",
-  "description": "",
+  "name": "goblin-king",
+  "version": "0.9.0",
+  "private": true,
+  "description": "Goblin King: a multiplayer goblin heist in the browser (three.js client, Node + ws server).",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "test": "node tests/run.js",
     "test:browser": "node tools/perfbench.js --presets low,high --views vault --frames 120 --budget",
     "gameinfo": "node tools/gameinfo.js",
-    "gameinfo:pdf": "node tools/gameinfo-pdf.js"
+    "gameinfo:pdf": "node tools/gameinfo-pdf.js",
+    "build": "node tools/build.js",
+    "start:prod": "node server.js --production",
+    "check": "node tools/check.js",
+    "smoke": "node tools/smoke.js",
+    "release:check": "node tools/check.js && node tests/run.js && node tools/smoke.js --dist"
   },
   "repository": {
     "type": "git",
@@ -16,7 +22,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "UNLICENSED",
   "bugs": {
     "url": "https://github.com/gerterholyelvis-pixel/test/issues"
   },
@@ -26,6 +32,9 @@
     "ws": "^8.22.0"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.10"
   }
 }
