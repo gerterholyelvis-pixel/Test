@@ -4,6 +4,10 @@ Format: one section per version, newest first. Versions follow [semver](https://
 
 ## [Unreleased]
 
+- Players: private rooms with a code (Play with friends, footer of the title), quick chat with eight fixed phrases, mute and report (key H), honest bot labels in the queue and match, a short skippable tutorial in round 1, a Credits page, accessibility options (interface size, calm mode, less flashing, clear text), a device-based first-run graphics default.
+- Reliability: a new version shows a reload prompt, a server restart says so, the reconnect window is 30 s, a join-flood limit per address, a harder name filter, /healthz reports heap, tick time and errors.
+- Tools: `npm run soak` (20 simultaneous matches: tick time, heap, release of finished matches).
+
 ## [0.9.0] - 2026-10-16 (release candidate)
 
 First version prepared for a public release.
