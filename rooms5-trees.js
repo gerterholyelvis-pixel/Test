@@ -411,7 +411,7 @@
         pool.take(b, ctx.now); pay(ctx, p, { item: 'x:scion' }, 'graft:cut');
       },
     },
-    view: st => ({ branches: st.br.map(b => b.n), vise: { state: station.state(st.vise), item: st.vise.item, by: st.vise.by }, ch: chView(st) }),
+    view: (st, now) => ({ branches: st.br.map(b => b.n), vise: { state: station.state(st.vise, now == null ? Date.now() : now), item: st.vise.item, by: st.vise.by }, ch: chView(st) }),
     bot: {
       score(b, p, st) { return b.scions > 0 && usedR(st, p, 'graft') < K.graftCap && st.vise.by == null ? 3 : (b.scions === 0 && st.br.some(x => x.n >= 1) && b.hasGear ? 1.5 : 0); },
       next(b, p, st) {
