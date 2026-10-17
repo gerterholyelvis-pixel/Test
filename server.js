@@ -34,11 +34,12 @@ function readToken(t) {   // the payload when the signature and shape are valid,
 const ROOT_DIR = __dirname, THREE_DIR = path.join(__dirname, 'node_modules/three/build'), ADDON_DIR = path.join(__dirname, 'node_modules/three/examples/jsm');
 const cache = new Map();   // url key -> { body, type } or null (known missing)
 function cached(key, file, type) {
-  if (cache.has(key)) return cache.get(key);
+  if (cache.has(key)) { const e = cache.get(key); if (e || Date.now() < (missUntil.get(key) || 0)) return e; cache.delete(key); }   // PERF4: a miss is remembered for 5 s only (it was forever: a file that appeared later stayed a 404, and 500 junk URLs filled the cache for good)
   let e = null; try { e = { body: fs.readFileSync(file), type }; } catch (err) { e = null; }
-  if (cache.size < 500) cache.set(key, e);
+  if (e) { if (cache.size < 500) cache.set(key, e); } else if (missUntil.size < 200) { missUntil.set(key, Date.now() + 5000); cache.set(key, null); }
   return e;
 }
+const missUntil = new Map();   // PERF4: url key -> time the remembered miss expires
 const CLIENT_JS = new Set(['game', 'menu', 'items', 'world', 'save', 'stats', 'statsui', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'act5ui', 'fskeep', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)
 let CSP = '';
 function buildCsp() {   // the page has two inline scripts (importmap + module): allowed by hash, so no 'unsafe-inline' for scripts
@@ -114,7 +115,7 @@ const cleanName = s => { const n = String(s || '').replace(/[^A-Za-z0-9 '\-]/g, 
 process.on('uncaughtException', e => console.error('uncaught', e));   // one bad message must not take every running match down (a port clash still exits, see srv.on('error'))
 process.on('unhandledRejection', e => console.error('unhandled', e));
 // SECURITY-END
-const wss = new WebSocketServer({ server: srv, maxPayload: 512, verifyClient }); // oversize frames close the socket
+const wss = new WebSocketServer({ server: srv, maxPayload: 512, verifyClient, perMessageDeflate: false /* PERF4: frames are tiny, compressing them costs CPU and latency (ws also sets TCP_NODELAY on every socket) */ }); // oversize frames close the socket
 setInterval(() => { for (const ws of wss.clients) { if (ws.alive === false || ws.bufferedAmount > 262144) { try { ws.terminate(); } catch (e) {} continue; }   /* ROBUST: also drop a socket that is not reading (256 KB queued) */ ws.alive = false; try { ws.ping(); } catch (e) {} } }, 30000).unref();   // SECURITY: heartbeat, a socket that answers no ping for 30 s is dead (frees its per-IP slot, starts the reconnect grace)
 const LIM = WORLD.LIM + 1; // world half-extent: the room grid plus the attached rooms around it (+1 m slack)
 const clamp = v => Math.max(-LIM, Math.min(LIM, v));
@@ -190,8 +191,8 @@ function leave(m, ws) { // remove a player from their match; empty matches disap
   if (!humans(m) && (m.ended || !m.specs.size || m.phase === 'queue')) matches.delete(m.id);   // FUN: spectators keep a match with only bots alive until it is decided
   else if (m.phase === 'queue') broadcastQueue(m); else { broadcastMatch(m); sendBoard(m); checkWin(m); }
 }
-const TS = { n: 0, sum: 0, max: 0, over: 0 };   // tick timing (GK_DEBUG {botstat:1} -> tick), see tests/tickbench.js
-setInterval(() => { // one global timer steps every match
+const TS = { n: 0, sum: 0, max: 0, over: 0, dn: 0, dsum: 0, dsq: 0, dmax: 0, late: 0, skip: 0, hist: new Array(8).fill(0) };   // tick timing (GK_DEBUG {botstat:1} -> tick), see tests/tickbench.js
+function tickAll() { // steps every match (scheduled by the TICK block below)
   const now = Date.now(), tick0 = DBG ? process.hrtime.bigint() : 0n;
   for (const m of matches.values()) { try {   // ROBUST: a throwing match must not stop the matches after it (see the catch below)
     if (DBG && m.boom) throw new Error('boom (test hook)');
@@ -226,7 +227,23 @@ setInterval(() => { // one global timer steps every match
   } }
   botSweepEnd();
   if (DBG) { const ms = Number(process.hrtime.bigint() - tick0) / 1e6; TS.n++; TS.sum += ms; if (ms > TS.max) TS.max = ms; if (ms > 25) TS.over++; }
-}, 50);
+}
+// TICK-BEGIN (drift-free 20 Hz: the next tick is scheduled from the ideal time grid, not from "now", so a late wake-up is paid back by a shorter wait; see docs/reports/perf-4-server.md)
+// setInterval(50) on Windows fires every ~64 ms (15.6 ms timer granularity: 3 x 15.6 = 46.8 -> 4 x 15.6 = 62.4), i.e. 15.5 Hz. A self-correcting setTimeout averages 20 Hz; a stall of more than 2 ticks is not replayed (resync).
+const TICK_MS = 50;
+let tickDue = 0, tickPrev = 0, lagUntil = 0, lagBonus = 0;
+function tickLoop() {
+  const t = performance.now();
+  if (tickPrev) { const d = t - tickPrev; TS.dn++; TS.dsum += d; TS.dsq += d * d; if (d > TS.dmax) TS.dmax = d; if (d > 75) TS.late++; TS.hist[Math.min(7, Math.floor(d / 25))]++; }   // measured interval between ticks: GK_DEBUG {botstat:1}.tick.{dn,dsum,dsq,dmax,late,hist}
+  tickPrev = t;
+  const late = t - tickDue; if (late > 100) { lagUntil = Date.now() + 700; lagBonus = Math.min(late, 700) / 1000 * MAXV; }   // the event loop stalled (GC, another match, a loaded box): the moves that queued up arrive in one burst, let the speed budget cover the stall (applyMove)
+  try { tickAll(); } catch (e) { console.error('tick', e); }
+  tickDue += TICK_MS; const n = performance.now();
+  if (tickDue < n - 2 * TICK_MS) { TS.skip++; tickDue = n; }   // stalled for more than 2 ticks: do not burst to catch up
+  setTimeout(tickLoop, Math.max(0, tickDue - n));
+}
+tickDue = performance.now() + TICK_MS; setTimeout(tickLoop, TICK_MS);
+// TICK-END
 
 // goblin types and their odds: items.js GOBLINS (GOBTYPES)
 // Equipment decides combat stats: attack damage comes from the weapon (items.js), health from the armour.
@@ -702,6 +719,7 @@ const T0 = Date.now(), srvT = () => Date.now() - T0;   // server clock in ms, se
 const RSCALE = process.env.GK_DEBUG && +process.env.GK_REGEN_SCALE > 0 ? +process.env.GK_REGEN_SCALE : 1;   // GK_DEBUG only: speeds regeneration up for the tests
 const MAXV = 7.5 * Math.max(...G.SPEED) * G.MAX_ARMOR_SPEED * Math.max(1, ...G.CHARM_KEYS.map(k => G.charmEff(k, 'spd') || 1)) * 1.1, BUDGET = 1.0, SLACK = 0.3, MOVE_SLACK = 0.3;   // BALANCE: the fastest class multiplier comes from items.js SPEED (shared with the client)   // fastest goblin sprint (game.js) x 1.1; the distance a client may bank while idle; SLACK: bounds tolerance in m; MOVE_SLACK: extra distance per move (SECURITY: was 1.25 / 1.2 / 0.3 per move)
 const HIST_MS = 1000, REWIND_MAX = 200;
+const BURST = 2.0;   // PERF4: the bank a still player can hold: 200 ms of the speed limit. A TCP retransmit or a stalled event loop delivers 5 moves in one burst; with the old 1.0 m cap the burst was refused, the player rubber-banded and 15 of those in 10 s KICKED him (measured: 7 of 8 kicked at 2% loss). The average speed limit is unchanged; walls and doors are still checked in 0.2 m steps.
 const r1 = v => Math.round(v * 10) / 10, r2 = v => Math.round(v * 100) / 100, r3 = v => Math.round(v * 1000) / 1000;
 const PROP_R = 0.33;   // SOLID: the walker radius the server checks against prop footprints (game.js RAD is 0.45; the gap keeps a slide along an edge from being corrected)
 function inBounds(x, z) {   // inside a room of the grid, or inside one of the 20 attached rooms (not the void around them)
@@ -733,7 +751,7 @@ function applyMove(m, ws, p, x, z, yaw, now, jy) {   // {m:[x,z,yaw]}: accept, o
   x = clamp(x); z = clamp(z); yaw = Math.max(-1e3, Math.min(1e3, yaw));
   const dt = p.mvAt ? Math.min(0.5, (now - p.mvAt) / 1000) : 0.066; p.mvAt = now; const prevRoom = p.room;
   const hv = !!(p.carry && p.carry.heavy);   // ACT5: a carried coin sack: 70% of the walk (x1.3 for jitter), no sprint, and a small slack so the limit holds over time (the normal 0.3 m slack would allow 9 m/s at 15 messages a second)
-  p.budget = Math.min(hv ? 0.8 : BUDGET, (p.budget == null ? BUDGET : p.budget) + dt * (hv ? Math.min(MAXV, walkOf(p) * 0.7 * 1.3) : MAXV) * (now < (p.tonicUntil || 0) + 500 ? G.ITEMS['x:tonic'].n : 1) * (G.charmEff(p.inv.charm, 'spd') || 1));   // UTILITY: a speed tonic raises the movement allowance
+  p.budget = Math.min(hv ? 0.8 : BURST + (now < lagUntil ? lagBonus : 0),(p.budget == null ? BUDGET : p.budget) + dt * (hv ? Math.min(MAXV, walkOf(p) * 0.7 * 1.3) : MAXV) * (now < (p.tonicUntil || 0) + 500 ? G.ITEMS['x:tonic'].n : 1) * (G.charmEff(p.inv.charm, 'spd') || 1));   // UTILITY: a speed tonic raises the movement allowance
   const dist = Math.hypot(x - p.x, z - p.z);
   if (dist > 0.0005 && (dist > p.budget + (hv ? 0.08 : MOVE_SLACK) || !pathOk(m, p.x, p.z, x, z, p))) {
     if (now - (p.fixAt || 0) > 150) { p.fixAt = now; sendTo(ws, { fix: [r2(p.x), r2(p.z)] }); if (!p.lockDeny && secFix(p, ws, now)) return false; }   // ELIXIR: a Door Lock refusal is not a speed-hack correction
@@ -763,16 +781,28 @@ function posAt(p, T) {   // where p was at server time T (position history, line
 function snapshots(m) {   // {s:[t, id,x,z,yaw,speed,age, ...]} with the players that moved since the last tick, to everyone but themselves; age = ms since that position was received
   const now = Date.now(); for (const p of m.players.values()) if (p.spd && now - p.mvAt > 150) { p.spd = 0; p.sd = true; }   // no update for a while: tell the others he stopped (clients only send when something changed)
   let moved = null;
-  for (const p of m.players.values()) if (p.sd) { p.sd = false; (moved = moved || []).push(p); }
-  if (!moved) return;
-  const t = srvT(), chunk = moved.map(p => p.id + ',' + r2(p.x) + ',' + r2(p.z) + ',' + r3(p.yaw) + ',' + jumpV(p) + ',' + Math.min(255, Math.max(0, t - (p.mvT || t))));   // PERF: each mover is formatted once, every receiver just joins the strings (same JSON as before: {"s":[t,id,x,z,yaw,v,age,...]})
+  for (const p of m.players.values()) if (p.sd) { p.sd = false; p.sdFar = true; (moved = moved || []).push(p); }
+  // PERF4 interest management: a receiver gets the movers in his own room and the rooms next to it (through any door) every tick (20 Hz); movers anywhere else are batched and go out every FAR_EVERY-th tick (5 Hz). Nothing is lost: p.sdFar stays set until a far tick has sent the newest position.
+  const sn = m.snapN = (m.snapN | 0) + 1; let far = null;
+  if (sn % FAR_EVERY === 0) for (const p of m.players.values()) if (p.sdFar) { p.sdFar = false; (far = far || []).push(p); }
+  if (!moved && !far) return;
+  const t = srvT(), tl = ('' + t).length;
+  const fmt = p => p.scN === sn ? p.sc : (p.scN = sn, p.sc = p.id + ',' + r2(p.x) + ',' + r2(p.z) + ',' + r3(p.yaw) + ',' + jumpV(p) + ',' + Math.min(255, Math.max(0, t - (p.mvT || t))));   // PERF: each mover is formatted once per tick, every receiver just joins the strings (same JSON as before: {"s":[t,id,x,z,yaw,v,age,...]})
   for (const [ws, q] of m.players) {
     if (q.bot || q.npc || ws.readyState !== 1) continue;
-    let s = '{"s":[' + t; for (let i = 0; i < moved.length; i++) if (moved[i] !== q) s += ',' + chunk[i];
-    if (s.length > 6 + ('' + t).length) ws.send(s + ']}');
+    const buf = ws.bufferedAmount;
+    if (buf > SNAP_BACKLOG) { q.resync = true; continue; }   // PERF4 backpressure: a client that cannot keep up gets no snapshots until its queue has drained, then ONE full snapshot (a skipped mover would stay wrong until he moves again)
+    if (q.resync) { if (buf > SNAP_BACKLOG / 4) continue; q.resync = false; let s = '{"s":[' + t; for (const o of m.players.values()) if (o !== q && !o.npc) s += ',' + fmt(o); ws.send(s + ']}'); continue; }
+    const nb = nearOf(q.room); let s = '{"s":[' + t;
+    if (moved) for (let i = 0; i < moved.length; i++) { const p = moved[i]; if (p !== q && (!nb || nb.has(p.room))) s += ',' + fmt(p); }
+    if (far) for (let i = 0; i < far.length; i++) { const p = far[i]; if (p !== q && nb && !nb.has(p.room)) s += ',' + fmt(p); }   // far entries ride in the same message (their age field already says how old they are)
+    if (s.length > 6 + tl) ws.send(s + ']}');
   }
-  if (m.specs.size) { const all = '{"s":[' + t + ',' + chunk.join(',') + ']}'; for (const ws of m.specs.keys()) sendTo(ws, all); }   // FUN: spectators get every mover
+  if (moved && m.specs.size) { let s = '{"s":[' + t; for (const p of moved) s += ',' + fmt(p); s += ']}'; for (const ws of m.specs.keys()) sendTo(ws, s); }   // FUN: spectators get every mover
 }
+const FAR_EVERY = 4, SNAP_BACKLOG = 32768;   // PERF4: far movers every 4th tick; stop snapshots to a client with more than 32 KB queued
+const NEAR = new Map();   // room key -> Set of the room and its door neighbours
+const nearOf = k => { let s = NEAR.get(k); if (s === undefined) { s = k == null ? null : new Set([k]); if (s) for (const e of ADJ[k] || []) s.add(e.to); NEAR.set(k, s); } return s; };
 // NET-END
 
 // BOTS-BEGIN (server bots that fill the match to 8 + hostile mystery-room enemies; see docs/reports/bots.md)
@@ -1502,10 +1532,14 @@ function botThink(m, p, now, dt) {
 }
 function botTick(m, now) {   // ~10 Hz per match
   if (m.phase !== 'play') return;
-  if (now - (m.botAt || 0) < 95) return;
-  const t0 = process.hrtime.bigint(), dt = Math.min(0.25, (now - (m.botAt || now - 100)) / 1000); m.botAt = now;
-  m.focus = focusOf(m);
-  for (const p of m.players.values()) if ((p.bot || p.npc) && !p.dead) botThink(m, p, now, dt);
+  // PERF4: every bot still thinks at 10 Hz, but odd and even bot ids on alternate ticks (and so do the matches, by their first tick), so a tick carries half of the bot work instead of all of it in every second tick (the old per-match gate made every match, and so every bot, fire on the same tick)
+  const t0 = process.hrtime.bigint(); m.focus = now - (m.focusAt || 0) >= 80 ? (m.focusAt = now, focusOf(m)) : m.focus;
+  for (const p of m.players.values()) if ((p.bot || p.npc) && !p.dead) {
+    if (p.btAt === undefined) p.btAt = now - (p.id & 1 ? 50 : 100);
+    if (now - p.btAt < 80) continue;
+    const dt = Math.min(0.25, (now - p.btAt) / 1000); p.btAt = now;
+    botThink(m, p, now, dt);
+  }
   BS.cur += Number(process.hrtime.bigint() - t0) / 1e6; BS.calls++;
 }
 // BOTS-END
@@ -2165,7 +2199,7 @@ wss.on('connection', (ws, req) => {
     tokens--;
     let d; try { d = JSON.parse(raw.toString()); } catch { return; }
     if (p.dead && d && typeof d.ping === 'number' && Number.isFinite(d.ping)) return sendTo(ws, { pong: d.ping, t: srvT() });
-    if (p.dead && d && d.botstat && process.env.GK_DEBUG) return sendTo(ws, { botstat: { n: BS.n, sum: BS.sum, max: BS.max, calls: BS.calls, bad: BS.bad, tick: TS, heap: process.memoryUsage().heapUsed, matches: matches.size, tokens: socTokens.size, ips: ipCount.size } });   // debug stats still answer a dead human (bots can kill the test client)
+    if (p.dead && d && d.botstat && process.env.GK_DEBUG) return sendTo(ws, { botstat: { n: BS.n, sum: BS.sum, max: BS.max, calls: BS.calls, bad: BS.bad, tick: TS, cpu: process.cpuUsage(), heap: process.memoryUsage().heapUsed, matches: matches.size, tokens: socTokens.size, ips: ipCount.size } });   // debug stats still answer a dead human (bots can kill the test client)
     if (d && d.bot5 && process.env.GK_DEBUG) { if (typeof d.bot5 === 'object') bot5Lab(m, d.bot5); return sendTo(ws, { bot5: bot5Stat(m) }); }   // BOTS5: per-match bot stats (tests, sim), also for a dead spectator; {bot5:{goal}} lab
     if (p.dead || !d || typeof d !== 'object' || Array.isArray(d)) return;
     const dbg = !!process.env.GK_DEBUG;
@@ -2183,7 +2217,7 @@ wss.on('connection', (ws, req) => {
     } else if (dbg && d.dbgElixir) { elixirDbg(m, p, d.dbgElixir);
     } else if (typeof d.recycle === 'string' && homeAt(m, p.room)) { const why = homeRecycle(m, p, d.recycle, d.refine === 1); if (why) sendTo(ws, { recycleFail: why });   // ELIXIR: the home recycler is owner-only and follows its upgrade
     } else if (typeof d.craft === 'string' && homeAt(m, p.room) && !HB.canUseStation(homeAt(m, p.room), p.id)) { sendTo(ws, { craftFail: 'owner' });
-    } else if (dbg && d.botstat) { sendTo(ws, { botstat: { n: BS.n, sum: BS.sum, max: BS.max, calls: BS.calls, bad: BS.bad, tick: TS, heap: process.memoryUsage().heapUsed, matches: matches.size, tokens: socTokens.size, ips: ipCount.size } });
+    } else if (dbg && d.botstat) { sendTo(ws, { botstat: { n: BS.n, sum: BS.sum, max: BS.max, calls: BS.calls, bad: BS.bad, tick: TS, cpu: process.cpuUsage(), heap: process.memoryUsage().heapUsed, matches: matches.size, tokens: socTokens.size, ips: ipCount.size } });
     } else if (d.dbgFF === 1) { dbgFF(m, now);   // DEV: skip to 0:10 (ignored without GK_DEBUG)
     } else if (dbg && d.boom === 1) { m.boom = true;   // test hook: this match's tick throws from now on (tests/robust.test.js)
     } else if (dbg && d.quit === 1) { process.exit(0);   // lets tests/tickbench.js flush a --cpu-prof profile

@@ -3983,7 +3983,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     }, onmessage: null };
     const ping = () => ws.readyState === 1 && ws.send(JSON.stringify({ ping: performance.now() }));
     setInterval(ping, 2000);   // NET: RTT and clock offset
-    const wire = w => { w.onopen = ping; w.onmessage = e => { let d; try { d = JSON.parse(e.data); } catch (err) { return; } if (d.busy) { busyRetry = true; toastMsg('Servers are full — retrying…', false, 3500); setTimeout(() => { busyRetry = false; lastM = ''; ws = new WebSocket(joinUrl()); wire(ws); }, 4000); return; } net.onmessage && net.onmessage(d); }; w.onclose = () => { if (w !== ws || busyRetry) return; onClose(); }; };   // SECURITY: {busy:1} = match cap reached, try again
+    const wire = w => { w.onopen = ping; w.onmessage = e => { NETC.rxB += e.data.length; NETC.rxM++; let d; try { d = JSON.parse(e.data); } catch (err) { return; } if (d.busy) { busyRetry = true; toastMsg('Servers are full — retrying…', false, 3500); setTimeout(() => { busyRetry = false; lastM = ''; ws = new WebSocket(joinUrl()); wire(ws); }, 4000); return; } net.onmessage && net.onmessage(d); }; w.onclose = () => { if (w !== ws || busyRetry) return; onClose(); }; };   // SECURITY: {busy:1} = match cap reached, try again
     GK.social.attach({ state: () => ws.readyState, drop: () => ws.close(), reopen: tk => { lastM = ''; ws = new WebSocket(tokUrl(tk)); wire(ws); } });   // SOCIAL: reconnect with the token
     const onClose = () => { if (GK.social.onClose()) return; const m = document.getElementById('me'); if (m) m.textContent = 'Disconnected - reload to rejoin'; /* FEEL-BEGIN */ if (GK.feel) GK.feel.onClose(); /* FEEL-END */ };
     wire(ws);
@@ -4223,11 +4223,12 @@ function dropGoblin(g) { // free GPU memory of a removed goblin (shared geometry
   g.traverse(o => { if (o.geometry) o.geometry.dispose(); [].concat(o.material || []).forEach(m => m.dispose()); });
 }
 // NET-BEGIN (client side of the netcode: snapshot interpolation with an adaptive delay, clock sync, ping readout, server corrections; see docs/reports/netcode.md)
-const NETC = { off: null, offPong: false, rtt: 0, delay: 100, jit: 0, lastArr: 0, lastT: 0, rt: 0, fix: null, el: null, txt: '' };
+const NETC = { off: null, offPong: false, rtt: 0, delay: 100, jit: 0, lastArr: 0, lastT: 0, rt: 0, fix: null, el: null, txt: '', lags: new Float64Array(96), lagTmp: new Float64Array(96), lagN: 0, target: 0, fixN: 0, fixT: [], hud: null, win: null, snapN: 0, rxB: 0, rxM: 0 };   // PERF4: lags = ring of how old each snapshot entry was on arrival, target = adaptive interpolation delay, the rest feeds GK.net.stats()
 const NS = { x: 0, z: 0, yaw: 0, y: 0 };   // scratch result of netSample (no per-frame allocation)
 const srvNow = () => performance.now() + (NETC.off || 0);   // estimate of the server clock in ms
 function netRenderT(dt) {   // the server time that remote goblins are drawn at: now minus the interpolation delay (never runs backwards)
-  NETC.delay += (clamp(66 + 2 * NETC.jit, 70, 150) - NETC.delay) * Math.min(1, dt * 2);
+  const tg = NETC.target || clamp(66 + 2 * NETC.jit, 70, 150);   // PERF4: the delay follows how late snapshots really are (90th percentile of their age on arrival), up fast, down slowly
+  NETC.delay += (tg - NETC.delay) * Math.min(1, dt * (tg > NETC.delay ? 6 : 1.5));
   const r = srvNow() - NETC.delay; NETC.rt = r > NETC.rt || NETC.rt - r > 500 ? r : NETC.rt; return NETC.rt;
 }
 function netPong(d) {   // {pong: my ping time, t: server time}
@@ -4238,17 +4239,29 @@ function netPong(d) {   // {pong: my ping time, t: server time}
 }
 function netHud() {   // small ping readout, bottom right: green below 80 ms, yellow below 150, red above (hidden offline and outside play mode)
   if (!NETC.el) { NETC.el = document.createElement('div'); NETC.el.style.cssText = 'position:fixed;right:10px;bottom:8px;z-index:5;padding:3px 7px;border-radius:6px;background:rgba(10,10,16,.55);font:600 11px/1 system-ui,sans-serif;pointer-events:none;text-shadow:0 1px 3px #000;display:none'; document.body.appendChild(NETC.el); }
-  const show = !window.GK_OFFLINE && NETC.offPong && GK.mode === 'play', r = Math.round(NETC.rtt), txt = 'Ping ' + r + ' ms';
+  const mode = NETC.hud == null ? (GK.dbg || /[?&](debug|net)=1/.test(location.search) || GK.settings.ping ? 1 : 0) : NETC.hud;   // PERF4: the ping readout is a debug / settings thing now (?debug=1, ?net=1, a GK_DEBUG server, GK.settings.ping, or GK.net.overlay(1|2)); 2 = the full overlay
+  const show = mode > 0 && !window.GK_OFFLINE && NETC.offPong && GK.mode === 'play', r = Math.round(NETC.rtt), txt = mode > 1 ? netLine() : 'Ping ' + r + ' ms';
   if (show !== (NETC.el.style.display === 'block')) NETC.el.style.display = show ? 'block' : 'none';
   if (txt !== NETC.txt) { NETC.txt = txt; NETC.el.textContent = txt; NETC.el.style.color = r < 80 ? '#7be08a' : r < 150 ? '#ffd75e' : '#ff6a5a'; }
 }
 setInterval(netHud, 500);
+// PERF4: GK.net.stats() = the numbers behind the picture of the other goblins; GK.net.overlay(0|1|2) hides the readout, shows the ping, or shows the full line (rtt, jitter, render delay, snapshots / s, KB/s, corrections in the last minute)
+function netStats() {
+  const now = performance.now(), W = NETC.win || (NETC.win = { t: now, b: 0, m: 0, s: 0, kbps: 0, mps: 0, sps: 0 });
+  if (now - W.t >= 1000) { const d = (now - W.t) / 1000; W.kbps = (NETC.rxB - W.b) / 1024 / d; W.mps = (NETC.rxM - W.m) / d; W.sps = (NETC.snapN - W.s) / d; W.t = now; W.b = NETC.rxB; W.m = NETC.rxM; W.s = NETC.snapN; }
+  while (NETC.fixT.length && now - NETC.fixT[0] > 60000) NETC.fixT.shift();
+  return { rtt: +NETC.rtt.toFixed(1), jitter: +NETC.jit.toFixed(1), delay: +NETC.delay.toFixed(0), target: +NETC.target.toFixed(0), clockOffset: NETC.off == null ? null : +NETC.off.toFixed(1), synced: NETC.offPong, kbps: +W.kbps.toFixed(2), msgsPerSec: +W.mps.toFixed(1), snapsPerSec: +W.sps.toFixed(1), fixes: NETC.fixN, fixesLastMin: NETC.fixT.length };
+}
+const netLine = () => { const s = netStats(); return 'ping ' + Math.round(s.rtt) + '  jit ' + Math.round(s.jitter) + '  dly ' + s.delay + '  ' + s.snapsPerSec + ' snap/s  ' + s.kbps + ' KB/s  fix ' + s.fixesLastMin; };
+function netOverlay(mode) { NETC.hud = mode == null ? ((NETC.hud || 0) + 1) % 3 : +mode; NETC.txt = ''; netHud(); return NETC.hud; }
 function netSnap(s) {   // {s:[t, id,x,z,yaw,speed,age, ...]}: buffer one entry per moved goblin, stamped with the server time its position was received
   const now = performance.now(), t = s[0];
   if (NETC.off == null) NETC.off = t - now;
   if (NETC.lastArr) NETC.jit += (Math.min(Math.abs(now - NETC.lastArr - (t - NETC.lastT)), 300) - NETC.jit) * 0.1;   // arrival jitter (RFC 3550 style)
   NETC.lastArr = now; NETC.lastT = t;
+  let minAge = 1e9;
   for (let i = 1; i + 5 < s.length; i += 6) {
+    if (s[i + 5] < minAge) minAge = s[i + 5];
     const a = actors.get(s[i]); if (!a || s[i] === me) continue;
     const et = t - s[i + 5], b = a.buf || (a.buf = []), l = b[b.length - 1];
     if (l && et <= l.t) continue;
@@ -4256,8 +4269,26 @@ function netSnap(s) {   // {s:[t, id,x,z,yaw,speed,age, ...]}: buffer one entry 
     b.push({ t: et, x: s[i + 1], z: s[i + 2], yaw: s[i + 3], v: s[i + 4] % 100, y: Math.floor(s[i + 4] / 100) / 100 });   // JUMP: the speed slot also carries the jump height in cm (v + 100 * cm)
     while (b.length > 3 && b[1].t < et - 1500) b.shift();
   }
+  NETC.snapN++;   // PERF4: one lag sample per message = how old its freshest entry was on arrival (a far-rooms entry rides along up to 150 ms late; a message with nothing fresh in it says nothing about the line)
+  if (NETC.offPong && minAge <= 90) { NETC.lags[NETC.lagN++ % 96] = now + NETC.off - (t - minAge); if (NETC.lagN >= 24) lagTarget(); }
 }
-function netSample(a, rt) {   // position of a remote goblin at server time rt: interpolate between the two snapshots around it, extrapolate at most 100 ms past the newest
+function lagTarget() {   // PERF4: render delay = 90th percentile of the recent entry ages, so the newest snapshot is nearly always already here (less extrapolation than 66 + 2 x jitter), and no longer than needed
+  const n = Math.min(96, NETC.lagN), t = NETC.lagTmp.subarray(0, n); t.set(NETC.lags.subarray(0, n)); t.sort();
+  NETC.target = clamp(t[Math.floor(n * 0.9)] + 16, 50, 220);
+}
+function netSample(a, rt) {   // PERF4: netSample0 plus a decaying offset: when the sampled position jumps (a stall ended, a burst of snapshots arrived) the picture keeps its place and slides over to the new one in ~0.3 s instead of popping; far jumps (teleports) still snap
+  const s = netSample0(a, rt); if (!s) return s;
+  const dtm = a.nlr != null ? Math.max(0, rt - a.nlr) : 16; a.nlr = rt;
+  if (a.nlx != null) {
+    const ox = a.nox || 0, oz = a.noz || 0, jx = s.x + ox - a.nlx, jz = s.z + oz - a.nlz, lim = 0.014 * dtm + 0.12;   // 14 m/s is faster than anyone runs
+    if (jx * jx + jz * jz > lim * lim && jx * jx + jz * jz < 36) { a.nox = a.nlx - s.x; a.noz = a.nlz - s.z; }   // keep the last drawn spot as the new offset
+    else if (jx * jx + jz * jz >= 36) { a.nox = 0; a.noz = 0; }
+    const k = Math.exp(-dtm * 0.0065), px = (a.nox || 0) * k, pz = (a.noz || 0) * k;   // decay: 6.5 per second
+    if (px * px + pz * pz < 1e-4) { a.nox = 0; a.noz = 0; } else { a.nox = px; a.noz = pz; s.x += px; s.z += pz; }
+  }
+  a.nlx = s.x; a.nlz = s.z; return s;
+}
+function netSample0(a, rt) {   // position of a remote goblin at server time rt: interpolate between the two snapshots around it, extrapolate at most 100 ms past the newest
   const b = a.buf, n = b ? b.length : 0; if (!n) return null;
   const L = b[n - 1];
   if (rt >= L.t) {
@@ -4278,6 +4309,7 @@ function netFixStep(a, dt) {   // the server refused a move ({fix:[x,z]}): blend
 // NET-END
 let netReal = null;
 const net = { send: m => netReal && !(GK.locked && (m.atk || m.claim || m.m || m.sel !== undefined)) && netReal.send(m) };   // MATCH: those are locked until GO
+net.stats = netStats; net.overlay = netOverlay;   // PERF4
 const actors = new Map();
 function npcLook(group, kind) {   // BOTS: hostile mystery enemy = normal goblin model with a type tint (no new geometry, no lights); materials are cloned so the shared ones stay untouched
   const tint = { troll: 0x6a8a5a, archer: 0x7a5a3a, speedy: 0xff7a3a, dumb: 0xb89a6a, regular: 0xd05a4a, rat: 0x8a7560 }[kind] || 0xd05a4a, c = new THREE.Color(tint);
@@ -4291,7 +4323,7 @@ const handleMsg0 = d => {
   if (d.s) return netSnap(d.s);   // NET: fast position snapshots (hot path)
   if (d.pong != null) return netPong(d);
   if (d.emote || d.token || d.resumed || d.resumeFail) SOC.onMsg(d);   // SOCIAL
-  if (d.fix) NETC.fix = d.fix;
+  if (d.fix) { NETC.fix = d.fix; NETC.fixN++; NETC.fixT.push(performance.now()); }   // PERF4: counted for GK.net.stats()
   /* FEEL-BEGIN */ if (GK.feel) GK.feel.onMsg(d); /* FEEL-END */
   if (window.GKACT5) GKACT5.pre(d);   // ACT5UI: breach by door -> by side, arc labels
   if (GK.r5) GK.r5.onMsg(d);   // ROOMS5ART: trees / vb / treasury / crown / breach fields and the match start / end
@@ -7666,7 +7698,7 @@ function frame(now) {
     run.dist += Math.hypot(P.x - ox, P.z - oz);
     P.speed += (Math.hypot(P.x - ox, P.z - oz) / dt - P.speed) * Math.min(1, dt * 12);
     mine.x = P.x; mine.z = P.z; mine.yaw = P.yaw; mine.speed = P.speed;
-    sendT += dt; if (sendT > 0.066) { sendT = 0; net.send({ m: [+P.x.toFixed(2), +P.z.toFixed(2), +P.yaw.toFixed(3), ...JUMP.tail()] }); }
+    sendT += dt; if (sendT > 0.05) { sendT = 0; net.send({ m: [+P.x.toFixed(2), +P.z.toFixed(2), +P.yaw.toFixed(3), ...JUMP.tail()] }); }
   }
   JUMP.step(dt, !!(mine && spawned && GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked));   // JUMP
   // doors
