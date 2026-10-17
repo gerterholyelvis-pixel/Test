@@ -2,7 +2,7 @@
 // window.GKAUDIO.play(name, opts)
 //   names: step, door, vaultDoor, panel, pickup, coins, buy, craft, recycle, invOpen, invClose, uiHover, uiClick, tick, tickLast,
 //          gong, eat, deny, hit, hurt, swing, death, victory, emoteTaunt, emoteLaugh, emotePoint, emoteDance
-//   family hooks: swing/hit take {fam: weapon family, armor: victim armour family}; step takes {surf: 'stone'|'vault'|'rug'|'metal', sprint}.
+//   family hooks: swing/hit take {fam: weapon family, armor: victim armour family}; step takes {surf: 'stone'|'vault'|'rug'|'metal'|'wood', sprint}.
 //          GKAUDIO.weaponClass(fam), armorClass(fam) and itemSound(item, action) map any item family (new families fall back sensibly).
 //          more names: chest, equip, drink, heartbeat, go
 //   opts:  x, z    world position (metres): the sound is panned and attenuated relative to the listener (see setListener)
@@ -134,6 +134,12 @@
         noise(out, t, 0.07, 0.22 * lvl, 'lowpass', 700 * p, 260, 0.6, { a: 0.004 });
         return;
       }
+      if (surf === 'wood') {   // CLIMB: a crate top: a hollow wooden knock
+        tone(out, 'sine', 180 * p, t, 0.08, 0.42 * lvl, { f1: 120 * p, a: 0.002 });
+        tone(out, 'triangle', 410 * p, t, 0.05, 0.1 * lvl, { f1: 330 * p, a: 0.001 });
+        noise(out, t, 0.05, 0.22 * lvl, 'bandpass', 1300 * p, 900, 2.2, { a: 0.001 });
+        return;
+      }
       if (surf === 'metal') {   // grates: a tiny ring over the thud
         tone(out, 'sine', 125 * p, t, 0.09, 0.45 * lvl, { f1: 60 * p, a: 0.002 });
         noise(out, t, 0.05, 0.3 * lvl, 'lowpass', 1800 * p, 500, 0.7, { a: 0.002 });
@@ -151,9 +157,10 @@
       tone(out, 'sine', 340, t + 0.004, 0.07, 0.1, { f1: 520, a: 0.008 });
       noise(out, t, 0.07, 0.15, 'bandpass', 1200, 1900, 1.2, { a: 0.006 });
     },
-    thud(out, t) {   // landing: a soft low thud and a scuff
+    thud(out, t, o) {   // landing: a soft low thud and a scuff (CLIMB: plus a hollow knock on a crate top)
       tone(out, 'sine', 105, t, 0.14, 0.38, { f1: 48, a: 0.002 });
       noise(out, t, 0.06, 0.2, 'lowpass', 900, 300, 0.7, { a: 0.002 });
+      if (o && o.surf === 'wood') { tone(out, 'sine', 165, t, 0.12, 0.3, { f1: 110, a: 0.002 }); noise(out, t, 0.06, 0.16, 'bandpass', 1100, 800, 2, { a: 0.001 }); }
     },
     // JUMP-END
     door(out, t) {   // sliding door between rooms: servo whine, air hiss, clunk

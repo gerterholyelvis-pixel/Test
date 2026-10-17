@@ -465,7 +465,7 @@ function guardTick(m, now) {
   for (const [ws, p] of m.players) {
     if (p.npc || !p.entered || p.dead) continue;
     { const k = parentCell(p.room); (occ.get(k) || occ.set(k, []).get(k)).push([ws, p]); }   // 5x5: a goblin at home occupies the arena cell outside (the hatch is always open, the cell must have an exit)
-    if (WORLD.inProp(p.x, p.z, 0.2, m.layout, true)) {   // stuck-recovery push-out
+    if (WORLD.inProp(p.x, p.z, 0.2, m.layout, true, p.y || 0)) {   // stuck-recovery push-out (CLIMB: standing on a crate top is not stuck)
       if (!p.stuckAt) p.stuckAt = now;
       else if (now - p.stuckAt >= GUARD.STUCK_MS) { const s = GUARD.freeSpot(p.x, p.z, (x, z) => roomFree(m, p.room, x, z)); p.stuckAt = 0; if (s) { place(p, s[0], s[1]); sendTo(ws, { fix: [r2(s[0]), r2(s[1])] }); m.dirty = true; } }
     } else p.stuckAt = 0;
@@ -511,15 +511,15 @@ function attack(m, ws, p, now, rt) {   // {atk:1, rt}: rate limit by weapon, nea
   for (const [tws, t] of m.players) {
     if (t === p || t.dead || !t.entered) continue;
     const [tx, tz] = at < T ? posAt(t, at) : [t.x, t.z]; if (roomKeyOf(tx, tz) !== p.room) continue;
-    const dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz);
-    if (d > reach + (t.npc ? 0 : G.hitRadius(t.goblin) - G.HIT_R)) continue;   // GOBTYPES: bigger goblins are easier to reach
+    const dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz), dy = Math.max(0, Math.abs((t.y || 0) - (p.y || 0)) - CLIMB_REACH_Y);   // CLIMB: reach is 3D, but a body is tall: only a height gap beyond 0.8 m counts
+    if (Math.hypot(d, dy) > reach + (t.npc ? 0 : G.hitRadius(t.goblin) - G.HIT_R)) continue;   // GOBTYPES: bigger goblins are easier to reach
     if (d > 2.5 && inSmoke(m, t, now)) continue;   // UTILITY: nobody shoots into a smoke cloud from beyond melee range
     if (d > 0.05 && (dx * fx + dz * fz) / d < Math.cos(C.cone)) continue;
-    if (d > 0.9 && WORLD.segBlocked(p.x, p.z, tx, tz, m.layout)) continue;   // SOLID: no swinging through a crate or barrel
+    if (d > 0.9 && WORLD.segBlocked(p.x, p.z, tx, tz, m.layout, 0, (p.y || 0) + CHEST_Y, (t.y || 0) + CHEST_Y)) continue;   // SOLID: no swinging through a crate or barrel (CLIMB: over a low top is fine)
     if (d < bd) { bd = d; best = [tws, t]; }
   }
   if (!best) return;
-  const [tws, t] = best, hp0 = t.stats.health; hitTarget(m, ws, p, tws, t, cb.dmg, now, undefined, { melee: !cb.ranged });   // thorns and the scout's dodge only apply to melee
+  const [tws, t] = best, hp0 = t.stats.health, hg = highGround(p, t); hitTarget(m, ws, p, tws, t, hg ? Math.round(cb.dmg * CLIMB_HG) : cb.dmg, now, undefined, { melee: !cb.ranged, hg });   // CLIMB: +10% from high ground   // thorns and the scout's dodge only apply to melee
   if (cb.bleed && t.stats.health > 0 && t.stats.health < hp0) t.bleed = { by: p, dmg: cb.bleed[0], left: cb.bleed[1], next: now + BLEED_MS, w: p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon] ? G.ITEMS[p.inv.weapon].name : '' };   // WEAPONS3: whips and tridents leave a bleed
 }
 // COMBAT-END
@@ -556,7 +556,7 @@ function hitTarget(m, ws, p, tws, t, dmg, now, wname, opts) {   // damage, hit b
   if (hp <= 0 && !t.npc && !t.swUsed && G.hasPerk(t.perks, 'secondwind')) { hp = 1; t.swUsed = true; sendTo(t.ws, { secondWind: 1 }); }   // KNOWLEDGE: Second Wind
   t.stats.health = hp; t.hurtAt = now; t.hitBy = p.id; m.dirty = true;   // hitBy: a bot notices whoever hurt it at once
   A5.hurt(m, t, p);   // ACT5: a hit breaks channels and drops carried sacks / buckets
-  bcast(m, { hit: { from: p.id, to: t.id, dmg, hp, max: t.stats.maxHealth, dead: hp <= 0, ...(opts && opts.bleed ? { bleed: 1 } : null) } });
+  bcast(m, { hit: { from: p.id, to: t.id, dmg, hp, max: t.stats.maxHealth, dead: hp <= 0, ...(opts && opts.bleed ? { bleed: 1 } : null), ...(opts && opts.hg ? { hg: 1 } : null) } });
   const th = opts && opts.melee && hp > 0 && !p.dead ? G.armorThorns(t.inv && t.inv.armor) + A5.reflect(m, t, dmg) : 0;   /* ACT5: + the Thorns blessing */   // ARMOUR-3: thorns hurt a melee attacker (never lethal, so no kill bookkeeping is needed)
   if (th && p.stats.health > 1) { const ph = Math.max(1, p.stats.health - th); p.stats.health = ph; p.hurtAt = now; bcast(m, { hit: { from: t.id, to: p.id, dmg: th, hp: ph, max: p.stats.maxHealth, dead: false, thorns: 1 } }); }
   if (hp <= 0) { p.kills = (p.kills || 0) + 1; const bounty = paceBounty(p, t); t.killedBy = p.id; { const kw = p.npc ? null : p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; t.killer = { name: p.name || 'Goblin', npc: !!p.npc, w: wname || (kw ? kw.name : (p.npc ? '' : 'Fists')) }; } sendTo(ws, { kills: p.kills, ...(bounty ? { bounty } : null) }); sendFeed(m, p, t); die(tws, t); }
@@ -564,8 +564,8 @@ function hitTarget(m, ws, p, tws, t, dmg, now, wname, opts) {   // damage, hit b
 function boltWeapon(p) { const w = p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; if (w && G.combat(p.inv.weapon).bolt) return true; if (!rule('staffbolt')) return false; return !!w && (w.family === 'staff' || w.family === 'scepter'); }
 function fireBolt(m, p, now, dmg) {   // staffbolt: a slow projectile straight ahead, 12 m range, never leaves the room it was fired in
   m.bolts = m.bolts || []; m.boltN = (m.boltN || 0) + 1;
-  const b = { id: m.boltN, by: p, x: p.x, z: p.z, vx: -Math.sin(p.yaw) * BOLT.speed, vz: -Math.cos(p.yaw) * BOLT.speed, dist: 0, room: p.room, t: now, dmg: Math.round((dmg || BOLT.dmg) * dmgMul(p, now)) };
-  m.bolts.push(b); bcast(m, { bolt: { id: b.id, by: p.id, x: +p.x.toFixed(2), z: +p.z.toFixed(2), vx: +b.vx.toFixed(2), vz: +b.vz.toFixed(2), range: BOLT.range } });
+  const b = { id: m.boltN, by: p, x: p.x, z: p.z, vx: -Math.sin(p.yaw) * BOLT.speed, vz: -Math.cos(p.yaw) * BOLT.speed, dist: 0, room: p.room, t: now, dmg: Math.round((dmg || BOLT.dmg) * dmgMul(p, now)), y: (p.y || 0) + CHEST_Y, grd: !p.cAir };   // CLIMB: flies level at the shooter's chest height
+  m.bolts.push(b); bcast(m, { bolt: { id: b.id, by: p.id, x: +p.x.toFixed(2), z: +p.z.toFixed(2), vx: +b.vx.toFixed(2), vz: +b.vz.toFixed(2), range: BOLT.range, y: r2(b.y) } });
 }
 function boltTick(m, now) {
   if (!m.bolts || !m.bolts.length) return;
@@ -573,10 +573,10 @@ function boltTick(m, now) {
   m.bolts = m.bolts.filter(b => {
     b.x += b.vx * dt; b.z += b.vz * dt; b.dist += BOLT.speed * dt;
     let hit = null;
-    for (const [tws, t] of m.players) { if (t === b.by || t.dead || !t.entered || t.room !== b.room) continue; if (Math.hypot(t.x - b.x, t.z - b.z) < BOLT.radius + (t.npc ? 0 : G.hitRadius(t.goblin) - G.HIT_R) && !(Math.hypot(t.x - b.by.x, t.z - b.by.z) > 2.5 && inSmoke(m, t, now))) { hit = [tws, t]; break; } }
-    if (hit && WORLD.segBlocked(b.x - b.vx * dt, b.z - b.vz * dt, hit[1].x, hit[1].z, m.layout)) hit = null;   // SOLID: a prop between the bolt and the goblin shields him
-    if (hit) { hitTarget(m, b.by.ws, b.by, hit[0], hit[1], b.dmg || BOLT.dmg, now); bcast(m, { boltEnd: { id: b.id, hit: 1 } }); return false; }
-    if (WORLD.inProp(b.x, b.z, 0.08, m.layout)) { bcast(m, { boltEnd: { id: b.id } }); return false; }   // SOLID: the bolt dies on a crate, barrel or urn
+    for (const [tws, t] of m.players) { if (t === b.by || t.dead || !t.entered || t.room !== b.room) continue; if (Math.abs(b.y - (t.y || 0) - 0.7) > 1.1) continue; /* CLIMB: the bolt passes over / under him */ if (Math.hypot(t.x - b.x, t.z - b.z) < BOLT.radius + (t.npc ? 0 : G.hitRadius(t.goblin) - G.HIT_R) && !(Math.hypot(t.x - b.by.x, t.z - b.by.z) > 2.5 && inSmoke(m, t, now))) { hit = [tws, t]; break; } }
+    if (hit && WORLD.segBlocked(b.x - b.vx * dt, b.z - b.vz * dt, hit[1].x, hit[1].z, m.layout, 0, b.y, b.y)) hit = null;   // SOLID: a prop between the bolt and the goblin shields him (CLIMB: unless the bolt flies over its top)
+    if (hit) { const hg = b.grd && b.y - CHEST_Y - (hit[1].y || 0) >= 0.5; hitTarget(m, b.by.ws, b.by, hit[0], hit[1], hg ? Math.round((b.dmg || BOLT.dmg) * CLIMB_HG) : b.dmg || BOLT.dmg, now, undefined, hg ? { hg } : undefined); bcast(m, { boltEnd: { id: b.id, hit: 1 } }); return false; }
+    if (WORLD.inProp(b.x, b.z, 0.08, m.layout, false, b.y - 0.12 - CL.STEP)) { bcast(m, { boltEnd: { id: b.id } }); return false; }   // SOLID: the bolt dies on a crate, barrel or urn (CLIMB: unless it passes 0.12 m over a climbable top, the segBlocked rule)
     if (b.dist >= BOLT.range || roomKeyOf(b.x, b.z) !== b.room) { bcast(m, { boltEnd: { id: b.id } }); return false; }
     return true;
   });
@@ -659,9 +659,32 @@ function win(ws, p) { // everything carried goes home with the winner, nothing i
   sendTo(ws, { won: { items, gold: p.gold, parts: p.parts, ctoken: makeToken({ c: p.charId, g: p.goblin, w: Math.min(9999, p.wins + 1), n: p.name }) } });   // SECURITY: signed character token
 }
 
-// JUMP-BEGIN (server side: the jump is cosmetic; movement, walls and attack ranges stay 2D)
-const JUMP_MAX_CM = 100;   // the client arc peaks at 90 cm; anything above is clamped
-const jumpV = p => r1(p.spd || 0) + 100 * (p.jy | 0);   // snapshot speed slot carries the jump: v = speed + 100 * cm (speed is always < 100)
+// JUMP-BEGIN (server side) / CLIMB: the 4th element of {m} is the feet height in cm (jump arc, crate tops, the dais). It is validated here like x / z (docs/reports/climb.md).
+const CL = WORLD.CLIMB, Y_TOL = 0.06, SUP_SRV = CL.SUP + 0.08;   // the server's support circle is a little wider (positions arrive rounded to cm)
+const jumpV = p => r1(p.spd || 0) + 100 * (p.jy | 0);   // snapshot speed slot carries the height: v = speed + 100 * cm (speed is always < 100)
+// the feet height a legal client may report at (x, z) now. p.cAir = when he left the ground (0 = grounded), p.cGy = the surface he stands on / jumped from, p.cFell = he is falling.
+// Rules: never below the surface under him (raised to it), never above launch + APEX (no flying, no climbing tall things: only climbable tops support), no rising again once falling
+// (no hovering, no double jump), back on the ground after AIRMAX s, and a top more than a step above where he stood is only reached through the air (no teleport up).
+function climbY(m, p, x, z, yc, now) {
+  let y = Number.isFinite(yc) && yc > 0 ? Math.min(CL.MAXY, yc) : 0;
+  const gs = WORLD.groundY(x, z, m.layout, y, SUP_SRV), gy0 = p.cGy || 0, py = p.y || 0, st = { cAir: p.cAir || 0, cGy: gy0, cFell: !!p.cFell, bad: false };
+  if (y <= gs + Y_TOL && !(st.cAir && y > py + 0.01 && y < gs - Y_TOL)) {   // on the ground (or below the surface: raised to it; not while still rising past a top)
+    if (gs > gy0 + CL.STEP + Y_TOL && !st.cAir && gs > py + CL.STEP + Y_TOL) { const g2 = WORLD.groundY(x, z, m.layout, py, SUP_SRV); st.bad = true; y = g2; st.cGy = g2; }   // stepped onto a high top without jumping
+    else { y = gs; st.cGy = gs; }
+    st.cAir = 0; st.cFell = false; return [y, st];
+  }
+  if (!st.cAir) st.cAir = now;
+  const cap = gy0 + CL.APEX + 0.12;
+  if (y > cap) { y = cap; st.bad = true; }
+  if (st.cFell && y > py + 0.03) { y = py; st.bad = true; }   // rising again in mid air
+  if (y < py - 0.02) st.cFell = true;
+  if (now - st.cAir > CL.AIRMAX * 1000) { y = gs; st.cAir = 0; st.cFell = false; st.cGy = gs; st.bad = true; }   // hovering: put him down
+  return [y, st];
+}
+// hits in 3D: melee reach ignores the first 0.8 m of height difference (a goblin on a crate is always reachable from its foot), bolts fly at chest height.
+// High ground: standing (not jumping) at least 0.5 m above the target gives +10% damage, melee and ranged; the hit message says hg:1. Small, readable, and the crates are open to everyone.
+const CLIMB_REACH_Y = 0.8, CLIMB_HG = 1.1, CHEST_Y = 0.9;
+const highGround = (p, t) => !p.cAir && (p.y || 0) - (t.y || 0) >= 0.5;
 // JUMP-END
 // NET-BEGIN (movement validation, 20 Hz snapshots, position history for lag compensation; see docs/reports/netcode.md)
 const T0 = Date.now(), srvT = () => Date.now() - T0;   // server clock in ms, sent with every snapshot and pong
@@ -676,13 +699,14 @@ function inBounds(x, z) {   // inside a room of the grid, or inside one of the 1
   const id = WORLD.attachedAt(x, z, SLACK);
   return id >= 0 && 'c' + id === roomKeyOf(x, z);
 }
-function pathOk(m, x0, z0, x1, z1, who) {   // walk the segment in 0.2 m steps: every room change must go through an OPEN door, inside its opening
+function pathOk(m, x0, z0, x1, z1, who, fy) {   // walk the segment in 0.2 m steps: every room change must go through an OPEN door, inside its opening. CLIMB: fy = the highest feet height on the segment (crate tops below it are walkable)
   if (who) who.lockDeny = false;   // ELIXIR: set again by homeGate when a Door Lock refuses this step
-  const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 0.2)); let prev = roomKeyOf(x0, z0); const inside0 = WORLD.inProp(x0, z0, PROP_R, m.layout, true);
+  const yy = fy == null ? undefined : fy + 0.1;   // CLIMB: 10 cm of tolerance
+  const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 0.2)); let prev = roomKeyOf(x0, z0); const inside0 = WORLD.inProp(x0, z0, PROP_R, m.layout, true, yy);
   for (let i = 1; i <= n; i++) {
     const x = x0 + (x1 - x0) * i / n, z = z0 + (z1 - z0) * i / n;
     if (!inBounds(x, z)) return false;
-    if (!inside0 && WORLD.inProp(x, z, PROP_R, m.layout, true)) return false;   // SOLID: crates, barrels, urns, pedestal, vault pillars (the client keeps 0.45, the server accepts 0.33)
+    if (!inside0 && WORLD.inProp(x, z, PROP_R, m.layout, true, yy)) return false;   // SOLID: crates, barrels, urns, pedestal, vault pillars (the client keeps 0.45, the server accepts 0.33)
     const k = roomKeyOf(x, z); if (k === prev) continue;
     const d = DOOR_AT[prev + '|' + k];
     if (!d || !isOpen(m, d.id) || Math.abs((d.axis === 'x' ? x : z) - d.c) > d.hw) return false;
@@ -692,7 +716,7 @@ function pathOk(m, x0, z0, x1, z1, who) {   // walk the segment in 0.2 m steps: 
   return true;
 }
 function place(p, x, z) {   // hard set (spawn, debug teleport): resets speed budget and history
-  const prev = p.room; p.x = x; p.z = z; p.box = boxOf(x, z); p.room = roomKeyOf(x, z); p.spd = 0; p.fixAt = 0; p.budget = BUDGET; p.mvAt = Date.now(); p.mvT = srvT(); p.hist = [[p.mvT, x, z]]; p.sd = true;
+  const prev = p.room; p.x = x; p.z = z; p.box = boxOf(x, z); p.room = roomKeyOf(x, z); p.spd = 0; p.fixAt = 0; p.budget = BUDGET; p.mvAt = Date.now(); p.mvT = srvT(); p.hist = [[p.mvT, x, z]]; p.sd = true; p.y = 0; p.jy = 0; p.cAir = 0; p.cGy = 0; p.cFell = false;   // CLIMB: on the floor (a dais or a step raises him with the next move)
   if (p.room !== prev) p.roomAt = p.mvAt;   // BOTS: when he arrived in this room (bots take a moment to notice newcomers)
 }
 function applyMove(m, ws, p, x, z, yaw, now, jy) {   // {m:[x,z,yaw]}: accept, or keep the old position and answer {fix:[x,z]}
@@ -701,13 +725,15 @@ function applyMove(m, ws, p, x, z, yaw, now, jy) {   // {m:[x,z,yaw]}: accept, o
   const hv = !!(p.carry && p.carry.heavy);   // ACT5: a carried coin sack: 70% of the walk (x1.3 for jitter), no sprint, and a small slack so the limit holds over time (the normal 0.3 m slack would allow 9 m/s at 15 messages a second)
   p.budget = Math.min(hv ? 0.8 : BUDGET, (p.budget == null ? BUDGET : p.budget) + dt * (hv ? Math.min(MAXV, walkOf(p) * 0.7 * 1.3) : MAXV) * (now < (p.tonicUntil || 0) + 500 ? G.ITEMS['x:tonic'].n : 1) * (G.charmEff(p.inv.charm, 'spd') || 1));   // UTILITY: a speed tonic raises the movement allowance
   const dist = Math.hypot(x - p.x, z - p.z);
-  if (dist > 0.0005 && (dist > p.budget + (hv ? 0.08 : MOVE_SLACK) || !pathOk(m, p.x, p.z, x, z, p))) {
+  const [cy, cst] = climbY(m, p, x, z, jy == null ? 0 : jy / 100, now);   // CLIMB: validated feet height (m)
+  if (dist > 0.0005 && (dist > p.budget + (hv ? 0.08 : MOVE_SLACK) || !pathOk(m, p.x, p.z, x, z, p, Math.max(p.y || 0, cy)))) {
     if (now - (p.fixAt || 0) > 150) { p.fixAt = now; sendTo(ws, { fix: [r2(p.x), r2(p.z)] }); if (!p.lockDeny && secFix(p, ws, now)) return false; }   // ELIXIR: a Door Lock refusal is not a speed-hack correction
     if (yaw !== p.yaw) { p.yaw = yaw; p.sd = true; }
     return false;
   }
   p.budget = Math.max(0, p.budget - dist);
-  { const j = jy > 0 ? Math.min(JUMP_MAX_CM, Math.round(jy)) : 0; if (j !== (p.jy | 0)) { p.jy = j; p.sd = true; } }   // JUMP: cosmetic height in cm, never used for collision or hits
+  { p.y = cy; p.cAir = cst.cAir; p.cGy = cst.cGy; p.cFell = cst.cFell; const j = Math.round(cy * 100); if (j !== (p.jy | 0)) { p.jy = j; p.sd = true; }   // CLIMB: the accepted height (snapshots carry it in cm)
+    if (cst.bad && ws && now - (p.yFixAt || 0) > 150) { p.yFixAt = now; sendTo(ws, { fix: [r2(x), r2(z), r2(cy)] }); } }   // a refused height: tell him where his feet are (not counted as a speed correction)
   const t = srvT(), v = dist < 0.004 ? 0 : Math.min(12, dist / Math.max(dt, 0.04));
   const spd = v === 0 ? 0 : p.spd ? p.spd * 0.6 + v * 0.4 : v;
   if (dist > 0.0005 || yaw !== p.yaw || r1(spd) !== r1(p.spd || 0)) p.sd = true;
@@ -900,8 +926,54 @@ function mv(m, p, x, z, yaw, now) {   // the one place a brain moves: applyMove 
     // bounce off it 4 times in a row: the server refused the move, tests/bots.test.js counted 7-59 refused moves). Shorten such a step (halve up to 3 times) until the chord is clear.
     for (let k = 0; k < 3 && Math.hypot(x - p.x, z - p.z) > 0.15 && [0.25, 0.5, 0.75].some(f => WORLD.inProp(p.x + (x - p.x) * f, p.z + (z - p.z) * f, PROP_R, m.layout, true)) && !pathOk(m, p.x, p.z, x, z); k++) { x = p.x + (x - p.x) / 2; z = p.z + (z - p.z) / 2; }
   }
-  return applyMove(m, null, p, x, z, yaw, now, jy);
+  return applyMove(m, null, p, x, z, yaw, now, jy + Math.round(WORLD.groundY(x, z, m.layout, 0) * 100));   // CLIMB: bots walk on the floor / dais (perches: climbBot)
 }
+// CLIMB-BEGIN (bots: a crate top is optional high ground. An idle bot now and then hops onto a climbable top near it, looks around for a few seconds and hops off; a target, a hit or a refused move ends it at once.
+// Otherwise bots keep walking around every prop (mv slides in 2D), so they never end up on a top by accident.)
+const PERCH_MS = DBG && +process.env.GK_BOT_PERCH_MS > 0 ? +process.env.GK_BOT_PERCH_MS : 0;   // GK_DEBUG only: perch soon and often (tests)
+const tLand = h => (CL.V0 + Math.sqrt(Math.max(0, CL.V0 * CL.V0 - 2 * CL.G * h))) / CL.G;   // jump from the floor, land on a top of height h
+function climbIdle(m, p, now) {   // botThink, idle: maybe start a perch; true when one started
+  const b = p.brain; if (!b.perchAt) b.perchAt = now + (PERCH_MS || rnd(20000, 45000));
+  if (now < b.perchAt || p.carry) return false;
+  b.perchAt = now + (PERCH_MS || rnd(25000, 60000));
+  let best = null, bd = 6;
+  for (const pr of WORLD.propsAt(p.x, p.z, m.layout)) {
+    if (!pr.climb || pr.h < 0.45 || pr.h > 1.05) continue;
+    const d = Math.hypot(pr.x - p.x, pr.z - p.z), ux = (p.x - pr.x) / (d || 1), uz = (p.z - pr.z) / (d || 1), lx = pr.x + ux * (pr.r + 0.75), lz = pr.z + uz * (pr.r + 0.75);
+    if (d < bd && roomKeyOf(lx, lz) === p.room && inBounds(lx, lz) && !WORLD.inProp(lx, lz, 0.5, m.layout, true) && pathOk(m, lx, lz, pr.x, pr.z, null, pr.h)) { bd = d; best = { pr, lx, lz }; }
+  }
+  if (!best) return false;
+  b.perch = { ...best, ph: 'go', t0: now, room: p.room }; return true;
+}
+function climbBot(m, p, now, dt) {   // botThink, every tick while perching; false = the perch is over and the normal brain runs
+  const b = p.brain, P = b.perch, pr = P.pr, t = (now - P.t0) / 1000, yaw = yawTo(p, pr.x, pr.z);
+  const end = () => { b.perch = null; return false; };
+  if (p.room !== P.room || p.dead) return end();
+  if (P.ph === 'go') {
+    if (t > 5 || (b.tgt && !b.tgt.dead)) return end();
+    if (Math.hypot(p.x - P.lx, p.z - P.lz) > 0.3) { stepTo(m, p, P.lx, P.lz, dt, now); return true; }
+    P.ph = 'up'; P.t0 = now; P.sx = p.x; P.sz = p.z; P.T = tLand(pr.h); return true;
+  }
+  if (P.ph === 'up') {   // the same arc as a human jump: V0, G; the feet land on the top after P.T
+    const f = Math.min(1, t / (P.T * 0.8)), x = P.sx + (pr.x - P.sx) * f * 0.92, z = P.sz + (pr.z - P.sz) * f * 0.92, y = t >= P.T ? pr.h : Math.max(0, CL.V0 * t - 0.5 * CL.G * t * t);
+    if (!applyMove(m, null, p, x, z, yaw, now, Math.round(y * 100))) return end();
+    if (t >= P.T) { P.ph = 'stand'; P.t0 = now; P.until = now + rnd(3000, 7000); P.yaw = p.yaw; P.dir = Math.random() < 0.5 ? -1 : 1; }
+    return true;
+  }
+  if (P.ph === 'stand') {   // look around from up there; leave when something happens
+    if (now >= P.until || (b.tgt && !b.tgt.dead) || now - (p.hurtAt || 0) < 600) { P.ph = 'off'; P.t0 = now; P.sx = p.x; P.sz = p.z; return true; }
+    P.yaw += P.dir * 0.8 * dt; if (Math.random() < 0.01) P.dir = -P.dir;
+    applyMove(m, null, p, p.x, p.z, P.yaw, now, Math.round(pr.h * 100)); return true;
+  }
+  // 'off': walk out toward the launch spot at 3.2 m/s; free fall from the top once past the rim
+  const L = Math.hypot(P.lx - P.sx, P.lz - P.sz) || 1, s = Math.min(1, 3.2 * t / L), x = P.sx + (P.lx - P.sx) * s, z = P.sz + (P.lz - P.sz) * s;
+  if (P.tOff == null && Math.hypot(x - pr.x, z - pr.z) >= pr.r + CL.SUP) P.tOff = t;
+  const tf = P.tOff == null ? 0 : t - P.tOff, y = Math.max(WORLD.groundY(x, z, m.layout, 0), pr.h - 0.5 * CL.G * tf * tf);
+  if (!applyMove(m, null, p, x, z, p.yaw, now, Math.round(y * 100))) return end();
+  if (s >= 1 && y <= 0.2) return end();
+  return true;
+}
+// CLIMB-END
 function startJump(p, now) { const b = p.brain; if (b.jump || now < b.jumpAt) return; b.jump = { t0: now, dur: rnd(480, 620), h: rnd(55, 90) }; b.jumpAt = now + rnd(30000, 60000); }   // at most 1-2 a minute
 function inView(p, q) {   // 2.5 m all round, or inside the 150 degree cone in front of the yaw within 12 m
   const dx = q.x - p.x, dz = q.z - p.z, d = Math.hypot(dx, dz);
@@ -1404,6 +1476,7 @@ function botThink(m, p, now, dt) {
     if (b.chkAt !== p.roomAt) { b.chkAt = p.roomAt; b.reactAt = 0; b.entering = true; }
   }
   if (bot) botHeal(m, p, now);   // NAV: healing consumables by stat
+  if (b.perch && climbBot(m, p, now, dt)) return;   // CLIMB: perched on a crate top
   if (now < b.pauseUntil) { if (b.jump) mv(m, p, p.x, p.z, p.yaw, now); return; }
   { const lu = lureFor(m, p, now); if (lu) { b.route = []; b.tgt = null; b.mode = ''; const [lx, lz] = clampIn(p.room, lu.x, lu.z, 0.5); if (Math.hypot(lx - p.x, lz - p.z) > 0.9) stepTo(m, p, lx, lz, dt, now); return; } }   // LOOT: a thrown plushie distracts
   if (b.turnTo && now >= b.blindUntil) {   // AI: turn toward whoever hit us from outside the view
@@ -1456,6 +1529,7 @@ function botThink(m, p, now, dt) {
   if (looting && lootNearby(m, p, dt, now)) { b.lootAt = now; return; }
   if (relicGoal(m, p, dt, now)) { b.lootAt = now; return; }   // LOOT
   if (looting) { const dn = b.done[p.room]; roomGoals(m, p); if (!dn && b.done[p.room]) b.lootAt = now; }
+  if (bot && climbIdle(m, p, now)) return;   // CLIMB: sometimes take the high ground
   if (now >= b.idleUntil) pickDest(m, p, now); else idleLook(m, p, now);
 }
 function botTick(m, now) {   // ~10 Hz per match
