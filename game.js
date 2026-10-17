@@ -8247,7 +8247,20 @@ function mqCountdown(c) {   // {at: server ms of GO, now: server ms when sent} -
   const itemsAudioHas = n => !!(window.GKAUDIO && GKAUDIO.names ? GKAUDIO.names.includes(n) : false);
   MQ.timer = setInterval(step, 50); step();
 }
+// MUTATORS-BEGIN (mutators.js): the match's mutator is announced at GO with a banner and stays as a small line under the round timer; Fog thickens the main scene.
+let mutEl = null;
+function mutShow(u) {
+  if (!u) return;
+  if (!mutEl) { mutEl = document.createElement('div'); mutEl.id = 'gkMut'; mutEl.style.cssText = 'position:fixed;left:50%;top:58px;transform:translateX(-50%);font:600 12px system-ui,sans-serif;color:#ffd76a;letter-spacing:.06em;text-shadow:0 1px 3px #000;pointer-events:none;z-index:20;text-align:center'; document.body.appendChild(mutEl); }
+  mutEl.textContent = u.name + (u.note ? ' · ' + u.note : ''); mutEl.title = u.text || '';
+  toastMsg(u.note || (u.name + ': ' + u.text), true, u.note ? 3000 : 4500);
+  try { scene.fog = u.id === 'fog' ? new THREE.FogExp2(0x0a0910, 0.045) : null; } catch (e) {}
+}
+// MUTATORS-END
 GK.matchOnMsg = d => {   // called by handleMsg after it has processed a message
+  if (d.matchStart && mutEl) { mutEl.textContent = ''; try { scene.fog = null; } catch (e) {} }
+  if (d.mut) mutShow(d.mut);
+  if (d.mutPaid) toastMsg('Bounty paid: +' + d.mutPaid + ' gold', true, 3000);
   if (d.unverified) toastMsg('Character could not be verified — playing as a new goblin.', false, 6000);   // SECURITY
   if (d.queue) { mqResolve(d.goblin); if (GK.menu && GK.menu.queue) GK.menu.queue(d.queue.n, d.queue.size, d.queue.since); }
   if (d.matchStart) { mqResolve(((d.matchStart.players || []).find(p => p.id === d.matchStart.you) || {}).goblin); mqBegin(false); }
