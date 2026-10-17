@@ -104,7 +104,7 @@
   // The art authored its home walls at +-4.98 m; the real wall faces are at HS / 2 - T / 2 = 4.7, so the art group is scaled by HOME_K in x and z (game.js) and every art number below is multiplied by it here.
   const HOME_K = (HS - T) / (HS - 0.04);
   const HOME_LAYOUT = { bench: [-2.6 * HOME_K, -4.3 * HOME_K, 0], recycler: [0.95 * HOME_K, -4.0 * HOME_K, 0], crate: [-3.85 * HOME_K, 3.0 * HOME_K],
-    pump: [HS / 2 - T / 2 - 0.9, -1.6], screen: [-(HS / 2 - T / 2) + 0.55, -1.6], box: [-(HS / 2 - T / 2) + 0.6, 0.3], sentry: [HS / 2 - T / 2 - 0.7, 1.6] };   // ELIXIR: pump, Elixir Screen, lockbox, sentry mount anchors (interaction points; TODO align with the art props in rooms5art-home.js)
+    pump: [4.25 * HOME_K, -1.9 * HOME_K], screen: [4.8 * HOME_K, 0.6 * HOME_K], box: [4.2 * HOME_K, 3.5 * HOME_K], sentry: [-0.7 * HOME_K, -4.75 * HOME_K] };   // ELIXIR: pump, Elixir Screen, lockbox and sentry mount = the art props of rooms5art-home.js (PX/PZ, SX/SZ, LBX/LBZ, SENX/SENZ) times HOME_K; tests/rooms5art-wiring.test.js keeps them in step
   // ROOMS5ART: the footprints of rooms5art-home.js (rects: kind, x, z, hx, hz in the home's local frame, +z toward the doorway) turned into inscribed circles by rectCircles.
   // tests/rooms5art-wiring.test.js keeps these tables in step with the art modules.
   const HOME_SOLIDS = [['bench', -2.6, -4.3, 1.3, 0.6], ['recycler', 0.95, -4.0, 0.85, 0.75], ['hprop', 4.25, -1.9, 0.55, 0.7], ['hprop', 4.8, 0.6, 0.3, 0.65], ['hprop', 4.2, 3.5, 0.45, 0.55],
@@ -133,6 +133,17 @@
   const VB_SOLIDS = [[3.9, 7, 0.58], [4.7, 7, 0.58], [5.5, 7, 0.58], [-10.65, 3.9, 0.72], [10.65, -3.9, 0.72], [-3, -5.5, 0.6], [3, -5.5, 0.6]];
   // the four vault coffers (two circles each, turned toward the dais), vault-centred; the art dressing is built with half = V / 2 - T / 2 (the real wall faces)
   const COFFERS = [[-8.162, -7.738], [-7.738, -8.162], [7.738, -8.162], [8.162, -7.738], [8.162, 7.738], [7.738, 8.162], [-7.738, 8.162], [-8.162, 7.738]];
+  // ACT ANCHORS (shared by act5.js on the server and the activity prompts in game.js): the interaction points of the tree rooms, vaultbreakers and the vault as { id: [x, z, r] } in the room-local frame
+  // (x east, z south, from the room centre; rooms5art-trees-a/b.js, rooms5art-vault.js). The B / L / R stations stand beside their doors (rooms5art-vault.js LAYOUT: +4.7 / +3.9 / -3.9 along the wall, the same as VB_SOLIDS). A vaultbreaker is turned so its local -z (the vault door) faces the vault. The server accepts an act within r + 1.4 m.
+  const ACT_LOCAL = {
+    tree: { C: [0, 0, 1.1], NE: [P4, -P4, 0.7], NW: [-P4, -P4, 0.7], SE: [P4, P4, 0.7], SW: [-P4, P4, 0.7], ring: [0, 0, 3.0], nook: [0, 1.95, 0.9] },
+    vb: { B: [4.7, 7.0, 1.2], L: [-10.65, 3.9, 0.8], R: [10.65, -3.9, 0.8], FL: [-3, -5.5, 0.6], FR: [3, -5.5, 0.6], F: [0, -5.0, 1.0] },
+    vault: { dais: [0, 0, 2.2], K1: [-8.25, -8.25, 0.9], K2: [8.25, -8.25, 0.9], K3: [8.25, 8.25, 0.9], K4: [-8.25, 8.25, 0.9], D_N: [5.7, -10.85, 0.8], D_E: [10.85, 5.7, 0.8], D_S: [-5.7, 10.85, 0.8], D_W: [-10.85, -5.7, 0.8], grate: [0, 7.25, 1.4] },
+  };
+  const vbRot = cell => { const [cx, cz] = rc(+cell), [vx, vz] = rc(VAULT); return Math.atan2(-Math.sign(vx - cx), -Math.sign(vz - cz)); };
+  const actToWorld = (key, lx, lz) => { const r = roomRect(key), ry = Object.values(VB_CELLS).includes(+key) ? vbRot(key) : 0, c = Math.cos(ry), s = Math.sin(ry); return [r.cx + lx * c + lz * s, r.cz - lx * s + lz * c]; };
+  const actKind = k => k === VAULT_KEY ? 'vault' : !/^\d+$/.test(k) ? null : TREE_CELLS.includes(+k) ? 'tree' : Object.values(VB_CELLS).includes(+k) ? 'vb' : null;
+  const actAnchors = key => { const kd = actKind(String(key)), tbl = kd && ACT_LOCAL[kd], out = {}; if (!tbl) return out; for (const id of Object.keys(tbl)) { const [lx, lz, r] = tbl[id], [x, z] = actToWorld(String(key), lx, lz); out[id] = { x: +x.toFixed(3), z: +z.toFixed(3), r }; } return out; };
   const LOOT_LAYOUT = { forge: [0, -(CS / 2 - T / 2) + 0.75, 0], grand: [0, -(CS / 2 - T / 2) + 0.85, 0] };   // Master Forge bench / Grand Recycler (placeholders until task C/E)
   // ===== SOLID PROPS: crates, barrels, urns and the relic pedestal are obstacles for walking (client prediction AND server validation), bolts and melee line of sight.
   // Every footprint is a circle {k, x, z, r} in world metres (r is the prop's own radius; a walker adds his radius). The layout depends only on the room key, so client and server agree;
@@ -265,7 +276,7 @@
   const obstaclesIn = (key, m) => solidsOf(key, key[0] === 'c' ? typeOf(m && m.layout, +key.slice(1)) : treeTypeOf(m, key) || treeTypeOf(m && m.layout, key));   // bot steering: the room's prop circles {x,z,r}
   const api = { obstaclesIn, solidsOf, storyOf, slide, inProp, segBlocked, allProps, propsAt, rectsAt, PILLARS, PILLAR_D, RELIC, SCALE, W, V, H, T, CS, HS, N, NARENA, NATT, COLW, ROWD, COLX, ROWZ, EDGE, HALF, LIM,
     VAULT, VAULT_KEY, TREE_CELLS, VB_CELLS, HOME_IDS, LOOT_IDS, colOf, rowOf, roomW, roomD, rc, gi, roomAt, inGrid, kindOf, CHEST, chestKey, roomKeyOf, panelOffsets, panelDX, randomPoint,
-    ROOMS, roomRect, DOORS, WALLS, ROOM_DOORS, HATCHES, alwaysOpen, attachedAt, homeOf, attLocal, HOME_LAYOUT, LOOT_LAYOUT, HOME_SOLIDS, HOME_K, TREE_SOLIDS, VB_SOLIDS, VB_SCALE, COFFERS, rectCircles, treeKind, treeTypeOf };
+    ROOMS, roomRect, DOORS, WALLS, ROOM_DOORS, HATCHES, alwaysOpen, attachedAt, homeOf, attLocal, HOME_LAYOUT, LOOT_LAYOUT, HOME_SOLIDS, HOME_K, TREE_SOLIDS, VB_SOLIDS, VB_SCALE, COFFERS, rectCircles, treeKind, treeTypeOf, ACT_LOCAL, vbRot, actAnchors, actKind };
   root.GKWORLD = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

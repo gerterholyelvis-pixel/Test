@@ -18,11 +18,7 @@ const VB_DOOR = {}, DOOR_OF_DIR = {}, DIR_OF_DOOR = {};
 for (const c of VB_CELLS) { const d = doorBetween(c, VK), s = SIDE_OF[c]; VB_DOOR[c] = d; DOOR_OF_DIR[s] = d; DIR_OF_DOOR[d] = s; }
 // room-local anchor tables (x east, z south, from the room centre). Trees: rooms5art-trees-a/b.js; vaultbreakers: rooms5art-vault.js
 // (local frame: vault door at z = -7.5, B wall at z = +7.5); vault: rooms5art-vault.js buildVaultDressing (centre at the origin).
-const P4 = 4.2;
-const TREE_LOCAL = { C: [0, 0, 1.1], NE: [P4, -P4, 0.7], NW: [-P4, -P4, 0.7], SE: [P4, P4, 0.7], SW: [-P4, P4, 0.7], ring: [0, 0, 3.0], nook: [0, 1.95, 0.9] };
-const VB_LOCAL = { B: [0, 7.0, 1.2], L: [-10.65, 0, 0.8], R: [10.65, 0, 0.8], FL: [-3, -5.5, 0.6], FR: [3, -5.5, 0.6], F: [0, -5.0, 1.0] };
-const VAULT_LOCAL = { dais: [0, 0, 2.2], K1: [-8.25, -8.25, 0.9], K2: [8.25, -8.25, 0.9], K3: [8.25, 8.25, 0.9], K4: [-8.25, 8.25, 0.9],
-  D_N: [5.7, -10.85, 0.8], D_E: [10.85, 5.7, 0.8], D_S: [-5.7, 10.85, 0.8], D_W: [-10.85, -5.7, 0.8], grate: [0, 7.25, 1.4] };
+const TREE_LOCAL = WORLD.ACT_LOCAL.tree, VB_LOCAL = WORLD.ACT_LOCAL.vb, VAULT_LOCAL = WORLD.ACT_LOCAL.vault;   // world.js ACT_LOCAL: the same tables drive the client prompts (game.js)
 // a vaultbreaker room is turned so its local -z (the vault door) faces the vault: rotY = atan2(-ux, -uz), u = unit vector to the vault
 const VB_ROT = {};
 for (const c of VB_CELLS) { const [cx, cz] = WORLD.rc(+c), [vx, vz] = WORLD.rc(WORLD.VAULT); VB_ROT[c] = Math.atan2(-Math.sign(vx - cx), -Math.sign(vz - cz)); }
@@ -122,7 +118,8 @@ module.exports = function create(S) {
   // ---- messages
   const send = (p, o) => { if (p && p.ws) S.sendTo(p.ws, o); };
   function fx(m, key, k, d, scope) {
-    const msg = JSON.stringify({ actFx: Object.assign({ r: key, k }, d || {}) });
+    const body = Object.assign({ r: key }, d || {}); if (body.k !== undefined) body.bk = body.k; body.k = k;   // a module's own data key k (bless: fury / bark / thorns, press: goblin / husk) must not replace the event kind: it travels as bk
+    const msg = JSON.stringify({ actFx: body });
     if (k === 'capped') { const q = findP(m, d && d.id); if (q && q.ws) S.sendTo(q.ws, msg); return; }   // "The trees have taught you enough for now": the goblin it concerns
     if (scope === 'all') return S.bcast(m, msg);
     for (const q of humansIn(m, scope === 'near' ? nbrs(m, key) : new Set([key]))) S.sendTo(q.ws, msg);
@@ -281,7 +278,7 @@ module.exports = function create(S) {
 
   function viewOf(m, key, now) {
     const A = m.act, kd = kindOfKey(key);
-    if (kd === 'tree') { const t = A.trees[key]; return { type: t.type, st: ACT.view(t.st, t.type) }; }
+    if (kd === 'tree') { const t = A.trees[key], v = ACT.view(t.st, t.type), lv = pl => Math.floor(ACT.pool.level(pl, now) + 1e-9); if (t.type === 'well') v.water = lv(t.st.pool); else if (t.type === 'spring') for (const b of Object.keys(v.basins)) v.basins[b] = lv(t.st.basins[b]); else if (t.type === 'graft') v.branches = t.st.br.map(lv); return { type: t.type, st: v }; }   // pools refill lazily: the public view carries the level at this moment
     if (kd === 'vb') return VB5.view(A.H, key, now);
     return { type: 'vault', st: VAULT5.view(A.vault, { now }) };
   }

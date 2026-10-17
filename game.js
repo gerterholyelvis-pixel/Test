@@ -1615,6 +1615,11 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
   // ELIXIR: the pump (glass tank, fills with the owner's tank level), the Elixir Screen and the lockbox, placeholders at WORLD.HOME_LAYOUT until the home art (rooms5art-home.js) replaces them. Stations 'pump' / 'screen' / 'box' are what E acts on (GKHOMEW.interact).
   function buildElixirProps(g, cr) {
     const L = WORLD.HOME_LAYOUT, id = cr.id, iron = steelDark, brass = brassM, wood = mat('hpWood', () => M(0x6b4a2a, { roughness: 0.82 }));
+    if (window.GK5ART && window.GK5ART.home) {   // INTEGRATION: the art home draws the pump, screen and lockbox; these are only the invisible E-prompt targets at the art anchors (HOME_LAYOUT)
+      const hit = (kind, x, y, z, w, h, d) => { const o = new THREE.Mesh(kgeo('hpHit' + w + h + d, () => new THREE.BoxGeometry(w, h, d)), proxyM); o.position.set(x, y, z); o.visible = false; g.add(o); regStation(kind, o, id); };
+      hit('pump', L.pump[0], 0.9, L.pump[1], 1.1, 1.8, 1.1); hit('screen', L.screen[0] - 0.2, 1.5, L.screen[1], 0.7, 1.4, 1.5); hit('box', L.box[0], 0.4, L.box[1], 0.9, 0.8, 1.1);
+      return;
+    }
     const glass = mat('hpGlass', () => new THREE.MeshStandardMaterial({ color: 0xbfeaff, transparent: true, opacity: 0.26, roughness: 0.08, metalness: 0.1, depthWrite: false }));
     const liquid = mat('hpLiquid', () => new THREE.MeshBasicMaterial({ color: 0x5fd8ff, toneMapped: false, transparent: true, opacity: 0.9 }));
     const PL = kgeo('hpPlane', () => new THREE.PlaneGeometry(1, 1));
@@ -2604,7 +2609,7 @@ window.GKRULES = (() => {
     if (!R.on.size) return;
     if (d.bribes && JSON.stringify(d.bribes) !== JSON.stringify(R.bribes)) { R.bribes = d.bribes; panelsDirty(); }
     if (R.on.has('doorclose') && d.openLeft && JSON.stringify(d.openLeft) !== JSON.stringify(R.left)) { R.left = d.openLeft; panelsDirty(); }
-    if (d.crown !== undefined) {
+    if (d.crown !== undefined && !(d.crown && d.crown.claims)) {   // the legacy crown rule's {id, name, p, ms}; the 5x5 crown view {claims, gaining, ...} is the HUD5 panel's (it printed 'undefined IS CLAIMING THE CROWN NaNs' here)
       const t = tagEl();
       if (!d.crown) { R.crown = null; t.style.display = 'none'; if (R.ring) { scene.remove(R.ring); R.ring = null; } }
       else { R.crown = { p0: d.crown.p, t0: performance.now(), ms: d.crown.ms }; t.style.display = ''; t.textContent = (d.crown.id === me ? 'YOU ARE' : d.crown.name + ' IS') + ' CLAIMING THE CROWN ' + Math.ceil(d.crown.ms * (1 - d.crown.p) / 1000) + 's'; ringMesh(); kick(); }
@@ -4274,6 +4279,7 @@ const handleMsg0 = d => {
   if (d.emote || d.token || d.resumed || d.resumeFail) SOC.onMsg(d);   // SOCIAL
   if (d.fix) NETC.fix = d.fix;
   /* FEEL-BEGIN */ if (GK.feel) GK.feel.onMsg(d); /* FEEL-END */
+  if (window.GKACT5) GKACT5.pre(d);   // ACT5UI: breach by door -> by side, arc labels
   if (GK.r5) GK.r5.onMsg(d);   // ROOMS5ART: trees / vb / treasury / crown / breach fields and the match start / end
   if (d.layout) applyLayout(d.layout, d.mystery);
   if (d.chestKeys || d.chests) applyChests(d.chestKeys || d.chests);   // item keys like 'w:axe' (new), or legacy indices
@@ -4306,6 +4312,7 @@ const handleMsg0 = d => {
   if (d.dbg === 1 || (d.matchStart && d.matchStart.dbg === 1)) GK.dbg = true;   // DEV: the server runs with GK_DEBUG (shows the skip-to-0:10 button)
   if (d.round || d.sel || d.open) applyRound(d);
   if (window.GKHUD5) GKHUD5.onMsg(d);   // HUD5: round banners, crown panel, tints, activity arc
+  if (window.GKACT5) GKACT5.onMsg(d);   // ACT5UI: room state for the art and the prompts, toasts, fails
   if (d.exitHint) toastMsg('No way out: a door unlocks in ' + Math.ceil((+d.exitHint.ms || 5000) / 1000) + ' s', false, 2600);   // DOORGUARD
   if (d.exitOpen != null) toastMsg('A door unlocks', true, 1800);   // DOORGUARD
   if (!d.players) return;
@@ -4507,7 +4514,7 @@ GK.showDeathScreen = showDeathScreen;
     ST.vb = H.vb; ST.vbNext = H.vbNext; ST.trees = H.trees; ST.armed = H.armed; ST.breach = H.breach; ST.crown = H.crown;
     for (let id = 0; id < ND; id++) if (dKind[id] !== 2) ST.open[id].open = !!openF[id];
     ST.actors.length = 0;
-    actors.forEach((a, id) => { if (id === me || a.npc || (vis[keyIdx(a.x, a.z)] !== 1 && !(window.GKUSE2 && GKUSE2.reveal()))) return; ST.actors.push(a); });
+    actors.forEach((a, id) => { if (id === me || a.npc || (vis[keyIdx(a.x, a.z)] !== 1 && !(window.GKUSE2 && GKUSE2.reveal()) && !(window.GKHOMEW && GKHOMEW.bellAt(a.x, a.z)) && !(window.GKACT5 && GKACT5.pulsed(id)))) return; ST.actors.push(a); });   // GKHOMEW.bellAt: a room with a Bell send running shows its goblins
   }
   function arrows(g, ids, ip, lw, col) {   // door-pick arrows (last round's picks, Panel Lens picks)
     g.strokeStyle = col; g.fillStyle = col; g.lineWidth = lw * ip;
@@ -4960,7 +4967,7 @@ addEventListener('keydown', e => {
     return;
   }
   if (e.code === 'KeyE' && !invOpen) { if (GK.locked) return;   // one interact key: control panel, then merchant / station, then a loot pile underfoot
-    if (cpInteract() || stationInteract()) return;
+    if (cpInteract() || (window.GKACT5 && GKACT5.key(e)) || stationInteract()) return;   // ACT5UI: an anchor of a tree room / vaultbreaker / the vault comes after the door panel
     if (nearestPile()) openStation('loot', nearestPile().id); else net.send({ claim: 1 });   // chest / mystery room contents
     return;
   }
@@ -5198,7 +5205,7 @@ const STNUI = {
   recType() { return this.room().type === 'home' ? 'home' : 'full'; },
   benchName() { const t = this.room().type; return t === 'forge' ? 'MASTER FORGE' : t === 'home' ? 'HOME WORKBENCH' : 'WORKBENCH'; },
   recName() { const t = this.room().type; return t === 'grand' ? 'GRAND RECYCLER' : t === 'home' ? 'HOME RECYCLER' : 'RECYCLER'; },
-  eff() { const G = itemsData(); return ((G.STATIONS && G.STATIONS.recycler[this.recType()]) || { eff: 1 }).eff; },
+  eff() { if (this.recType() === 'home' && window.GKHOMEW) return GKHOMEW.recEff(); const G = itemsData(); return ((G.STATIONS && G.STATIONS.recycler[this.recType()]) || { eff: 1 }).eff; },
   yield(y) { const G = itemsData(); return y && G.recycleEff ? G.recycleEff(y, this.eff()) : y; },
   benchInfo() {   // what this bench can craft: tiers, discount, speed, bonus tier
     const G = itemsData(), sp = G.benchSpec ? G.benchSpec(this.benchType()) : { maxTier: 5, costMul: 1, craftMs: 2500 }, R = ['0', 'I', 'II', 'III', 'IV', 'V'];
@@ -6977,8 +6984,10 @@ const R5 = (() => {
     if (e.kind === 'home') { e.sync(); return; }
     if (e.kind === 'vb') {
       const cell = +e.key, t = vbNow()[cell]; if (t && t !== e.type) { e.api.setSkin(t); e.type = t; }
-      const b = S('breach'); e.api.setBreach((b && b[cell]) | 0); return;
+      if (window.GKACT5) GKACT5.apply(e);   // ACT5UI: machine state, breach cracks (by side)
+      return;
     }
+    if (window.GKACT5) { GKACT5.apply(e); return; }   // ACT5UI drives the tree rooms and the vault dressing from actS / actMe / crown; below is the offline placeholder
     if (e.kind === 'vault') {
       const d = e.api, T = S('treasury'), tv = T == null ? 0.4 : (+T <= 1 ? +T : Math.min(1, +T / 100)); d.setTreasury(tv); for (let i = 0; i < 4; i++) d.setCoffer(i, tv);
       const cw = S('crown'), al = S('alarm'); d.setClaim(cw && cw.p != null ? cw.p : 0, cw ? colorOf(cw.id) : 0xffd75e); d.setContested(!!(cw && cw.contested)); d.setAlarm(al != null ? !!al : !!(cw && cw.alarm));
@@ -7006,7 +7015,7 @@ const R5 = (() => {
     const vis = fxCull.active ? fxCull.vis : null;
     for (const e of entries.values()) {
       if (vis && !vis.has(e.key)) continue;   // update() only for rooms that are drawn this frame
-      if (e.sync) e.sync();
+      if (e.sync) e.sync(); else if (window.GKACT5) GKACT5.apply(e);   // ACT5UI: tree / vaultbreaker / vault art follow actS, actMe, crown
       if (e.cracks) { const d = doors[e.door]; e.cracks.visible = !(d && (d.open || d.p > 0.02)); }   // the cracks belong on the closed vault door
       e.update(dt, t);
     }
@@ -7630,7 +7639,7 @@ function frame(now) {
   if (mine && spawned && GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked) {
     const f = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
     const s = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
-    const sp = (keys.has('ShiftLeft') || keys.has('ShiftRight') ? 7.5 : 4.6) * ((itemsData().SPEED || [])[mine.goblin] || (0.85 + 0.15 * SCALE[mine.goblin])) * (invReady && itemsData().armorSpeed ? itemsData().armorSpeed(myInv.armor) : 1) * (window.GKUSE ? GKUSE.speedMul() : 1);   // ARMOUR-2: worn armour speed   // BALANCE: class speed table (items.js SPEED, shared with the server): small fastest, big slowest
+    const sp = (GK.carryHeavy ? 4.6 * 0.7 : keys.has('ShiftLeft') || keys.has('ShiftRight') ? 7.5 : 4.6) * ((itemsData().SPEED || [])[mine.goblin] || (0.85 + 0.15 * SCALE[mine.goblin])) * (invReady && itemsData().armorSpeed ? itemsData().armorSpeed(myInv.armor) : 1) * (window.GKUSE ? GKUSE.speedMul() : 1);   // ARMOUR-2: worn armour speed   // BALANCE: class speed table (items.js SPEED, shared with the server): small fastest, big slowest
     let mx = -Math.sin(P.yaw) * f + Math.cos(P.yaw) * s, mz = -Math.cos(P.yaw) * f - Math.sin(P.yaw) * s;
     const len = Math.hypot(mx, mz) || 1; mx = mx / len * sp * dt * (f || s ? 1 : 0); mz = mz / len * sp * dt * (f || s ? 1 : 0);
     const ox = P.x, oz = P.z;
@@ -8096,7 +8105,12 @@ const GKUSE2 = window.GKUSE2 = (() => {
 const HOMEW = window.GKHOMEW = (() => {
   if (!window.GKHOMEUI || !window.GKHOMEBASE) return null;
   const W = WORLD, K = window.GKHOMEBASE;
-  let hs = null, elixir = 0, vig = null; const bells = new Map(), gas = new Set();
+  let hs = null, elixir = 0, vig = null, sentT = 0, alertT = 0; const bells = new Map(), gas = new Set();
+  const redrawMM = () => { try { GK.minimap && GK.minimap.redraw(); } catch (e) {} };
+  // INTEGRATION: the home state the art reads (R5 homeState): GK.state.homes[key] = { pump 0..1, alert, dead, lv:{lock,alarm,sentry,lockbox} }; only my own home is known to me, the rest stay at the base look
+  const gs = GK.state = GK.state || {}; gs.homes = gs.homes || {};
+  const hput = (key, o) => { if (key) gs.homes[key] = Object.assign(gs.homes[key] || {}, o); };
+  const ringHome = () => { const e = GK.r5 && GK.r5.room(GK.myHome); if (e && e.api.ringAlarm) e.api.ringAlarm(); };
   const ui = GKHOMEUI.createHomeUI({ root: document.body, send: m => net.send(m), onClose: () => { shopOpen = false; panelKind = ''; keys.clear(); lockNow(); } });
   const mine = room => GK.myHome && 'c' + room === GK.myHome;
   function mapState() {
@@ -8123,7 +8137,8 @@ const HOMEW = window.GKHOMEW = (() => {
   const REASON = { owner: 'Only the home owner can use this', room: 'Too far from a workbench', space: 'Your backpack is full', elixir: 'Not enough elixir' };
   function fx(f) {
     if (f.kind === 'gas') { if (f.on === 1) gas.add(f.room); else if (f.on === 0) gas.delete(f.room); }
-    else if (f.kind === 'bell') { if (f.on === 1) bells.set(f.room, performance.now() + (f.ms || 20000)); else if (f.on === 0) bells.delete(f.room); }
+    else if (f.kind === 'bell') { if (f.on === 1) { bells.set(f.room, performance.now() + (f.ms || 20000)); setTimeout(redrawMM, (f.ms || 20000) + 60); } else if (f.on === 0) bells.delete(f.room); redrawMM(); }   // a bell send: the goblins of that room show on the minimap (bellAt)
+    else if (f.kind === 'sentry') { const t = actors.get(f.to), e = GK.r5 && GK.r5.room(GK.myHome); if (t && e && e.api.setSentryTarget) { e.api.setSentryTarget(t.x, t.z); clearTimeout(sentT); sentT = setTimeout(() => { const q = GK.r5 && GK.r5.room(GK.myHome); if (q) q.api.setSentryTarget(null); }, 900); } }   // the art sentry turns toward its target
     else if (f.kind === 'spike' && f.hit) snd('snap', { vol: 0.8 });
   }
   function paintGas() {   // a green haze while I stand in a room with Stink Gas running
@@ -8139,12 +8154,16 @@ const HOMEW = window.GKHOMEW = (() => {
     c.style.top = Math.round(r.bottom + 6) / z + 'px'; c.style.right = Math.round(innerWidth - r.right) / z + 'px';
   }, 1000);
   function onMsg(d) {
-    if (d.matchStart || d.queue) { hs = null; elixir = 0; ui.setElixir(null); bells.clear(); gas.clear(); }
+    if (d.matchStart || d.queue) { hs = null; elixir = 0; ui.setElixir(null); bells.clear(); gas.clear(); gs.homes = {}; gs.tank = gs.tankCap = undefined; }
     if (d.elixir !== undefined) { elixir = d.elixir | 0; ui.setElixir(elixir, 120); if (ui.isOpen() && hs) ui.update(state()); }
     if (d.home) {
       hs = d.home; if (ui.isOpen()) ui.update(state());
+      hput(hs.key, { pump: hs.tankCap ? hs.tank / hs.tankCap : 0, lv: hs.lv || {}, dead: !!hs.dead }); gs.tank = hs.tank; gs.tankCap = hs.tankCap;
       const id = GK.myHome ? +GK.myHome.slice(1) : -1; GK.homeFill = GK.homeFill || {}; GK.homeFill[id] = hs.tank / hs.tankCap; if (GK.homeProps && GK.homeProps[id]) GK.homeProps[id].setFill(GK.homeFill[id]);
     }
+    if (d.pumpGlow) { hput(GK.myHome, { alert: true }); clearTimeout(alertT); alertT = setTimeout(() => hput(GK.myHome, { alert: false }), +d.pumpGlow || 4000); }   // a raider is draining my pump: the art tank glows red
+    if (d.homeDead) hput(d.homeDead, { dead: true, lv: {}, alert: false });
+    if (d.homePing) ringHome();   // my alarm went off: the bell in my home rings
     if (d.homeToast) { ui.toast(d.homeToast.kind, d.homeToast.text); if (d.homeToast.kind === 'raid' || d.homeToast.kind === 'alarm') snd('deny', { vol: 0.5 }); }
     if (d.homeRes) {
       if (ui.isOpen()) ui.result(d.homeRes);
@@ -8174,13 +8193,205 @@ const HOMEW = window.GKHOMEW = (() => {
   }
   return {
     onMsg, interact, shut: () => ui.close(false), decorateCraft, paintBrew, dbgSend: m => { if (GK.dbg) net.send(m); },   // GK_DEBUG servers only (screenshots, tests)
-    recEff: () => (hs ? K.recyclerEff({ lv: hs.lv, dead: hs.dead }) : 0.5),
+    elixir: () => elixir, recEff: () => (hs ? K.recyclerEff({ lv: hs.lv, dead: hs.dead }) : 0.5),
     canRefine: room => !!hs && !hs.dead && elixir >= 4 && mine(room) && inHome(room),
     bellAt: (x, z) => { if (!bells.size) return false; const k = W.roomKeyOf(x, z), t = bells.get(k); return t != null && t > performance.now(); },
     ui,
   };
 })();
 // HOME-END
+// ACT5UI-BEGIN (docs/reports/integration-polish.md): the human side of the special rooms. actS / actMe / actFx / crown / breach drive the tree, vaultbreaker and vault art (rooms5art-*), and E / R / Q at an anchor send {act:{r,a,v,x?}}
+// (act5ui.js says what each anchor offers; the server act5.js judges). Holds (channels) send `stop` when the key is released. The arc under the crosshair is hud5's (actMe). No lights, nothing per frame except cheap setters on drawn rooms.
+window.GKACT5 = (() => {
+  const U = window.GKACT5UI; if (!U) return null;
+  const W = WORLD, VB = W.VB_CELLS, SIDES = ['N', 'E', 'S', 'W'];
+  const rooms = {}, A = { me: {}, crown: null, sudden: false, choice: 0, breach: {}, pulse: null };   // rooms[key] = { type, st, e, tSeen }: the last actS of each room I heard about
+  const srv = () => srvNow();
+  const sideOfCell = cell => SIDES.find(s => VB[s] === +cell);
+  const doorOfSide = {}; for (const s of SIDES) { const d = W.DOORS.find(x => x.kind === 'vault' && (x.a === String(VB[s]) || x.b === String(VB[s]))); if (d) doorOfSide[s] = d.id; }
+  const sideOfDoor = {}; for (const s of SIDES) sideOfDoor[doorOfSide[s]] = s;
+  const LABEL = { press: 'Pressing', fruit: 'Picking the fruit', pour: 'Pouring', bottle: 'Bottling', cut: 'Cutting', bowl: 'Drinking', grip: 'Gripping the thorns', seed: 'Taking the seed', grind: 'Grinding', rob: 'Robbing', light: 'Lighting', feed: 'Feeding the flame', snuff: 'Snuffing', offer: 'Offering', bar: 'Building', slack: 'Slackening' };
+  const FAIL = { far: 'Too far away', busy: 'Someone is already using it', cap: 'You have had enough of this for now', cost: 'You cannot pay for that', item: 'You do not have what that needs', state: 'Not now', cool: 'Not yet', carry: 'Your hands are full', room: 'Not here' };
+  const anchorCache = {}; const anchorsOf = key => anchorCache[key] || (anchorCache[key] = W.actAnchors(key));
+  const clamp01 = v => Math.max(0, Math.min(1, v));
+  const call = (api, fn, ...a) => { try { if (api && typeof api[fn] === 'function') api[fn](...a); } catch (e) {} };
+  const colorOf = id => { const a = actors.get(id); return a && a.goblin != null ? [0xffd75e, 0xff9a5e, 0x9ae06e, 0x6fc8ff, 0xc89aff][a.goblin % 5] : 0xffd75e; };
+
+  // ---- messages (before the HUD sees them: pre) and after
+  function pre(d) {
+    if (d.breach && typeof d.breach === 'object') {   // roundState breach is { doorId: 0..100 }; hud5 and the art want { N, E, S, W }
+      const b = {}; for (const k of Object.keys(d.breach)) { const s = sideOfDoor[k] || (SIDES.includes(k) ? k : null); if (s) b[s] = d.breach[k]; }
+      d.breach = b; A.breach = b;
+    }
+    if (d.actMe && d.actMe.chan && !d.actMe.chan.label) d.actMe.chan.label = LABEL[d.actMe.chan.n] || '';
+    if (d.actMe && d.actMe.timing && !d.actMe.timing.label) d.actMe.timing.label = 'Press E in the green';
+  }
+  let flashes = {};   // memory lanterns lit by a touch: key:a -> until (ms of performance.now)
+  function onMsg(d) {
+    if (d.matchStart) { for (const k in rooms) delete rooms[k]; A.me = {}; A.crown = null; A.sudden = false; A.breach = {}; A.pulse = null; flashes = {}; GK.carryHeavy = false; }
+    if (d.round) A.sudden = !!d.sudden || A.sudden;
+    if (d.actS && d.actS.r != null) rooms[d.actS.r] = { type: d.actS.type, st: d.actS.st || {}, e: d.actS.e || 0, tSeen: performance.now(), prev: rooms[d.actS.r] && rooms[d.actS.r].st };
+    if (d.actMe !== undefined) { A.me = d.actMe || {}; GK.carryHeavy = !!(A.me.carry && A.me.carry.heavy); }
+    if (d.crown !== undefined) A.crown = d.crown;
+    if (d.toast) toastMsg(String(d.toast).slice(0, 90), true, 2600);
+    if (d.actFail) toastMsg(FAIL[d.actFail] || 'Not now', false, 1400);
+    if (d.actFx) fx(d.actFx);
+    if (d.matchEnd) { for (const k in rooms) delete rooms[k]; GK.carryHeavy = false; }
+  }
+  function fx(f) {
+    const e = f.r != null && GK.r5 && GK.r5.room(String(f.r)), api = e && e.api;
+    if (f.k === 'lit' && f.a) flashes[f.r + ':' + f.a] = performance.now() + 380;
+    if (e && e.kind === 'vb') {
+      const sk = api.skin && api.skin(e.type);
+      if (f.k === 'ramhit' || f.k === 'barhit') call(sk, 'strike', 1);
+      else if (f.k === 'lockalarm' || f.k === 'robalarm') { call(sk, 'ring'); }
+      else if (f.k === 'rekey') call(api, 'setSkin', f.type || e.type);
+    }
+    if (f.k === 'pulse') { A.pulse = { until: performance.now() + (f.ms || 8000), ids: new Set((f.gob || []).map(g => g[0])) }; try { GK.minimap && GK.minimap.redraw(); } catch (x) {} }
+    else if (f.k === 'vbNext' && f.vbNext && window.GKHUD5) { GKHUD5.S.vbNext = f.vbNext; try { GK.minimap && GK.minimap.redraw(); } catch (x) {} }
+    if (f.id != null && f.id !== me && f.k !== 'gain') return;
+    if (f.k === 'gain' || f.k === 'treasury') {
+      const t = []; if (f.know) t.push('+' + f.know + ' knowledge'); if (f.gold) t.push('+' + f.gold + ' gold'); if (f.item) t.push(itemName(f.item)); if (f.tok) t.push(itemName(f.tok));
+      if (t.length) toastMsg(t.join('  '), true, 1700);
+    }
+    else if (f.k === 'capped') toastMsg('The trees have taught you enough for now', false, 2200);
+    else if (f.k === 'bless') toastMsg('Blessing of ' + ({ fury: 'Fury', bark: 'Bark', thorns: 'Thorns' }[f.bk] || 'the shrine') + (f.tier ? ' ' + 'I'.repeat(f.tier) : ''), true, 1800);
+    else if (f.k === 'spill') toastMsg('The bucket spills', false, 1400);
+  }
+
+  // ---- what the prompt offers
+  let cur = null, holding = null, hint = '';
+  const KEYMAP = { KeyE: 'E', KeyR: 'R', KeyQ: 'Q' };
+  const hasKey = k => { const v = myInv; return !!v && (v.backpack.includes(k) || v.quick.includes(k) || v.weapon === k); };
+  const countKey = k => { const v = myInv; return v ? v.backpack.filter(x => x === k).length + v.quick.filter(x => x === k).length : 0; };
+  const gearOf = k => { const it = infoOf(k); return it && (it.type === 'weapon' || it.type === 'armor') ? it : null; };
+  function env(key, kind, type, r) {
+    const G = itemsData(), st = (r && r.st) || {};
+    const sack = kind === 'vb' && type === 'counting' && st.sacks ? st.sacks.find(s => Math.hypot(P.x - s.x, P.z - s.z) <= 1.6) : null;
+    const claims = A.crown && A.crown.claims || [], leader = claims.length ? claims[0].id : null;
+    return {
+      uid: me, elixir: window.GKHOMEW ? GKHOMEW.elixir() : 0, sudden: A.sudden, choice: A.choice, sack: sack && { id: sack.id }, leader: leader != null && leader !== me,
+      has: hasKey, count: countKey, brain: () => (myInv ? [...myInv.backpack, ...myInv.quick] : []).some(k => k && (k === 'x:huskbrain' || (infoOf(k) && infoOf(k).family === 'brain'))),
+      junk() { let best = null; if (myInv) myInv.backpack.forEach((k, i) => { const it = k && gearOf(k); if (it && (it.tierN | 0) < 5 && (!best || (it.tierN | 0) < best.t)) best = { slot: i, name: it.name, t: it.tierN | 0 }; }); return best; },
+      graftSlot() {
+        const twin = k => { const it = k && gearOf(k); return it && !it.up && G.ITEMS && G.ITEMS[k + '+'] ? it : null; };
+        if (myInv && twin(myInv.weapon)) return { slot: -1, name: infoOf(myInv.weapon).name };
+        let r2 = null; if (myInv) myInv.backpack.forEach((k, i) => { if (!r2 && twin(k)) r2 = { slot: i, name: infoOf(k).name }; }); return r2;
+      },
+      doorOpen: dir => { const d = doors[doorOfSide[dir]]; return !!d && (d.open || d.p > 0.5); },
+    };
+  }
+  function recompute() {
+    cur = null;
+    const play = GK.mode === 'play' && spawned && !invOpen && !shopOpen && !GK.locked;
+    if (play) {
+      const key = roomKeyAt(P.x, P.z), kind = W.actKind(key);
+      if (kind) {
+        const r = rooms[key], type = kind === 'tree' ? GK.r5.treeMap()[+key] : kind === 'vb' ? GK.r5.vbNow()[+key] : 'vault';
+        if (r && r.type === type) { const me2 = A.me && A.me.r === key ? A.me : {}; const c = U.pick(kind, type, anchorsOf(key), r.st, me2, env(key, kind, type, r), P.x, P.z); if (c) cur = { key, a: c.a, acts: c.acts }; }
+      }
+    }
+    if (cur && A.me && A.me.r === cur.key && (A.me.chan || A.me.timing)) cur.busy = true;   // the arc under the crosshair is the prompt while I hold or time something
+    const extra = cur && !cur.busy ? cur.acts.slice(1).map(x => x.k + '  ' + x.label + (x.hold ? ' (hold)' : '')).join('     ') : '';
+    if (extra !== hint) { hint = extra; hintEl.textContent = extra; hintEl.style.opacity = extra ? '1' : '0'; }
+  }
+  const hintEl = document.createElement('div'); hintEl.style.cssText = 'position:fixed;left:50%;top:calc(50% + 86px);transform:translateX(-50%);z-index:25;pointer-events:none;padding:4px 12px;border-radius:7px;background:rgba(10,10,16,.6);color:#d9d3c4;font:600 13px/1.2 system-ui,sans-serif;letter-spacing:.03em;opacity:0;transition:opacity .14s;white-space:nowrap';
+  document.body.appendChild(hintEl);
+  setInterval(recompute, 100);
+  setInterval(() => { if (GK.mode === 'play' && cur && NETC.rtt) net.send({ lat: Math.min(500, Math.round(NETC.rtt / 2)) }); }, 2500);   // one-way latency for the server's timing judge
+
+  function press(code) {
+    const k = KEYMAP[code]; if (!cur || !k) return false;
+    const a = cur.acts.find(x => x.k === k); if (!a) return false;
+    if (a.v === '_cycle') { A.choice = (A.choice + 1) % 3; toastMsg('Blessing: ' + U.BLESS[A.choice], true, 1100); recompute(); return true; }
+    const m = { r: cur.key, a: a.a, v: a.v }; if (a.x != null) m.x = a.x;
+    net.send({ act: m });
+    if (a.hold) holding = { code, r: cur.key, a: a.a };
+    return true;
+  }
+  function release(code) { if (holding && holding.code === code) { net.send({ act: { r: holding.r, a: holding.a, v: 'stop' } }); holding = null; } }
+  const typing = e => { const t = e.target && e.target.tagName; return t === 'INPUT' || t === 'TEXTAREA'; };
+  addEventListener('keydown', e => { if ((e.code === 'KeyR' || e.code === 'KeyQ') && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && !typing(e) && GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked) press(e.code); });
+  addEventListener('keyup', e => { if (KEYMAP[e.code]) release(e.code); });
+  addEventListener('blur', () => { if (holding) release(holding.code); });
+
+  // ---- art drivers (called for the rooms that are drawn)
+  const chOf = (st, n) => (st.ch || []).find(c => c.n === n);
+  const lerpMs = (r, t0, ms) => clamp01((srv() - (t0 - r.e)) / ms);
+  const pool = (r, key, lvl, ms) => { const m = r.pm || (r.pm = {}); if (lvl >= 1) { delete m[key]; return 1; } if (m[key] == null) m[key] = performance.now(); return Math.min(0.95, (performance.now() - m[key]) / ms); };
+  const LANT = ['NE', 'NW', 'SE', 'SW'], GL = { L: 0, FL: 1, FR: 2, R: 3 };
+  function driveTree(e, r) {
+    const st = r.st, api = e.api, now = srv();
+    switch (e.type) {
+      case 'well': call(api, 'setStage', Math.max(1, Math.min(4, st.stage | 0))); call(api, 'setFruit', st.ripe ? 1 : 0); call(api, 'setWaterLevel', clamp01((st.water | 0) / (st.max || 4))); call(api, 'setBucket', Math.min(3, st.notch | 0), false); call(api, 'setBucketFull', st.ready != null); break;
+      case 'press': {
+        const c = chOf(st, 'press'); call(api, 'setPress', c ? lerpMs(r, c.t0, c.ms) : 0); call(api, 'setPressBrain', !!c);
+        const rem = st.next ? (st.next - r.e) - now : 25000, ramp = (st.husks | 0) >= 3 ? 0 : clamp01(1 - rem / 25000);
+        for (let i = 0; i < 3; i++) call(api, 'setVat', i, ramp);
+        if (r.husks != null && (st.husks | 0) > r.husks) call(api, 'popVat', (Math.random() * 3) | 0); r.husks = st.husks | 0; break;
+      }
+      case 'spring': call(api, 'setPoolGlow', st.healing ? 1 : 0); ['NE', 'SE', 'SW'].forEach((a, i) => call(api, 'setBasin', i, pool(r, a, st.basins && st.basins[a], 25000))); break;
+      case 'seer': {
+        const v = st.v || [0, 0, 0], t = st.target || [0, 0, 0];
+        for (let i = 0; i < 3; i++) { call(api, 'setRing', i, v[i]); call(api, 'setMatch', i, v[i] === t[i]); }
+        call(api, 'setTargets', t[0], t[1], t[2]); call(api, 'setEye', 1);
+        if (r.solves != null && st.solves > r.solves) { call(api, 'setSolved', 1); setTimeout(() => call(api, 'setSolved', 0), 700); } r.solves = st.solves | 0; break;
+      }
+      case 'graft': {
+        (st.branches || []).forEach((n, i) => call(api, 'setBranch', i, n >= 1 ? 1 : pool(r, 'b' + i, n, 30000) * 0.9));
+        const v = st.vise || {}, run = v.state === 'run'; if (run && !r.viseT) r.viseT = performance.now(); if (!run) r.viseT = 0;
+        call(api, 'setViseClosed', v.state && v.state !== 'idle' ? 1 : 0); call(api, 'setViseProgress', v.state === 'ready' ? 1 : run ? clamp01((performance.now() - r.viseT) / 6000) : 0); call(api, 'setViseDone', v.state === 'ready'); break;
+      }
+      case 'thorn': {
+        const g = st.grip, held = g ? now - (g.t0 - r.e) : 0; call(api, 'setGrip', g ? (held >= 9000 ? 3 : held >= 6000 ? 2 : held >= 3000 ? 1 : 0) : 0); call(api, 'setBowl', st.bowl | 0); break;
+      }
+      case 'gambler': call(api, 'setStep', st.stump ? st.stump.step | 0 : st.chew ? 1 : 0); call(api, 'setGourds', st.hoard | 0); call(api, 'setMouth', st.chew ? 1 : st.stump ? 0.5 : 0.15); break;
+      case 'memory': {
+        const show = st.phase === 'show' && st.show ? st.show : null, idx = show ? Math.floor((now - (st.t0 - r.e)) / (st.per || 700)) : -1, fr = show ? ((now - (st.t0 - r.e)) / (st.per || 700)) % 1 : 0, on = show && idx >= 0 && idx < show.length && fr > 0.08 && fr < 0.75 ? show[idx] : null, pn = performance.now();
+        LANT.forEach((a, i) => call(api, 'setLantern', i, on === a || (flashes[e.key + ':' + a] || 0) > pn ? 1 : st.phase === 'idle' ? 0.12 : 0.2)); call(api, 'setTrunkGlow', st.phase === 'idle' ? 0.15 : 0.7); break;
+      }
+      case 'oak': call(api, 'setWarden', st.held ? 1 : 0); break;
+      case 'elder': {
+        const need = st.need || 20000, lit = (st.stones || []).filter(s => s.lit).length;
+        (st.stones || []).forEach((s, i) => { const c = chOf(st, 'stone' + i); call(api, 'setStone', i, s.lit ? 1 : clamp01(((s.prog | 0) + (c ? now - (c.t0 - r.e) : 0)) / need)); });
+        call(api, 'setWake', st.phase === 'waking' || st.phase === 'seed' ? 1 : st.phase === 'withered' ? 0 : lit / 3 * 0.6); call(api, 'setSeed', st.phase === 'seed'); call(api, 'setWithered', st.phase === 'withered'); break;
+      }
+    }
+  }
+  function driveVb(e, r) {
+    const sk = e.api.skin && e.api.skin(e.type), st = r.st, now = srv(); if (!sk) return;
+    const side = sideOfCell(e.key), b = A.breach[side];
+    if (b != null) call(e.api, 'setBreach', b | 0);
+    switch (e.type) {
+      case 'ram': call(sk, 'setTension', Math.min(6, st.notches | 0)); call(sk, 'setRamPull', st.swing ? lerpMs(r, st.swing.t0, 1200) : 0); call(sk, 'setLever', st.swing ? 1 : 0); call(sk, 'setWedges', Math.min(2, st.rack | 0)); call(sk, 'setBarricade', 1, st.bar ? st.bar.hp / (st.bar.max || 60) : 0); break;
+      case 'locksmith': call(sk, 'setPins', st.pins | 0, 1); call(sk, 'setNoise', st.noise | 0); call(sk, 'setAlarm', (st.noise | 0) >= 100); break;
+      case 'counting': call(sk, 'setMarket', { writPrice: st.price | 0, counterPrice: Math.ceil(1.5 * (st.price | 0)), writs: st.writs | 0, counters: st.counters | 0 }); call(sk, 'setStrongbox', (st.boxStage | 0) / 2); call(sk, 'setAlarm', !!st.alarm); call(sk, 'setRobbery', st.alarm ? 1 : 0); call(sk, 'setSacks', 0, Math.min(3, (st.sacks || []).length)); break;
+      case 'keystone': {
+        if (st.order) call(sk, 'setOrder', st.order.map(id => GL[id])); call(sk, 'setProgress', st.pos | 0);
+        U.STONE_ORDER.forEach((id, i) => { const ms = st.lit && st.lit[i]; call(sk, 'setStone', GL[id], ms > 0 ? 'lit' : 'dark', ms > 0 ? clamp01(ms / 35000) : 0); });
+        call(sk, 'setArmed', !!st.armed); call(sk, 'setResonance', st.res | 0); call(sk, 'setAltar', st.armed ? 1 : 0); break;
+      }
+    }
+  }
+  function driveVault(e) {
+    const d = e.api, r = rooms[W.VAULT_KEY], c = A.crown || (r && r.st) || {}, claims = c.claims || [], g = c.gaining, top = claims.find(x => x.id === g);
+    call(d, 'setClaim', top ? (top.s % 10) / 10 : 0, g != null ? colorOf(g) : 0xffd75e);
+    const [vx, vz] = rc(W.VAULT); let on = 0; actors.forEach(a => { if (!a.npc && Math.hypot(a.x - vx, a.z - vz) < 2.45) on++; }); call(d, 'setContested', on >= 2);
+    call(d, 'setAlarm', !!c.alarm);
+    const cof = c.cof || {}; let sum = 0; for (let i = 0; i < 4; i++) { const v = cof['K' + (i + 1)]; const f = v == null ? 1 : clamp01(v / 3); sum += f; call(d, 'setCoffer', i, f); }
+    call(d, 'setTreasury', 0.3 + 0.7 * sum / 4);
+    for (const s of SIDES) { call(d, 'setDoorBar', s, (c.bars || []).includes(s), false); call(d, 'setBreach', s, (A.breach[s] | 0)); }
+  }
+  function apply(e) {
+    try {
+      if (e.kind === 'vault') { driveVault(e); return; }
+      const r = rooms[e.key]; if (!r) return;
+      if (e.kind === 'tree') { if (r.type === e.type) driveTree(e, r); } else if (e.kind === 'vb') driveVb(e, r);
+    } catch (x) { if (!apply.warned) { apply.warned = 1; console.warn('act5 art', x); } }
+  }
+  return { pre, onMsg, key: e => press(e.code), prompt: () => cur && !cur.busy ? cur.acts[0].label + (cur.acts[0].hold ? ' (hold)' : '') : '', apply, rooms, A, pulsed: id => !!(A.pulse && A.pulse.until > performance.now() && A.pulse.ids.has(id)), recompute, cur: () => cur };
+})();
+// ACT5UI-END
 if (window.GKART) requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => GKART.bake(renderer, { priority: () => { const v = myInv || {}; return [v.weapon, v.armor].concat(v.quick || [], v.backpack || [], (window.GKITEMS && GKITEMS.START || []).flatMap(g => [g.weapon, g.armor])).filter(k => typeof k === 'string'); } }), 600)));   // ITEMART: bake the inventory icons in small batches once the first frame is up
 window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw, pitch) { P.x = x; P.z = z; P.yaw = yaw; P.pitch = pitch || 0; spawned = true; }, toggleOverview() { inside = !inside; }, build: buildGoblin };
 })();
