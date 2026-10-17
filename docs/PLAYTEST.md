@@ -39,8 +39,8 @@ Useful variants:
   - Spend it on the **Elixir Screen**: BASE upgrades, SECURITY, and SEND (sends start in round 2).
   - Craft at the **bench**.
   - Recycle junk in the **recycler**.
-- **Round 2: the arena opens.** The grille rises and your cell gets one exit.
-  - From now on, every room votes on **one door** at its panel (a big screen on the north wall). Picked doors open when the timer hits 0.
+- **Round 2: the arena opens.** The grille rises onto your hall, and nothing else is open yet.
+  - From now on, every room votes on **one door** at its panel (a big screen on the north wall). Picked doors open when the timer hits 0 and **stay open for the rest of the match**. Vault occupants can bar a vault door for a round.
   - **Vault doors need picks from two different rooms.**
 - **The 5x5 arena:**
   - The outer ring has plain halls.
@@ -63,7 +63,7 @@ Useful variants:
    - Recycler.
    - Tab inventory.
 3. **Round 2:**
-   - Walk out and vote on a door at your room's panel.
+   - Walk out into your hall and vote on a door at its panel.
    - Check at the next round that the door opened.
 4. **A merchant room:** press E on the merchant and buy something.
 5. **A tree room:** at the Sapling Well, press E to crank, press E with the needle in the green three times, then E to drink (+knowledge).
