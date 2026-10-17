@@ -797,3 +797,19 @@ Every task owns its files and blocks. Hooks into blocks that other tasks own are
 7. **Public events:** a 30 % chance of one event per public match, or private matches only?
 8. **Leader's mark:** should the leader be pinged on everyone's minimap every 30 s from round 3?
 9. **Cosmetic titles:** scoreboard and recap only (this plan), or also over the head in the world?
+
+---
+
+## 6. Decisions (the owner said "add features as you see best fit"; these are the coordinator's defaults, 2026-10-17)
+
+1. Home phase is round 1 at the standard 120 s; every player gets one junk weapon at GO so the recycle step always works.
+2. Raid grace: homes (and sends against them) are closed until round 3 starts. Round 1 is already home-only (closed to everyone); this extends protection through round 2 for sends and raids. Update PLAN-5x5 section 1.8 accordingly.
+3. Bots may accept a "Truce?" for 25 s.
+4. AFK takeover after 75 s of no input; a win on autopilot gives no victory count.
+5. Private match victories count on the character but not for victory-count matchmaking.
+6. Telemetry (anonymous match stats and client errors; no names, IPs or tokens) is on by default with a Settings toggle.
+7. Public events: 30% chance of at most one event per public match.
+8. Leader's mark: pinged on everyone's minimap every 30 s from round 3.
+9. Cosmetic titles show on the scoreboard and recap only.
+
+Build order: wave 1 (W1-A to W1-F) starts after the in-flight work (home phase, 20 attached rooms, fullscreen, stats, codex, perf, art passes) has merged, to avoid conflict storms in server.js and game.js.
