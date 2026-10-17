@@ -504,7 +504,7 @@ export function buildHomeRoom(THREE, helpers = {}, opts = {}) {
   });
   solid(-3.5, -2.6, 0.35, 0.3);
 
-  at(2.65, 0, -4.3, 0, () => {   // scrap bin: timber on the left, metal on the right
+  at(-4.1, 0, 0.95, PI / 2, () => {   // scrap bin: timber on the left, metal on the right
     sbox('wood', 0.9, 0.06, 0.7, 0, 0.04, 0, WOODD, { rad: 0.01 });
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) sbox('wood', 0.07, 0.8, 0.07, sx * 0.43, 0.4, sz * 0.33, WOODD, { rad: 0.015 });
     for (const y of [0.2, 0.42, 0.64]) { sbox('wood', 0.86, 0.17, 0.04, 0, y, 0.33, WOOD, { rad: 0.01 }); sbox('wood', 0.04, 0.17, 0.66, -0.43, y, 0, WOOD, { rad: 0.01 }); sbox('wood', 0.04, 0.17, 0.66, 0.43, y, 0, WOOD, { rad: 0.01 }); }
@@ -514,7 +514,7 @@ export function buildHomeRoom(THREE, helpers = {}, opts = {}) {
     for (let i = 0; i < 4; i++) sbox('metal', 0.03, 0.03, 0.26, 0.15 + i * 0.07, 0.55 + (i % 2) * 0.03, 0.12, 0x7a5a45, { r: [0, 0.4 * i, 0.1], rad: 0.005 });
     sbox('wood', 0.2, 0.1, 0.02, -0.22, 0.52, 0.355, WOODL, { rad: 0.005 }); sbox('metal', 0.2, 0.1, 0.02, 0.22, 0.52, 0.355, IRONL, { rad: 0.005 });   // the two bin tags
   });
-  solid(2.65, -4.3, 0.45, 0.4);
+  solid(-4.1, 0.95, 0.4, 0.45);
 
   at(-2.7, 0, -0.2, 0.8, () => {   // training dummy: straw sack on a post, a target on the chest, a dented helm
     sbox('wood', 0.8, 0.08, 0.12, 0, 0.04, 0, WOODD, { rad: 0.02 }); sbox('wood', 0.12, 0.08, 0.8, 0, 0.04, 0, WOODD, { rad: 0.02 });
