@@ -103,7 +103,7 @@ function verifyClient(info, cb) {
   const req = info.req;
   if (!originOk(req)) return cb(false, 403, 'Forbidden origin');
   if ((ipCount.get(ipOf(req)) || 0) >= MAX_PER_IP) return cb(false, 429, 'Too many connections');
-  if ((!SEC_DEBUG || process.env.GK_CONN_BURST) && !CONNLIM.allow(ipOf(req))) return cb(false, 429, 'Too many connection attempts');   // SAFETY: join floods and reconnect storms (12 in a burst, then one every 2.5 s per address)
+  if ((!SEC_DEBUG || process.env.GK_CONN_BURST) && (process.env.GK_CONN_BURST || !/^(127\.0\.0\.1|::1)$/.test(ipOf(req)))) if (!CONNLIM.allow(ipOf(req))) return cb(false, 429, 'Too many connection attempts');   // SAFETY: join floods and reconnect storms (12 in a burst, then one every 2.5 s per address; loopback = local dev and the tests are exempt unless GK_CONN_BURST is set)
   cb(true);
 }
 const FIX_WINDOW_MS = 10000, FIX_MAX = 15;
