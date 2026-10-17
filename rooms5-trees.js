@@ -274,7 +274,11 @@
       score(b, p, st) { return b.brainOf === 'goblin' ? 4 : b.brainOf === 'husk' ? (b.knowLeft > 0 && usedR(st, p, 'press') < K.pressCap ? 3 : 0) : (b.hpFrac > 0.7 && usedR(st, p, 'press') < K.pressCap && b.knowLeft > 0 ? 1 : 0); },
       next(b, p, st) {
         if (b.brainOf) return near(b, p, 'C') ? { verb: 'use', a: 'C' } : { go: 'C' };
-        if (b.hpFrac < 0.6 || st.w.alive.length === 0) return null;
+        if (b.hpFrac < 0.6) return null;
+        if (st.w.alive.length === 0) {   // BOTUSE: no husk yet: pour elixir into a vat to rouse one (a player's path), else wait for the vats to brew
+          if ((b.elixir | 0) >= K.rouseElixir + 4 && b.knowLeft > 0) return near(b, p, VATS[0]) ? { verb: 'buy', a: VATS[0] } : { go: VATS[0] };
+          return b.knowLeft > 0 ? { idle: true } : null;
+        }
         return { fight: true };   // wait near the vats; the glue's combat code attacks the husks
       },
     },

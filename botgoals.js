@@ -5,7 +5,7 @@
 
 const K = {
   HOME_WORK: 4, HOME_HURT: 5, FOREIGN_HOME: -5,   // own home: +4 with work (junk, a craftable upgrade), +5 when hurt (the full pump is server.js botHomeWant); never someone else's home
-  FORGE: 5, GRAND: 3, GRAND_NEAR: 4.5,                          // Master Forge with a craftable upgrade; Grand Recycler with junk (preferred over home within 3 hops)
+  FORGE: 8, GRAND: 6.5, GRAND_NEAR: 8.5,                          // Master Forge with a craftable upgrade; Grand Recycler with junk (preferred over home within 3 hops)
   VENT: -6,                                                     // sudden death: outer ring, homes and loot rooms hurt
   TREASURY: 4, CLAIM: 5, CONTEST: 9, WARDEN: -5,                // the vault: be inside at the round end, claim late, contest a claimant, avoid wardens when hurt
   STAGE: 0.6,                                                   // a vaultbreaker room borrows this share of the vault's pull while the vault is shut
@@ -26,7 +26,7 @@ function roomTerm(o) {
       return o.work || hurt ? s : -1;
     case 'foreign': return K.FOREIGN_HOME + (o.sudden ? K.VENT : 0);
     case 'forge': return o.sudden ? K.VENT : o.master ? K.FORGE : -1;
-    case 'grand': return o.sudden ? K.VENT : o.junk ? (o.dist <= 3 ? K.GRAND_NEAR : K.GRAND) + Math.min(2, (o.junk - 1) * 0.5) : -1;
+    case 'grand': return o.sudden ? K.VENT : o.junk ? (o.dist <= 3 ? K.GRAND_NEAR : K.GRAND) + Math.min(3, o.junk * 0.8) : -1;
     case 'tree': case 'vb':
       if (o.done) return K.DONE;
       s = o.hint || 0;
