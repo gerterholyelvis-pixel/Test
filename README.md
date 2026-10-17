@@ -22,7 +22,8 @@ Open the game in a desktop browser (Chrome, Edge or Firefox from 2023 on, or Saf
 | Mouse | Look (click to capture the mouse, Esc to release) |
 | Left click | Attack (hold to keep swinging) |
 | E | Interact: door panel, merchant, workbench, recycler, loot |
-| Q R | Room actions, when the prompt shows them |
+| Q R | Extra actions at tree, heist and vault stations |
+| B | Bribe at a door panel (50 gold, +1 vote) |
 | Tab / I | Inventory |
 | 1 2 3 | Quick slots (the scroll wheel cycles) |
 | Shift | Sprint |
