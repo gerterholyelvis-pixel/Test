@@ -98,7 +98,7 @@
 .hu-keys{color:var(--mut);font-size:clamp(12px,1.8vh,13px);letter-spacing:.08em}
 .hu-ctr{position:fixed;z-index:20;display:none;align-items:center;gap:6px;padding:4px 11px 4px 9px;border-radius:2px;background:rgba(10,10,16,.62);border:1px solid rgba(127,216,255,.3);font:700 clamp(15px,2.5vh,20px) 'Barlow Condensed','Arial Narrow',system-ui,sans-serif;letter-spacing:.06em;color:#bdeaff;text-shadow:0 1px 4px #000;pointer-events:none;zoom:var(--uis,1)}
 .hu-ctr.on{display:flex}.hu-ctr .hu-drop{width:.7em;height:.9em;color:#7fd8ff}.hu-ctr small{font-size:.65em;font-weight:500;color:#a9a493;letter-spacing:.04em}.hu-ctr.hi{border-color:#f5c451;color:#ffe39a}.hu-ctr.hi .hu-drop{color:#f5c451}
-.hu-tw{position:fixed;left:50%;top:3vh;transform:translateX(-50%);z-index:58;display:flex;flex-direction:column;align-items:center;gap:6px;pointer-events:none;width:min(520px,92vw);zoom:var(--uis,1)}
+.hu-tw{position:fixed;left:50%;top:17vh;transform:translateX(-50%);z-index:58;display:flex;flex-direction:column;align-items:center;gap:6px;pointer-events:none;width:min(520px,92vw);zoom:var(--uis,1)}
 .hu-t{padding:7px 16px;border-radius:2px;background:rgba(10,8,8,.9);border:1px solid rgba(245,196,81,.35);border-left:4px solid var(--tc,#f5c451);font:600 clamp(15px,2.4vh,19px) 'Barlow Condensed','Arial Narrow',system-ui,sans-serif;letter-spacing:.06em;color:#efe9d8;box-shadow:0 4px 18px rgba(0,0,0,.6);animation:huin .22s ease-out;transition:opacity .45s,transform .45s}
 .hu-t.out{opacity:0;transform:translateY(-6px)}@keyframes huin{from{opacity:0;transform:translateY(-8px)}}
 @media (max-width:760px){.hu-keys{display:none}.hu-tank{flex-wrap:wrap}.hu-row{grid-template-columns:1fr auto auto}.hu-row .hu-fx{grid-column:1/4;order:5}.hu-send{grid-template-columns:1fr}.hu-map{margin:0 auto}}
@@ -297,6 +297,7 @@
       const k = e.key, a = doc.activeElement, mine = a && scr.contains(a);
       let used = true;
       if (k === 'Escape') close(true);
+      else if ((k === 'e' || k === 'E') && !e.repeat && !(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))) close(true);   // QA-FULL: the footer says "E close"; E was swallowed here and never reached the game, so the screen could not be closed with E
       else if (k >= '1' && k <= '3') { tab = +k - 1; render(); const t = scr.querySelector('[data-f="tab' + tab + '"]'); if (t) t.focus(); }
       else if ((k === 'ArrowLeft' || k === 'ArrowRight') && a && a.classList.contains('hu-tab')) { tab = (tab + (k === 'ArrowRight' ? 1 : 2)) % 3; render(); scr.querySelector('[data-f="tab' + tab + '"]').focus(); }
       else if (k.indexOf('Arrow') === 0 && mine && a.dataset.cell) focusCell(a, k === 'ArrowRight' ? 1 : k === 'ArrowLeft' ? -1 : 0, k === 'ArrowDown' ? 1 : k === 'ArrowUp' ? -1 : 0);

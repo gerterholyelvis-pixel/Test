@@ -10,10 +10,12 @@ Starting points: Small 3, Medium 2, Big 1, Wizard 4, King 2. The full tree costs
 
 ## One screen
 Press **E at a workbench or at a knowledge tree** (both are in merchant rooms and in stations mystery rooms) to open the same `WORKBENCH` screen:
-- **Header:** your knowledge, your recipe tier (0 to V) and your points to spend.
-- **Left:** the knowledge tree, with three branches of three perks each. A perk shows as learned, CLICK TO LEARN, or what is missing.
-- **Right:** recipes grouped by tier. Locked tiers show what you still need. If you know Reforge, a Reforge section sits on top.
-- **Bottom:** your materials.
+(Redesigned, see docs/reports/workbench-ui.md; the screen is `wbui.js`.) It has a station banner (Workbench, Master Forge, Home Workbench, Recycler, Home Recycler 50%, Grand Recycler 100%) and four tabs, switched with Tab or 1-4:
+- **Craft:** recipes by category (weapons, armour, consumables, charms) with search (`/`), filters, sort and a pinned Craftable now row. Each card shows the stat change against what you wear, the cost in have/need colours, the craft time and why you cannot craft it yet.
+- **Perks:** the knowledge tree as three branches of three perks (learned / ready to learn / locked, with costs). Knowledge, recipe tier and points are always shown in the tab bar.
+- **Reforge:** gear you can reforge, before and after.
+- **Recycle:** pick several items, see the materials you get and the total, or recycle all junk (gear no better than what you wear) after an in-page confirmation.
+- **Always visible:** the progress strip of a running craft and your materials (with a +/- preview of the selected recipe or recycle).
 
 A knowledge tree is a full workbench, so a stations room with recycler + tree can craft too. When you have unspent points, the Knowledge line on the inventory stat card says so. There is no extra HUD.
 
