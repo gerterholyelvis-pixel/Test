@@ -4454,6 +4454,7 @@ const handleMsg0 = d => {
   if ((d.keep || d.keepOffer) && window.GKKEEPUI) GKKEEPUI.onMsg(d, GK.charId);   // KEEP: stash token updates, bring-in notices, the consolation offer
   if (window.GKLOOT) GKLOOT.onMsg(d);   // LOOT: vault relic, thrown plushie
   if (window.GKHOMEW) GKHOMEW.onMsg(d);   // ELIXIR: counter, Elixir Screen state, toasts, send effects
+  if (window.GKBASE) GKBASE.onMsg(d);   // BASEACT: base jobs, round goals, lookout
   if (window.GKUSE) GKUSE.onMsg(d);   // UTILITY: used items, thrown bombs, smoke
   if (window.GKRULES) GKRULES.onMsg(d);   // RULES: experimental rules (inert unless the server advertises them)
   if (d.died) showDeathScreen(d.died);
@@ -5157,7 +5158,7 @@ addEventListener('keydown', e => {
     return;
   }
   if (e.code === 'KeyE' && !invOpen) { if (GK.locked) return;   // one interact key: control panel, then merchant / station, then a loot pile underfoot
-    if (cpInteract() || (window.GKACT5 && GKACT5.key(e)) || (window.GKHALL && GKHALL.key(e)) || stationInteract()) return;   // ACT5UI: an anchor of a tree room / vaultbreaker / the vault comes after the door panel
+    if (cpInteract() || (window.GKACT5 && GKACT5.key(e)) || (window.GKHALL && GKHALL.key(e)) || (window.GKBASE && GKBASE.key(e)) || stationInteract()) return;   // BASEACT: a home prop I face comes before the bench or pump behind it   // ACT5UI: an anchor of a tree room / vaultbreaker / the vault comes after the door panel
     if (nearestPile()) openStation('loot', nearestPile().id); else net.send({ claim: 1 });   // chest / mystery room contents
     return;
   }
@@ -5290,6 +5291,7 @@ function openShop(roomId) {
 function closeShop(noLock) {
   if (!shopOpen) return;
   if (panelKind === 'home' && window.GKHOMEW) GKHOMEW.shut();   // ELIXIR
+  if (panelKind === 'base' && window.GKBASE) GKBASE.shut();   // BASEACT
   shopOpen = false; panelKind = ''; for (const id of ['gkShop', 'gkRec', 'gkCraft', 'gkLoot']) { const el = document.getElementById(id); if (el) el.style.display = 'none'; } keys.clear(); if (!noLock) lockNow();
 }
 GK.openShop = openShop; GK.closeShop = closeShop;
@@ -9343,6 +9345,26 @@ const HOMEW = window.GKHOMEW = (() => {
   };
 })();
 // HOME-END
+// BASEACT-BEGIN (home jobs, round goals board, lookout window; baseactui.js is the UI, baseact.js the shared rules, the server is server.js BASEACT; docs/reports/base-activities.md)
+window.GKBASE = (() => {
+  if (!window.GKBASEUI || !window.GKBASEACT) return null;
+  const inMine = () => !!GK.myHome && roomKeyAt(P.x, P.z) === GK.myHome;
+  const art = () => { const e = GK.r5 && GK.myHome && GK.r5.room(GK.myHome); return e && e.api && e.api.setBase ? e.api : null; };
+  let board = null, boardApi = null;
+  const paintBoard = () => { const a = art(); if (a && a !== boardApi) { boardApi = a; a.setBase(board); } };   // the art home is rebuilt now and then: repaint the goals board and the cups on the new one
+  const b = GKBASEUI.create({
+    send: m => net.send(m), snd, toast: (k, t) => { if (window.GKHOMEW && GKHOMEW.ui) GKHOMEW.ui.toast(k, t); },
+    me: () => P, home: () => GK.myHome,
+    inHome: () => GK.mode === 'play' && spawned && inMine(),
+    active: () => GK.mode === 'play' && spawned && !invOpen && !shopOpen && !GK.locked && inMine(),
+    alive: () => GK.mode === 'play' && spawned,
+    lock: { open() { shopOpen = true; panelKind = 'base'; keys.clear(); try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {} }, close() { if (panelKind === 'base') { shopOpen = false; panelKind = ''; keys.clear(); lockNow(); } } },
+    fx: (n, v) => { const a = art(); if (n === 'board') { board = v; boardApi = null; paintBoard(); } else if (n === 'spin' && a) a.spinWheel(v); },
+  });
+  setInterval(() => { b.tick(); paintBoard(); }, 500);
+  return b;
+})();
+// BASEACT-END
 // ACT5UI-BEGIN (docs/reports/integration-polish.md): the human side of the special rooms. actS / actMe / actFx / crown / breach drive the tree, vaultbreaker and vault art (rooms5art-*), and E / R / Q at an anchor send {act:{r,a,v,x?}}
 // (act5ui.js says what each anchor offers; the server act5.js judges). Holds (channels) send `stop` when the key is released. The arc under the crosshair is hud5's (actMe). No lights, nothing per frame except cheap setters on drawn rooms.
 window.GKACT5 = (() => {

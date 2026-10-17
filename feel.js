@@ -63,6 +63,7 @@
   function setPrompt(t, low) { low = !!low; if (low !== promptLow) { promptLow = low; promptEl.classList.toggle('low', low); } if (t === promptNow) return; promptNow = t; if (t) promptTxt.textContent = t; promptEl.classList.toggle('on', !!t); }   // low: aiming at a door panel, the prompt sits above the hotbar so it never covers the panel's rows
   function promptFor(A) {
     if (A.cpAim) return GK.cpAimOpen && GK.cpAimOpen() ? '' : 'Select door';   // DOORS-PERSIST: an open door needs no vote
+    { const bp = window.GKBASE && GKBASE.prompt(); if (bp) return bp; }   // BASEACT: a home prop I stand at and face (crank wheel, anvil, scrap bin, dummy, goals board, window) beats the bench or pump behind it
     const h = A.hover();
     if (h && h.room >= 0) return h.kind === 'r' ? ((GK.layout || [])[h.room] === 'grand' ? 'Use the Grand Recycler' : 'Use recycler') : h.kind === 'w' ? ((GK.layout || [])[h.room] === 'forge' ? 'Use the Master Forge' : 'Use crafting bench') : h.kind === 'k' ? 'Study the knowledge tree' : h.kind === 's' ? 'Open the Elixir Screen' : h.kind === 'p' ? 'Collect elixir from the pump' : h.kind === 'c' ? 'Use the Camera Terminal' : h.kind === 'b' ? (GK.myHome === 'c' + h.room ? 'Your lockbox' : 'Crack the lockbox') : 'Trade with merchant';
     { const ap = window.GKACT5 && GKACT5.prompt(); if (ap) return ap; }

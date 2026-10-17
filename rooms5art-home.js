@@ -417,7 +417,7 @@ export function buildHomeRoom(THREE, helpers = {}, opts = {}) {
   rug.rotation.x = -PI / 2; rug.rotation.z = 0.1; rug.scale.set(2.1, 1.5, 1); rug.position.set(0.2, 0.03, 0.9); group.add(rug);
   at(-1.9, 0, 0.3, 0, () => { lathe('metal', [[0.001, 0], [0.14, 0], [0.19, 0.3], [0.17, 0.3], [0.12, 0.02], [0.001, 0.02]], 0, 0, 0, 0x6a6e73, { seg: 12 }); tor('metal', 0.18, 0.012, 0, 0.3, 0, IRONL, { r: [PI / 2, 0, 0], seg: 12 }); });
   at(1.3, 0, 2.6, 0, () => { for (let i = 0; i < 6; i++) cyl('metal', 0.02, 0.02, 0.13, (rnd() - 0.5) * 0.7, 0.025, (rnd() - 0.5) * 0.4, [0xc9a24a, 0x9aa0a6, 0xb98d40][i % 3], { r: [PI / 2, 0, 0], seg: 8 }); });   // dropped coins/washers
-  { // scratched tally marks and a crude crown on the west wall above the bedroll (decal)
+  if (opts.tally) { // scratched tally marks and a crude crown on the west wall above the bedroll (decal; BASEACT: the goals board hangs there now, so it is off unless opts.tally)
     const c = document.createElement('canvas'); c.width = 256; c.height = 160; const g = c.getContext('2d'); g.strokeStyle = 'rgba(50,34,22,0.75)'; g.lineWidth = 3; g.lineCap = 'round';
     for (let k = 0; k < 4; k++) { const x0 = 18 + k * 34; for (let i = 0; i < 4; i++) { g.beginPath(); g.moveTo(x0 + i * 6, 76); g.lineTo(x0 + i * 6 + (rnd() - 0.5) * 4, 112 + rnd() * 4); g.stroke(); } g.beginPath(); g.moveTo(x0 - 4, 114); g.lineTo(x0 + 24, 80); g.stroke(); }
     g.beginPath(); g.moveTo(150, 60); g.lineTo(160, 22); g.lineTo(182, 46); g.lineTo(204, 18); g.lineTo(226, 46); g.lineTo(240, 24); g.lineTo(244, 62); g.closePath(); g.stroke(); for (const [x, y] of [[160, 22], [204, 18], [240, 24]]) { g.beginPath(); g.arc(x, y - 4, 4, 0, 6.3); g.stroke(); }
@@ -475,6 +475,119 @@ export function buildHomeRoom(THREE, helpers = {}, opts = {}) {
   upg.alarm.position.x = -1.75; group.add(upg.alarm, upg.sentry, upg.lockbox, upg.camera);
   for (const k of ['lock', 'lock2', 'alarm', 'sentry', 'lockbox', 'camera']) upg[k].visible = false;
 
+  // BASEACT-BEGIN (base-job props, docs/reports/base-activities.md): crank wheel (E wall), anvil stump, scrap bin, training dummy, goals board (W wall), lookout window and trophy shelf (S wall).
+  // Everything static goes into the existing bags (no new draw calls); three small dynamic meshes: the wheel (spins), the board (canvas) and the trophy cups (one instanced mesh). No lights.
+  // Footprints: world.js HOME_SOLIDS (crank wheel, anvil, bin, dummy) and HOME_LAYOUT (crank, anvil, bin, dummy, board, window), kept in step by tests/rooms5art-wiring.test.js.
+  const sbox = (bag, w, h, d, x, y, z, c, o = {}) => put(bag, new THREE.BoxGeometry(w, h, d), c, Object.assign({ p: [x, y, z] }, o));   // plain boxes here: the rounded ones cost about 190 triangles each
+  const CWX = HALF - 0.55, CWZ = -0.65, CWY = 0.95;
+  at(CWX, 0, CWZ, 0, () => {   // crank wheel: wall plate, axle stub, a brass pipe over to the pump base
+    sbox('wood', 0.1, 1.45, 1.0, 0.3, 0.72, 0, WOODD, { rad: 0.02 }); sbox('wood', 0.5, 0.08, 0.86, 0.06, 0.04, 0, WOOD, { rad: 0.02 });
+    cyl('metal', 0.035, 0.035, 0.32, 0.14, CWY, 0, IRON, { r: [0, 0, PI / 2], seg: 8 }); sph('metal', 0.05, 0.3, CWY, 0, IRONL, { seg: 6, segH: 4 });
+    tube('brass', [[0.3, 0.45, -0.2], [0.28, 0.3, -0.5], [0.3, 0.3, -0.6]], 0.035, 0xb08a42);
+    sbox('metal', 0.14, 0.08, 0.2, 0.3, 0.3, -0.62, IRONL, { rad: 0.015 });
+  });
+  solid(CWX, CWZ, 0.4, 0.4);
+  bags.wheel = [];   // a private bag: merged into the spinning wheel mesh below, then removed before the static merge
+  tor('wheel', 0.42, 0.04, 0, 0, 0, IRONR, { r: [0, PI / 2, 0], seg: 20 });
+  for (let i = 0; i < 3; i++) sbox('wheel', 0.04, 0.84, 0.05, 0, 0, 0, IRON, { r: [i * PI / 3, 0, 0], rad: 0.01 });
+  cyl('wheel', 0.09, 0.09, 0.12, 0, 0, 0, IRONL, { r: [0, 0, PI / 2], seg: 10 });
+  sbox('wheel', 0.04, 0.05, 0.3, -0.1, 0, 0.17, IRONL, { rad: 0.01 }); cyl('wheel', 0.028, 0.028, 0.18, -0.16, 0, 0.32, WOOD, { r: [0, 0, PI / 2], seg: 8 });
+  const wheel = new THREE.Mesh(mergeBag(bags.wheel), M.metal); bags.wheel.forEach(g => g.dispose()); delete bags.wheel; wheel.name = 'home_wheel'; wheel.position.set(CWX, CWY, CWZ); wheel.frustumCulled = false; group.add(wheel);
+  let wheelSpin = 0, wheelT = 0;
+
+  at(-3.5, 0, -2.6, 0.3, () => {   // anvil stump with a hot bar and a hammer
+    cyl('wood', 0.3, 0.34, 0.5, 0, 0.25, 0, WOOD, { seg: 10 }); for (const y of [0.1, 0.42]) tor('metal', 0.31, 0.012, 0, y, 0, IRON, { r: [PI / 2, 0, 0], seg: 14 });
+    sbox('metal', 0.5, 0.1, 0.26, 0, 0.55, 0, 0x4a4d52, { rad: 0.02 }); sbox('metal', 0.26, 0.14, 0.18, 0, 0.67, 0, 0x4a4d52, { rad: 0.015 }); sbox('metal', 0.72, 0.1, 0.28, 0, 0.78, 0, 0x5a5e64, { rad: 0.02 });
+    put('metal', new THREE.ConeGeometry(0.1, 0.3, 8), 0x5a5e64, { p: [0.5, 0.78, 0], r: [0, 0, -PI / 2] });
+    sbox('wood', 0.04, 0.04, 0.4, -0.12, 0.86, 0.08, WOODL, { r: [0, 0.5, 0], rad: 0.01 }); sbox('metal', 0.1, 0.1, 0.16, -0.2, 0.88, -0.08, IRONL, { r: [0, 0.5, 0], rad: 0.015 });
+    sbox('glow', 0.3, 0.025, 0.04, 0.12, 0.84, -0.04, 0xff7a24, { r: [0, 0.15, 0], rad: 0.004 });
+  });
+  solid(-3.5, -2.6, 0.35, 0.3);
+
+  at(2.65, 0, -4.3, 0, () => {   // scrap bin: timber on the left, metal on the right
+    sbox('wood', 0.9, 0.06, 0.7, 0, 0.04, 0, WOODD, { rad: 0.01 });
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) sbox('wood', 0.07, 0.8, 0.07, sx * 0.43, 0.4, sz * 0.33, WOODD, { rad: 0.015 });
+    for (const y of [0.2, 0.42, 0.64]) { sbox('wood', 0.86, 0.17, 0.04, 0, y, 0.33, WOOD, { rad: 0.01 }); sbox('wood', 0.04, 0.17, 0.66, -0.43, y, 0, WOOD, { rad: 0.01 }); sbox('wood', 0.04, 0.17, 0.66, 0.43, y, 0, WOOD, { rad: 0.01 }); }
+    sbox('wood', 0.04, 0.5, 0.66, 0, 0.3, 0, WOODD, { rad: 0.01 });
+    for (let i = 0; i < 5; i++) sbox('wood', 0.07, 0.06, 0.5, -0.32 + i * 0.07, 0.6 + (i % 2) * 0.03, -0.02, WOODL, { r: [0.3 - i * 0.12, (i - 2) * 0.1, 0], rad: 0.01 });
+    for (let i = 0; i < 4; i++) cyl('metal', 0.09, 0.09, 0.03, 0.18 + (i % 2) * 0.14, 0.52 + i * 0.03, -0.1 + i * 0.07, [IRONL, IRONR, IRON, 0x8a8f94][i], { r: [PI / 2 - 0.3, i, 0], seg: 10 });
+    for (let i = 0; i < 4; i++) sbox('metal', 0.03, 0.03, 0.26, 0.15 + i * 0.07, 0.55 + (i % 2) * 0.03, 0.12, 0x7a5a45, { r: [0, 0.4 * i, 0.1], rad: 0.005 });
+    sbox('wood', 0.2, 0.1, 0.02, -0.22, 0.52, 0.355, WOODL, { rad: 0.005 }); sbox('metal', 0.2, 0.1, 0.02, 0.22, 0.52, 0.355, IRONL, { rad: 0.005 });   // the two bin tags
+  });
+  solid(2.65, -4.3, 0.45, 0.4);
+
+  at(-2.7, 0, -0.2, 0.8, () => {   // training dummy: straw sack on a post, a target on the chest, a dented helm
+    sbox('wood', 0.8, 0.08, 0.12, 0, 0.04, 0, WOODD, { rad: 0.02 }); sbox('wood', 0.12, 0.08, 0.8, 0, 0.04, 0, WOODD, { rad: 0.02 });
+    cyl('wood', 0.06, 0.075, 1.6, 0, 0.82, 0, WOOD, { seg: 8 });
+    lathe('cloth', [[0.001, 0], [0.2, 0.04], [0.25, 0.28], [0.21, 0.5], [0.001, 0.54]], 0, 0.78, 0, 0xb8a070, { seg: 10, s: [1, 1, 0.8] });
+    [[0.13, 0xe8e0c8], [0.09, 0xa22a20], [0.045, 0xe8e0c8]].forEach(([r, c], i) => cyl('cloth', r, r, 0.012, 0, 1.08, 0.2 + i * 0.006, c, { r: [PI / 2, 0, 0], seg: 14 }));
+    sph('cloth', 0.13, 0, 1.55, 0, 0xb8a070, { seg: 10, segH: 7 }); sph('metal', 0.15, 0, 1.6, 0, 0x6a6e73, { s: [1, 0.72, 1], seg: 10, segH: 6 }); sbox('metal', 0.03, 0.12, 0.03, 0, 1.52, 0.14, 0x4a4d52);
+    cyl('wood', 0.035, 0.035, 0.95, 0, 1.3, 0, WOOD, { r: [0, 0, PI / 2], seg: 8 }); cyl('wood', 0.2, 0.2, 0.03, -0.42, 1.28, 0.1, WOODL, { r: [PI / 2, 0, 0], seg: 14 });
+    for (const sx of [-1, 1]) for (let i = 0; i < 3; i++) sbox('cloth', 0.02, 0.2, 0.02, sx * 0.47 + (i - 1) * 0.03, 1.18, 0, 0xc4a868, { r: [0, 0, (i - 1) * 0.2] });
+    sbox('metal', 0.014, 0.12, 0.004, 0.1, 0.98, 0.24, 0x3a2e24, { r: [0, 0, 0.7] });   // an axe nick
+  });
+  solid(-2.7, -0.2, 0.35, 0.35);
+
+  const boardCv = document.createElement('canvas'); boardCv.width = 480; boardCv.height = 400;
+  at(-HALF + 0.06, 0, 3.0, PI / 2, () => {   // goals board over the bedroll: the frame is static, the face is a canvas (setBase)
+    sbox('wood', 1.34, 1.14, 0.05, 0, 1.7, 0.03, WOOD, { rad: 0.02 }); sbox('wood', 1.22, 1.02, 0.02, 0, 1.7, 0.06, WOODD, { rad: 0.01 });
+    for (const sx of [-1, 1]) sph('metal', 0.03, sx * 0.6, 2.2, 0.06, IRONL, { seg: 6, segH: 4 });
+    tube('cloth', [[-0.6, 2.2, 0.06], [-0.2, 2.62, 0.04], [0.2, 2.62, 0.04], [0.6, 2.2, 0.06]], 0.012, 0xb89a62, { segs: 10 });
+  });
+  const boardTex = new THREE.CanvasTexture(boardCv); boardTex.colorSpace = THREE.SRGBColorSpace; boardTex.anisotropy = 4;
+  const boardMat = new THREE.MeshBasicMaterial({ map: boardTex, color: 0xd8d0c0, toneMapped: false });
+  const board = new THREE.Mesh(new THREE.PlaneGeometry(1.15, 0.96), boardMat); board.name = 'goalsBoard'; board.position.set(-HALF + 0.06 + 0.075, 1.7, 3.0); board.rotation.y = PI / 2; group.add(board);
+  const wrapText = (g, s, x, y, w, lh) => { const words = String(s).split(' '); let line = '', yy = y; for (const wd of words) { const t = line ? line + ' ' + wd : wd; if (g.measureText(t).width > w && line) { g.fillText(line, x, yy); line = wd; yy += lh; } else line = t; } if (line) g.fillText(line, x, yy); return yy; };
+  function drawBoard(st) {
+    const g = boardCv.getContext('2d'), W = boardCv.width, H = boardCv.height;
+    g.fillStyle = '#d6c496'; g.fillRect(0, 0, W, H); g.fillStyle = 'rgba(80,56,28,0.12)'; for (let i = 0; i < 30; i++) g.fillRect((i * 97) % W, (i * 53) % H, 40 + (i * 13) % 50, 6);
+    g.strokeStyle = '#5a3d20'; g.lineWidth = 6; g.strokeRect(8, 8, W - 16, H - 16);
+    g.fillStyle = '#3a2410'; g.font = '800 38px system-ui,sans-serif'; g.textAlign = 'center'; g.fillText('ROUND GOALS', W / 2, 56); g.textAlign = 'left';
+    const goals = (st && st.goals) || [];
+    for (let i = 0; i < 3; i++) {
+      const y = 84 + i * 82, gl = goals[i];
+      g.strokeStyle = '#3a2410'; g.lineWidth = 4; g.strokeRect(28, y + 8, 38, 38);
+      if (gl && gl.done) { g.strokeStyle = '#1f7a3a'; g.lineWidth = 8; g.beginPath(); g.moveTo(33, y + 28); g.lineTo(45, y + 41); g.lineTo(64, y + 8); g.stroke(); }
+      g.fillStyle = gl && gl.done ? '#6a5a3a' : '#2a1808'; g.font = '700 25px system-ui,sans-serif';
+      if (gl) { wrapText(g, gl.text, 82, y + 24, 300, 27); g.textAlign = 'right'; g.fillStyle = gl.done ? '#1f7a3a' : '#7a3a1a'; g.font = '800 26px system-ui,sans-serif'; g.fillText(gl.have + '/' + gl.need + (gl.id === 'good' ? '%' : ''), W - 28, y + 38); g.textAlign = 'left'; }
+      else { g.fillText('...', 82, y + 36); }
+    }
+    g.textAlign = 'center'; g.font = '800 27px system-ui,sans-serif';
+    if (st && st.claimed) { g.fillStyle = '#1f7a3a'; g.fillText('CLAIMED, a trophy is up', W / 2, H - 30); }
+    else if (st && st.ready) { g.fillStyle = '#1f7a3a'; g.fillText('DONE: press E to claim', W / 2, H - 30); }
+    else { g.fillStyle = '#6a4a22'; g.fillText('Reward: ' + ((st && st.gold) || 6) + ' gold + a trophy', W / 2, H - 30); }
+    g.textAlign = 'left'; boardTex.needsUpdate = true;
+  }
+  drawBoard(null);
+
+  at(-3.8, 0, HALF - 0.05, PI, () => {   // lookout window in the south wall: shutters thrown open, a spyglass on the sill
+    sbox('glow', 0.8, 0.95, 0.02, 0, 1.55, 0.014, 0x7c9cb2);
+    sbox('wood', 1.2, 0.08, 0.22, 0, 1.03, 0.09, WOODL, { rad: 0.015 }); sbox('wood', 1.1, 0.1, 0.12, 0, 2.08, 0.05, WOODD, { rad: 0.015 });
+    for (const sx of [-1, 1]) sbox('wood', 0.1, 1.15, 0.12, sx * 0.5, 1.55, 0.05, WOODD, { rad: 0.015 });
+    sbox('wood', 0.05, 0.95, 0.06, 0, 1.55, 0.02, WOODD, { rad: 0.008 }); sbox('wood', 0.8, 0.05, 0.06, 0, 1.6, 0.02, WOODD, { rad: 0.008 });
+    for (const sx of [-1, 1]) sbox('wood', 0.4, 1.05, 0.04, sx * 0.72, 1.55, 0.26, WOOD, { r: [0, -sx * 0.9, 0], rad: 0.01 });
+    cyl('brass', 0.03, 0.04, 0.46, 0.15, 1.11, 0.1, 0xb08a42, { r: [0, 0, PI / 2 - 0.1], seg: 8 }); cyl('brass', 0.045, 0.045, 0.08, 0.38, 1.1, 0.1, 0x8a6a34, { r: [0, 0, PI / 2 - 0.1], seg: 8 });
+  });
+
+  const TROPH = 7, trophyX = i => 3.8 + 0.9 - i * 0.3;   // world x of cup i (the shelf runs along the south wall, east of the door)
+  at(3.8, 0, HALF - 0.05, PI, () => {   // trophy shelf: plank, brackets, seven dark rings for the cups
+    sbox('wood', 2.3, 0.06, 0.3, 0, 1.6, 0.15, WOOD, { rad: 0.015 }); sbox('wood', 2.3, 0.4, 0.03, 0, 1.85, 0.02, WOODD, { rad: 0.01 });
+    for (const sx of [-1, 1]) sbox('wood', 0.05, 0.24, 0.24, sx * 0.95, 1.46, 0.13, WOODD, { r: [0, 0, 0], rad: 0.01 });
+    for (let i = 0; i < TROPH; i++) cyl('wood', 0.09, 0.09, 0.012, -0.9 + i * 0.3, 1.636, 0.15, 0x2c1c10, { seg: 12 });
+    sbox('brass', 0.4, 0.09, 0.02, 0, 2.08, 0.03, 0xc29646, { rad: 0.005 });
+  });
+  const cupGeo = new THREE.LatheGeometry([[0.001, 0], [0.06, 0], [0.06, 0.02], [0.018, 0.045], [0.018, 0.1], [0.075, 0.17], [0.07, 0.22], [0.001, 0.22]].map(q => new THREE.Vector2(q[0], q[1])), 12);
+  const cupMat = new THREE.MeshStandardMaterial({ color: 0xe6bc4c, metalness: 0.85, roughness: 0.32, emissive: 0x4a3000, emissiveIntensity: 0.55 });
+  const cups = new THREE.InstancedMesh(cupGeo, cupMat, TROPH); cups.name = 'trophyCups'; cups.frustumCulled = false;
+  { const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3(); for (let i = 0; i < TROPH; i++) { const k = 0.85 + i * 0.05; s.set(k, k, k); cups.setMatrixAt(i, m4.compose(p.set(trophyX(i), 1.642, HALF - 0.05 - 0.15), q, s)); } }
+  cups.count = 0; group.add(cups);
+  let baseState = null;
+  function baseTick(t) {   // the wheel coasts to a stop after a crank
+    const dt = Math.min(0.1, Math.max(0, t - wheelT)); wheelT = t;
+    if (wheelSpin > 0.01) { wheel.rotation.x += wheelSpin * dt; wheelSpin *= Math.pow(0.35, dt); } else wheelSpin = 0;
+  }
+  // BASEACT-END
+
   // ---------- merge static bags into meshes ----------
   const meshes = [];
   for (const k in bags) { if (!bags[k].length) continue; const mesh = new THREE.Mesh(mergeBag(bags[k]), k === 'glow' ? glowMat : M[k]); mesh.name = 'home_' + k; mesh.frustumCulled = false; group.add(mesh); meshes.push(mesh); bags[k].forEach(g => g.dispose()); }
@@ -513,8 +626,12 @@ export function buildHomeRoom(THREE, helpers = {}, opts = {}) {
       return false;
     },
     ringAlarm() { ring = 1; },
+    // BASEACT: st = { goals: [{text, have, need, done}], claimed, ready, gold, trophies }; spinWheel(v) kicks the crank wheel (rad/s)
+    setBase(st) { baseState = st || null; drawBoard(baseState); cups.count = Math.max(0, Math.min(TROPH, (baseState && baseState.trophies) | 0)); cups.instanceMatrix.needsUpdate = true; },
+    spinWheel(v) { wheelSpin = Math.min(14, wheelSpin + (+v || 0)); },
     setSentryTarget(x, z) { sentryTarget = x == null ? null : Math.atan2(x - SENX, z - (SENZ + 0.15)); },
     update(t) {
+      baseTick(t);   // BASEACT: the crank wheel coasts
       pumpShown += (pumpLevel - pumpShown) * 0.08; if (Math.abs(pumpLevel - pumpShown) < 0.001) pumpShown = pumpLevel; applyPump();
       // bubbles rise inside the liquid and wrap
       const top = Math.max(0.05, TANK_H * pumpShown - 0.06); const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), ps = new THREE.Vector3();
@@ -533,7 +650,7 @@ export function buildHomeRoom(THREE, helpers = {}, opts = {}) {
       // sentry idle sweep or aim
       if (upg.sentry.visible) { const goal = sentryTarget != null ? sentryTarget : Math.sin(t * 0.35) * 0.7; sentryYaw.rotation.y += (goal - sentryYaw.rotation.y) * 0.1; }
     },
-    dispose() { group.traverse(o => { if (o.geometry) o.geometry.dispose(); }); [glassMat, liqMat, scrMat, nameMat, glowMat, scrTex, nameTex].forEach(x => x.dispose()); if (outside) { outside.board.geometry.dispose(); outside.board.material.dispose(); outside.sign.geometry.dispose(); } },
+    dispose() { group.traverse(o => { if (o.geometry) o.geometry.dispose(); }); [glassMat, liqMat, scrMat, nameMat, glowMat, scrTex, nameTex, boardTex, boardMat, cupMat].forEach(x => x.dispose()); if (outside) { outside.board.geometry.dispose(); outside.board.material.dispose(); outside.sign.geometry.dispose(); } },
   };
   let ring = 0, sentryTarget = null;
   return api;
