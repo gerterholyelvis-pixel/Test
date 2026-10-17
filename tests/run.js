@@ -4,7 +4,8 @@
 //                            a comma list works (--tier server,slow); default all
 //   --changed[=REF]          only the files affected by what changed since REF (default: merge-base with main) plus uncommitted edits;
 //                            --dry prints the picked files without running them
-//   --jobs N                 parallel files (also GK_TEST_JOBS); default: half the cores, lowered when the CPU is already busy
+//   --jobs N                 parallel files (also GK_TEST_JOBS); default: half the cores (3/4 of that when the CPU is >85% busy).
+//                            At most 3 @timing files run at once (2 when the CPU is busy; GK_TEST_TIMING_JOBS overrides)
 //   -q / --quiet             print only failures, flaky retries and the summary (also GK_TEST_QUIET=1)
 //   --no-retry               do not retry @timing files (also GK_TEST_RETRY=0); --retry-all retries every failed file once
 //   --list                   print each file's tier / tags / last time and exit
@@ -71,17 +72,34 @@ const runOne = (m, attempt) => new Promise(res => {
   p.stdout.on('data', d => out += d); p.stderr.on('data', d => out += d);
   p.on('exit', code => { clearTimeout(kill); res({ ...m, code: code === 0 ? 0 : 1, out, ms: Date.now() - t0 }); });
 });
-async function pool(list, jobs, attempt) { let next = 0; const rs = []; await Promise.all(Array.from({ length: Math.min(jobs, list.length) }, async () => { while (next < list.length) rs.push(await runOne(list[next++], attempt)); })); return rs; }
+// At most `jobs` files at once, of which at most `tcap` are @timing files (they measure wall-clock time, so they suffer most from
+// neighbours). Most server tests wait on game timers rather than burn CPU, so the other slots stay full even on a busy machine.
+function pool(list, jobs, attempt, tcap = jobs) {
+  const todo = list.slice(), rs = []; let run = 0, trun = 0;
+  return new Promise(done => {
+    const pump = () => {
+      while (run < jobs && todo.length) {
+        const i = todo.findIndex(m => !m.timing || trun < tcap); if (i < 0) break;
+        const m = todo.splice(i, 1)[0]; run++; if (m.timing) trun++;
+        runOne(m, attempt).then(r => { rs.push(r); run--; if (m.timing) trun--; pump(); });
+      }
+      if (!run && !todo.length) done(rs);
+    };
+    pump();
+  });
+}
 const failLines = out => out.split('\n').filter(l => /^\s*FAIL\b/.test(l) || /^\s{6,}\S/.test(l) && !/^\s*ok\b/.test(l)).slice(0, 8).join('\n');
 
 (async () => {
   const t0 = Date.now(), cores = os.cpus().length, dflt = Math.max(2, Math.floor(cores / 2));
-  let jobs = +val('--jobs', 0) || +process.env.GK_TEST_JOBS || 0, note = '';
-  if (!jobs) { const busy = await cpuBusy(400); jobs = Math.max(2, Math.min(dflt, Math.floor(cores * (1 - busy) / 2))); note = ' (CPU ' + Math.round(busy * 100) + '% busy before start' + (jobs < dflt ? ', lowered from ' + dflt : '') + ')'; }
-  if (!quiet) console.log('running ' + files.length + ' test files, ' + jobs + ' in parallel' + note);
+  const busy = await cpuBusy(400);
+  let jobs = +val('--jobs', 0) || +process.env.GK_TEST_JOBS || 0;
+  if (!jobs) jobs = busy > 0.85 ? Math.max(4, Math.floor(dflt * 0.75)) : dflt;
+  const tcap = Math.min(jobs, +process.env.GK_TEST_TIMING_JOBS || (busy > 0.5 ? 2 : 3));
+  console.log('running ' + files.length + ' test files, ' + jobs + ' in parallel, at most ' + tcap + ' @timing at once (CPU ' + Math.round(busy * 100) + '% busy before start)');
   // longest first (times from the last run), so one slow file does not start last and set the wall time
   const order = files.slice().sort((a, b) => (last[b.f] || (b.tier === 'server' ? 5000 : 500)) - (last[a.f] || (a.tier === 'server' ? 5000 : 500)));
-  const first = await pool(order, jobs, 1), byF = {};
+  const first = await pool(order, jobs, 1, tcap), byF = {};
   for (const r of first) byF[r.f] = r;
   const retry = first.filter(r => r.code && (retryMode === 'all' || retryMode === 'timing' && r.timing)), flaky = [];
   if (retry.length) { if (!quiet) console.log('retrying ' + retry.length + ' load-sensitive file(s) one at a time: ' + retry.map(r => r.f).join(', ')); for (const r of await pool(retry, 1, 2)) { if (!r.code) flaky.push({ f: r.f, first: byF[r.f] }); byF[r.f] = r; } }
