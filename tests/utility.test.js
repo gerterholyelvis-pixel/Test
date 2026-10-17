@@ -131,7 +131,7 @@ const roomOnly = id => DOORS.find(d => d[0] === id);
         const [a, b] = await Promise.all([connect(srv.port, 'goblin=1'), connect(srv.port, 'goblin=1')]), [cx, cz] = W.rc(9);   /* a plain hall: a tree room has its trunk in the line of fire */
         a.send({ tp: [cx + 4, cz] }); b.send({ tp: [cx - 2, cz] }); await sleep(120); a.send({ m: [cx + 4, cz, Math.PI / 2] }); await sleep(120);
         a.send({ give: 'w:bow' }); await a.until(x => x.state.inv.backpack.includes('w:bow'), 2000, 'bow'); a.send({ mv: ['b' + a.state.inv.backpack.indexOf('w:bow'), 'weapon'] }); await a.until(x => x.state.inv.weapon === 'w:bow', 2000, 'bow equipped');
-        const shot = async () => { const n = b.msgs.length; a.send({ atk: 1 }); await sleep(200); return b.msgs.slice(n).some(m => m.hit && m.hit.to === b.state.you); };
+        const shot = async () => { const n = b.msgs.length; a.send({ atk: 1 }); await sleep(800);   /* COMBAT4: release frame + a real arrow's flight */ return b.msgs.slice(n).some(m => m.hit && m.hit.to === b.state.you); };
         assert(await shot(), 'baseline: the bow hits across 6 m');
         await give(a, 'x:smoke'); const r = await use(a); assert(r.some(m => m.used && m.used.key === 'x:smoke'), 'used'); await sleep(800);   // lands next to b (6 m ahead of a)
         await sleep(700); assert(!(await shot()), 'no hit into the cloud');

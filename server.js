@@ -40,7 +40,7 @@ function cached(key, file, type) {
   return e;
 }
 const missUntil = new Map();   // PERF4: url key -> time the remembered miss expires
-const CLIENT_JS = new Set(['game', 'menu', 'items', 'world', 'save', 'stats', 'statsui', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'act5ui', 'fskeep', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)
+const CLIENT_JS = new Set(['game', 'menu', 'items', 'combat4', 'world', 'save', 'stats', 'statsui', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'act5ui', 'fskeep', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)
 let CSP = '';
 function buildCsp() {   // the page has two inline scripts (importmap + module): allowed by hash, so no 'unsafe-inline' for scripts
   const page = cached('/index.html', path.join(ROOT_DIR, 'index.html'), 'text/html; charset=utf-8'), hashes = [];
@@ -206,6 +206,7 @@ function tickAll() { // steps every match (scheduled by the TICK block below)
     craftTick(m, now);   // STATIONS: finished crafts, cancelled crafts
     useTick(m, now);   // UTILITY: bombs, smoke, mushroom regeneration
     weapons3Tick(m, now);   // WEAPONS3: bleeds, and bolts of tuned wands when the staffbolt rule is off
+    c4Tick(m, now);   // COMBAT4: open swing windows, projectiles in flight
     ruleTick(m, now);   // RULES: experimental rules (no-op unless GK_RULES is set)
     guardTick(m, now);   // DOORGUARD: nobody stays locked in a room, nobody stays stuck inside a prop
     A5.tick(m, now);   // ACT5: tree rooms, vaultbreakers, the vault (10 Hz inside)
@@ -544,35 +545,150 @@ function checkWin(m) {   // DEFAULT RULE (owner has not decided): >= 2 players e
   if (living.length === 1 && isHum(living[0][1])) win(living[0][0], living[0][1]);   // a bot standing last wins nothing (the match is dropped when no human is left)
   else if (!humans(m) && living.length <= 1 && m.specs.size) endMatch(m, null);   // FUN: only spectators are left: the last bot decides the match
 }
-function attack(m, ws, p, now, rt) {   // {atk:1, rt}: rate limit by weapon, nearest valid target in range, in the 70 degree cone, same room key; targets are rewound to server time rt (what the attacker saw), at most 200 ms
+function attack(m, ws, p, now, rt, a4) {   // {atk:1, rt, sq, pt}: rate limit by weapon; COMBAT4 resolves the swing on its contact frame against targets rewound to what the attacker saw (rt, at most 200 ms back); a4 = the message (sq, pt)
   if (!p.entered || p.dead) return;
   if (p.carry) return;   // ACT5: no attacks while carrying a bucket or a coin sack
   let cb = G.combat(p.inv.weapon); if (p.npc) cb = { ...cb, dmg: p.npcDmg, cd: p.npcCd };
   const bolt = boltWeapon(p); if (bolt && !cb.bolt) cb = { ...cb, cd: BOLT.cd };   // WEAPONS3: a tuned wand/staff keeps its own cd and bolt damage
     // staffbolt: staves and scepters throw a slow bolt instead of a melee bonk   // mystery enemies have their own damage and cooldown
   if (now < (p.dazeUntil || 0)) return;   // USE2: dazzled
+  if (now < (p.c4stag || 0)) return;   // COMBAT4: staggered by a heavy blow
   if (!p.npc) { const dm = dmgMul(p, now); if (dm !== 1) cb = { ...cb, dmg: Math.round(cb.dmg * dm) }; }   // USE2: Wolf Fang, Rage Brew
-  if (now - (p.atkAt || 0) < cb.cd * 0.9) return;   // 10% jitter allowance
-  p.atkAt = now; bcast(m, { swing: p.id });
-  if (bolt) return fireBolt(m, p, now, cb.bolt);
-  const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw), reach = cb.range + C.slack + (cb.ranged || p.npc ? 0 : G.goblinReach(p.goblin));   // GOBTYPES: the hobgoblin's long arms;   // forward vector, same as the client's movement
-  let best = null, bd = Infinity;
-  const T = srvT(), at = typeof rt === 'number' && Number.isFinite(rt) ? Math.max(T - REWIND_MAX, Math.min(T, rt)) : T;   // lag compensation: look at the world as the attacker saw it
-  for (const [tws, t] of m.players) {
-    if (t === p || t.dead || !t.entered) continue;
-    const [tx, tz] = at < T ? posAt(t, at) : [t.x, t.z]; if (roomKeyOf(tx, tz) !== p.room) continue;
-    const dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz);
-    if (d > reach + (t.npc ? 0 : G.hitRadius(t.goblin) - G.HIT_R)) continue;   // GOBTYPES: bigger goblins are easier to reach
-    if (d > 2.5 && inSmoke(m, t, now)) continue;   // UTILITY: nobody shoots into a smoke cloud from beyond melee range
-    if (d > 0.05 && (dx * fx + dz * fz) / d < Math.cos(C.cone)) continue;
-    if (d > 0.9 && WORLD.segBlocked(p.x, p.z, tx, tz, m.layout)) continue;   // SOLID: no swinging through a crate or barrel
-    if (d < bd) { bd = d; best = [tws, t]; }
-  }
-  if (!best) return;
-  const [tws, t] = best, hp0 = t.stats.health; hitTarget(m, ws, p, tws, t, cb.dmg, now, undefined, { melee: !cb.ranged });   // thorns and the scout's dodge only apply to melee
-  if (cb.bleed && t.stats.health > 0 && t.stats.health < hp0) t.bleed = { by: p, dmg: cb.bleed[0], left: cb.bleed[1], next: now + BLEED_MS, w: p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon] ? G.ITEMS[p.inv.weapon].name : '' };   // WEAPONS3: whips and tridents leave a bleed
+  if (now - (p.atkAt || 0) < cb.cd * 0.9) return c4Queue(m, ws, p, now, rt, a4, cb);   // 10% jitter allowance; COMBAT4: a human's swing that arrives a little early (network jitter) is queued, not dropped
+  p.atkAt = now; if (p.c4q) { clearTimeout(p.c4q); p.c4q = null; }
+  c4Start(m, ws, p, now, rt, a4, cb, bolt);   // COMBAT4: wind-up, then damage on the clip's contact frame (melee sweep, real projectile or magic bolt); see the COMBAT4 block
 }
 // COMBAT-END
+// COMBAT4-BEGIN (precise, server-authoritative hits: per-family strike shapes, wind-up / contact / active windows, rewound hit capsules, real projectiles,
+// knockback and stagger with armour poise, a block / parry hook, attack queueing. Shapes and timing live in combat4.js, shared with the client; see docs/reports/combat-4.md)
+const C4 = require('./combat4.js'), C4T = {};   // C4T: scratch timing
+const C4HOOKS = { guard: null };   // C4HOOKS.guard = (m, attacker, target, sw) => null | { block: true, mul } | { parry: true }: a block / dodge ability can plug in here; target.guard = { at, until, mul, parry, cone } works without code
+const C4STAT = { swings: 0, hits: 0, proj: 0, projHits: 0, cancels: 0, queued: 0, blocked: 0, evalMs: 0, evals: 0 };   // GK_DEBUG {botstat} reports these (tests)
+const c4Y = p => (p.y || 0) + (p.jy | 0) / 100;   // feet height: the cosmetic jump today, the vertical model's y when it lands
+const c4Size = t => t.npc ? 1 : G.hitRadius(t.goblin) / G.HIT_R;
+const c4R = t => t.npc ? G.HIT_R : G.hitRadius(t.goblin);
+const c4At = (t, L) => L > 0 ? posAt(t, srvT() - L) : [t.x, t.z];   // the target where the attacker saw him (rewound by the attacker's lag)
+const c4SegD = (x0, z0, x1, z1, px, pz) => { const dx = x1 - x0, dz = z1 - z0, L2 = dx * dx + dz * dz, s = L2 > 1e-9 ? Math.max(0, Math.min(1, ((px - x0) * dx + (pz - z0) * dz) / L2)) : 0; return Math.hypot(x0 + dx * s - px, z0 + dz * s - pz); };
+const c4Los = (m, x0, y0, z0, x1, y1, z1) => C4.los(WORLD, m.layout, id => isOpen(m, id), x0, y0, z0, x1, y1, z1);
+function c4Queue(m, ws, p, now, rt, a4, cb) {   // a human's swing that arrives up to QUEUE_MS before the cooldown ends fires when it ends (one queued swing at most)
+  if (!ws || p.npc || p.bot || p.c4q) return;
+  const at = (p.atkAt || 0) + cb.cd * 0.9; if (at - now > C4.QUEUE_MS) return;
+  C4STAT.queued++; p.c4q = setTimeout(() => { p.c4q = null; if (p.match === m && !m.ended) attack(m, ws, p, Math.max(Date.now(), at), rt == null ? rt : rt + (Date.now() - now), a4); }, Math.max(0, at - now));
+}
+function c4Aim(p, a) { const sw = p.c4sw; if (sw && (a[0] | 0) === sw.sq && sw.kind === 'proj') sw.pt = Math.max(-1.3, Math.min(1.3, +a[1])); }
+function c4Start(m, ws, p, now, rt, a4, cb, bolt) {
+  const T = srvT(), L = typeof rt === 'number' && Number.isFinite(rt) ? Math.max(0, Math.min(C4.REWIND_MAX, T - rt)) : 0;   // lag compensation: how far back the attacker's picture of the others is (capped)
+  const key = p.inv && p.inv.weapon || null, tm = C4.timing(G, key, cb.cd, C4T), pr = C4.profile(G, key);
+  if (p.c4sw) c4Done(p.c4sw, 'n');
+  const sq = a4 && Number.isInteger(a4.sq) ? a4.sq & 0xffff : 0, pt = a4 && Number.isFinite(a4.pt) ? Math.max(-1.3, Math.min(1.3, a4.pt)) : null;
+  const sw = { m, p, ws, kind: bolt ? 'bolt' : cb.ranged ? 'proj' : 'melee', at: T + tm.contact, end: T + tm.end, L, cb, pr, key, R: cb.range + (cb.ranged || p.npc ? 0 : G.goblinReach(p.goblin)), sq, pt, n: 0, hit: [], done: false, timer: null, t0: now };
+  p.c4sw = sw; (m.c4sws || (m.c4sws = [])).push(sw); C4STAT.swings++;
+  bcast(m, { swing: p.id, c4: [tm.contact, tm.dur, sq] });   // c4: when the blow lands and how long the clip runs (every client plays the clip so its contact frame meets the damage)
+  sw.timer = setTimeout(() => { sw.timer = null; try { c4Eval(sw); } catch (e) { console.error('c4 eval', e); } }, tm.contact);
+}
+function c4Done(sw, why) {
+  if (sw.done) return; sw.done = true; if (sw.timer) { clearTimeout(sw.timer); sw.timer = null; }
+  if (sw.p.c4sw === sw) sw.p.c4sw = null;
+  const L = sw.m.c4sws; if (L) { const i = L.indexOf(sw); if (i >= 0) L.splice(i, 1); }
+  if (why === 'c' || why === 's') C4STAT.cancels++;
+  if (sw.kind === 'melee' && sw.ws) sendTo(sw.ws, { swr: [sw.sq, sw.n, ...(why && why !== 'e' ? [why] : [])] });   // to the attacker: how many his swing hit (his client rolls back a predicted hit that did not land); why: c = cancelled, s = staggered
+}
+function c4Eval(sw) {   // one look at the swing at the current server time (contact timer, the attacker's moves during the window, the 20 Hz tick)
+  if (sw.done) return;
+  const m = sw.m, p = sw.p, now = Date.now(), T = srvT();
+  if (m.ended || p.match !== m || p.dead || !p.entered || p.carry || now < (p.dazeUntil || 0)) return c4Done(sw, 'c');
+  if (T < sw.at) return;
+  if (sw.kind === 'bolt') { c4Done(sw, 'e'); return fireBolt(m, p, now, sw.cb.bolt, sw.L); }
+  if (sw.kind === 'proj') { c4Done(sw, 'e'); return c4Fire(m, sw, now); }
+  const h0 = process.hrtime ? process.hrtime.bigint() : 0n;
+  const s = Math.min(T, sw.end), ay = c4Y(p), O = c4Eval.o || (c4Eval.o = {}); let cand = null;
+  for (const [tws, t] of m.players) {
+    if (t === p || t.dead || !t.entered || sw.hit.includes(t)) continue;
+    const [tx, tz] = sw.L > 0 || s < T ? posAt(t, s - sw.L) : [t.x, t.z], tr = c4R(t), ty = c4Y(t), th = C4.capH(c4Size(t));
+    if (!C4.melee(sw.pr, sw.R, p.x, ay, p.z, p.yaw, tx, ty, tz, tr, th, O)) continue;
+    if (O.d > 2.5 && inSmoke(m, t, now)) continue;   // UTILITY: nobody shoots into a smoke cloud from beyond melee range
+    if (O.d - tr > 0.35 && !c4Los(m, p.x, ay + 1, p.z, O.cx, O.cy, O.cz)) continue;   // walls, closed doors, crates, barrels, pillars between (bodies touching always connect)
+    (cand || (cand = [])).push({ tws, t, d: O.d });
+  }
+  if (cand) {
+    cand.sort((a, b) => a.d - b.d);
+    for (const c of cand) {
+      if (sw.n >= (sw.pr.cleave || 1)) break;
+      const dmg = sw.n === 0 ? sw.cb.dmg : Math.max(1, Math.round(sw.cb.dmg * (sw.pr.cleaveMul != null ? sw.pr.cleaveMul : 0.6)));   // a sweep's second goblin takes a share
+      sw.hit.push(c.t); sw.n++; c4Apply(m, sw, c.tws, c.t, dmg, now);
+      if (sw.done) break;   // the attacker died (thorns cannot kill, but a parry staggers)
+    }
+  }
+  if (h0) { C4STAT.evalMs += Number(process.hrtime.bigint() - h0) / 1e6; C4STAT.evals++; }
+  if (!sw.done && (sw.n >= (sw.pr.cleave || 1) || T >= sw.end)) c4Done(sw, 'e');
+}
+function c4Guard(m, p, t, sw, now) { try { return (C4HOOKS.guard && C4HOOKS.guard(m, p, t, sw)) || C4.guard(t.guard, now, t.x, t.z, t.yaw, p.x, p.z); } catch (e) { return null; } }
+function c4Apply(m, sw, tws, t, dmg, now, proj) {   // one landed blow: guard, damage (hitTarget does wards, dodges, perks, kills), bleed, stagger, knockback
+  const p = sw.p, g = c4Guard(m, p, t, sw, now);
+  if (g && g.parry) { C4STAT.blocked++; bcast(m, { c4g: { from: p.id, to: t.id, k: 'parry' } }); c4Stagger(m, p, C4.STAG_MAX, now); return; }   // a parry: no damage, the attacker reels
+  if (g && g.block) { C4STAT.blocked++; dmg = Math.max(1, Math.round(dmg * g.mul)); }
+  const fam = proj ? null : sw.pr, poise = C4.poiseOf(t.inv && t.inv.armor && G.ITEMS[t.inv.armor] ? G.ITEMS[t.inv.armor].family : null);
+  const st = !fam || g || t.npc && t.npc === 'troll' ? 0 : now < (t.c4imm || 0) ? 0 : Math.min(C4.STAG_MAX, Math.round((fam.stag || 0) * (1 - poise)));
+  const kb = !fam || g ? 0 : +((fam.kb || 0) * (1 - poise) / Math.max(0.75, c4Size(t))).toFixed(2), dx = t.x - p.x, dz = t.z - p.z, dl = Math.hypot(dx, dz) || 1, kx = +(dx / dl * kb).toFixed(2), kz = +(dz / dl * kb).toFixed(2);
+  const opts = { melee: !proj, c4x: { sq: sw.sq, ...(st ? { st } : null), ...(kb >= 0.05 ? { kb: [kx, kz] } : null), ...(g ? { blk: 1 } : null), ...(proj ? { k: proj } : null) } }, hp0 = t.stats.health;
+  hitTarget(m, sw.ws, p, tws, t, dmg, now, undefined, opts); C4STAT.hits++;
+  if (!opts.landed || t.dead || t.stats.health <= 0) return;
+  if (sw.cb.bleed && !proj && t.stats.health < hp0) t.bleed = { by: p, dmg: sw.cb.bleed[0], left: sw.cb.bleed[1], next: now + BLEED_MS, w: p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon] ? G.ITEMS[p.inv.weapon].name : '' };   // WEAPONS3: whips and tridents leave a bleed
+  if (st) c4Stagger(m, t, st, now);
+  if (kb >= 0.05) c4Push(m, t, kx, kz);
+}
+function c4Stagger(m, t, ms, now) {   // the victim's wind-up is cancelled and he cannot start a swing for ms; then he is immune to staggers for a moment
+  t.c4stag = Math.max(t.c4stag || 0, now + ms); t.c4imm = now + C4.STAG_IMMUNE;
+  if (t.c4sw && srvT() < t.c4sw.at) c4Done(t.c4sw, 's');
+}
+function c4Push(m, t, kx, kz) {   // knockback: humans get the allowance and move themselves (the hit message carries kb, their moves are validated as usual); bots and mystery enemies are pushed here, never through a wall, door or prop
+  if (!t.bot && !t.npc) { t.c4kb = Math.min(1.2, (t.c4kb || 0) + Math.hypot(kx, kz) + 0.1); return; }
+  const nx = t.x + kx, nz = t.z + kz;
+  if (roomKeyOf(nx, nz) !== t.room || !pathOk(m, t.x, t.z, nx, nz) || WORLD.inProp(nx, nz, PROP_R, m.layout, true)) return;
+  t.x = nx; t.z = nz; t.box = boxOf(nx, nz); t.sd = true; const tt = srvT(), h = t.hist || (t.hist = []); h.push([tt, nx, nz]);
+}
+function c4Fire(m, sw, now) {   // a real projectile: from the attacker's hand along his aim (pitch from the client, or aimed at the best target for bots / old clients), gravity, swept against rewound capsules
+  const p = sw.p, pj = C4.projOf(G, sw.key), size = c4Size(p), ay = c4Y(p), eye = ay + 1.5 * size - 0.12, fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw);
+  let pt = sw.pt;
+  if (pt == null) {   // auto aim: the nearest goblin in a 20 degree cone in range
+    let best = null, bd = Infinity;
+    for (const t of m.players.values()) { if (t === p || t.dead || !t.entered) continue; const [tx, tz] = c4At(t, sw.L), dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz); if (d > sw.cb.range + 1 || d < 0.3 || (dx * fx + dz * fz) / d < Math.cos(20 * Math.PI / 180)) continue; if (d < bd) { bd = d; best = [d, c4Y(t) + C4.capH(c4Size(t)) * 0.55]; } }
+    pt = best ? C4.aimPitch(best[0], best[1] - eye, pj.speed, pj.g) : 0;
+  }
+  const cp = Math.cos(pt), b = { id: (m.projN = (m.projN || 0) + 1), sw, by: p, x: p.x + fx * 0.3, y: eye, z: p.z + fz * 0.3, vx: fx * cp * pj.speed, vy: Math.sin(pt) * pj.speed, vz: fz * cp * pj.speed, g: pj.g, r: pj.r, kind: pj.kind, dist: 0, range: sw.cb.range, L: sw.L, last: srvT() };
+  (m.c4proj || (m.c4proj = [])).push(b); C4STAT.proj++;
+  bcast(m, { proj: { id: b.id, by: p.id, sq: sw.sq, x: r2(b.x), y: r2(b.y), z: r2(b.z), vx: r2(b.vx), vy: r2(b.vy), vz: r2(b.vz), g: b.g, k: b.kind, range: b.range } });
+  c4ProjStep(m, b, now);
+}
+function c4ProjStep(m, b, now) {   // advance one projectile to the current server time in 12.5 ms steps; returns false when it ended
+  const T = srvT(), p = b.by; let left = Math.min(0.25, (T - b.last) / 1000); b.last = T;
+  while (left > 1e-4) {
+    const dt = Math.min(0.0125, left); left -= dt;
+    const x1 = b.x + b.vx * dt, y1 = b.y + b.vy * dt - 0.5 * b.g * dt * dt, z1 = b.z + b.vz * dt, ts = T - left * 1000 - b.L;   // ts: the server time the shooter's picture shows at this step
+    let best = null, bs = 2;
+    for (const [tws, t] of m.players) {
+      if (t === p || t.dead || !t.entered) continue;
+      const [tx, tz] = posAt(t, ts), s = C4.projHit(b.x, b.y, b.z, x1, y1, z1, b.r, tx, c4Y(t), tz, c4R(t), C4.capH(c4Size(t)));
+      if (s >= 0 && s < bs && !(Math.hypot(t.x - p.x, t.z - p.z) > 2.5 && inSmoke(m, t, now))) { bs = s; best = [tws, t]; }
+    }
+    const ex = best ? b.x + (x1 - b.x) * bs : x1, ey = best ? b.y + (y1 - b.y) * bs : y1, ez = best ? b.z + (z1 - b.z) * bs : z1;
+    if (!c4Los(m, b.x, b.y, b.z, ex, ey, ez)) return c4ProjEnd(m, b, null);   // a wall, a closed door, a crate
+    if (best) { c4ProjEnd(m, b, best[1], ex, ey, ez); c4Apply(m, b.sw, best[0], best[1], b.sw.cb.dmg, now, b.kind); C4STAT.projHits++; return false; }
+    b.dist += Math.hypot(x1 - b.x, y1 - b.y, z1 - b.z); b.vy -= b.g * dt; b.x = x1; b.y = y1; b.z = z1;
+    if (b.y <= 0 || b.y > WORLD.H + 0.5 || b.dist >= b.range) return c4ProjEnd(m, b, null);
+  }
+  return true;
+}
+function c4ProjEnd(m, b, t, x, y, z) {
+  const L = m.c4proj, i = L ? L.indexOf(b) : -1; if (i >= 0) L.splice(i, 1);
+  bcast(m, { projEnd: { id: b.id, x: r2(x != null ? x : b.x), y: r2(Math.max(0, y != null ? y : b.y)), z: r2(z != null ? z : b.z), ...(t ? { hit: 1, to: t.id } : null) } });
+  return false;
+}
+function c4Tick(m, now) {   // 20 Hz: the open swing windows and the projectiles
+  if (m.c4sws && m.c4sws.length) for (const sw of m.c4sws.slice()) c4Eval(sw);
+  if (m.c4proj && m.c4proj.length) for (const b of m.c4proj.slice()) if (m.ended) m.c4proj.length = 0; else c4ProjStep(m, b, now);
+}
+// COMBAT4-END
 // WEAPONS3-BEGIN (bleed from whips and tridents, tuned magic bolts; weapon numbers live in items.js WEAPON_TUNE)
 const BLEED_MS = +process.env.GK_BLEED_MS || 1000;   // one bleed tick a second (tests shorten it)
 function weapons3Tick(m, now) {
@@ -600,22 +716,23 @@ function hitTarget(m, ws, p, tws, t, dmg, now, wname, opts) {   // damage, hit b
   if (t.ward && dmg > 0) { const live = t.ward.until > now; t.ward = null; if (live) { bcast(m, { ward: { id: t.id } }); return; } }   // USE2: a Ward Rune soaks the hit
   { const behind = (p.x - t.x) * -Math.sin(t.yaw || 0) + (p.z - t.z) * -Math.cos(t.yaw || 0) < -0.3 * Math.hypot(p.x - t.x, p.z - t.z);   // GOBTYPES: type perks (dodge, backstab, rage, thick hide)
     const r = G.goblinHit({ goblin: p.goblin, hp: p.stats ? p.stats.health : 0, max: p.stats ? p.stats.maxHealth : 0, npc: p.npc }, { goblin: t.goblin, npc: t.npc }, dmg, { melee: !!(opts && opts.melee), behind });
-    if (r.dodged) { bcast(m, { dodge: { from: p.id, to: t.id } }); return; } dmg = r.dmg; }
+    if (r.dodged) { bcast(m, { dodge: { from: p.id, to: t.id } }); return; } if (r.dmg > dmg && opts) opts.cr = 1; /* COMBAT4: a backstab / rage blow gets a crit cue */ dmg = r.dmg; }
   dmg = A5.hitMul(m, p, t, dmg, wname, opts);   // ACT5: Fury blessing, Hollow Oak ambush
   let hp = Math.max(0, t.stats.health - dmg);
   if (hp <= 0 && !t.npc && !t.swUsed && G.hasPerk(t.perks, 'secondwind')) { hp = 1; t.swUsed = true; sendTo(t.ws, { secondWind: 1 }); }   // KNOWLEDGE: Second Wind
   statHit(p, t, t.stats.health - hp);   // STATS
   t.stats.health = hp; t.hurtAt = now; t.hitBy = p.id; m.dirty = true;   // hitBy: a bot notices whoever hurt it at once
   A5.hurt(m, t, p);   // ACT5: a hit breaks channels and drops carried sacks / buckets
-  bcast(m, { hit: { from: p.id, to: t.id, dmg, hp, max: t.stats.maxHealth, dead: hp <= 0, ...(opts && opts.bleed ? { bleed: 1 } : null) } });
+  bcast(m, { hit: { from: p.id, to: t.id, dmg, hp, max: t.stats.maxHealth, dead: hp <= 0, ...(opts && opts.bleed ? { bleed: 1 } : null), ...(opts && opts.c4x ? opts.c4x : null), ...(opts && opts.cr ? { cr: 1 } : null) } });   // COMBAT4: c4x = { sq, st, kb, blk, k } (swing id, stagger ms, knockback, blocked, projectile)
+  if (opts) opts.landed = true;   // COMBAT4: the blow got through (no ward, no dodge)
   const th = opts && opts.melee && hp > 0 && !p.dead ? G.armorThorns(t.inv && t.inv.armor) + A5.reflect(m, t, dmg) : 0;   /* ACT5: + the Thorns blessing */   // ARMOUR-3: thorns hurt a melee attacker (never lethal, so no kill bookkeeping is needed)
   if (th && p.stats.health > 1) { const ph = Math.max(1, p.stats.health - th); p.stats.health = ph; p.hurtAt = now; bcast(m, { hit: { from: t.id, to: p.id, dmg: th, hp: ph, max: p.stats.maxHealth, dead: false, thorns: 1 } }); }
   if (hp <= 0) { p.kills = (p.kills || 0) + 1; const bounty = paceBounty(p, t); t.killedBy = p.id; { const kw = p.npc ? null : p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; t.killer = { name: p.name || 'Goblin', npc: !!p.npc, w: wname || (kw ? kw.name : (p.npc ? '' : 'Fists')) }; } sendTo(ws, { kills: p.kills, ...(bounty ? { bounty } : null) }); sendFeed(m, p, t); die(tws, t); }
 }
 function boltWeapon(p) { const w = p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; if (w && G.combat(p.inv.weapon).bolt) return true; if (!rule('staffbolt')) return false; return !!w && (w.family === 'staff' || w.family === 'scepter'); }
-function fireBolt(m, p, now, dmg) {   // staffbolt: a slow projectile straight ahead, 12 m range, never leaves the room it was fired in
+function fireBolt(m, p, now, dmg, L) {   // staffbolt: a slow projectile straight ahead, 12 m range, never leaves the room it was fired in; COMBAT4: L = the caster's lag (targets rewound by it), fired on the cast's release frame
   m.bolts = m.bolts || []; m.boltN = (m.boltN || 0) + 1;
-  const b = { id: m.boltN, by: p, x: p.x, z: p.z, vx: -Math.sin(p.yaw) * BOLT.speed, vz: -Math.cos(p.yaw) * BOLT.speed, dist: 0, room: p.room, t: now, dmg: Math.round((dmg || BOLT.dmg) * dmgMul(p, now)) };
+  const b = { id: m.boltN, by: p, x: p.x, z: p.z, vx: -Math.sin(p.yaw) * BOLT.speed, vz: -Math.cos(p.yaw) * BOLT.speed, dist: 0, room: p.room, t: now, dmg: Math.round((dmg || BOLT.dmg) * dmgMul(p, now)), L: L || 0 };
   m.bolts.push(b); bcast(m, { bolt: { id: b.id, by: p.id, x: +p.x.toFixed(2), z: +p.z.toFixed(2), vx: +b.vx.toFixed(2), vz: +b.vz.toFixed(2), range: BOLT.range } });
 }
 function boltTick(m, now) {
@@ -624,7 +741,7 @@ function boltTick(m, now) {
   m.bolts = m.bolts.filter(b => {
     b.x += b.vx * dt; b.z += b.vz * dt; b.dist += BOLT.speed * dt;
     let hit = null;
-    for (const [tws, t] of m.players) { if (t === b.by || t.dead || !t.entered || t.room !== b.room) continue; if (Math.hypot(t.x - b.x, t.z - b.z) < BOLT.radius + (t.npc ? 0 : G.hitRadius(t.goblin) - G.HIT_R) && !(Math.hypot(t.x - b.by.x, t.z - b.by.z) > 2.5 && inSmoke(m, t, now))) { hit = [tws, t]; break; } }
+    for (const [tws, t] of m.players) { if (t === b.by || t.dead || !t.entered || t.room !== b.room) continue; const q = c4At(t, b.L); if (c4SegD(b.x - b.vx * dt, b.z - b.vz * dt, b.x, b.z, q[0], q[1]) < BOLT.radius + (t.npc ? 0 : G.hitRadius(t.goblin) - G.HIT_R) && !(Math.hypot(t.x - b.by.x, t.z - b.by.z) > 2.5 && inSmoke(m, t, now))) { hit = [tws, t]; break; } }   // COMBAT4: swept along the step, against the target as the caster saw him (rewound by b.L)
     if (hit && WORLD.segBlocked(b.x - b.vx * dt, b.z - b.vz * dt, hit[1].x, hit[1].z, m.layout)) hit = null;   // SOLID: a prop between the bolt and the goblin shields him
     if (hit) { hitTarget(m, b.by.ws, b.by, hit[0], hit[1], b.dmg || BOLT.dmg, now); bcast(m, { boltEnd: { id: b.id, hit: 1 } }); return false; }
     if (WORLD.inProp(b.x, b.z, 0.08, m.layout)) { bcast(m, { boltEnd: { id: b.id } }); return false; }   // SOLID: the bolt dies on a crate, barrel or urn
@@ -752,6 +869,7 @@ function applyMove(m, ws, p, x, z, yaw, now, jy) {   // {m:[x,z,yaw]}: accept, o
   const dt = p.mvAt ? Math.min(0.5, (now - p.mvAt) / 1000) : 0.066; p.mvAt = now; const prevRoom = p.room;
   const hv = !!(p.carry && p.carry.heavy);   // ACT5: a carried coin sack: 70% of the walk (x1.3 for jitter), no sprint, and a small slack so the limit holds over time (the normal 0.3 m slack would allow 9 m/s at 15 messages a second)
   p.budget = Math.min(hv ? 0.8 : BURST + (now < lagUntil ? lagBonus : 0),(p.budget == null ? BUDGET : p.budget) + dt * (hv ? Math.min(MAXV, walkOf(p) * 0.7 * 1.3) : MAXV) * (now < (p.tonicUntil || 0) + 500 ? G.ITEMS['x:tonic'].n : 1) * (G.charmEff(p.inv.charm, 'spd') || 1));   // UTILITY: a speed tonic raises the movement allowance
+  if (p.c4kb) { p.budget += p.c4kb; p.c4kb = 0; }   // COMBAT4: a knockback the server gave this goblin is extra allowance for the moves that carry it out
   const dist = Math.hypot(x - p.x, z - p.z);
   if (dist > 0.0005 && (dist > p.budget + (hv ? 0.08 : MOVE_SLACK) || !pathOk(m, p.x, p.z, x, z, p))) {
     if (now - (p.fixAt || 0) > 150) { p.fixAt = now; sendTo(ws, { fix: [r2(p.x), r2(p.z)] }); if (!p.lockDeny && secFix(p, ws, now)) return false; }   // ELIXIR: a Door Lock refusal is not a speed-hack correction
@@ -765,7 +883,7 @@ function applyMove(m, ws, p, x, z, yaw, now, jy) {   // {m:[x,z,yaw]}: accept, o
   if (dist > 0.0005 || yaw !== p.yaw || r1(spd) !== r1(p.spd || 0)) p.sd = true;
   if (dist > 0.0005) {   // history for lag compensation; a long-still player gets a hold entry so the rewind does not slide him
     const h = p.hist || (p.hist = []), last = h[h.length - 1];
-    if (last && t - last[0] > 150) h.push([t - 1, last[1], last[2]]);
+    if (last && t - last[0] > 150) h.push([t - 50, last[1], last[2]]);   // COMBAT4: was t - 1 (a teleport-like step); one send interval (50 ms) of motion, the same hold the client's snapshot buffer uses, so a rewound target is where the attacker drew him
     h.push([t, x, z]); while (h.length > 2 && h[1][0] < t - HIST_MS) h.shift();
   }
   p.x = x; p.z = z; p.yaw = yaw; p.spd = spd; p.mvT = t; p.box = boxOf(x, z); p.room = roomKeyOf(x, z); if (p.room !== prevRoom) p.roomAt = now; noteRoom(m, p, prevRoom);
@@ -2199,7 +2317,7 @@ wss.on('connection', (ws, req) => {
     tokens--;
     let d; try { d = JSON.parse(raw.toString()); } catch { return; }
     if (p.dead && d && typeof d.ping === 'number' && Number.isFinite(d.ping)) return sendTo(ws, { pong: d.ping, t: srvT() });
-    if (p.dead && d && d.botstat && process.env.GK_DEBUG) return sendTo(ws, { botstat: { n: BS.n, sum: BS.sum, max: BS.max, calls: BS.calls, bad: BS.bad, tick: TS, cpu: process.cpuUsage(), heap: process.memoryUsage().heapUsed, matches: matches.size, tokens: socTokens.size, ips: ipCount.size } });   // debug stats still answer a dead human (bots can kill the test client)
+    if (p.dead && d && d.botstat && process.env.GK_DEBUG) return sendTo(ws, { botstat: { n: BS.n, sum: BS.sum, max: BS.max, calls: BS.calls, bad: BS.bad, tick: TS, cpu: process.cpuUsage(), heap: process.memoryUsage().heapUsed, c4: C4STAT, matches: matches.size, tokens: socTokens.size, ips: ipCount.size } });   // debug stats still answer a dead human (bots can kill the test client)
     if (d && d.bot5 && process.env.GK_DEBUG) { if (typeof d.bot5 === 'object') bot5Lab(m, d.bot5); return sendTo(ws, { bot5: bot5Stat(m) }); }   // BOTS5: per-match bot stats (tests, sim), also for a dead spectator; {bot5:{goal}} lab
     if (p.dead || !d || typeof d !== 'object' || Array.isArray(d)) return;
     const dbg = !!process.env.GK_DEBUG;
@@ -2207,7 +2325,7 @@ wss.on('connection', (ws, req) => {
     if (d.ready === 1) { p.ready = true; if (m.phase === 'loading') { const all = [...m.players.values()]; bcast(m, { readyN: { n: all.filter(q => q.ready).length, size: all.length } }); if (all.every(q => q.ready)) beginCountdown(m); } return; }   // readyN: how many goblins are ready (the loading screen shows it)
     if (!m.goAt || now < m.goAt) { if (d.m || d.atk === 1 || d.claim === 1 || d.bribe === 1 || d.sel !== undefined) return; }   // movement, attacks, claims and door picks are locked until GO
     /* MATCH-END */
-    if (Array.isArray(d.m) && (d.m.length === 3 || d.m.length === 4) && d.m.every(v => typeof v === 'number' && Number.isFinite(v))) { applyMove(m, ws, p, d.m[0], d.m[1], d.m[2], now, d.m[3]);
+    if (Array.isArray(d.m) && (d.m.length === 3 || d.m.length === 4) && d.m.every(v => typeof v === 'number' && Number.isFinite(v))) { applyMove(m, ws, p, d.m[0], d.m[1], d.m[2], now, d.m[3]); if (p.c4sw) c4Eval(p.c4sw);   // COMBAT4: a fresh pose during the active window is checked at once
     } else if (typeof d.ping === 'number' && Number.isFinite(d.ping)) { sendTo(ws, { pong: d.ping, t: srvT() });
     } else if (d.emote !== undefined) { socEmote(m, ws, p, d.emote, now);   // SOCIAL
     } else if (d.act !== undefined) { A5.act(m, p, d.act, now);   // ACT5: an activity verb {act:{r,a,v,x?}}
@@ -2217,7 +2335,7 @@ wss.on('connection', (ws, req) => {
     } else if (dbg && d.dbgElixir) { elixirDbg(m, p, d.dbgElixir);
     } else if (typeof d.recycle === 'string' && homeAt(m, p.room)) { const why = homeRecycle(m, p, d.recycle, d.refine === 1); if (why) sendTo(ws, { recycleFail: why });   // ELIXIR: the home recycler is owner-only and follows its upgrade
     } else if (typeof d.craft === 'string' && homeAt(m, p.room) && !HB.canUseStation(homeAt(m, p.room), p.id)) { sendTo(ws, { craftFail: 'owner' });
-    } else if (dbg && d.botstat) { sendTo(ws, { botstat: { n: BS.n, sum: BS.sum, max: BS.max, calls: BS.calls, bad: BS.bad, tick: TS, cpu: process.cpuUsage(), heap: process.memoryUsage().heapUsed, matches: matches.size, tokens: socTokens.size, ips: ipCount.size } });
+    } else if (dbg && d.botstat) { sendTo(ws, { botstat: { n: BS.n, sum: BS.sum, max: BS.max, calls: BS.calls, bad: BS.bad, tick: TS, cpu: process.cpuUsage(), heap: process.memoryUsage().heapUsed, c4: C4STAT, matches: matches.size, tokens: socTokens.size, ips: ipCount.size } });
     } else if (d.dbgFF === 1) { dbgFF(m, now);   // DEV: skip to 0:10 (ignored without GK_DEBUG)
     } else if (dbg && d.boom === 1) { m.boom = true;   // test hook: this match's tick throws from now on (tests/robust.test.js)
     } else if (dbg && d.quit === 1) { process.exit(0);   // lets tests/tickbench.js flush a --cpu-prof profile
@@ -2233,7 +2351,8 @@ wss.on('connection', (ws, req) => {
     } else if (typeof d.throw === 'string') { throwPlushie(m, p, d.throw, now);   // LOOT
     } else if (typeof d.use === 'string') { const why = useItem(m, p, d.use, now); if (why) sendTo(ws, { useFail: why });   // UTILITY
     } else if (dbg && d.botlab) { botLab(m, ws, p, d.botlab);
-    } else if (d.atk === 1) { attack(m, ws, p, now, d.rt);
+    } else if (d.atk === 1) { attack(m, ws, p, now, d.rt, d);   // COMBAT4: d.sq (swing id), d.pt (aim pitch)
+    } else if (Array.isArray(d.aim) && d.aim.length === 2 && Number.isFinite(d.aim[1])) { c4Aim(p, d.aim);   // COMBAT4: the pitch at the release frame of a bow / sling
     } else if (d.bribe === 1) { if (rule('bribe')) { const why = bribe(m, p); if (why) sendTo(ws, { bribeFail: why }); }   // RULES
     } else if (d.enter === 1) { /* legacy: the match start (GO) replaced it */
     } else if (typeof d.eat === 'string') { eat(p, d.eat);

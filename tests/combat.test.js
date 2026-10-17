@@ -13,7 +13,7 @@ async function pair(srv, wins, ga = 2, gb = 0) {
   return [a, b];
 }
 const put = async (c, x, z, yaw) => { c.send({ tp: [x, z] }); c.send({ m: [x, z, yaw] }); await sleep(60); };
-const swing = async (c, extra) => { const n = c.msgs.length; c.send({ atk: 1, ...extra }); await sleep(130); return c.msgs.slice(n); };
+const swing = async (c, extra) => { const n = c.msgs.length; c.send({ atk: 1, ...extra }); await c.until(x => x.msgs.slice(n).some(m => m.swr || m.projEnd), 1200, 'swing resolved').catch(() => {}); await sleep(40); return c.msgs.slice(n); };   // COMBAT4: the blow lands on the clip's contact frame (swr = the swing's result, projEnd = an arrow landed)
 const hits = ms => ms.filter(m => m.hit).map(m => m.hit);
 const equipBow = async c => { c.send({ give: 'w:bow' }); await c.until(x => x.state.inv.backpack[0] === 'w:bow', 2000, 'bow in pack'); c.send({ mv: ['b0', 'weapon'] }); await c.until(x => x.state.inv.weapon === 'w:bow', 2000, 'bow equipped'); };
 
@@ -31,10 +31,12 @@ const equipBow = async c => { c.send({ give: 'w:bow' }); await c.until(x => x.st
       }],
       ['hit = attack stat, cooldown blocks a second swing, kill gives died + kill count + the survivor wins', async () => {
         const [a, b] = await pair(srv, 30); await put(a, PX(-2), PZ, FACE_E); await put(b, PX(-0.5), PZ, 0);
-        const ms = await swing(a), h = hits(ms); eq(h.length, 1); eq(h[0].dmg, MACE_ATK, 'damage is the weapon attack'); eq(h[0].to, b.state.you); eq(h[0].hp, SMALL_HP - MACE_ATK); eq(h[0].dead, false);
+        const n0 = a.msgs.length; a.send({ atk: 1 }); await sleep(130); a.send({ atk: 1 });   // COMBAT4: the second swing is deep inside the cooldown (more than QUEUE_MS early): dropped, not queued
+        await a.until(x => x.msgs.slice(n0).some(m => m.swr), 1500, 'first swing resolved'); await sleep(450);
+        const ms = a.msgs.slice(n0), h = hits(ms); eq(h.length, 1); eq(h[0].dmg, MACE_ATK, 'damage is the weapon attack'); eq(h[0].to, b.state.you); eq(h[0].hp, SMALL_HP - MACE_ATK); eq(h[0].dead, false);
         await b.until(x => x.state.hit && x.state.hit.hp === SMALL_HP - MACE_ATK, 1500, 'victim sees the hit');
         eq(a.state.kills, undefined);
-        const early = await swing(a); assert(!early.some(m => m.swing != null || m.hit), 'cooldown ignored: ' + JSON.stringify(early));
+        eq(ms.filter(m => m.swing != null).length, 1, 'cooldown ignored: ' + JSON.stringify(ms.filter(m => m.swing != null)));
         await sleep(600);
         const ms2 = await swing(a); eq(hits(ms2).map(x => x.dead), [true], 'second hit kills');
         await b.until(x => x.state.died, 2000, 'died'); eq(b.state.died.by, a.state.you); assert(b.state.died.killer && b.state.died.killer.name && typeof b.state.died.killer.w === 'string' && b.state.died.killer.npc === false, 'the died message names the killer: ' + JSON.stringify(b.state.died.killer)); assert(b.state.died.brain.startsWith('m:brain:'), 'brain'); assert(b.state.died.items.includes(G.START[0].weapon), 'dropped gear');
