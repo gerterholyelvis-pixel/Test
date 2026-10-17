@@ -107,6 +107,8 @@ module.exports = function keepServer(D) {
     if (idle) why = 'idle';
     else if (m.goAt && now - m.goAt < MIN_PLAY_MS) why = 'short';
     else if (now - (lastOffer.get(c) || 0) < MIN_GAP_MS) why = 'rate';
+    held = held.slice(); const sg = G.START[p.goblin] || {};
+    for (const k of [sg.weapon, sg.armor]) { const i = held.indexOf(k); if (i >= 0) held.splice(i, 1); }   // its own starter weapon and armour come every match anyway: not offered
     const o = KEEP.offer(held, { wins, how, humans: m.keepHum || 1, idle: !!why, gold: p.gold }, G);
     const cur = get(c, p.keepTok);
     if (!KS.has(c) && p.keepTok) KS.set(c, { ...cur, t: now });   // the store learns this stash now, so the claim merges into the truth

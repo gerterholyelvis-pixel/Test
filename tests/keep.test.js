@@ -79,6 +79,23 @@ const power = list => { let p = 0; for (const k of list) { const i = G.ITEMS[k];
       eq(KP.loadout([W5], [0], 25, G).err, 'item', 'a transcendent item that got into a stash (a rebalance) cannot come in');
       eq(KP.loadout([BOUND], [0], 25, G).err, 'item'); eq(KP.loadout(st, [0, 1], 10, G).rest.length, st.length - 2);
     }],
+    ['best: the strongest loadout within budget and slots, never over', () => {
+      const st = [W1, W2, W3, W4, A1, A3, X0, X1, C1];
+      for (const w of [0, 1, 2, 4, 10, 25]) { const idx = KP.best(st, w, G), r = KP.loadout(st, idx, w, G); assert(!r.err, w + ' ' + r.err); assert(r.cost <= KP.budget(w)); }
+      eq(KP.best(st, 0, G), []); eq(KP.best([], 25, G), []); assert(KP.loadout(st, KP.best(st, 25, G), 25, G).cost > KP.loadout(st, KP.best(st, 1, G), 1, G).cost, 'a bigger budget is used');
+    }],
+    ['save.js: a version 1 save loads; a win with an offer goes to the character, not the old stash; retire moves it to the hall', () => {
+      const store = new Map(); global.window = global; global.localStorage = { getItem: k => store.has(k) ? store.get(k) : null, setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k) };
+      global.sessionStorage = { getItem: () => null }; global.document = { documentElement: { classList: { add() {} } } }; global.GKITEMS = G;
+      store.set('gk.save.v1', JSON.stringify({ stash: [W1, 'w:gone'], characters: [{ id: 1, goblin: 2, name: 'Old', wins: 3 }], nextId: 2, parts: {} }));
+      delete require.cache[require.resolve('../save.js')]; require('../save.js'); const S = global.GKSAVE;
+      eq(S.stash(), [W1, 'w:gone'], 'old relics untouched'); eq(S.keepOf(1), { tok: '', i: [], b: 0 });
+      const c = S.recordWin({ charId: 1, goblin: 2, items: [W3], keep: { otok: 'o.t', how: 'last', n: 2, items: [{ k: W3, ok: true }], trophies: [W5], stipend: 5, tok: 's.t', i: [], b: 0 } });
+      eq(c.wins, 4); eq(S.stash().length, 2, 'nothing new in the old stash'); eq(S.getCharacter(1).offer.otok, 'o.t'); eq(S.getCharacter(1).trophies, [W5]);
+      S.setKeep(1, { tok: 'n.t', i: [W3], b: 9 }); S.setOffer(1, null); eq(S.keepOf(1), { tok: 'n.t', i: [W3], b: 9 }); eq(S.getCharacter(1).offer, undefined);
+      S.setLoad(1, [W3]); eq(S.getCharacter(1).load, [W3]); S.retire(1); eq(S.characters(), []); eq(S.hall()[0].name, 'Old'); eq(JSON.parse(store.get('gk.save.v1')).ver, 2);
+      const d = S.recordWin({ goblin: 0, items: [W1] }); eq(S.stash().length, 3, 'no offer (offline demo): the old behaviour'); assert(d.id);
+    }],
     ['indicesOf finds each key once, null when missing', () => { eq(KP.indicesOf([W1, W2, W1], [W1, W1]), [0, 2]); eq(KP.indicesOf([W1], [W1, W1]), null); eq(KP.indicesOf([W1], []), []); }],
     ['apply / preview: gear replaces the starter, consumables fill quick slots then the backpack', () => {
       const p = KP.preview(0, [W3, A3, C1, X1, X2], G); eq([p.weapon, p.armor, p.charm], [W3, A3, C1]); eq(p.quick.slice(0, 2), [X1, X2]);

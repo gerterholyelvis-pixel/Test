@@ -145,10 +145,23 @@
     const SL = G.SLOTS || { backpack: 9, quick: 3 };
     return apply({ weapon: s.weapon, armor: s.armor, charm: null, backpack: Array(SL.backpack).fill(null), quick: Array(SL.quick).fill(null) }, list, G);
   }
+  // A suggestion: the strongest loadout the budget allows (exhaustive: a stash has at most 12 items). -> stash indices
+  function best(stash, wins, G) {
+    const st = normStash(stash, G), bud = budget(wins), val = k => { const it = infoOf(k, G); return (it.attack || 0) * 3 + (it.health || 0) + (it.type === 'charm' || it.type === 'consumable' ? 8 + 6 * tierOf(it) : 0); };
+    let top = { v: 0, idx: [] };
+    const rec = (i, idx, c, v) => {
+      if (v > top.v) top = { v, idx: idx.slice() };
+      for (let j = i; j < st.length; j++) {
+        const k = st[j], cj = cost(k, G); if (c + cj > bud || !keepable(k, G).ok) continue;
+        idx.push(j); if (!loadout(st, idx, wins, G).err) rec(j + 1, idx, c + cj, v + val(k)); idx.pop();
+      }
+    };
+    rec(0, [], 0, 0); return top.idx;
+  }
   // Was this win idle? (statBlock dd = damage dealt; crowned wins are never idle: standing on the dais under fire is the work)
   const idleWin = (st, kills, how) => how !== 'crown' && !((st && st.dd) > 0) && !(kills > 0);
 
-  const api = { K, HOW, keepable, cost, sellValue, budget, slots, offerItems, offer, stipend, normStash, normBank, merge, claim, sell, loadout, indicesOf, apply, preview, idleWin, infoOf };
+  const api = { K, HOW, keepable, cost, sellValue, budget, slots, offerItems, offer, stipend, normStash, normBank, merge, claim, sell, loadout, indicesOf, apply, preview, idleWin, infoOf, best };
   root.GKKEEP = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

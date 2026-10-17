@@ -104,7 +104,7 @@
     grid.append(
       group('Survival', [['Win streak', s.streak + ' (best ' + b.streak + ')'], ['Rounds survived', N(t.rounds) + ' (best ' + b.rounds + ')'], ['Average match', t.matches ? dur(d.avgSecs) : '–'], ['Longest survival', b.secs ? dur(b.secs) : '–'], ['Time played', dur(t.secs)]]),
       group('Combat', [['Damage dealt', N(t.dealt)], ['Damage taken', N(t.taken)], ['Kills per match', t.matches ? d.avgKills.toFixed(1) : '–'], ['Matches left early', N(t.quits)]]),
-      group('Economy', [['Gold earned', N(t.goldEarned)], ['Gold spent', N(t.goldSpent)], ['Elixir collected', N(t.elixir)], ['Items crafted', N(t.crafted)], ['Items recycled', N(t.recycled)]]),
+      group('Economy', [['Gold earned', N(t.goldEarned)], ['Gold spent', N(t.goldSpent)], ['Elixir collected', N(t.elixir)], ['Items crafted', N(t.crafted)], ['Items recycled', N(t.recycled)], ['Keepsakes kept', N(t.kept)], ['Stash items brought in', N(t.brought)]]),   // KEEP
       group('Special rooms', [['Vault claims', N(t.vaultClaims)], ['Crown wins', N(t.crownWins)], ['Tree rooms used', N(t.trees)], ['Heists tried', N(t.heists)]]),
       group('Personal bests', [['Most kills', N(b.kills)], ['Most rounds', N(b.rounds)], ['Longest survival', b.secs ? dur(b.secs) : '–'], ['Best win streak', N(b.streak)], ['Fastest win', b.fastWin ? dur(b.fastWin) : '–'], ['Most gold in a match', N(b.gold)], ['Most damage dealt', N(b.dealt)]]));
     box.appendChild(grid);
@@ -126,5 +126,6 @@
   }
   function reset() { S = null; try { GKSAVE.clearStats(); } catch (e) {} S = load(); flush(); }
 
-  window.GKSTATSUI = { onMsg, render, reset, state: get };
+  function bump(k, n) { if (demo()) return; const s = get(); if (s.tot[k] == null || !(n > 0)) return; s.tot[k] += n | 0; persist(true); }   // KEEP: keepsakes claimed (keepui.js), stash items brought in
+  window.GKSTATSUI = { onMsg, render, reset, state: get, bump };
 })();

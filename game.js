@@ -4054,7 +4054,7 @@ function invAll(inv) { return [inv.weapon, inv.armor, inv.charm, ...inv.backpack
 function makeNet(opts) {   // opts.goblin: play this goblin type (a saved character) instead of rolling one
   if (!window.GK_OFFLINE) {
     // SECURITY: the server rolls the goblin and owns the victories. A saved character only sends its signed token (empty = an old character without one: the server rolls a new goblin and says so).
-    const joinUrl = () => { let tk = ''; try { const c = opts && opts.charId != null && window.GKSAVE ? GKSAVE.getCharacter(+opts.charId) : null; if (c) tk = c.token || ''; else if (opts && opts.charId != null) tk = ''; } catch (e) {} return funUrl((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + (opts && opts.charId != null ? '/?ctoken=' + encodeURIComponent(tk) : '')); };
+    const joinUrl = () => { let tk = ''; try { const c = opts && opts.charId != null && window.GKSAVE ? GKSAVE.getCharacter(+opts.charId) : null; if (c) tk = c.token || ''; else if (opts && opts.charId != null) tk = ''; } catch (e) {} return funUrl((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + (opts && opts.charId != null ? '/?ctoken=' + encodeURIComponent(tk) + (window.GKKEEPUI ? GKKEEPUI.joinQuery(opts.charId, opts.bring) : '') : '')); };   // KEEP: the signed stash and the chosen loadout
     const tokUrl = tk => (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/?token=' + encodeURIComponent(tk);   // SOCIAL: resume a player inside the grace period
     let ws = new WebSocket(opts && opts.resume ? tokUrl(opts.resume) : joinUrl()), busyRetry = false;
     let lastM = '', lastMT = 0;   // NET: my position goes out only when it changed (plus a 1 s keepalive); attacks carry the server time I was seeing
@@ -4431,6 +4431,7 @@ const handleMsg0 = d => {
   if (d.lootFail) lootFailFx(d.lootFail);
   if (GK.fun) GK.fun.onMsg(d);   // FUN: kill feed, board, match summary
   if (window.GKSTATSUI) GKSTATSUI.onMsg(d);   // STATS: lifetime stats recorder (statsui.js)
+  if ((d.keep || d.keepOffer) && window.GKKEEPUI) GKKEEPUI.onMsg(d, GK.charId);   // KEEP: stash token updates, bring-in notices, the consolation offer
   if (window.GKLOOT) GKLOOT.onMsg(d);   // LOOT: vault relic, thrown plushie
   if (window.GKHOMEW) GKHOMEW.onMsg(d);   // ELIXIR: counter, Elixir Screen state, toasts, send effects
   if (window.GKUSE) GKUSE.onMsg(d);   // UTILITY: used items, thrown bombs, smoke
@@ -5147,7 +5148,8 @@ function showVictory(info) {
   const ms = performance.now() - run.t0, secs = Math.floor(ms / 1000), n = GK.roundInfo ? GK.roundInfo().n : 0;
   const items = ((info && info.items) || []).filter(k => k != null);
   const from = GK.charId;
-  let c = null; try { c = window.GKSAVE.recordWin({ charId: from, goblin: type, items, parts: (info && info.parts) || {}, token: info && info.ctoken, name: GK.fun && GK.fun.myName && GK.fun.myName() }); if (c && c.id != null) GK.charId = c.id; } catch (e) { c = null; }
+  const keepO = info && info.keep && window.GKKEEPUI ? info.keep : null;   // KEEP: the server's "choose what to keep" offer
+  let c = null; try { c = window.GKSAVE.recordWin({ charId: from, goblin: type, items, parts: (info && info.parts) || {}, token: info && info.ctoken, name: GK.fun && GK.fun.myName && GK.fun.myName(), keep: keepO }); if (c && c.id != null) GK.charId = c.id; } catch (e) { c = null; }
   const wins = c && c.wins != null ? c.wins : (GK.wins | 0) + 1;
   closeInv(true); closeShop(true); GK.mode = 'win'; inside = false; { const sd = document.getElementById('gkSudTag'); if (sd) sd.remove(); } keys.clear(); hideHotbar(); GK.social.clear();   // SOCIAL: match won, nothing to resume
   try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
@@ -5159,17 +5161,18 @@ function showVictory(info) {
   const whero = [[rsTime(secs), 'Survived'], [n || 1, 'Round'], [wins, wins === 1 ? 'Victory' : 'Victories']];
   const wsub = c ? '<b>' + esc(c.name) + '</b> now has <b>' + wins + '</b> victor' + (wins === 1 ? 'y' : 'ies') : 'Your run is won';
   winEl = rsShow('win', rsCard({ big: 'Victory', sub: wsub, hero: whero, rows: rows.filter(r => !['Survived', 'Round reached', 'Victories'].includes(r[0])),
-    mid: '<div class="rs-h">Items you keep</div><div id="winItems" class="rs-items"></div>' + (partsStr ? '<div class="rs-note">Materials kept: ' + esc(partsStr) + '</div>' : ''),
-    note: c ? 'Saved to your stash, along with ' + esc(c.name) : 'Saved to your stash', btns: [['winQueue', 'Queue again', true], ['winMenu', 'Main menu']] }));
+    mid: keepO && c ? '<div id="winKeep"></div>' : '<div class="rs-h">Items you keep</div><div id="winItems" class="rs-items"></div>' + (partsStr ? '<div class="rs-note">Materials kept: ' + esc(partsStr) + '</div>' : ''),   // KEEP
+    note: keepO && c ? esc(c.name) + ' is saved with its victories' : c ? 'Saved to your stash, along with ' + esc(c.name) : 'Saved to your stash', btns: [['winQueue', 'Queue again', true], ['winMenu', 'Main menu']] }));
   winStageStart(type);
+  const kc = keepO && c ? GKKEEPUI.chooser($('winKeep'), c.id, keepO, { inline: true }) : null, viaKeep = f => () => { if (!kc) return f(); kc.finish().then(f, f); };   // KEEP: leaving the card keeps the current choice
   const box = $('winItems');
-  if (!items.length) box.innerHTML = '<span style="color:var(--mut)">nothing</span>';
-  for (const k of items) {
+  if (box && !items.length) box.innerHTML = '<span style="color:var(--mut)">nothing</span>';
+  if (box) for (const k of items) {
     const d = document.createElement('div'); d.className = 'rs-item';
     d.appendChild(mkIcon(k, 44)); const t = document.createElement('span'); t.textContent = itemName(k) + (tierN(k) != null ? ' (T' + tierN(k) + ')' : ''); d.appendChild(t); box.appendChild(d);
   }
-  $('winQueue').onclick = () => { try { sessionStorage.setItem('gk.requeue', '1'); if (from != null) sessionStorage.setItem('gk.requeueChar', String(from)); } catch (e) {} location.reload(); };
-  $('winMenu').onclick = () => location.reload();
+  $('winQueue').onclick = viaKeep(() => { try { sessionStorage.setItem('gk.requeue', '1'); if (GK.charId != null) sessionStorage.setItem('gk.requeueChar', String(GK.charId)); } catch (e) {} location.reload(); });   // KEEP: requeue as the character just saved (a first win makes a new one)
+  $('winMenu').onclick = viaKeep(() => location.reload());
   $('winQueue').focus();
 }
 GK.showVictory = showVictory;
@@ -8985,6 +8988,10 @@ window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw,
       g.fillStyle = DARK; g.beginPath(); g.arc(118, 62, 8, 0, 7); g.arc(142, 62, 8, 0, 7); g.fill(); g.fillRect(126, 74, 8, 8);
       g.fillStyle = GOLDC; [[30, 40], [50, 100], [210, 50], [225, 110], [70, 130]].forEach(([x, y]) => { g.beginPath(); g.arc(x, y, 8, 0, 7); g.fill(); });
       g.strokeStyle = '#ff4a3a'; g.lineWidth = 3; g.beginPath(); g.moveTo(100, 120); g.lineTo(160, 140); g.moveTo(160, 120); g.lineTo(100, 140); g.stroke(); } },
+    { t: 'Win: choose what to keep', x: 'A winner keeps a few things it carried (more with more victories, one more when crowned) and banks a little gold. Bring some into your next match within a budget: they are at stake again.', d(g) {   // KEEP (keepui.js)
+      g.fillStyle = GOLDC; g.beginPath(); g.moveTo(104, 26); g.lineTo(156, 26); g.quadraticCurveTo(156, 74, 130, 78); g.quadraticCurveTo(104, 74, 104, 26); g.fill(); g.fillRect(124, 78, 12, 14); g.fillRect(110, 92, 40, 8);
+      [['#5aa8ff', 40], ['#c06bff', 112], ['#6fdc6a', 184]].forEach(([c, x], i) => { g.strokeStyle = c; g.lineWidth = i === 1 ? 4 : 2; g.strokeRect(x, 110, 36, 36); g.fillStyle = c; g.globalAlpha = i === 1 ? .35 : .15; g.fillRect(x, 110, 36, 36); g.globalAlpha = 1; });
+      g.fillStyle = '#efe9d8'; g.font = 'bold 18px system-ui'; g.textAlign = 'center'; g.fillText('✓', 130, 135); g.textAlign = 'left'; } },
   ];
   let ov = null;
   function closeHow() { if (ov) { ov.remove(); ov = null; document.removeEventListener('keydown', onKey, true); } }
