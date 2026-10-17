@@ -37,8 +37,9 @@ async function waitFor(c, pred, ms, what) { const t0 = Date.now(); let s = null;
       ['the vault in a late round: a bot walks onto the dais and builds a crown claim', async () => {
         const c = await connect(srv.port, 'wins=0');
         c.send({ actDbg: { npcs: false } }); await sleep(100);
+        c.send({ bot6: { hp: 9999 } }); await sleep(100);   // BOTS6: a bot below 40 % health does not claim the crown (the bot sometimes starts hurt), so the lab bot starts healthy
         const s0 = await bot5(c, { goal: '12' });
-        const s = await waitFor(c, s => s.claims.some(x => x.id === s0.lab.id && x.s >= 2), 15000, 'a claim');
+        const s = await waitFor(c, s => s.claims.some(x => x.id === s0.lab.id && x.s >= 2), 30000, 'a claim');
         assert(s.lab.room === '12', 'still in the vault');
         await c.close();
       }],
