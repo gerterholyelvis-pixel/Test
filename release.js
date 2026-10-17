@@ -58,7 +58,7 @@ module.exports = function release(o) {
   };
 
   // ---- small static pages and icons (pages/), read once ----
-  const PAGE_URLS = { '/privacy': 'privacy.html', '/terms': 'privacy.html', '/favicon.svg': 'favicon.svg', '/favicon.ico': 'favicon.svg', '/manifest.webmanifest': 'manifest.webmanifest', '/robots.txt': 'robots.txt', '/og.jpg': 'og.jpg' };
+  const PAGE_URLS = { '/privacy': 'privacy.html', '/terms': 'privacy.html', '/credits': 'credits.html', '/favicon.svg': 'favicon.svg', '/favicon.ico': 'favicon.svg', '/manifest.webmanifest': 'manifest.webmanifest', '/robots.txt': 'robots.txt', '/og.jpg': 'og.jpg' };
   const pageCache = new Map();
   const pageFile = name => { if (!pageCache.has(name)) { let e = null; try { e = { body: fs.readFileSync(path.join(PAGES, name)), type: TYPES[path.extname(name)] || 'application/octet-stream', cc: /\.(svg|jpg|png)$/.test(name) ? 'public, max-age=86400' : 'no-cache' }; } catch (err) {} pageCache.set(name, e); } return pageCache.get(name); };
 
@@ -108,7 +108,7 @@ module.exports = function release(o) {
       if (draining) { console.warn('shutdown: second ' + sig + ', exiting now'); process.exit(0); }
       draining = true; console.log('shutdown: ' + sig + ', closing (' + MS + ' ms grace)');
       try { srv.close(); } catch (e) {}
-      const wss = getWss && getWss(); if (wss) for (const ws of wss.clients) { try { ws.close(1012, 'Server restarting'); } catch (e) {} }
+      const wss = getWss && getWss(); if (wss) for (const ws of wss.clients) { try { if (ws.readyState === 1) ws.send('{"bye":"restart"}'); ws.close(1012, 'Server restarting'); } catch (e) {} }   // RELEASE2: the client says "restarting for an update" instead of "connection lost", and offers a reload
       setTimeout(() => process.exit(0), MS).unref();
     };
     process.on('SIGTERM', () => go('SIGTERM')); process.on('SIGINT', () => go('SIGINT'));

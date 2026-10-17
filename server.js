@@ -78,7 +78,8 @@ function staticFor(url) {   // -> { body, type, cc } or null (404)
   return null;
 }
 const SEC_HEADERS = { 'x-content-type-options': 'nosniff', 'referrer-policy': 'same-origin' };
-const REL = require('./release.js')({ root: ROOT_DIR, secHeaders: SEC_HEADERS, csp: () => CSP, stats: () => ({ matches: matches.size, sockets: wss.clients.size }) });   // RELEASE: /healthz, /version, /privacy, icons, dist/ in production, compression, 404 page, graceful shutdown (docs/RELEASE.md)
+const SAFE = require('./safety.js'), SAFEH = SAFE.health(), SAFEB = SAFE.reportBook(), CONNLIM = SAFE.connLimiter({ burst: +process.env.GK_CONN_BURST > 0 ? +process.env.GK_CONN_BURST : 12, everyMs: +process.env.GK_CONN_EVERY_MS > 0 ? +process.env.GK_CONN_EVERY_MS : 2500 });   // SAFETY: client address, join-flood limiter, name filter, reports, error counters (safety.js)
+const REL = require('./release.js')({ root: ROOT_DIR, secHeaders: SEC_HEADERS, csp: () => CSP, stats: () => ({ matches: matches.size, sockets: wss.clients.size, humans: [...matches.values()].reduce((n, m) => n + humans(m), 0), tickMs: TS.n ? +(TS.sum / TS.n).toFixed(2) : 0, heapMb: Math.round(process.memoryUsage().heapUsed / 1048576), rssMb: Math.round(process.memoryUsage().rss / 1048576), reports: SAFEB.total(), refusedConnections: CONNLIM.refused(), ...SAFEH.get() }) });   // RELEASE: /healthz, /version, /privacy, icons, dist/ in production, compression, 404 page, graceful shutdown (docs/RELEASE.md)
 const srv = http.createServer((q, r) => {
   try {
     if (q.method === 'POST' && (q.url || '').split('?')[0] === '/keep') return KS5.http(q, r);   // KEEP: claim / sell / sync a signed stash (keepsrv.js)
@@ -90,7 +91,7 @@ const srv = http.createServer((q, r) => {
 });
 buildCsp(); if (!process.env.GK_DEBUG) codexInit();   // CODEX
 const ipCount = new Map();
-const ipOf = req => (process.env.GK_TRUST_PROXY ? String(req.headers['x-forwarded-for'] || '').split(',').pop().trim() : '') || req.socket.remoteAddress || '?';   // behind a proxy set GK_TRUST_PROXY=1 (uses the last X-Forwarded-For hop)
+const ipOf = req => SAFE.clientIp(req.headers, req.socket.remoteAddress, process.env.GK_TRUST_PROXY);   // SAFETY: behind a proxy set GK_TRUST_PROXY=1 (the last X-Forwarded-For hop; N = N proxies deep), see safety.js clientIp
 function originOk(req) {   // browsers always send Origin; a client without one is not a browser (no CSRF risk) and is allowed
   const o = req.headers.origin; if (!o) return true;
   const low = String(o).toLowerCase().replace(/\/$/, '');
@@ -102,6 +103,7 @@ function verifyClient(info, cb) {
   const req = info.req;
   if (!originOk(req)) return cb(false, 403, 'Forbidden origin');
   if ((ipCount.get(ipOf(req)) || 0) >= MAX_PER_IP) return cb(false, 429, 'Too many connections');
+  if ((!SEC_DEBUG || process.env.GK_CONN_BURST) && !CONNLIM.allow(ipOf(req))) return cb(false, 429, 'Too many connection attempts');   // SAFETY: join floods and reconnect storms (12 in a burst, then one every 2.5 s per address)
   cb(true);
 }
 const FIX_WINDOW_MS = 10000, FIX_MAX = 15;
@@ -112,10 +114,9 @@ function secFix(p, ws, now) {   // count corrections in a sliding 10 s window; m
   console.log('kick: player ' + p.id + ' (' + p.name + ') ' + a.length + ' movement corrections in ' + FIX_WINDOW_MS / 1000 + ' s');
   p.kicked = true; sendTo(ws, { kicked: 'movement' }); try { ws.close(); } catch (e) {} return true;
 }
-const BAD_WORDS = /(fuck|shit|cunt|nigg|fag|retard|bitch|whore|slut|cock|dick|pussy|rape|nazi|hitler|kike|spic|chink|twat|wank|penis|vagina)/i;   // a name that contains one of these becomes a goblin name instead (fix-list 17)
-const cleanName = s => { const n = String(s || '').replace(/[^A-Za-z0-9 '\-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 14); return n && !BAD_WORDS.test(n.replace(/[^A-Za-z]/g, '')) ? n : ''; };
-process.on('uncaughtException', e => console.error('uncaught', e));   // one bad message must not take every running match down (a port clash still exits, see srv.on('error'))
-process.on('unhandledRejection', e => console.error('unhandled', e));
+const cleanName = SAFE.cleanName;   // SAFETY: letters, digits, space, ' and -, at most 14; bad words (also written with digits, spaces or repeated letters), links and staff-like names are refused (the player gets a goblin name instead)
+process.on('uncaughtException', e => { SAFEH.note('uncaught', e); console.error('uncaught', e); });   // one bad message must not take every running match down (a port clash still exits, see srv.on('error'))
+process.on('unhandledRejection', e => { SAFEH.note('unhandled', e); console.error('unhandled', e); });
 // SECURITY-END
 const wss = new WebSocketServer({ server: srv, maxPayload: 512, verifyClient, perMessageDeflate: false /* PERF4: frames are tiny, compressing them costs CPU and latency (ws also sets TCP_NODELAY on every socket) */ }); // oversize frames close the socket
 setInterval(() => { for (const ws of wss.clients) { if (ws.alive === false || ws.bufferedAmount > 262144) { try { ws.terminate(); } catch (e) {} continue; }   /* ROBUST: also drop a socket that is not reading (256 KB queued) */ ws.alive = false; try { ws.ping(); } catch (e) {} } }, 30000).unref();   // SECURITY: heartbeat, a socket that answers no ping for 30 s is dead (frees its per-IP slot, starts the reconnect grace)
@@ -181,15 +182,19 @@ const roundState = m => ({ round: { n: m.round, left: Math.max(0, m.endsAt - Dat
 const broadcastRound = m => bcast(m, roundState(m));
 const matchInfo = m => { let lo = Infinity, hi = -Infinity, n = 0, alive = 0; for (const p of m.players.values()) { if (p.npc) continue; n++; lo = Math.min(lo, p.wins); hi = Math.max(hi, p.wins); if (p.entered && !p.dead) alive++; } return { size: n, minWins: n ? lo : 0, maxWins: n ? hi : 0, alive }; };   // mystery enemies never count
 const broadcastMatch = m => bcast(m, { match: matchInfo(m) });
-function findMatch(wins) {
+function findMatch(wins, room) {
   let best = null;
   for (const m of matches.values()) {
     if (m.phase !== 'queue' || m.players.size >= CAP) continue;   // closed matches take no late joiners
+    if ((m.room || '') !== (room || '')) continue;   // SAFETY: a private room code (?room=ABCD) only meets players with the same code, public players never land in one
+    if (room) return m;
     const d = m.players.size ? Math.abs(wins - avgWins(m)) : 0;
     if (m.players.size && d > tolerance(wins)) continue;
     if (!best || d < best.d || (d === best.d && m.players.size > best.m.players.size)) best = { m, d };
   }
-  return best ? best.m : matches.size >= MAX_MATCHES ? null : newMatch();   // SECURITY: null = servers are full
+  if (best) return best.m;
+  if (matches.size >= MAX_MATCHES) return null;
+  const nm = newMatch(); if (room) nm.room = room; return nm;   // SECURITY: null = servers are full
 }
 function leave(m, ws) { // remove a player from their match; empty matches disappear
   const gone = m.players.get(ws);
@@ -2633,8 +2638,14 @@ function elixirDbg(m, p, o) {   // GK_DEBUG test hook: {dbgElixir:{n, tank, lv:{
 // ELIXIR-END
 
 /* MATCH-BEGIN */
-const queueInfo = m => ({ n: m.players.size, size: CAP, since: Date.now() - m.formedAt });
-function broadcastQueue(m, except) { const msg = JSON.stringify({ queue: queueInfo(m) }); for (const ws of m.players.keys()) if (ws !== except && ws.readyState === 1) ws.send(msg); }
+const privMs = () => DBG && +process.env.GK_PRIVATE_MS > 0 ? +process.env.GK_PRIVATE_MS : 90000, qMs = m => m.room ? privMs() : QUEUE_MS;   // SAFETY: a private room waits 90 s for friends (or until the host presses Start)
+const queueInfo = m => ({ n: m.players.size, size: CAP, since: Date.now() - m.formedAt, ms: qMs(m), ...(m.room ? { room: m.room } : null), bots: Math.max(0, CAP - m.players.size) });   // bots: empty seats are filled with labelled bots at the start
+function hostCheck(m) {   // SAFETY: the first player of a private room is its host (may press Start now); the next one takes over when the host leaves
+  if (!m.room || m.phase !== 'queue') return;
+  if (!m.host || !m.players.has(m.host)) m.host = m.players.keys().next().value;
+  if (m.host) sendTo(m.host, { host: 1 });
+}
+function broadcastQueue(m, except) { const msg = JSON.stringify({ queue: queueInfo(m) }); for (const ws of m.players.keys()) if (ws !== except && ws.readyState === 1) ws.send(msg); hostCheck(m); }
 function fillWithBots(m) { fillBots(m); }   // see the BOTS block
 function startMatch(m) {   // close the queue match, give everyone their own outer room, tell them to load
   if (m.phase !== 'queue') return;
@@ -2686,7 +2697,7 @@ function beginCountdown(m) {
 }
 function matchTick(m, now) {   // returns true when the normal round/combat tick must be skipped for this match (still queueing)
   if (m.phase === 'queue') {
-    if (m.players.size >= CAP || (m.players.size >= MIN_START && now - m.formedAt >= QUEUE_MS)) startMatch(m);
+    if (m.players.size >= CAP || m.goNow || (m.players.size >= MIN_START && now - m.formedAt >= qMs(m))) startMatch(m);
     else if (now - (m.qSent || 0) >= 1000) { m.qSent = now; broadcastQueue(m); }
     return m.phase === 'queue';
   }
@@ -2700,7 +2711,7 @@ function matchTick(m, now) {   // returns true when the normal round/combat tick
 }
 /* MATCH-END */
 // SOCIAL-BEGIN (reconnect grace and emotes; see docs/reports/social.md)
-const GRACE_MS = process.env.GK_DEBUG && +process.env.GK_GRACE_MS > 0 ? +process.env.GK_GRACE_MS : 15000, EMOTE_MS = 1000, EMOTES = 4;   // GK_GRACE_MS only with GK_DEBUG=1 (tests)
+const GRACE_MS = process.env.GK_DEBUG && +process.env.GK_GRACE_MS > 0 ? +process.env.GK_GRACE_MS : 30000, EMOTE_MS = 1000, EMOTES = 4;   // GK_GRACE_MS only with GK_DEBUG=1 (tests)
 const socTokens = new Map();   // token -> player (only players of a started match are ever resumed)
 const socToken = p => { p.token = require('crypto').randomBytes(12).toString('hex'); socTokens.set(p.token, p); return p.token; };
 function socClose(m, ws, p) {   // socket closed: true when the close was handled here (stale socket, or grace period started); false = leave as usual
@@ -2740,6 +2751,18 @@ function socEmote(m, ws, p, n, now) {   // {emote:n}: relayed to everyone else (
 }
 setInterval(() => { for (const [t, p] of socTokens) if (p.dead || !p.match || !p.match.players.has(p.ws) || matches.get(p.match.id) !== p.match) socTokens.delete(t); }, 60000).unref();   // ROBUST: also forget the tokens of a match that was closed (lifetime, repeated errors)
 // SOCIAL-END
+// SAFETY-BEGIN (quick chat and player reports, docs/reports/release-2.md): there is no free text anywhere. {say:n} relays one of safety.js QUICK (client holds the words) to the match, {report:{id,r}} logs a report (3 per player per match).
+function safeSay(m, ws, p, n, now) {
+  if (!Number.isInteger(n) || n < 0 || n >= SAFE.QUICK.length || p.dc || now - (p.sayAt || 0) < SAFE.QUICK_MS || (p.says = (p.says || 0) + 1) > SAFE.QUICK_MAX) return;
+  p.sayAt = now; const msg = JSON.stringify({ say: { id: p.id, n, name: p.name } });
+  for (const w of m.players.keys()) if (w !== ws && w.readyState === 1) w.send(msg);
+  if (m.specs) for (const w of m.specs.keys()) if (w !== ws && w.readyState === 1) w.send(msg);
+}
+function safeReport(m, ws, p, r, now) {
+  let t = null; for (const q of m.players.values()) if (q.id === r.id) t = q;
+  sendTo(ws, { reported: SAFEB.report(m, p, t, r.r, now) });
+}
+// SAFETY-END
 // ACT5-BEGIN (the activity rooms: act5.js glue for activity.js, rooms5-trees.js, vb5.js, vault5.js; docs/reports/special-rooms-server.md)
 const H5 = require('./halls5.js')({ G, DBG, sendTo, bcast, sendGold, sendParts, giveItem, addDrop, spawnGuard });   // HALLS (halls5.js)
 const A5 = require('./act5.js')({ G, DBG, rule, bcast, sendTo, sendInv, sendGold, sendParts, giveItem, recalc, place, die, addDrop, broadcastRound, sendBoard, isOpen, VAULT, eatBrain, srvT, T0, newId: () => nextId++, equip, newBrain, npcFight, stepTo, clampIn });
@@ -2763,7 +2786,8 @@ wss.on('connection', (ws, req) => {
   if (tok) { goblin = tok.g; wins = tok.w; charId = tok.c; tokName = tok.n; }
   else if (SEC_DEBUG) { if (g !== null && /^\d{1,2}$/.test(g) && +g < GOBLIN_N) goblin = +g; if (wq !== null && /^\d{1,9}$/.test(wq)) wins = Math.min(9999, +wq); }
   const unverified = ct !== null && !tok;   // a saved character came without a valid token: playing as a new goblin
-  m = findMatch(wins);
+  const rq = String(q.get('room') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6), room = rq.length >= 3 ? rq : '';   // SAFETY: private room code
+  m = findMatch(wins, room);
   if (!m) { sendTo(ws, { busy: 1 }); return ws.close(); }
   const id = nextId++, nq = cleanName(tokName != null ? tokName : q.get('name'));
   p = { id, wins, charId, ws, name: nq || BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)], ...spawn() }; equip(p, goblin); place(p, p.x, p.z);
@@ -2773,7 +2797,7 @@ wss.on('connection', (ws, req) => {
   if (resumed) socWelcome(m, ws, p); else { /* MATCH-BEGIN */ sendTo(ws, { queue: queueInfo(m), goblin, wins: p.wins, token: p.token, ...(DBG ? { dbg: 1 } : null), ...(p.unverified ? { unverified: 1 } : null) }); broadcastQueue(m, ws); if (m.players.size >= CAP) startMatch(m); /* MATCH-END */ }
   ws.on('pong', () => { ws.alive = true; }); ws.alive = true;   // SECURITY: heartbeat
   let tokens = 40, last = Date.now(); // rate limit: ~30 msg/s sustained, burst 40
-  ws.on('message', (raw, isBinary) => { try { onMessage(raw, isBinary); } catch (e) { console.error('message id=' + p.id, e); } });   // SECURITY: a bug in one handler never takes the process down
+  ws.on('message', (raw, isBinary) => { try { onMessage(raw, isBinary); } catch (e) { SAFEH.note('message', e); console.error('message id=' + p.id, e); } });   // SECURITY: a bug in one handler never takes the process down
   function onMessage(raw, isBinary) {
     const now = Date.now();
     tokens = Math.min(40, tokens + (now - last) * 0.03); last = now;
@@ -2787,13 +2811,16 @@ wss.on('connection', (ws, req) => {
     if (d && d.bot5 && process.env.GK_DEBUG) { if (typeof d.bot5 === 'object') bot5Lab(m, d.bot5); return sendTo(ws, { bot5: bot5Stat(m) }); }   // BOTS5: per-match bot stats (tests, sim), also for a dead spectator; {bot5:{goal}} lab
     if (p.dead || !d || typeof d !== 'object' || Array.isArray(d)) return;
     const dbg = !!process.env.GK_DEBUG;
-    /* MATCH-BEGIN */ if (d.cancel === 1) { if (m.phase === 'queue') { leave(m, ws); ws.close(); } return; }
+    /* MATCH-BEGIN */ if (d.start === 1) { if (m.phase === 'queue' && m.room && m.host === ws) m.goNow = true; return; }   // SAFETY: the host of a private room starts now (the seats left are bots)
+    if (d.cancel === 1) { if (m.phase === 'queue') { leave(m, ws); ws.close(); } return; }
     if (d.ready === 1) { p.ready = true; if (m.phase === 'loading') { const all = [...m.players.values()]; bcast(m, { readyN: { n: all.filter(q => q.ready).length, size: all.length } }); if (all.every(q => q.ready)) beginCountdown(m); } return; }   // readyN: how many goblins are ready (the loading screen shows it)
     if (!m.goAt || now < m.goAt) { if (d.m || d.atk === 1 || d.claim === 1 || d.bribe === 1 || d.sel !== undefined) return; }   // movement, attacks, claims and door picks are locked until GO
     /* MATCH-END */
     if (Array.isArray(d.m) && (d.m.length === 3 || d.m.length === 4) && d.m.every(v => typeof v === 'number' && Number.isFinite(v))) { applyMove(m, ws, p, d.m[0], d.m[1], d.m[2], now, d.m[3]); if (p.c4sw) c4Eval(p.c4sw);   // COMBAT4: a fresh pose during the active window is checked at once
     } else if (typeof d.ping === 'number' && Number.isFinite(d.ping)) { sendTo(ws, { pong: d.ping, t: srvT() });
     } else if (d.emote !== undefined) { socEmote(m, ws, p, d.emote, now);   // SOCIAL
+    } else if (d.say !== undefined) { safeSay(m, ws, p, d.say, now);   // SAFETY: quick chat (a phrase number, never free text)
+    } else if (d.report && typeof d.report === 'object') { safeReport(m, ws, p, d.report, now);   // SAFETY: {report:{id,r}}
     } else if (d.hall !== undefined) { H5.act(m, p, d.hall, now);   // HALLS: {hall:{s,v}} search a container / use a station
     } else if (d.act !== undefined) { A5.act(m, p, d.act, now);   // ACT5: an activity verb {act:{r,a,v,x?}}
     } else if (typeof d.lat === 'number' && Number.isFinite(d.lat)) { p.lat = Math.max(0, Math.min(1000, d.lat));   // ACT5: smoothed latency for the timing presses

@@ -22,10 +22,10 @@ a{color:var(--gold)}
 <h2>What your browser keeps</h2>
 <p>The game stores a few things in your own browser so it works the next time you visit. They never leave your computer except where noted.</p>
 <ul>
-<li><b>Settings</b> (graphics, volume, controls, tips): <code>localStorage</code>.</li>
+<li><b>Settings</b> (graphics, volume, controls, tips, accessibility options, whether you finished the tutorial, your chat preference): <code>localStorage</code>.</li>
 <li><b>Your goblins and stash</b>, including a signed token that proves your victories to the server: <code>localStorage</code>. The token is sent to the game server when you play.</li>
 <li><b>Your match statistics</b>: <code>localStorage</code>.</li>
-<li><b>A reconnect ticket</b> so a page reload puts you back into your match: <code>sessionStorage</code>, gone when you close the tab.</li>
+<li><b>A reconnect ticket</b> so a page reload or a short connection drop puts you back into your match (about 30 seconds), and the private room code you chose: <code>sessionStorage</code>, gone when you close the tab.</li>
 <li><b>Baked item icons</b>, a cache only: IndexedDB.</li>
 </ul>
 <p>To delete all of it, clear this site's data in your browser settings. Your goblins are then gone for good: there is no copy on the server.</p>
@@ -35,7 +35,11 @@ a{color:var(--gold)}
 <li>Your IP address, while you are connected, to limit connections per address and stop abuse. It is kept in memory only and not written to disk by the game.</li>
 <li>What you do in a match (moves, picks, trades). It lives in memory for the length of the match.</li>
 <li>The goblin name you type. Names are filtered and shown to the other players in your match.</li>
+<li>Quick chat: you pick one of eight fixed phrases (there is no free text). The server passes the phrase to the other players in your match and does not store it.</li>
+<li>Private room codes: a code you type or share is part of the connection and kept in memory while the room exists.</li>
+<li>Reports: if a player reports another, the server writes one log line with both goblin names (not IP addresses), the match number, the reason and the time. <!-- OWNER: decide who reads these reports, how long logs are kept and what happens to a reported player (docs/RELEASE.md). --></li>
 </ul>
+<p>Bots (computer-controlled goblins) fill empty seats in a match; they are marked as bots in the match and in the queue. They are not people and no data is collected from them.</p>
 <p>The hosting provider may keep its own access logs. <!-- OWNER: name the host (e.g. Render) and link its privacy policy. --></p>
 
 <h2>Third parties</h2>
@@ -43,6 +47,9 @@ a{color:var(--gold)}
 
 <h2>Future telemetry</h2>
 <p>If we ever add gameplay statistics, they will be anonymous, described here first, and you will be able to switch them off in Settings.</p>
+
+<h2>Muting and reporting</h2>
+<p>Press H in a match to mute another player's quick chat and emotes for yourself, or to report them. Muting is only stored for the current page visit.</p>
 
 <h2>Terms of play</h2>
 <ul>
