@@ -5,7 +5,7 @@ const give = async (c, key, slot = 'q0') => {   // debug give, then move it into
   c.send({ give: key }); await c.until(x => x.state.inv.backpack.includes(key), 2000, 'item ' + key);
   c.send({ mv: ['b' + c.state.inv.backpack.indexOf(key), slot] }); await c.until(x => x.state.inv.quick[+slot[1]] === key, 2000, key + ' in ' + slot);
 };
-const use = async (c, slot = 'q0') => { const n = c.msgs.length; c.send({ use: slot }); await sleep(120); return c.msgs.slice(n); };
+const use = async (c, slot = 'q0') => { const n = c.msgs.length; c.send({ use: slot }); await sleep(120); for (let t = 0; t < 40 && !c.msgs.slice(n).some(m => m.used || m.useFail); t++) await sleep(50); return c.msgs.slice(n); };   // QA-FULL: wait for the answer (up to 2 s) instead of a fixed 120 ms, which a loaded machine missed ('nothing left' failed under npm test load)
 const DOORS = W.DOORS.map(d => [d.id, d.a, d.b]);   // door ids from the shared world table
 const doorsOf = r => DOORS.filter(d => d[1] === r || d[2] === r).map(d => d[0]), VAULT_DOORS = doorsOf(W.VAULT_KEY);
 const roomOnly = id => DOORS.find(d => d[0] === id);

@@ -273,6 +273,7 @@
 
     // ---- round state: 15 s warning + round start banner
     let round = -1, endAt = 0, curVb = null, nextVb = null, warned = -1, sudden = false;
+    const REKEY_DELAY = cfg.rekeyDelay != null ? cfg.rekeyDelay : 3400;   // QA-FULL: the round banners (feel.js, game.js) last about 3.2 s
     function roundState(rs) {
       if (!rs) return;
       if (rs.vb) curVb = rs.vb; if ('vbNext' in rs) nextVb = rs.vbNext || null;
@@ -280,7 +281,7 @@
         endAt = clock() + (r.left || 0);
         if (r.n !== round) {
           const first = round < 0; round = r.n;
-          if (!first || (r.dur && r.left > r.dur - 8000)) { if (curVb && sideOf(curVb).length) showBanner(rekeyHtml('Vault re-keyed', curVb), 4200); }
+          if (!first || (r.dur && r.left > r.dur - 8000)) { if (curVb && sideOf(curVb).length) { const html = rekeyHtml('Vault re-keyed', curVb); later('bnRekey', () => showBanner(html, 4200), REKEY_DELAY); } }   // QA-FULL: after the round-start banners ("Round N", "The arena is open"), not on top of them
         }
       }
       if (rs.sudden !== undefined) setSudden(!!rs.sudden);

@@ -39,6 +39,11 @@ run('qa-full', [
   ['the crown claim list only shows while someone gains, the alarm runs, or I am in the vault', () => {
     assert(/quiet = !S\.crown && k !== WORLD\.VAULT_KEY/.test(R('game.js')));
   }],
+  ['the "Vault re-keyed" strip waits until the round-start banners are gone (they stacked into one unreadable block at round 2)', () => {
+    const h = R('hud5.js'), m = /REKEY_DELAY = cfg\.rekeyDelay != null \? cfg\.rekeyDelay : (\d+)/.exec(h);
+    assert(m && +m[1] >= 3200, 'delay ' + (m && m[1])); assert(/later\('bnRekey', \(\) => showBanner\(html, 4200\), REKEY_DELAY\)/.test(h), 'shown through the delayed timer');
+    const g = R('game.js'); const a = /RS\.arenaUntil = now \+ (\d+)/.exec(g); assert(a && +a[1] <= +m[1], 'the arena banner (' + (a && a[1]) + ' ms) is gone before the strip');
+  }],
   ['home toasts sit below the round timer and the home-phase line, not on top of them', () => {
     const m = /\.hu-tw\{[^}]*top:(\d+)vh/.exec(R('homeui.js')); assert(m && +m[1] >= 15, 'toast stack top ' + (m && m[1]));
   }],
