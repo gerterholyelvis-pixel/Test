@@ -6,11 +6,11 @@
 const fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..');
 const rd = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
-const SOURCES = ['items.js', 'world.js', 'elixir.js', 'homebase.js', 'activity.js', 'rooms5-trees.js', 'vb5.js', 'vault5.js', 'server.js', 'tools/gameinfo.js', 'tools/gameinfo.template.html'];
+const SOURCES = ['items.js', 'world.js', 'elixir.js', 'homebase.js', 'activity.js', 'rooms5-trees.js', 'vb5.js', 'vbx5.js', 'vault5.js', 'server.js', 'tools/gameinfo.js', 'tools/gameinfo.template.html'];
 const OUT = path.join(ROOT, 'docs', 'game-info.html');
 function srcHash() { const h = require('crypto').createHash('sha1'); for (const f of SOURCES) h.update(rd(f).replace(/\r\n?/g, '\n')); return h.digest('hex').slice(0, 8); }   // line-ending independent
 const G = require('../items.js'), WORLD = require('../world.js'), EX = require('../elixir.js'), HB = require('../homebase.js');
-const ACT = require('../activity.js'), T5 = require('../rooms5-trees.js'), VB = require('../vb5.js'), V5 = require('../vault5.js');
+const ACT = require('../activity.js'), T5 = require('../rooms5-trees.js'), VB = require('../vb5.js'), V5 = require('../vault5.js'), VBX = require('../vbx5.js');
 const SRC = { server: rd('server.js'), items: rd('items.js') };
 
 // ---------------------------------------------------------------- read constants out of server.js (it cannot be required: it starts listening)
@@ -30,7 +30,7 @@ function srvConst(name, src) {
     else if (depth === 0 && (c === ',' || c === ';' || c === '\n')) break;
   }
   const expr = s.slice(st, i).trim();
-  try { return new Function('DBG', 'process', 'return (' + expr + ')')(false, { env: {} }); } catch (e) { throw new Error('gameinfo: cannot evaluate server.js ' + name + ': ' + e.message); }
+  try { return new Function('DBG', 'process', 'require', 'return (' + expr + ')')(false, { env: {} }, f => require(path.join(ROOT, f))); }   /* BALANCE-3: server.js BOLT reads items.js STAFF_BOLT */ catch (e) { throw new Error('gameinfo: cannot evaluate server.js ' + name + ': ' + e.message); }
 }
 // a number captured by a regex from a source file (for the few values that sit inside code, not in a named constant)
 function srcNum(re, src, what) { const m = re.exec(src || SRC.server); if (!m) throw new Error('gameinfo: cannot find ' + what); return +m[1]; }
@@ -51,7 +51,7 @@ const rng = seed => { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>
 // ---------------------------------------------------------------- server numbers
 const SV = {
   ROUND_MS: srvConst('ROUND_MS'), SUDDEN_ROUND: srvConst('SUDDEN_ROUND'), MAX_ROUND: srvConst('MAX_ROUND'), PACE: srvConst('PACE'), BOLT: srvConst('BOLT'), BRIBE: srvConst('BRIBE'),
-  CAP: srvConst('CAP'), QUEUE_MS: srvConst('QUEUE_MS'), RULE_DEFAULT: srvConst('RULE_DEFAULT'), RULE_NAMES: srvConst('RULE_NAMES'), NPC: srvConst('NPC'), STATION_TYPES: srvConst('STATION_TYPES'),
+  CAP: srvConst('CAP'), QUEUE_MS: srvConst('QUEUE_MS'), RULE_DEFAULT: srvConst('RULE_DEFAULT'), RULE_NAMES: srvConst('RULE_NAMES'), NPC: { ...srvConst('NPC'), ...require('../npcx.js').KINDS }, STATION_TYPES: srvConst('STATION_TYPES'),
   DOOR_LIFE: srvConst('DOOR_LIFE'), CELL_ROUND: srvConst('CELL_ROUND'), KLAXON_MS: srvConst('KLAXON_MS'), WALK: srvConst('WALK'), SPRINT: srvConst('SPRINT'), SEE_FAR: srvConst('SEE_FAR'), SEE_NEAR: srvConst('SEE_NEAR'),
   SEE_HIT_MS: srvConst('SEE_HIT_MS'), SEE_MEM_MS: srvConst('SEE_MEM_MS'), BOT_GRACE: srvConst('BOT_GRACE'), BLEED_MS: srvConst('BLEED_MS'), USE_CD: srvConst('USE_CD'), BOMB_FUSE: srvConst('BOMB_FUSE'),
   MAX_PLACED: srvConst('MAX_PLACED'), BAIT_LIFE: srvConst('BAIT_LIFE'), LURE_MS: srvConst('LURE_MS'), LURE_RANGE: srvConst('LURE_RANGE'), GRACE_MS: srvConst('GRACE_MS'),
@@ -275,6 +275,8 @@ const combatFacts = [['Melee reach', cb.melee + ' m'], ['Ranged reach (bows, cro
   ['Reforge', '+' + pc(G.KNOW.up - 1) + ' attack or health, at least +2'], ['Perk numbers', 'Field Medic x' + G.KNOW.medic + ', Brain Gourmet +' + G.KNOW.gourmet + ' HP, one knowledge point per ' + G.KNOW.step + ' knowledge']];
 const thornArm = armours.filter(a => a.thorns).map(a => a.name.v + ' ' + a.thorns).join(', ');
 combatFacts.push(['Thorns armour', thornArm + ' (flat damage back to a melee attacker, never lethal)']);
+for (const [k, v] of G.ABIL.TEXT) combatFacts.push([k, v]);   // ABILITY (BALANCE-3): the dash, the heavy blow and the damage cap
+combatFacts.push(['Point blank', 'bows, crossbows, slings and thrown weapons hit for ' + pc(G.POINT_BLANK.mul) + ' inside ' + G.POINT_BLANK.r + ' m (not bolts)']);
 const npcAll = [...Object.entries(SV.NPC).map(([k, n]) => ({ id: 'e-' + k, name: n.name, from: k === 'rat' ? 'Rat Swarm send' : 'Mystery room', ...npcRow(n) })),
   ...T5.TYPES.map(t => ACT.get(t)).filter(sp => sp.npc).flatMap(sp => Object.values(sp.npc).map(n => ({ id: 'e-' + n.name, name: n.name, from: T5.NAMES[sp.type], ...npcRow(n) }))),
   { id: 'e-warden', name: wardenNpc.name, from: 'Locksmith alarm, vault claim', ...npcRow(wardenNpc) }, { id: 'e-wisp', name: wispNpc.name, from: 'Keystone resonance', ...npcRow(wispNpc) }];
@@ -369,6 +371,15 @@ S_.rooms = [
   tbl('mystery', 'Inside a mystery room', 'One of six kinds, equal odds.', [['kind', 'Contents', 0, 'name'], ['what', 'What'], ['odds', 'Odds %', 1]], mystery),
   tbl('enemies', 'Mystery room enemies', 'Weights add to ' + enemyTot + ' and are relative. "Of all mystery rooms" multiplies by the 1-in-6 enemy roll.', [['name', 'Enemy', 0, 'name'], ['w', 'Share of enemy rooms %', 1], ['ownOdds', 'Of all mystery rooms %', 1], ['hp', 'HP', 1], ['dmg', 'Damage', 1], ['cd', 'Cooldown ms', 1], ['dps', 'DPS', 1], ['speed', 'Speed m/s', 1], ['loot', 'Drops']], enemies),
 ];
+// VARIETY: item affixes and match mutators (affix.js, mutators.js)
+{
+  const AX = require('../affix.js'), MX = require('../mutators.js');
+  S_.rooms.push(
+    tbl('affixes', 'Item affixes', 'Found weapons and armour (chests, mystery rooms, enemy drops) can roll 0-2 of these; shop, crafted and starter gear never does. First affix chance by tier 1-5: ' + AX.CHANCE.slice(1).map(c => Math.round(c * 100) + '%').join(', ') + '; a second follows ' + Math.round(0.35 * 100) + '% of the time. An affixed item is never worth more than ' + Math.round((AX.CAP - 1) * 100) + '% over the plain one.', [['name', 'Affix', 0, 'name'], ['on', 'On'], ['fx', 'Effect']],
+      AX.IDS.map(id => ({ id: 'affix-' + id, name: (AX.AFFIXES[id].pre || AX.AFFIXES[id].suf), on: AX.AFFIXES[id].type === 'weapon' ? 'Weapons' : 'Armour', fx: AX.AFFIXES[id].text }))),
+    tbl('mutators', 'Match mutators', Math.round(MX.CHANCE * 100) + '% of matches roll one. It is announced at GO and shown under the round timer.', [['name', 'Mutator', 0, 'name'], ['fx', 'Effect']],
+      MX.IDS.map(id => ({ id: 'mut-' + id, name: MX.MUT[id].name, fx: MX.MUT[id].text }))));
+}
 S_.trees = [
   p('Four of the ten tree types stand in the inner corner rooms each match, rolled by weight without repeats. The first bar is the weight; the second is the real chance a type shows up in a given match (' + SIM_N + ' simulated rolls). All tree knowledge shares a cap of ' + ACT.C.TREE_KNOW_ROUND + ' a round and ' + ACT.C.TREE_KNOW_MATCH + ' a match per goblin.'),
   tbl('trees', 'The 10 tree rooms', '', [['name', 'Tree', 0, 'name'], ['weight', 'Weight %', 1], ['present', 'In a match %', 1], ['what', 'What it does', 0, 'wrapc'], ['yield', 'Designer note', 0, 'wrapc'], ['npc', 'Guardians'], ['makes', 'Makes'], ['anchors', 'Props']], trees),
@@ -378,6 +389,7 @@ S_.trees = [
 S_.vault = [
   p('Four vaultbreaker rooms stand in front of the vault doors, all four in every match; their positions shuffle every round. Each makes votes toward opening the vault and a token that helps the next heist. The ring: Ram, Locksmith, Counting House, Keystone, back to the Ram.'),
   tbl('vbs', 'The 4 vaultbreakers', '', [['name', 'Heist', 0, 'name'], ['role', 'Style'], ['what', 'What it does', 0, 'wrapc'], ['vote', 'Vote contribution', 0, 'wrapc'], ['token', 'Makes'], ['tokenUse', 'Token use', 0, 'wrapc']], vbs),
+  tbl('vbx', 'Vaultbreaker stations', 'Four more stations in every vaultbreaker room beside the main heist; they move with the room type. Machines reset at the re-key, items and IOUs stay. All station knowledge shares a cap of ' + VBX.K.KNOW_ROUND + ' a round.', [['room', 'Room'], ['name', 'Station', 0, 'name'], ['what', 'What it does', 0, 'wrapc'], ['reward', 'Reward'], ['risk', 'Risk']], VBX.CODEX.map((r, i) => ({ id: 'vbx-' + i, room: VB_NAMES[r.type], name: r.name, what: r.what, reward: r.reward, risk: r.risk }))),
   tbl('vbnums', 'Vaultbreaker tuning numbers', '', [['type', 'Heist', 0, 'name'], ['key', 'Constant'], ['value', 'Value']], vbConsts),
   kv('THE VAULT', vaultFacts),
   tbl('vtok', 'Vaultbreaker tokens', '', [['name', 'Token', 0, 'name'], ['made', 'Made at'], ['desc', 'What it does', 0, 'wrapc']], tokens),

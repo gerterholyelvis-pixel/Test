@@ -14,6 +14,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 const PI = Math.PI;
+const RBOX = new Map(), rbox = (w, h, d, r) => { const k = w + ',' + h + ',' + d + ',' + r; let g = RBOX.get(k); if (!g) { if (RBOX.size > 600) RBOX.clear(); RBOX.set(k, g = new RoundedBoxGeometry(w, h, d, 2, r)); } return g.clone(); };   // PERF5: a rounded box is built once per size and cloned (the 8 homes repeat their furniture: most of a home's build time was RoundedBoxGeometry)
 const ELIXIR = 0x39f2c4, ELIXIR_RED = 0xff4a3a;
 const rngOf = seed => { let s = seed >>> 0 || 1; return () => { s = (s + 0x6D2B79F5) >>> 0; let t = s; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; }; };
 const mergeBag = list => mergeGeometries(list.map(g => (g.index ? g.toNonIndexed() : g)), false);   // some primitives are indexed and some are not: normalise
@@ -115,7 +116,7 @@ export function buildHomeRoom(THREE, helpers = {}, opts = {}) {
     const g = new THREE.BufferGeometry(); g.setAttribute('position', pos); g.setAttribute('normal', nor); g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.setIndex(geo.index);
     bags[bag].push(g);
   }
-  const box = (bag, w, h, d, x, y, z, c, o = {}) => put(bag, new RoundedBoxGeometry(w, h, d, 2, o.rad || Math.min(0.022, Math.min(w, h, d) / 2.3)), c, Object.assign({ p: [x, y, z] }, o));
+  const box = (bag, w, h, d, x, y, z, c, o = {}) => put(bag, rbox(w, h, d, o.rad || Math.min(0.022, Math.min(w, h, d) / 2.3)), c, Object.assign({ p: [x, y, z] }, o));
   const cyl = (bag, rt, rb, h, x, y, z, c, o = {}) => put(bag, new THREE.CylinderGeometry(rt, rb, h, o.seg || 14, 1, !!o.open), c, Object.assign({ p: [x, y, z] }, o));
   const sph = (bag, r, x, y, z, c, o = {}) => put(bag, new THREE.SphereGeometry(r, o.seg || 12, o.segH || 8), c, Object.assign({ p: [x, y, z] }, o));
   const tor = (bag, R, r, x, y, z, c, o = {}) => put(bag, new THREE.TorusGeometry(R, r, 6, o.seg || 16), c, Object.assign({ p: [x, y, z] }, o));

@@ -7,7 +7,7 @@
   'use strict';
   const VERSION = 1, N_GOB = 12, RECENT = 10, BIG = 1e9;
   const num = (x, max) => { x = Math.floor(+x); return Number.isFinite(x) && x > 0 ? Math.min(x, max || BIG) : 0; };
-  const TOT = ['matches', 'wins', 'kills', 'deaths', 'quits', 'rounds', 'secs', 'dealt', 'taken', 'goldEarned', 'goldSpent', 'elixir', 'crafted', 'recycled', 'vaultClaims', 'crownWins', 'trees', 'heists'];
+  const TOT = ['matches', 'wins', 'kills', 'deaths', 'quits', 'rounds', 'secs', 'dealt', 'taken', 'goldEarned', 'goldSpent', 'elixir', 'crafted', 'recycled', 'vaultClaims', 'crownWins', 'trees', 'heists', 'kept', 'brought'];   // KEEP: kept = keepsakes claimed, brought = stash items brought into a match
   const BEST = ['kills', 'rounds', 'secs', 'streak', 'gold', 'dealt', 'fastWin'];   // fastWin: shortest win in seconds (0 = none yet)
   const HOW = ['win', 'crown', 'time', 'crowned', 'died', 'quit'];   // win: last goblin standing; crown: crowned Goblin King; time: alive when the time limit ended; crowned: another goblin took the crown; died; quit
   const WIN_HOW = { win: 1, crown: 1 };

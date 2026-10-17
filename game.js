@@ -45,6 +45,7 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'hi
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.15;
+if (!/[?&](perf5=0|shadercheck=1)/.test(location.search)) renderer.debug.checkShaderErrors = false;   // PERF5: no blocking info-log read per program on first use (and no D3D X4122 precision notes as console warnings); ?shadercheck=1 brings it back
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.body.prepend(renderer.domElement);
 // PERF: three renders transparent double-sided materials in two passes and sets needsUpdate on both, so every such object re-hashed its shader program key twice per frame. Materials that do not write depth do not need the split.
@@ -1696,7 +1697,7 @@ const mk = MY.mk = (p, geo, mat, x = 0, y = 0, z = 0, sx = 1, sy = sx, sz = sx, 
 const grp = MY.grp = (p, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) => { const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.set(rx, ry, rz); p.add(g); return g; };
 const dyn = MY.dyn = o => { o.userData.dyn = true; return o; };
 const mc = {};
-const MM = MY.MM = (c, o = {}) => { const k = c + '|' + JSON.stringify(o); return mc[k] || (mc[k] = M(c, o)); };
+const MM = MY.MM = (c, o = {}) => { const k = c + '|' + JSON.stringify(o, (n, v) => v && v.isTexture ? v.uuid : v); return mc[k] || (mc[k] = M(c, o)); };   // PERF5: a texture in the key is its uuid (stringifying it serialised the whole canvas to a data URL, ~170 ms per call)
 const bmc = {};
 const BM = MY.BM = (c, op = 1, add = false, map = null) => { const k = c + '|' + op + '|' + add + '|' + (map ? map.uuid : ''); return bmc[k] || (bmc[k] = new THREE.MeshBasicMaterial({ color: c, opacity: op, transparent: add || op < 1, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending, depthWrite: !add && op >= 1, side: add ? THREE.DoubleSide : THREE.FrontSide, toneMapped: false, fog: false, map })); };
 const gsm = {};
@@ -1859,7 +1860,7 @@ MY.WB = WB;
 const wcache = {};
 MY.weaponProto = key => {
   if (wcache[key]) return wcache[key];
-  const it = GKITEMS.ITEMS[key] || GKITEMS.ITEMS['w:sword'], k = key.slice(2), m = tierMats(it.tier);
+  const it = GKITEMS.ITEMS[key] || GKITEMS.ITEMS['w:sword'], k = key.slice(2).split('@')[0], m = tierMats(it.tier);   // AFFIX: model of the plain item
   let out = null;
   const ck = GK.chestKit && GK.chestKit.weaponModel;
   if (ck) { try { const w = ck(key); if (w) out = norm(w.clone ? w.clone(true) : w, 1.9); } catch (e) { out = null; } }
@@ -2149,7 +2150,7 @@ BUILD.weapon = (ctx, v) => {
   rarityLabel(ctx, it, 3.5, `${it.attack} dmg`);
 };
 BUILD.armor = (ctx, v) => {
-  const it = GKITEMS.ITEMS[v.key] || GKITEMS.ITEMS['a:rags'], T = TIERS[it.tier] || TIERS.common, z = -1.0, k = v.key.slice(2), m = tierMats(it.tier);
+  const it = GKITEMS.ITEMS[v.key] || GKITEMS.ITEMS['a:rags'], T = TIERS[it.tier] || TIERS.common, z = -1.0, k = v.key.slice(2).split('@')[0], m = tierMats(it.tier);
   dais(ctx, z, it.tier); spot(ctx.root, T.c, 0, z, 5.8, 0.35, 1.4, 0.18); pool(ctx.root, T.c, 2.6, 0.2, 0, z);
   const a = dyn(grp(ctx.root, 0, 0.29, z)); a.scale.setScalar(1.25); mannequin(a); try { (AB[it.family] || AB.cloth)(a, m, it, k); } catch (e) { console.error(e); }
   if (T.n >= 2) { const rg = ring(ctx.root, T.c, 1.15, 0.6, 0, z); rg.position.y = 0.4; rg.material = ctx.own(rg.material); ctx.anim.push(t => rg.material.opacity = 0.4 + 0.3 * Math.sin(t * 2.4)); }
@@ -2612,7 +2613,7 @@ window.GKRULES = (() => {
   }
   function loop() {
     R.raf = 0; const now = performance.now(), live = R.bolts.size || R.crown; if (!live) return;
-    for (const [id, b] of R.bolts) { const t = (now - b.t0) / 1000; b.spr.position.set(b.x + b.vx * t, 1.1, b.z + b.vz * t); try { GKVFX.bolt(id, b.spr.position, 0xb89cff, 0.016); } catch (e) {} /* VFX */ if (t * 10 > b.range + 1) { scene.remove(b.spr); R.bolts.delete(id); } }
+    for (const [id, b] of R.bolts) { const t = (now - b.t0) / 1000; b.spr.position.set(b.x + b.vx * t, b.y != null ? b.y + 0.2 : 1.1, b.z + b.vz * t);   /* CLIMB: the server sends the bolt height */ try { GKVFX.bolt(id, b.spr.position, 0xb89cff, 0.016); } catch (e) {} /* VFX */ if (t * 10 > b.range + 1) { scene.remove(b.spr); R.bolts.delete(id); } }
     if (R.crown && R.ring) { const k = Math.min(1, (R.crown.p0 + (now - R.crown.t0) / R.crown.ms)); R.ring.geometry.setDrawRange(0, Math.max(0, Math.round(k * 96)) * 6); R.ring.rotation.z = now * 0.0006; }
     R.raf = requestAnimationFrame(loop);
   }
@@ -2634,7 +2635,7 @@ window.GKRULES = (() => {
       if (!d.crown) { R.crown = null; t.style.display = 'none'; if (R.ring) { scene.remove(R.ring); R.ring = null; } }
       else { R.crown = { p0: d.crown.p, t0: performance.now(), ms: d.crown.ms }; t.style.display = ''; t.textContent = (d.crown.id === me ? 'YOU ARE' : d.crown.name + ' IS') + ' CLAIMING THE CROWN ' + Math.ceil(d.crown.ms * (1 - d.crown.p) / 1000) + 's'; ringMesh(); kick(); }
     }
-    if (d.bolt) { const b = d.bolt, spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow(), color: 0xb89cff, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })); spr.scale.set(0.7, 0.7, 1); scene.add(spr); R.bolts.set(b.id, { spr, x: b.x, z: b.z, vx: b.vx, vz: b.vz, range: b.range, t0: performance.now() }); snd('swing', { x: b.x, z: b.z }); kick(); }
+    if (d.bolt) { const b = d.bolt, spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow(), color: 0xb89cff, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })); spr.scale.set(0.7, 0.7, 1); scene.add(spr); R.bolts.set(b.id, { spr, x: b.x, z: b.z, y: b.y, vx: b.vx, vz: b.vz, range: b.range, t0: performance.now() }); snd('swing', { x: b.x, z: b.z }); kick(); }
     if (d.boltEnd) { const b = R.bolts.get(d.boltEnd.id); if (b) { try { GKVFX.boltHit(b.spr.position, 0xb89cff); GKVFX.boltEnd(d.boltEnd.id); } catch (e) {} /* VFX */ scene.remove(b.spr); R.bolts.delete(d.boltEnd.id); } }
     if (d.showdown && !R.showdown) { R.showdown = 1; toastMsg('THREE GOBLINS LEFT: every door is open!', false, 3500); }   // PACE
     if (d.klaxon) { toastMsg('KLAXON: doors close at the end of the round!', false); for (let i = 0; i < 3; i++) setTimeout(() => snd('tickLast'), i * 350); }
@@ -3833,7 +3834,7 @@ const A_EARS = {};
     u.arms[1].userData.el.rotation.x = P.hold; u.arms[0].userData.el.rotation.x = -0.3;
     // blob shadow and name tag
     const sh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: glowTex, color: 0x000000, transparent: true, opacity: 0.55, depthWrite: false }));
-    sh.rotation.x = -Math.PI / 2; sh.position.y = 0.03; sh.scale.setScalar(1.1 * SCALE[type] * b * 1.4); root.add(sh);
+    sh.rotation.x = -Math.PI / 2; sh.position.y = 0.03; sh.scale.setScalar(1.1 * SCALE[type] * b * 1.4); root.add(sh); sh.userData.s0 = sh.scale.x; u.blob = sh;   // CLIMB: JUMP.pose keeps it on the ground under the feet
     const nameCol = type === 4 ? '#ffd75e' : type === 3 ? '#c9a6ff' : '#f1f1f1';
     const label = window.GKTAGS ? window.GKTAGS.nameTag(NAMES[type], nameCol) : new THREE.Sprite(new THREE.SpriteMaterial({ map: textTex(NAMES[type], nameCol, null, 512, 96, 'bold 52px system-ui'), transparent: true, depthWrite: false }));   // UI-TAGS: one shared atlas texture (client/ui/tags.js)
     if (!window.GKTAGS) label.scale.set(1.6, 0.3, 1); label.position.y = (GOB_TAGY[type] || 1.95) * SCALE[type]; root.add(label); u.label = label;   // UNIQUE: tag above the wizard hat / king crown
@@ -3860,7 +3861,7 @@ const A_EARS = {};
     u.legs[0].rotation.z = -(0.03 + 0.07 * walk * S2); u.legs[1].rotation.z = 0.03 + 0.07 * walk * S2;
     u.legs[0].scale.y = 1 + 0.15 * S2 * walk - 0.15 * lift0; u.legs[1].scale.y = 1 + 0.15 * S2 * walk - 0.15 * lift1;
     u.legs[0].position.y = u.legs[1].position.y = 0.58;
-    const sw = a.swing > 0 && a.swing < 1 ? a.swing : -1, ant = sw < 0 ? 0 : sstep(0, 0.28, sw) * (1 - sstep(0.28, 0.46, sw)), lun = sw < 0 ? 0 : sstep(0.28, 0.46, sw) * (1 - sstep(0.52, 1, sw));   // swing: wind up (crouch, lean back), then lunge
+    const sw = a.swing > 0 && a.swing < 1 ? a.swing : a.chg ? 0.25 : -1, ant = sw < 0 ? 0 : sstep(0, 0.28, sw) * (1 - sstep(0.28, 0.46, sw)), lun = sw < 0 ? 0 : sstep(0.28, 0.46, sw) * (1 - sstep(0.52, 1, sw));   // swing: wind up (crouch, lean back), then lunge
     if (sw >= 0) { u.legs[0].rotation.x += 0.3 * lun - 0.1 * ant; u.legs[1].rotation.x += -0.3 * lun + 0.1 * ant; u.legs[0].scale.y -= 0.06 * ant; u.legs[1].scale.y -= 0.06 * ant; }
     rig.position.y = -0.115 * sc * S2 * S2 * walk - 0.035 * f - 0.05 * sc * ant; rig.rotation.z = S * 0.075 * walk + Math.sin(t * 0.7 + id * 2.1) * 0.018 * idle; rig.rotation.x = 0.05 * walk + 0.12 * run - 0.1 * ant + 0.16 * lun;
     const sq = (1 - 2 * S2) * walk;   // stretched while the legs pass under the body, squashed when they spread
@@ -4067,14 +4068,14 @@ function invAll(inv) { return [inv.weapon, inv.armor, inv.charm, ...inv.backpack
 function makeNet(opts) {   // opts.goblin: play this goblin type (a saved character) instead of rolling one
   if (!window.GK_OFFLINE) {
     // SECURITY: the server rolls the goblin and owns the victories. A saved character only sends its signed token (empty = an old character without one: the server rolls a new goblin and says so).
-    const joinUrl = () => { let tk = ''; try { const c = opts && opts.charId != null && window.GKSAVE ? GKSAVE.getCharacter(+opts.charId) : null; if (c) tk = c.token || ''; else if (opts && opts.charId != null) tk = ''; } catch (e) {} return funUrl((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + (opts && opts.charId != null ? '/?ctoken=' + encodeURIComponent(tk) : '')); };
+    const joinUrl = () => { let tk = ''; try { const c = opts && opts.charId != null && window.GKSAVE ? GKSAVE.getCharacter(+opts.charId) : null; if (c) tk = c.token || ''; else if (opts && opts.charId != null) tk = ''; } catch (e) {} return funUrl((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + (opts && opts.charId != null ? '/?ctoken=' + encodeURIComponent(tk) + (window.GKKEEPUI ? GKKEEPUI.joinQuery(opts.charId, opts.bring) : '') : '')); };   // KEEP: the signed stash and the chosen loadout
     const tokUrl = tk => (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/?token=' + encodeURIComponent(tk);   // SOCIAL: resume a player inside the grace period
     let ws = new WebSocket(opts && opts.resume ? tokUrl(opts.resume) : joinUrl()), busyRetry = false;
     let lastM = '', lastMT = 0;   // NET: my position goes out only when it changed (plus a 1 s keepalive); attacks carry the server time I was seeing
     const net = { send: m => {
       if (ws.readyState !== 1) return;
       if (m.m) { const j = JSON.stringify(m), t = performance.now(); if (j === lastM && t - lastMT < 1000) return; lastM = j; lastMT = t; return ws.send(j); }
-      if (m.atk === 1 && NETC.offPong) m = { atk: 1, rt: Math.round(srvNow() - NETC.delay) };
+      if (m.atk === 1 && NETC.offPong) m = { ...m, rt: Math.round(NETC.rt || srvNow() - NETC.delay) };   // COMBAT4: keep sq / pt; rt = the render time really drawn (NETC.rt never runs backwards, srvNow() - delay can)
       ws.send(JSON.stringify(m));
     }, onmessage: null };
     const ping = () => ws.readyState === 1 && ws.send(JSON.stringify({ ping: performance.now() }));
@@ -4133,18 +4134,23 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     sendDrops(); emit(); sendMatch();
     if (!meP.dead && list.every(p => p === meP)) net.onmessage && net.onmessage({ won: { items: invAll(meP.inv), gold: meP.gold, parts: clone(meP.parts) } });   // last goblin standing
   }
-  function simHit(t, dmg, from) {
+  function simHit(t, dmg, from, sq) {
     const max = maxHpOf(t); t.hp = Math.max(0, hpOf(t) - dmg); t.hurtAt = performance.now();
-    net.onmessage && net.onmessage({ hit: { from: from.id, to: t.id, dmg, hp: t.hp, max, dead: t.hp <= 0 } });
+    net.onmessage && net.onmessage({ hit: { from: from.id, to: t.id, dmg, hp: t.hp, max, dead: t.hp <= 0, ...(sq != null ? { sq } : null) } });
     if (t.hp <= 0) simKill(t, from); else emit();
   }
-  function simAtk() {   // the player's {atk:1}
+  function simAtk(m) {   // the player's {atk:1, sq}; COMBAT4: like the server, the blow lands on the contact frame and uses combat4.js shapes
     if (!meP || meP.dead || !rs.started) return;
     const c = wcOf(meP), now = performance.now(); if (now - (meP.atkAt || 0) < c.cd * 0.9) return; meP.atkAt = now;
-    net.onmessage && net.onmessage({ swing: meP.id });
-    const key = roomKeyAt(meP.x, meP.z); let best = null, bd = 1e9;
-    for (const b of list) { if (!b.bot || roomKeyAt(b.x, b.z) !== key || !inCone(meP, b, c.range + itemsData().COMBAT.slack)) continue; const d = Math.hypot(b.x - meP.x, b.z - meP.z); if (d < bd) { bd = d; best = b; } }
-    if (best) simHit(best, c.dmg, meP);
+    const C4 = window.GKC4, tm = C4 ? C4.timing(itemsData(), meP.inv.weapon, c.cd) : { contact: 0, dur: 0 }, sq = m && Number.isInteger(m.sq) ? m.sq : 0;
+    net.onmessage && net.onmessage({ swing: meP.id, c4: [tm.contact, tm.dur, sq] });
+    setTimeout(() => {
+      if (!meP || meP.dead) return;
+      const key = roomKeyAt(meP.x, meP.z), pr = C4 && C4.profile(itemsData(), meP.inv.weapon), O = {}; let best = null, bd = 1e9;
+      for (const b of list) { if (!b.bot || roomKeyAt(b.x, b.z) !== key) continue; const r = itemsData().hitRadius ? itemsData().hitRadius(b.goblin) : 0.35, ok = C4 && !c.ranged ? C4.melee(pr, c.range, meP.x, 0, meP.z, meP.yaw, b.x, 0, b.z, r, C4.capH(r / 0.35), O) : inCone(meP, b, c.range + itemsData().COMBAT.slack); if (!ok) continue; const d = Math.hypot(b.x - meP.x, b.z - meP.z); if (d < bd) { bd = d; best = b; } }
+      if (best) simHit(best, c.dmg, meP, sq);
+      net.onmessage && net.onmessage({ swr: [sq, best ? 1 : 0] });
+    }, tm.contact);
   }
   setInterval(() => {   // bot behaviour (a bot within 6 m in the same room walks to the player and attacks) and health regeneration
     const now = performance.now();
@@ -4158,7 +4164,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
       b.chase = true; b.yaw = Math.atan2(-dx, -dz);
       const stop = c.ranged ? 4 : 1.7;
       if (d > stop) { b.x += dx / d * 2.4 * 0.1; b.z += dz / d * 2.4 * 0.1; b.box = roomAt(b.x, b.z); }
-      if (!window.GK_BOTS_PASSIVE && rs.n > 1 && now - rs.goAt >= 20000 && d <= c.range && now - (b.atkAt || 0) >= c.cd * 1.8) { b.atkAt = now; net.onmessage && net.onmessage({ swing: b.id }); if (inCone(b, meP, c.range + 0.3)) simHit(meP, c.dmg, b); }
+      if (!window.GK_BOTS_PASSIVE && rs.n > 1 && now - rs.goAt >= 20000 && d <= c.range && now - (b.atkAt || 0) >= c.cd * 1.8) { b.atkAt = now; const tm = window.GKC4 ? GKC4.timing(itemsData(), b.inv.weapon, c.cd) : { contact: 0, dur: 0 }; net.onmessage && net.onmessage({ swing: b.id, c4: [tm.contact, tm.dur, 0] }); setTimeout(() => { if (meP && !meP.dead && list.includes(b) && inCone(b, meP, c.range + 0.3)) simHit(meP, c.dmg, b); }, tm.contact); }   // COMBAT4: the bot's blow lands on its contact frame too
     }
   }, 100);
   // COMBAT-END
@@ -4188,7 +4194,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     onmessage: null,
     send(m) {
       if (typeof m.ping === 'number') net.onmessage && net.onmessage({ pong: m.ping, t: Math.round(performance.now()) });
-      if (m.atk === 1) simAtk();
+      if (m.atk === 1) simAtk(m);
       if (typeof m.use === 'string' && meP) simUse(m.use);   // ITEMS2
       if (m.dbgFF === 1 && SIM_DBG && rs.started) { rs.endsAt = Math.min(rs.endsAt, performance.now() + 10000); emitRound(); }   // DEV: same rule as server.js dbgFF
       if (m.enter === 1 && !rs.started) { rs.started = true; rs.goAt = performance.now(); rs.endsAt = performance.now() + rs.dur; botPlan(); emitRound(); }
@@ -4360,7 +4366,7 @@ function netSnap(s) {   // {s:[t, id,x,z,yaw,speed,age, ...]}: buffer one entry 
     const a = actors.get(s[i]); if (!a || s[i] === me) continue;
     const et = t - s[i + 5], b = a.buf || (a.buf = []), l = b[b.length - 1];
     if (l && et <= l.t) continue;
-    if (l && l.v === 0 && et - l.t > 250) b.push({ t: et - 66, x: l.x, z: l.z, yaw: l.yaw, v: 0, y: l.y });   // was standing still: hold the old spot until just before he moved
+    if (l && l.v === 0 && et - l.t > 250) b.push({ t: et - 50, x: l.x, z: l.z, yaw: l.yaw, v: 0, y: l.y });   // was standing still: hold the old spot until just before he moved (COMBAT4: 50 ms = one move interval, the same hold the server's rewind history uses)
     b.push({ t: et, x: s[i + 1], z: s[i + 2], yaw: s[i + 3], v: s[i + 4] % 100, y: Math.floor(s[i + 4] / 100) / 100 });   // JUMP: the speed slot also carries the jump height in cm (v + 100 * cm)
     while (b.length > 3 && b[1].t < et - 1500) b.shift();
   }
@@ -4407,9 +4413,9 @@ const net = { send: m => netReal && !(GK.locked && (m.atk || m.claim || m.m || m
 net.stats = netStats; net.overlay = netOverlay;   // PERF4
 const actors = new Map();
 function npcLook(group, kind) {   // BOTS: hostile mystery enemy = normal goblin model with a type tint (no new geometry, no lights); materials are cloned so the shared ones stay untouched
-  const tint = { troll: 0x6a8a5a, archer: 0x7a5a3a, speedy: 0xff7a3a, dumb: 0xb89a6a, regular: 0xd05a4a, rat: 0x8a7560 }[kind] || 0xd05a4a, c = new THREE.Color(tint);
+  const tint = { troll: 0x6a8a5a, archer: 0x7a5a3a, speedy: 0xff7a3a, dumb: 0xb89a6a, regular: 0xd05a4a, rat: 0x8a7560, bomber: 0xff5a28, summoner: 0x8a5cd0, shield: 0x8a9aa8, thief: 0x4a4a58, imp: 0xb070ff }[kind] || 0xd05a4a, c = new THREE.Color(tint);   // NPCX tints
   group.traverse(o => { if (o.isMesh && o.material && o.material.color && !Array.isArray(o.material)) { o.material = o.material.clone(); o.material.color.multiply(c).multiplyScalar(1.4); } });
-  group.scale.setScalar(kind === 'troll' ? 1.8 : kind === 'speedy' ? 0.9 : kind === 'rat' ? 0.4 : 1.1);
+  group.scale.setScalar(kind === 'troll' ? 1.8 : kind === 'shield' ? 1.6 : kind === 'speedy' || kind === 'thief' ? 0.9 : kind === 'bomber' ? 0.95 : kind === 'imp' ? 0.5 : kind === 'rat' ? 0.4 : 1.1);
 }
 let me = 0, spawned = false;
 const P = { x: 0, z: 0, yaw: 0, pitch: 0, speed: 0 };
@@ -4418,7 +4424,7 @@ const handleMsg0 = d => {
   if (d.s) return netSnap(d.s);   // NET: fast position snapshots (hot path)
   if (d.pong != null) return netPong(d);
   if (d.emote || d.token || d.resumed || d.resumeFail) SOC.onMsg(d);   // SOCIAL
-  if (d.fix) { NETC.fix = d.fix; NETC.fixN++; NETC.fixT.push(performance.now()); }   // PERF4: counted for GK.net.stats()
+  if (d.fix) { NETC.fix = d.fix; NETC.fixN++; NETC.fixT.push(performance.now()); JUMP.fix(d.fix); }   // PERF4: counted for GK.net.stats(); CLIMB: a third element is my corrected feet height
   /* FEEL-BEGIN */ if (GK.feel) GK.feel.onMsg(d); /* FEEL-END */
   if (window.GKACT5) GKACT5.pre(d);   // ACT5UI: breach by door -> by side, arc labels
   if (GK.r5) GK.r5.onMsg(d);   // ROOMS5ART: trees / vb / treasury / crown / breach fields and the match start / end
@@ -4443,13 +4449,15 @@ const handleMsg0 = d => {
   if (d.lootFail) lootFailFx(d.lootFail);
   if (GK.fun) GK.fun.onMsg(d);   // FUN: kill feed, board, match summary
   if (window.GKSTATSUI) GKSTATSUI.onMsg(d);   // STATS: lifetime stats recorder (statsui.js)
+  if ((d.keep || d.keepOffer) && window.GKKEEPUI) GKKEEPUI.onMsg(d, GK.charId);   // KEEP: stash token updates, bring-in notices, the consolation offer
   if (window.GKLOOT) GKLOOT.onMsg(d);   // LOOT: vault relic, thrown plushie
   if (window.GKHOMEW) GKHOMEW.onMsg(d);   // ELIXIR: counter, Elixir Screen state, toasts, send effects
   if (window.GKUSE) GKUSE.onMsg(d);   // UTILITY: used items, thrown bombs, smoke
   if (window.GKRULES) GKRULES.onMsg(d);   // RULES: experimental rules (inert unless the server advertises them)
   if (d.died) showDeathScreen(d.died);
   if (d.won) showVictory(d.won);
-  if (d.swing != null || d.hit || d.kills != null || d.match) combatMsg(d);   // COMBAT
+  if (d.swing != null || d.hit || d.kills != null || d.match || d.dodge || d.swr || d.proj || d.projEnd || d.c4g) combatMsg(d);   // COMBAT (BALANCE-3: a lone {dodge} used to be dropped; COMBAT4: swing results, projectiles, blocks)
+  if (d.dash != null || d.charge != null || (d.hit && (d.hit.bs || d.hit.rage || d.hit.heavy))) GK.abil && GK.abil.onMsg(d);   // ABILITY
   if (d.you) me = d.you;
   if (d.dbg === 1 || (d.matchStart && d.matchStart.dbg === 1)) GK.dbg = true;   // DEV: the server runs with GK_DEBUG (shows the skip-to-0:10 button)
   if (d.round || d.sel || d.open) applyRound(d);
@@ -4464,7 +4472,7 @@ const handleMsg0 = d => {
     let a = actors.get(p.id);
     if (a && a.goblin !== p.goblin) { dropGoblin(a.group); actors.delete(p.id); a = null; }
     if (!a) {
-      const group = buildGoblin(p.goblin); scene.add(group); if (p.npc) { npcLook(group, p.npc); GK.fun && GK.fun.hideDecoy(p.x, p.z); }   // BOTS: bots look like normal goblins; mystery enemies get a hostile tint (and the troll is big)
+      const p5g = performance.now(), group = buildGoblin(p.goblin); if (GK.perf5) GK.perf5.mark('goblin', performance.now() - p5g); scene.add(group);   // PERF5: long-frame mark if (p.npc) { npcLook(group, p.npc); GK.fun && GK.fun.hideDecoy(p.x, p.z); }   // BOTS: bots look like normal goblins; mystery enemies get a hostile tint (and the troll is big)
       a = { group, goblin: p.goblin, x: p.x, z: p.z, yaw: p.yaw, phase: Math.random() * 6, speed: 0, seq: p.seq };
       actors.set(p.id, a);
       if (p.id === me) spawned = false;
@@ -5160,7 +5168,8 @@ function showVictory(info) {
   const ms = performance.now() - run.t0, secs = Math.floor(ms / 1000), n = GK.roundInfo ? GK.roundInfo().n : 0;
   const items = ((info && info.items) || []).filter(k => k != null);
   const from = GK.charId;
-  let c = null; try { c = window.GKSAVE.recordWin({ charId: from, goblin: type, items, parts: (info && info.parts) || {}, token: info && info.ctoken, name: GK.fun && GK.fun.myName && GK.fun.myName() }); if (c && c.id != null) GK.charId = c.id; } catch (e) { c = null; }
+  const keepO = info && info.keep && window.GKKEEPUI ? info.keep : null;   // KEEP: the server's "choose what to keep" offer
+  let c = null; try { c = window.GKSAVE.recordWin({ charId: from, goblin: type, items, parts: (info && info.parts) || {}, token: info && info.ctoken, name: GK.fun && GK.fun.myName && GK.fun.myName(), keep: keepO }); if (c && c.id != null) GK.charId = c.id; } catch (e) { c = null; }
   const wins = c && c.wins != null ? c.wins : (GK.wins | 0) + 1;
   closeInv(true); closeShop(true); GK.mode = 'win'; inside = false; { const sd = document.getElementById('gkSudTag'); if (sd) sd.remove(); } keys.clear(); hideHotbar(); GK.social.clear();   // SOCIAL: match won, nothing to resume
   try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
@@ -5172,17 +5181,18 @@ function showVictory(info) {
   const whero = [[rsTime(secs), 'Survived'], [n || 1, 'Round'], [wins, wins === 1 ? 'Victory' : 'Victories']];
   const wsub = c ? '<b>' + esc(c.name) + '</b> now has <b>' + wins + '</b> victor' + (wins === 1 ? 'y' : 'ies') : 'Your run is won';
   winEl = rsShow('win', rsCard({ big: 'Victory', sub: wsub, hero: whero, rows: rows.filter(r => !['Survived', 'Round reached', 'Victories'].includes(r[0])),
-    mid: '<div class="rs-h">Items you keep</div><div id="winItems" class="rs-items"></div>' + (partsStr ? '<div class="rs-note">Materials kept: ' + esc(partsStr) + '</div>' : ''),
-    note: c ? 'Saved to your stash, along with ' + esc(c.name) : 'Saved to your stash', btns: [['winQueue', 'Queue again', true], ['winMenu', 'Main menu']] }));
+    mid: keepO && c ? '<div id="winKeep"></div>' : '<div class="rs-h">Items you keep</div><div id="winItems" class="rs-items"></div>' + (partsStr ? '<div class="rs-note">Materials kept: ' + esc(partsStr) + '</div>' : ''),   // KEEP
+    note: keepO && c ? esc(c.name) + ' is saved with its victories' : c ? 'Saved to your stash, along with ' + esc(c.name) : 'Saved to your stash', btns: [['winQueue', 'Queue again', true], ['winMenu', 'Main menu']] }));
   winStageStart(type);
+  const kc = keepO && c ? GKKEEPUI.chooser($('winKeep'), c.id, keepO, { inline: true }) : null, viaKeep = f => () => { if (!kc) return f(); kc.finish().then(f, f); };   // KEEP: leaving the card keeps the current choice
   const box = $('winItems');
-  if (!items.length) box.innerHTML = '<span style="color:var(--mut)">nothing</span>';
-  for (const k of items) {
+  if (box && !items.length) box.innerHTML = '<span style="color:var(--mut)">nothing</span>';
+  if (box) for (const k of items) {
     const d = document.createElement('div'); d.className = 'rs-item';
     d.appendChild(mkIcon(k, 44)); const t = document.createElement('span'); t.textContent = itemName(k) + (tierN(k) != null ? ' (T' + tierN(k) + ')' : ''); d.appendChild(t); box.appendChild(d);
   }
-  $('winQueue').onclick = () => { try { sessionStorage.setItem('gk.requeue', '1'); if (from != null) sessionStorage.setItem('gk.requeueChar', String(from)); } catch (e) {} location.reload(); };
-  $('winMenu').onclick = () => location.reload();
+  $('winQueue').onclick = viaKeep(() => { try { sessionStorage.setItem('gk.requeue', '1'); if (GK.charId != null) sessionStorage.setItem('gk.requeueChar', String(GK.charId)); } catch (e) {} location.reload(); });   // KEEP: requeue as the character just saved (a first win makes a new one)
+  $('winMenu').onclick = viaKeep(() => location.reload());
   $('winQueue').focus();
 }
 GK.showVictory = showVictory;
@@ -5261,6 +5271,7 @@ function merchantHoverTick() {
   lootPromptTick();
   if (GK.mode !== 'play' || invOpen || shopOpen || !inside || !spawned || !T.length) { if (hoverRoom >= 0) setHover(-1); return; }
   if (PERF2_ON && !perf2HoverNear(T)) { setHover(-1); return; }   // PERF2: nothing within 20 m, so the ray cannot reach (it is 7 m long): skip the raycast over every merchant, recycler and workbench model
+  if (GK.perf5 && GK.perf5.hoverSkip(T)) return;   // PERF5: the hover ray (2 to 4 ms next to the home stations) runs on every 3rd frame, and only when the view moved
   cam.updateMatrixWorld(); ray.setFromCamera({ x: 0, y: 0 }, cam); ray.far = 7;
   const hit = ray.intersectObjects(T, true)[0]; let id = -1, kind = '';
   if (hit) { for (let o = hit.object; o; o = o.parent) { const u = o.userData; if (!u || u.roomId == null) continue; id = u.roomId; kind = u.station === 'recycler' ? 'r' : u.station === 'workbench' ? 'w' : u.station === 'knowledge' ? 'k' : u.station === 'screen' ? 's' : u.station === 'pump' ? 'p' : u.station === 'box' ? 'b' : 'm';
@@ -5617,7 +5628,7 @@ addEventListener('mousemove', e => {
   mouseX = e.clientX;
   if (!freeLook() || (!lockOk() && !lockRefused)) return;
   if (Math.abs(e.movementX) > 400 || Math.abs(e.movementY) > 400) return;   // drop the jump some browsers report when the lock engages
-  const k = 0.0022 * GK.settings.sens; P.yaw = wrapPi(P.yaw - e.movementX * k); P.pitch = clamp(P.pitch - e.movementY * k * (GK.settings.invertY ? -1 : 1), -1.45, 1.45);
+  const k = 0.0022 * GK.settings.sens * (C4C.fric || 1); P.yaw   /* COMBAT4: a little stickiness while a target is in reach */ = wrapPi(P.yaw - e.movementX * k); P.pitch = clamp(P.pitch - e.movementY * k * (GK.settings.invertY ? -1 : 1), -1.45, 1.45);
 });
 // in play the cursor is hidden (only the centre dot shows); if the lock was dropped (Esc), a click anywhere resumes
 let resumeEl = null;
@@ -5647,7 +5658,7 @@ function fxResize() {
   const pr = renderer.getPixelRatio(); fxMat.uHeight.value = innerHeight * pr;
   if (fx) { fx.composer.setPixelRatio(pr); fx.composer.setSize(innerWidth, innerHeight); }
 }
-// GFX2 quality presets (Settings > Graphics quality, GK.settings.gfx): post chain, ambient occlusion, pixel ratio cap, texture anisotropy
+// GFX2 quality presets (Settings > Graphics > Quality preset, GK.settings.gfx): post chain, ambient occlusion, pixel ratio cap, texture anisotropy
 const FXQ = {
   low: { post: false, ao: 0, pr: 1, aniso: 2 },        // plain render (context MSAA), no composer
   medium: { post: true, ao: 0, pr: 1.5, aniso: 4 },    // composer: MSAA 4x HDR target, bloom, vignette/grain
@@ -5655,7 +5666,7 @@ const FXQ = {
   ultra: { post: true, ao: 2, pr: 2, aniso: 16 },      // + GTAO at full resolution with more samples, max anisotropy
 };
 const fxQ = () => FXQ[GK.settings.gfx] || FXQ.high;
-function fxPixelRatio() { return Math.min(devicePixelRatio, fxQ().pr) * GK.settings.scale; }
+function fxPixelRatio() { return Math.min(devicePixelRatio, fxQ().pr) * GK.settings.scale * (GK.perf5 ? GK.perf5.dyn : 1); }   // PERF5: dynamic resolution factor
 const FX_TONE = THREE.NeutralToneMapping, FX_EXPOSURE = 0.88, FX_ENV = 0.6;   // game view only (the title menu keeps the renderer's ACES look)
 scene.traverse(o => { if (o.isHemisphereLight) o.intensity = 0.9; });   // was 2.1: the environment map now supplies most of the fill light (same light, lower intensity: light count unchanged)
 let fxAniso = 0;
@@ -5772,8 +5783,9 @@ function renderWorld(t) {
   else renderer.render(scene, cam);
   renderer.toneMapping = tm; renderer.toneMappingExposure = te;
   fxCullEnd();
-  if (PERF4.on) { if (P4B.on) p4bFind(); else p4mTick(); }   // PERF4: room interior merge (discovery, 1.5 ms of merging, rolling check)
+  if (PERF4.on) { const p5t = performance.now(); if (P4B.on) p4bFind(); else p4mTick(); const p5d = performance.now() - p5t; if (p5d > 4) PERF5.mark('batch', p5d); }   // PERF4: room interior merge (discovery, 1.5 ms of merging, rolling check); PERF5: long-frame mark
   PERF4.frameEnd();   // PERF4: GK.perfProbe (dev only; a no-op otherwise)
+  PERF5.dynTick();   // PERF5: dynamic resolution
 }
 // keypad screens and other status displays pulse gently (found by their material signature, the builders stay untouched)
 const fxScreens = [];
@@ -6519,7 +6531,8 @@ function p4bEligible(o) {
 function p4bKey(o) { const g = o.geometry; return o.material.uuid + '|' + o.renderOrder + '|' + !!g.index + '|' + Object.keys(g.attributes).sort().map(n => n + g.attributes[n].itemSize + g.attributes[n].array.constructor.name + g.attributes[n].normalized).join(); }
 function p4bBatch(key, o, nv, ni) {   // one batch per material, render order and vertex layout; sized for what it holds (grown by doubling)
   let b = P4B.batches.get(key); if (b) return b;
-  const bm = new THREE.BatchedMesh(16, Math.max(256, nv * 2), Math.max(512, ni * 2), o.material);
+  const h = P4B.hint && P4B.hint.get(key);   // PERF5: sized by the loading step's count of everything this batch will hold (growing by doubling copied and re-uploaded the whole buffer each time)
+  const bm = h ? new THREE.BatchedMesh(h.n + 8, Math.max(256, Math.ceil(h.nv * 1.15) + 512), Math.max(512, Math.ceil(h.ni * 1.15) + 1024), o.material) : new THREE.BatchedMesh(16, Math.max(256, nv * 2), Math.max(512, ni * 2), o.material);
   bm.name = 'perf4Batch'; bm.frustumCulled = false; bm.perObjectFrustumCulled = true; bm.sortObjects = !!o.material.transparent; bm.renderOrder = o.renderOrder; bm.matrixAutoUpdate = false; bm.visible = false;
   b = { key, mat: o.material, bm, geo: new Map(), ready: false, srcs: new Set(), nvis: 0 }; P4B.batches.set(key, b); P4B.pending++;
   return b;
@@ -6573,6 +6586,7 @@ function p4bFind() {   // rolling discovery (3 top-level objects per frame, more
       }
     }
   }
+  if (GK.perf5 && GK.perf5.on) { GK.perf5.batchCompile(); return; }   // PERF5: one compile for all new batches, in the game view's tone mapping / target (was: the menu's ACES state, so every batch recompiled on its first draw)
   for (const b of P4B.batches.values()) if (!b.ready && !b.compiling && b.srcs.size) {   // compile in the background, then swap the originals out
     b.compiling = true; const done = () => { if (b.ready) return; b.ready = true; P4B.pending--; P4B.ready++; scene.add(b.bm); for (const s of b.srcs) if (s.o.layers.mask === 1) s.o.layers.set(P4B.LAYER); };
     try { if (renderer.compileAsync) renderer.compileAsync(b.bm, cam, scene).then(done, done); else done(); } catch (e) { done(); }
@@ -6605,6 +6619,212 @@ function p4bSync() {   // right before drawing: the mirror follows its originals
 }
 GK.perf4.batch = P4B;
 // PERF4-END
+// PERF5-BEGIN client performance pass 5 (docs/reports/perf-5.md). ?perf5=0 switches the pass off, for before / after measurements.
+// 1. Matrix walk. three walks every one of the ~9000 scene nodes each frame in scene.updateMatrixWorld (about 2.5 ms on Low in the vault) although ~8800 of them sit in frozen
+//    room roots that almost never change. A frozen top-level object is now walked only when something inside it changed: Object3D.updateMatrix (the only way a frozen
+//    node's matrix changes: PERF4's watcher, door code, builders) and Object3D.add flag the node's top-level ancestor dirty; a root is "static" once a walk found no node in it
+//    that still recomposes itself every frame. Culled (hidden) frozen roots catch up every 4th frame and on the frame they become visible. A rolling full walk of 4 roots per
+//    frame (every root about every 2.5 s) is the safety net for anything that bypasses both hooks.
+const PERF5 = { on: PERF4.on && !/[?&]perf5=0/.test(location.search), n: 0, roll: 0, skipped: 0, walked: 0 };
+GK.perf5 = PERF5;
+const p5Root = o => { let r = o; while (r.parent && r.parent !== scene) r = r.parent; return r.parent === scene ? r : null; };
+const p5Mark = o => { let r = o; while (r.parent && r.parent !== scene) r = r.parent; if (r.parent === scene) r._p5d = true; };
+function p5Static(root) {   // no node under root recomposes its matrix every frame (and no camera rides along)
+  const st = [root];
+  while (st.length) { const o = st.pop(); if (o.matrixAutoUpdate || o.isCamera) return false; const ch = o.children; for (let i = 0; i < ch.length; i++) st.push(ch[i]); }
+  return true;
+}
+function p5Watch() {   // PERF4's watcher, but a node whose room is culled this frame is only looked at every 4th frame (it is caught up the moment the room is drawn again)
+  const W = PERF4.watch, n = PERF5.n;
+  for (let i = 0; i < W.length; i++) {
+    const e = W[i], o = e.o; if (o.matrixAutoUpdate) continue;
+    let r = e.r; if (r === undefined) r = e.r = p5Root(o) || null;
+    if (r && !r.visible && ((n + i) & 3)) continue;
+    const p = o.position, q = o.quaternion, s = o.scale;
+    if (p.x !== e.px || p.y !== e.py || p.z !== e.pz || q.x !== e.qx || q.y !== e.qy || q.z !== e.qz || q.w !== e.qw || s.x !== e.sx || s.y !== e.sy || s.z !== e.sz) {
+      e.px = p.x; e.py = p.y; e.pz = p.z; e.qx = q.x; e.qy = q.y; e.qz = q.z; e.qw = q.w; e.sx = s.x; e.sy = s.y; e.sz = s.z; o.updateMatrix();
+    }
+  }
+  const ch = scene.children, cn = ch.length;
+  for (let k = 0; k < 8 && cn; k++) { const o = ch[PERF4.si++ % cn]; if (o.matrixAutoUpdate === false && !o.isLight && !o.isCamera) perf4Scan(o); }
+  const now = performance.now();
+  if (now > PERF4.pruneAt) {
+    PERF4.pruneAt = now + 3000; let j = 0;
+    for (let i = 0; i < W.length; i++) { const r = p5Root(W[i].o); if (r) { W[i].r = r; W[j++] = W[i]; } else W[i].o._p4w = false; }
+    W.length = j;
+  }
+}
+function p5Walk(umw) {
+  if (scene.matrixWorldNeedsUpdate) { umw.call(scene, false); return; }
+  const ch = scene.children, cn = ch.length, n = ++PERF5.n; let sk = 0;
+  const r0 = PERF5.roll % Math.max(1, cn), r1 = r0 + 4; PERF5.roll = r1;
+  for (let i = 0; i < cn; i++) {
+    const o = ch[i], roll = (i >= r0 && i < r1) || i + cn < r1;
+    if (!roll && o.matrixAutoUpdate === false) {
+      if (o._p5s === true && !o._p5d) { sk++; continue; }   // static and untouched since its last walk
+      if (!o.visible && ((n + i) & 3)) { sk++; continue; }   // culled: catch up later
+    }
+    o.updateMatrixWorld(false);
+    if (o.matrixAutoUpdate === false) { if (o._p5d === 2) o._p5s = false; else if (o._p5s !== true && ((n + i) & 15) === 0) o._p5s = p5Static(o); o._p5d = false; }   // new parts: look again later (PERF4's scan freezes them within a second)
+  }
+  PERF5.skipped = sk; PERF5.walked = cn - sk;
+}
+if (PERF5.on) {
+  const O3 = THREE.Object3D.prototype, um = O3.updateMatrix, ad = O3.add, umw = O3.updateMatrixWorld;
+  O3.updateMatrix = function () { um.call(this); if (this.matrixAutoUpdate === false) p5Mark(this); };
+  O3.add = function () { const r = ad.apply(this, arguments); if (this !== scene) { let t = this; while (t.parent && t.parent !== scene) t = t.parent; if (t.parent === scene) t._p5d = 2; } else for (let i = 0; i < arguments.length; i++) if (arguments[i]) arguments[i]._p5s = false; return r; };
+  scene.updateMatrixWorld = function (force) { if (force) { perf4Tick(); umw.call(this, true); } else { p5Watch(); p5Walk(umw); } if (P4B.on) p4bSync(); else p4mCheckDrawn(); };
+}
+{ const H = { x: NaN, y: 0, z: 0, qx: 0, qy: 0, qz: 0, qw: 0, n: 0, T: null, k: 0 };   // hover ray throttle: skipped while the camera pose and the target list are unchanged (re-checked every 20 frames), else on every 3rd frame
+  PERF5.hoverSkip = T => {
+    if (!PERF5.on) return false; const p = cam.position, q = cam.quaternion; H.k++;
+    const same = p.x === H.x && p.y === H.y && p.z === H.z && q.x === H.qx && q.y === H.qy && q.z === H.qz && q.w === H.qw && T === H.T && T.length === H.n;
+    if (same ? H.k < 20 : H.k < 3) return true;
+    H.k = 0; H.x = p.x; H.y = p.y; H.z = p.z; H.qx = q.x; H.qy = q.y; H.qz = q.z; H.qw = q.w; H.T = T; H.n = T.length; return false;
+  }; }
+// 5. Dynamic resolution (Settings > Graphics > Dynamic resolution, on by default): while the frame time stays above ~19 ms (under ~52 fps) over 1.5 s the render scale drops
+//    one 10 % step (down to 60 % of the Resolution setting); after 5 s of smooth frames it climbs back one step. A step up that is followed by a drop within 4 s blocks
+//    climbing for 30 s, so it does not oscillate. Hitches over 250 ms (tab switch, loading) are ignored.
+PERF5.dyn = 1;
+{ const D = { last: 0, sum: 0, n: 0, t0: 0, upAt: 0, block: 0 };
+  PERF5.dynTick = () => {
+    const now = performance.now(), dt = now - D.last; D.last = now;
+    const on = PERF5.on && GK.settings.dynres !== false && GK.mode === 'play' && !document.hidden;
+    if (!on) { if (PERF5.dyn !== 1 && (!PERF5.on || GK.settings.dynres === false)) { PERF5.dyn = 1; renderer.setPixelRatio(fxPixelRatio()); fxResize(); } D.n = 0; D.sum = 0; D.t0 = now; return; }
+    if (dt > 250 || dt <= 0) { D.n = 0; D.sum = 0; D.t0 = now; return; }
+    D.sum += dt; D.n++;
+    const span = now - D.t0, mean = D.sum / D.n; let to = PERF5.dyn;
+    if (span > 1500 && mean > 19 && PERF5.dyn > 0.6) { to = Math.max(0.6, +(PERF5.dyn - 0.1).toFixed(2)); if (now - D.upAt < 4000) D.block = now + 30000; }
+    else if (span > 5000 && mean < 17.6 && PERF5.dyn < 1 && now > D.block) { to = Math.min(1, +(PERF5.dyn + 0.1).toFixed(2)); D.upAt = now; }
+    else if (span > 5000) { D.n = 0; D.sum = 0; D.t0 = now; }
+    if (to !== PERF5.dyn) { PERF5.dyn = to; renderer.setPixelRatio(fxPixelRatio()); fxResize(); D.n = 0; D.sum = 0; D.t0 = now; }
+  }; }
+// 2. Long-frame marks for tools/perfbench.js (window.__pf exists only under the bench): room builds, goblin builds, icon bake steps, batch work.
+PERF5.mark = (k, ms) => { const pf = window.__pf; if (pf && pf.on && ms > 1) pf.mark(k, ms); };
+// 3. Shader programs. On the iGPU (ANGLE / D3D11) linking one program blocks for 50 to 200 ms, and three links on first draw: the first world frame after GO stalled for
+//    seconds, and every lazily built room stalled again. Programs are now compiled ahead with KHR_parallel_shader_compile (renderer.compileAsync), in the game view's own
+//    state: Neutral tone mapping, and on Medium+ the composer's HDR target (no tone mapping, linear output). PERF4's batches were compiled in the menu's ACES state, so each
+//    one compiled a second time, synchronously, on its first draw.
+function p5ViewState(fn) {
+  const tm = renderer.toneMapping, te = renderer.toneMappingExposure, rt = renderer.getRenderTarget();
+  renderer.toneMapping = FX_TONE; renderer.toneMappingExposure = FX_EXPOSURE;
+  if (fx && GK.settings.fx && fxQ().post) renderer.setRenderTarget(fx.composer.readBuffer);
+  try { return fn(); } finally { renderer.setRenderTarget(rt); renderer.toneMapping = tm; renderer.toneMappingExposure = te; }
+}
+function p5Compile(obj) { try { return p5ViewState(() => renderer.compileAsync(obj, cam, scene)); } catch (e) { console.warn('precompile skipped', e); return Promise.resolve(); } }
+PERF5.batchCompile = () => {   // every new PERF4 batch in one compile (one light gather over the scene), then swapped in
+  const list = []; for (const b of P4B.batches.values()) if (!b.ready && !b.compiling && b.srcs.size) list.push(b);
+  if (!list.length) return;
+  const g = new THREE.Group(); for (const b of list) { b.compiling = true; g.add(b.bm); }
+  const done = () => { for (const b of list) { if (b.ready) continue; b.ready = true; P4B.pending--; P4B.ready++; scene.add(b.bm); for (const s of b.srcs) if (s.o.layers.mask === 1) s.o.layers.set(P4B.LAYER); } };
+  p5Compile(g).then(done, done);
+};
+PERF5.hidden = new Set();
+PERF5.fresh = w => {   // a room built during play is drawn once its programs are ready (shared programs: the same frame; new ones: a few frames later, instead of a multi-second stall)
+  if (!w || !PERF5.on || GK.mode !== 'play' || P5P.state === 'run' || !renderer.extensions.has('KHR_parallel_shader_compile')) return;
+  w.visible = false; PERF5.hidden.add(w);
+  const show = () => { if (!PERF5.hidden.delete(w)) return; if (w.parent) w.visible = true; };
+  p5Compile(w).then(show, show); setTimeout(show, 2500);
+};
+function p5Proxies(root) {   // one stand-in object per (material, object kind, vertex layout): compiling 10 000 objects one by one costs a long task of its own
+  const g = new THREE.Group(), seen = new Set();
+  root.traverse(o => {
+    if (o.isBatchedMesh || !(o.isMesh || o.isPoints || o.isLine || o.isSprite) || P4B.src.has(o)) return;   // a batched original is drawn by its batch
+    const mats = Array.isArray(o.material) ? o.material : [o.material], ga = o.geometry && o.geometry.attributes ? Object.keys(o.geometry.attributes).sort().join() + '|' + Object.keys(o.geometry.morphAttributes || {}).join() : '';
+    for (const m of mats) {
+      if (!m) continue; const k = m.uuid + '|' + o.type + '|' + ga + '|' + (o.isInstancedMesh && !!o.instanceColor); if (seen.has(k)) continue; seen.add(k);
+      let p; try {
+        if (o.isInstancedMesh) { p = new THREE.InstancedMesh(o.geometry, m, 1); if (o.instanceColor) p.instanceColor = o.instanceColor; }
+        else if (o.isSprite) p = new THREE.Sprite(m); else if (o.isPoints) p = new THREE.Points(o.geometry, m); else if (o.isLine) p = o.isLineSegments ? new THREE.LineSegments(o.geometry, m) : new THREE.Line(o.geometry, m);
+        else if (o.isSkinnedMesh) continue; else { p = new THREE.Mesh(o.geometry, m); p.morphTargetInfluences = o.morphTargetInfluences; }
+      } catch (e) { continue; }
+      p.receiveShadow = o.receiveShadow; g.add(p);
+    }
+  });
+  return g;
+}
+function p5PostProxies() {   // the composer passes' own shader materials (bloom mips, AO, final grade)
+  const g = new THREE.Group(), q = new THREE.PlaneGeometry(2, 2), seen = new Set();
+  if (!fx || !fx.composer) return g;
+  const add = m => { if (m && m.isMaterial && !seen.has(m)) { seen.add(m); g.add(new THREE.Mesh(q, m)); } };
+  for (const p of fx.composer.passes) for (const k of Object.keys(p)) { const v = p[k]; if (Array.isArray(v)) v.forEach(add); else if (v && v.isMaterial) add(v); else if (v && v._mesh && v._mesh.material) add(v._mesh.material); }
+  return g;
+}
+// 4. Loading step (between the match forming and the 3-2-1). First every program of the scene as it stands (world shells, doors, chest rooms, goblins) is compiled in
+//    parallel; then the rooms that used to be built lazily during play (ROOMART dressing, ROOMS5ART homes / trees / vaultbreakers / vault, about 2.5 s of building) are
+//    built nearest to the own home first, one room per slice between menu frames, each followed by an async compile of what it added; then every top-level object is
+//    room-classified, PERF4's watcher and batches pick everything up, the textures are uploaded a few per slice, and a last sweep compiles anything left. The ready signal
+//    waits for it (at most ~6.5 s after the match formed; the server starts the countdown after 8 s anyway); whatever is left finishes during the countdown.
+function p5BatchHints() {   // what each PERF4 batch will hold once every room exists: vertices / indices of its distinct geometries and its instance count
+  const H = new Map();
+  for (const o of scene.children) {
+    if (o.matrixAutoUpdate !== false || o.isLight || o.isBatchedMesh) continue;
+    const cls = fxCull.cls.get(o); if (!cls || !cls.length) continue;
+    o.traverse(c => {
+      if (!p4bEligible(c)) return; const k = p4bKey(c), g = c.geometry; let h = H.get(k); if (!h) H.set(k, h = { nv: 0, ni: 0, n: 0, g: new Set() });
+      if (!h.g.has(g.uuid)) { h.g.add(g.uuid); h.nv += g.attributes.position.count; h.ni += g.index ? g.index.count : 0; }
+      h.n += c.isInstancedMesh ? c.count : 1;
+    });
+  }
+  P4B.hint = H;
+}
+const P5P = { state: 'idle', t0: 0, ms: {}, phase: '', promise: null, programs: 0, rooms: 0 };
+PERF5.load = P5P;
+PERF5.prep = () => {
+  if (!PERF5.on) return Promise.resolve();
+  if (P5P.promise) return P5P.promise;
+  P5P.state = 'run'; P5P.t0 = performance.now(); P5P.ms = {};
+  P5P.promise = new Promise(resolve => {
+    const home = GK.myHome || WORLD.VAULT_KEY, phases = ['scene', 'rooms', 'classify', 'batch', 'textures', 'compile'], waits = [], done = new WeakSet();
+    let ph = 0, ci = 0, bs = -1, tex = null, ti = 0, pt = performance.now();
+    const next = () => { P5P.ms[phases[ph]] = Math.round(performance.now() - pt); pt = performance.now(); ph++; ci = 0; };
+    const finish = () => { P5P.ms.total = Math.round(performance.now() - P5P.t0); P5P.state = 'done'; P5P.phase = 'done'; P5P.programs = renderer.info.programs ? renderer.info.programs.length : 0; resolve(); };
+    const fresh = () => {   // compile (async) whatever top-level objects were added since the last call
+      const g = new THREE.Group(); for (const o of scene.children) if (!done.has(o)) { done.add(o); const p = p5Proxies(o); while (p.children.length) g.add(p.children[0]); }
+      if (g.children.length) waits.push(p5Compile(g));
+    };
+    const slice = () => {
+      const t0 = performance.now();
+      try {
+        while (ph < phases.length - 1 && performance.now() - t0 < 10) {
+          P5P.phase = phases[ph];
+          if (ph === 0) { fresh(); if (fx && fx.composer && GK.settings.fx && fxQ().post) waits.push(p5Compile(p5PostProxies())); next(); break; }
+          else if (ph === 1) {   // one room per slice (10 to 200 ms each): the ROOMART dressing first (small), then the art rooms by door hops from the own home
+            if (ROOMART.step(home)) { P5P.rooms++; fresh(); break; }
+            const h = R5.hopsFrom(home), k = R5.pending().sort((a, b) => (h[a] === undefined ? 99 : h[a]) - (h[b] === undefined ? 99 : h[b]))[0];
+            if (k) { R5.make(k); P5P.rooms++; fresh(); break; }
+            next();
+          } else if (ph === 2) {   // the room culler's verdict per top-level object (a bounding box over every vertex: done now, not in the first frames)
+            const ch = scene.children;
+            for (; ci < ch.length && performance.now() - t0 < 10; ci++) { const o = ch[ci]; if (!fxCull.cls.has(o)) { const k = fxClassify(o); if (k !== undefined) fxCull.cls.set(o, k); } if (PERF4.on && o.matrixAutoUpdate === false && !o.isLight && !o.isCamera) perf4Scan(o); }
+            if (ci >= ch.length) next();
+          } else if (ph === 3) {   // PERF4 batching: one full pass of its discovery over the scene (the batches compile themselves, PERF5.batchCompile)
+            if (!P4B.on) { next(); continue; }
+            if (bs < 0) { bs = P4B.si; p5BatchHints(); }
+            p4bFind();
+            if (P4B.si - bs >= scene.children.length) next();
+          } else if (ph === 4) {   // texture uploads, a few per slice
+            if (!tex) { const s = new Set(); scene.traverse(o => { const ms = Array.isArray(o.material) ? o.material : o.material ? [o.material] : []; for (const m of ms) { for (const k in m) { const v = m[k]; if (v && v.isTexture && !v.isRenderTargetTexture && !v.isCubeTexture && v.image) s.add(v); } if (m.uniforms) for (const k in m.uniforms) { const v = m.uniforms[k] && m.uniforms[k].value; if (v && v.isTexture && !v.isRenderTargetTexture && v.image) s.add(v); } } }); tex = [...s]; }
+            for (; ti < tex.length && performance.now() - t0 < 10; ti++) try { renderer.initTexture(tex[ti]); } catch (e) {}
+            if (ti >= tex.length) next();
+          }
+        }
+      } catch (e) { console.warn('loading step', phases[ph], e); ph = phases.length - 1; }
+      if (ph < phases.length - 1) { setTimeout(slice, 0); return; }
+      P5P.phase = 'compile'; fresh();
+      const w = () => { const p = P4B.on ? [...P4B.batches.values()].some(b => !b.ready) : false; if (p && performance.now() - P5P.t0 < 15000) setTimeout(w, 50); else { next(); finish(); } };   // the batches swap in once compiled
+      Promise.all(waits).then(w, w);
+    };
+    setTimeout(slice, 0);
+  });
+  return P5P.promise;
+};
+PERF5.gate = (go, cap = 6500) => {   // run go once the loading step is done (or cap ms after it began)
+  if (!PERF5.on) { go(); return; }
+  let fired = false; const fire = () => { if (fired) return; fired = true; go(); };
+  PERF5.prep().then(fire, fire); setTimeout(fire, Math.max(0, cap - (performance.now() - P5P.t0)));
+};
+// PERF5-END
 // FX-END
 // ROOMART-BEGIN (room art: floor trims, skirting caps, ceiling beams, wall seams, door hazard stripes, goblin graffiti decals, scattered props, vault treasure dressing, chest/mystery/merchant mood accents.
 // Visual only, no collision, no new lights. Per room the geometry is baked into a few merged static meshes (vertex-coloured solid, gold, ceiling, alpha decals, emissive accents) so the FX room culling handles them.
@@ -7277,6 +7497,7 @@ const ROOMART = (() => {
   const hopsFrom = from => { const h = { [from]: 0 }, q = [from]; for (let i = 0; i < q.length; i++) for (const k of ADJ[q[i]] || []) if (h[k] === undefined) { h[k] = h[q[i]] + 1; q.push(k); } return h; };
   const stale = key => key[0] === 'c' ? attSig.get(key) !== sigOf(CHEST_ROOMS[+key.slice(1)]) : !built.has(key);
   function runOne(key) {
+    const p5t = performance.now();   // PERF5: long-frame marks
     try {
       if (key[0] === 'c') {
         const cr = CHEST_ROOMS[+key.slice(1)]; dispose(key); attSig.set(key, sigOf(cr));
@@ -7289,6 +7510,7 @@ const ROOMART = (() => {
         if (vault) { built.get(key).push(vaultFloor()); vaultGlints(r.piles); }
       }
     } catch (e) { console.warn('roomart room skipped', key, e); if (!built.has(key)) built.set(key, []); }
+    finally { if (GK.perf5) GK.perf5.mark('roomart', performance.now() - p5t); }   // PERF5
   }
   let queueOn = false, anchor = WORLD.VAULT_KEY, nearKey = null;
   function pump() {
@@ -7311,7 +7533,8 @@ const ROOMART = (() => {
     const k0 = nearKey || WORLD.VAULT_KEY; nearKey = null; near(k0);   // a new layout: the rooms around the camera now, the rest in idle time
     if (typeof fxCull !== 'undefined') fxCull.cls = new WeakMap();
   }
-  return { story, init() { try { build(); layoutHooks.push(() => { try { build(); } catch (e) { console.warn('roomart layout skipped', e); } }); } catch (e) { console.warn('roomart skipped', e); } }, built, glints, near, pending: () => ALL.filter(stale).length };
+  return { story, init() { try { build(); layoutHooks.push(() => { try { build(); } catch (e) { console.warn('roomart layout skipped', e); } }); } catch (e) { console.warn('roomart skipped', e); } }, built, glints, near, pending: () => ALL.filter(stale).length,
+    step(from) { const h = hopsFrom(from || anchor), k = ALL.filter(stale).sort((a, b) => (h[a] === undefined ? 99 : h[a]) - (h[b] === undefined ? 99 : h[b]))[0]; if (!k) return false; runOne(k); return true; } };   // PERF5: the loading step builds every room before GO
 })();
 ROOMART.init(); GK.roomart = ROOMART;   // test hook: ROOMART.story = room key -> [x, z, theme] of its story corner
 // ROOMART-END
@@ -7402,6 +7625,7 @@ const R5 = (() => {
     try { const e = BUILD[kindOfKey(k)](k); if (!e) failed.add(k); else { entries.set(k, e); applyState(e); } }
     catch (x) { console.warn('room art skipped', k, x); failed.add(k); }
     stats.built++; stats.last = performance.now() - t0; stats.ms += stats.last;
+    if (GK.perf5) { GK.perf5.mark('r5room', stats.last); GK.perf5.fresh(entries.get(k) && entries.get(k).wrap); }   // PERF5: long-frame marks; a room built after GO is compiled before it is shown
   }
   // ---- server state to art (cheap, idempotent setters)
   function applyState(e) {
@@ -7490,7 +7714,8 @@ function combatSwing() {   // left click: swing animation on my own goblin now, 
   const mine = actors.get(me); if (!mine) return false;
   const cb = itemsData().combat ? itemsData().combat(invReady ? myInv.weapon : null) : { cd: 600 }, now = performance.now();
   if (now - CB.last < cb.cd) return false;
-  CB.last = now; CB.nextAt = now + cb.cd; /* FEEL2: cooldown end for buffer/hold */ mine.swing = 1e-4; vmSwing(mine, true); net.send({ atk: 1 }); snd('swing', { fam: mine.vmFam }); return true;
+  if (now < C4C.stagUntil) { CB.nextAt = Math.max(CB.nextAt, C4C.stagUntil); return false; }   // COMBAT4: staggered (the buffer fires the swing when it ends)
+  CB.last = now; CB.nextAt = now + cb.cd; /* FEEL2: cooldown end for buffer/hold */ mine.swing = 1e-4; vmSwing(mine, true); net.send(c4Begin(invReady ? myInv.weapon : null, cb, mine)); snd('swing', { fam: mine.vmFam }); return true;   // COMBAT4: {atk, sq, pt} + the local contact-frame prediction
 }
 canvas.addEventListener('mousedown', e => { if (e.button === 0 && (lockOk() || lockRefused || lockPrevRefused)) { /* FEEL2: hold + input buffer */ CB.held = true; if (!combatSwing() && CB.nextAt - performance.now() <= 180) CB.buf = true; } });   // the click that captures the mouse does not swing
 // FEEL2-BEGIN (attack input buffer + hold-to-attack, directional damage arc, crosshair hit marker; see docs/reports/feel-2.md)
@@ -7532,6 +7757,7 @@ function feel2HitMark(kill) {   // small white X at screen centre for ~120 ms; l
 // FEEL2-END
 function combatSync(a, p) { if (p.stats && p.stats.health != null) { a.hp = p.stats.health; a.maxHp = p.stats.maxHealth || p.stats.health; } if (p.kills != null) a.kills = p.kills; }
 function combatFloat(text, pos, color, size) {   // floating damage number (a sprite that rises and fades)
+  if (c4Float(text, pos, color, size)) return;   // COMBAT4: pooled canvas sprites (no allocation per hit); the code below is the fallback when the pool is full
   const c = document.createElement('canvas'); c.width = 160; c.height = 80; const g = c.getContext('2d');
   g.font = '800 54px system-ui,sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineWidth = 8; g.strokeStyle = 'rgba(0,0,0,.85)'; g.strokeText(text, 80, 42); g.fillStyle = color; g.fillText(text, 80, 42);
   const tex = new THREE.CanvasTexture(c), sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
@@ -7547,24 +7773,25 @@ function combatHurtFx(dmg, max) {   // red vignette + screen number when I am hu
 const vmArmKey = n => { if (!n) return null; const I = itemsData().ITEMS; for (const k in I) if (I[k].type === 'armor' && I[k].name === n) return k; return null; };   // FEEL3: armour name -> item key
 const snd = (n, o) => { try { window.GKAUDIO && GKAUDIO.play(n, o); } catch (e) {} };   // combat sounds (audio.js)
 function combatMsg(d) {   // server messages: swing, hit, kills, match (goblins left)
-  if (d.swing != null && d.swing !== me) { const a = actors.get(d.swing); if (a) { a.swing = 1e-4; vmSwing(a, false); snd('swing', { x: a.x, z: a.z, vol: 0.7, fam: a.vmFam }); } }
+  if (d.swing != null && d.swing !== me) { const a = actors.get(d.swing); if (a) { a.swing = 1e-4; a.c4dur = d.c4 ? d.c4[1] : 0; /* COMBAT4: the server's clip length, so its contact frame meets the damage */ vmSwing(a, false); snd('swing', { x: a.x, z: a.z, vol: 0.7, fam: a.vmFam }); } }
   if (d.hit) {
-    const h = d.hit, v = actors.get(h.to), f = actors.get(h.from); if (h.from === me) vmHit(h);
+    const h = d.hit, v = actors.get(h.to), f = actors.get(h.from), pre = h.from === me && !h.bleed && c4Confirm(h); if (h.from === me && !pre) vmHit(h); else if (pre && h.dead) feel2HitMark(true); if (h.to === me) c4Victim(h);   /* COMBAT4: pre = my client already played this blow's impact at the contact frame (prediction confirmed) */
     if (v) {
       v.hp = h.hp; v.maxHp = h.max; v.hitT = h.bleed ? 0 : CB.HIT;   /* WEAPONS3: a bleed tick is just a number, no lean or flash */
       const dx = f ? v.x - f.x : 0, dz = f ? v.z - f.z : 1, l = Math.hypot(dx, dz) || 1; v.kx = dx / l; v.kz = dz / l;
       const y = (h.to === me ? 1.4 : 2.0) * (SCALE[v.goblin] || 1);
-      combatFloat('-' + h.dmg, new THREE.Vector3(v.x, y, v.z), h.from === me ? '#ffd75e' : '#ffffff', 0.5);
-      if (!h.bleed) { const burst = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff3a2a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.9 }));   // red hit flash on the victim (sprite only, no lights)
+      combatFloat('-' + h.dmg + (h.bs || h.rage ? '!' : ''), C4C.v3.set(v.x, y, v.z), h.blk ? '#a9bccc' : h.bs || h.rage ? '#ff8a3a' : h.from === me ? '#ffd75e' : '#ffffff', h.bs || h.rage || h.dead ? 0.62 : 0.5);   /* COMBAT4: crit (backstab / rage) and blocked cues */
+      if (!h.bleed && !c4Flash(v.x, 1.0 * (SCALE[v.goblin] || 1), v.z)) { const burst = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff3a2a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.9 }));   // red hit flash on the victim (sprite only, no lights)
       burst.scale.set(1.3, 1.3, 1); burst.position.set(v.x, 1.0 * (SCALE[v.goblin] || 1), v.z); scene.add(burst); CB.floats.push({ sp: burst, t: 0, flash: true }); }
     }
-    if (v && !h.bleed) try { const sc = SCALE[v.goblin] || 1, dx = v.x - (f ? f.x : v.x), dz = v.z - (f ? f.z : v.z - 1), l = Math.hypot(dx, dz) || 1, ak0 = h.to === me ? (invReady ? myInv.armor : null) : (v.gArm !== undefined ? vmArmKey(v.gArm) : null); GKVFX.hit({ x: v.x - dx / l * 0.3, y: 1.1 * sc, z: v.z - dz / l * 0.3 }, { x: dx / l, z: dz / l }, f && f.vmFam, ak0 && itemsData().ITEMS[ak0] && itemsData().ITEMS[ak0].family, h.dmg, h.dead); if (h.dead) GKVFX.ring(v.x, v.z, 0xffd75e, 1.5); } catch (e) {} // VFX
+    if (v && !h.bleed) try { const sc = SCALE[v.goblin] || 1, dx = v.x - (f ? f.x : v.x), dz = v.z - (f ? f.z : v.z - 1), l = Math.hypot(dx, dz) || 1, ak0 = h.to === me ? (invReady ? myInv.armor : null) : (v.gArm !== undefined ? vmArmKey(v.gArm) : null); if (!pre) GKVFX.hit({ x: v.x - dx / l * 0.3, y: 1.1 * sc, z: v.z - dz / l * 0.3 }, { x: dx / l, z: dz / l }, f && f.vmFam, ak0 && itemsData().ITEMS[ak0] && itemsData().ITEMS[ak0].family, h.dmg, h.dead); if (h.dead) GKVFX.ring(v.x, v.z, 0xffd75e, 1.5); } catch (e) {} // VFX
     if (!h.bleed) { const fam = f && f.vmFam, ak = h.to === me ? (invReady ? myInv.armor : null) : (v && v.gArm !== undefined ? vmArmKey(v.gArm) : null), ait = ak && itemsData().ITEMS[ak], armor = ait && ait.family; /* FEEL3: weapon and armour families pick the hit sound */
-      if (h.to === me) { combatHurtFx(h.dmg, h.max); snd('hit', { fam, armor, vol: 0.7 }); snd('hurt'); try { GK.feel.hurt(h.dmg, h.max); } catch (e) {} if (f) feel2Arc(f); /* FEEL2 */ } else if (v) snd('hit', h.from === me ? { fam, armor } : { x: v.x, z: v.z, fam, armor }); }
+      if (h.to === me) { combatHurtFx(h.dmg, h.max); snd('hit', { fam, armor, vol: 0.7 }); snd('hurt'); try { GK.feel.hurt(h.dmg, h.max); } catch (e) {} if (f) feel2Arc(f); /* FEEL2 */ } else if (v && !pre) snd('hit', h.from === me ? { fam, armor } : { x: v.x, z: v.z, fam, armor }); }
   }
   if (d.dodge) { const v = actors.get(d.dodge.to); if (v && (d.dodge.to === me || d.dodge.from === me)) combatFloat('dodged', new THREE.Vector3(v.x, 1.8 * (SCALE[v.goblin] || 1), v.z), '#9ae6d0', 0.42); }   // GOBTYPES: the scout's nimble perk
   if (d.kills != null) { CB.kills = d.kills; toastMsg('Goblin defeated!  Kills: ' + d.kills + (d.bounty ? '   +' + d.bounty + ' gold' : ''), true); }   /* PACE: bounty */
   if (d.match) { CB.alive = d.match.alive | 0; CB.size = d.match.size | 0; }
+  if (d.swr || d.proj || d.projEnd || d.c4g) c4Msg(d);   // COMBAT4
 }
 function combatBar(a, id) {   // small health bar sprite over another goblin's head
   let b = CB.bars.get(id);
@@ -7623,11 +7850,12 @@ function combatTick(dt) {   // called every frame after the goblin loop: swing, 
   for (let i = CB.floats.length - 1; i >= 0; i--) {
     const q = CB.floats[i]; q.t += dt;
     const life = q.flash ? 0.28 : 0.95;
-    if (q.t >= life) { scene.remove(q.sp); if (q.sp.material.map && !q.flash) q.sp.material.map.dispose(); q.sp.material.dispose(); CB.floats.splice(i, 1); continue; }
+    if (q.t >= life) { if (q.pool) { q.pool.busy = false; q.sp.visible = false; } /* COMBAT4: back to the pool */ else { scene.remove(q.sp); if (q.sp.material.map && !q.flash) q.sp.material.map.dispose(); q.sp.material.dispose(); } CB.floats.splice(i, 1); continue; }
     const k = q.t / life;
     if (q.flash) { q.sp.material.opacity = 0.9 * (1 - k); q.sp.scale.setScalar(1.3 + k); } else { q.sp.position.y += dt * 1.1; q.sp.position.x += q.x * dt; q.sp.material.opacity = k < 0.6 ? 1 : 1 - (k - 0.6) / 0.4; }
   }
   combatHud(actors.get(me));
+  try { c4Tick(dt); } catch (e) { if (!C4C.err) { C4C.err = 1; console.warn('combat4', e); } }   // COMBAT4: prediction, projectiles, knockback, reticle
 }
 GK.attack = combatSwing; GK.combatState = CB; GK.combatHurtFx = combatHurtFx;
 // COMBAT-END
@@ -7753,6 +7981,7 @@ function vmSwing(a, isMe) {   // hook: a.swing was just set (combatSwing for me,
 function vmHit(h) {   // hook: the server confirmed my hit: recoil + hit-stop (heavier for big weapons)
   const heavy = VM_CLASS[VM.fam] === 'smash' ? 1 : VM_CLASS[VM.fam] === 'thrust' ? 0.7 : 0.5;
   feel2HitMark(!!h.dead); /* FEEL2 */ VM.stop = 0.06 + 0.03 * heavy; VM.kick = 1; VM.shake = Math.max(VM.shake, 0.35 + 0.5 * heavy);
+  if (window.GKC4 && !h.k) c4Weight(c4W(), true);   // COMBAT4: an unpredicted (late) melee hit gets the same per-weapon hit-stop / kick / shake; a projectile hit only the marker
 }
 function vmGear(a, p) { a.vmName = p.gear && p.gear.weapon || null; }   // hook: other goblins' weapon arrives as a name in the player list
 const vmByName = (() => { let m = null; return name => { if (!name) return null; if (!m) { m = {}; const I = itemsData().ITEMS; for (const k in I) if (I[k].type === 'weapon') m[I[k].name] = k; } return m[name] || null; }; })();
@@ -7810,7 +8039,7 @@ function vmUpdate(dt, t, mine) {   // hook: every frame after the actor loop, be
     if (cls === 'smash' && !VM.shook && p >= 0.56) { VM.shook = true; VM.shake = Math.max(VM.shake, 0.55); }
     if (cls === 'bow' && !VM.fired && p >= 0.64) {
       VM.fired = true; const d = new THREE.Vector3(); cam.getWorldDirection(d); const from = new THREE.Vector3(0.18, -0.16, -0.5).applyMatrix4(cam.matrixWorld);
-      vmTracer(d, from); VM.kick = 0.8;
+      if (!window.GKC4) vmTracer(d, from); VM.kick = 0.8;   // COMBAT4: the real arrow (c4Shoot, same frame) replaces the straight tracer
     }
     if (cls === 'cast') { const b = vmRamp(p, 0.4, 1); VM.burst.visible = b > 0 && b < 1; VM.burst.material.opacity = Math.sin(b * Math.PI) * 0.95; VM.burst.scale.setScalar(0.18 + 0.7 * vmSm(b)); }
   } else { VM.trail.visible = false; if (VM.burst.visible) VM.burst.visible = false; }
@@ -7843,7 +8072,7 @@ function vmUpdate(dt, t, mine) {   // hook: every frame after the actor loop, be
 }
 function vmHide() { VM.root.visible = false; }   // hook: menu / early-return path of frame()
 // ---- third person: per-family arm clips driven by a.swing (0..1)
-const vmSw = a => { const c = VM_CLASS[a.vmFam] || (a.vmFam ? 'slash' : 'fist'); return Math.max(0.25, VM_SECS[c] * (a.vmFam === 'dagger' ? 0.78 : 1) * 1); };
+const vmSw = a => { if (a.c4dur > 0) return a.c4dur / 1000; /* COMBAT4: the clip length the server timed the damage to */ const c = VM_CLASS[a.vmFam] || (a.vmFam ? 'slash' : 'fist'); return Math.max(0.25, VM_SECS[c] * (a.vmFam === 'dagger' ? 0.78 : 1) * 1); };
 function vmPose3(a, u) {   // arm/torso pose for one swing frame; combatTick resets nothing, vmEnd3 clears what these set
   const p = a.swing, cls = a.vmFam ? VM_CLASS[a.vmFam] || 'slash' : 'fist', arm = u.arms[1], el = arm.userData.el, bell = vmSm(vmRamp(p, 0.1, VM_HITAT[cls])) * (1 - vmSm(vmRamp(p, VM_HITAT[cls] + 0.1, 1)));
   if (cls === 'slash') { arm.rotation.x = -0.4 - 1.9 * bell; arm.rotation.z = 0.9 * (1 - 2 * vmSm(vmRamp(p, 0.15, 0.5))) * (1 - vmRamp(p, 0.6, 1)); el.rotation.x = -0.4 * bell; u.torso.rotation.y += 0.5 * bell; }
@@ -7856,6 +8085,142 @@ function vmPose3(a, u) {   // arm/torso pose for one swing frame; combatTick res
 function vmEnd3(a, u) { const arm = u.arms[1]; arm.rotation.z = 0; arm.userData.el.rotation.x = 0; u.arms[0].userData.el.rotation.x = 0; }
 GK.vm = { tables: { VM_SC, VM_GRIP, VM_TILT, VM_ADJ, VM_FPX }, rebuild: key => vmSetWeapon(key), state: VM, setWeapon(key) { if (typeof myInv === 'object') { myInv.weapon = key; invReady = true; } return key; }, swing: () => combatSwing(), tracers: VM.tracers };   // GK.vm.setWeapon is a test hook: local equip without the server
 // VIEWMODEL-END
+// COMBAT4-BEGIN (client side of combat4.js: contact-frame hit prediction with server confirm / rollback, per-weapon hit-stop / kick / shake, pooled damage numbers
+// and flashes, real projectiles, stagger and knockback on me, block cues, a small aim assist and a reach reticle; see docs/reports/combat-4.md)
+const C4C = { sq: 0, pend: null, preds: [], st: { swings: 0, predicted: 0, confirmed: 0, rolledBack: 0, late: 0 }, stagUntil: 0, kb: null, dotK: '', fric: 1, fr: 0, proj: new Map(), ppool: [], fpool: [], flpool: [], O: {}, v3: new THREE.Vector3(), v3b: new THREE.Vector3(), up: new THREE.Vector3(0, 1, 0), err: 0 };
+const c4W = () => { const C = window.GKC4; return C ? (C.profile(itemsData(), invReady ? myInv.weapon : null).weight || 0.4) : 0.4; };
+function c4Weight(w, late) { VM.stop = Math.max(VM.stop, 0.035 + 0.075 * w); VM.kick = Math.max(VM.kick, 0.55 + 0.6 * w); VM.shake = Math.max(VM.shake, (late ? 0.15 : 0.2) + 0.7 * w); }   // hit-stop, camera kick and shake scale with the weapon's weight
+const c4Open = id => RS.open.includes(id) || !!(WORLD.alwaysOpen && WORLD.alwaysOpen(id) && !RS.homeLock);
+function c4Begin(key, cb, mine) {   // my swing: the {atk} message and the prediction record
+  const C = window.GKC4; C4C.sq = (C4C.sq + 1) & 0xffff; C4C.st.swings++;
+  if (!C) return { atk: 1 };
+  const tm = C.timing(itemsData(), key, cb.cd), now = performance.now(), G = itemsData();
+  mine.c4dur = tm.dur;
+  C4C.pend = { sq: C4C.sq, key, kind: cb.ranged ? 'proj' : cb.bolt ? 'bolt' : 'melee', pr: C.profile(G, key), R: cb.range + (cb.ranged ? 0 : (G.goblinReach ? G.goblinReach(mine.goblin) : 0)), at: now + tm.contact, end: now + tm.end, hits: [], sent: false, aimed: false, pull: 0, lyaw: P.yaw };
+  return { atk: 1, sq: C4C.sq, pt: +P.pitch.toFixed(3) };
+}
+function c4Cap(a) { const G = itemsData(), r = a.npc || !G.hitRadius ? 0.35 : G.hitRadius(a.goblin); return [r, window.GKC4.capH(r / 0.35)]; }
+function c4Strike(pr, R, yaw, out, pick) {   // the actors my strike touches right now (my drawn picture of them = what the server rewinds to); pick: 'all' | 'best'
+  const C = window.GKC4; let best = null, bd = 1e9;
+  for (const [id, a] of actors) {
+    if (id === me || (a.hp != null && a.hp <= 0)) continue;
+    const [r, h] = c4Cap(a);
+    if (!C.melee(pr, R, P.x, JUMP.y, P.z, yaw, a.x, a.jy || 0, a.z, r, h, C4C.O)) continue;
+    if (C4C.O.d - r > 0.35 && !C.los(WORLD, RS.layout || null, c4Open, P.x, JUMP.y + 1, P.z, C4C.O.cx, C4C.O.cy, C4C.O.cz, false)) continue;
+    if (out) out.push({ a, id, d: C4C.O.d, x: C4C.O.cx, y: C4C.O.cy, z: C4C.O.cz }); if (C4C.O.d < bd) { bd = C4C.O.d; best = a; }
+  }
+  return best;
+}
+function c4Impact(t, pd) {   // instant feedback for a predicted hit: hit-stop, kick, shake, spark, sound, marker (the number comes with the server's confirm)
+  const a = t.a, ak = a.gArm !== undefined ? vmArmKey(a.gArm) : null, armor = ak && itemsData().ITEMS[ak] && itemsData().ITEMS[ak].family, fam = vmFamOf(pd.key);
+  c4Weight(pd.pr.weight || 0.4); feel2HitMark(false);
+  const dx = a.x - P.x, dz = a.z - P.z, l = Math.hypot(dx, dz) || 1;
+  try { GKVFX.hit({ x: t.x, y: t.y, z: t.z }, { x: dx / l, z: dz / l }, fam, armor, 10, false); } catch (e) {}
+  snd('hit', { fam, armor }); c4Flash(a.x, 1.0 * (SCALE[a.goblin] || 1), a.z);
+}
+function c4Assist(pd, now) {   // melee aim assist during the wind-up: a pull of at most ASSIST.maxDeg toward a goblin just outside the strike, never against the player's own turn
+  const C = window.GKC4, A = C.ASSIST; if (GK.settings.aimAssist === false || pd.pull >= A.maxDeg * Math.PI / 180) return;
+  const turned = wrapPi(P.yaw - pd.lyaw); pd.lyaw = P.yaw;
+  if (c4Strike(pd.pr, pd.R, P.yaw, null)) return;
+  let best = null, be = 1e9;
+  for (const [id, a] of actors) { if (id === me || (a.hp != null && a.hp <= 0)) continue; const d = Math.hypot(a.x - P.x, a.z - P.z), [r] = c4Cap(a); if (d - r > pd.R + 0.3) continue; const b = C.bearing(P.x, P.z, P.yaw, a.x, a.z); if (Math.abs(b) < be) { be = Math.abs(b); best = b; } }
+  if (best == null || be > (pd.pr.half || 0.3) + A.deg * Math.PI / 180) return;
+  if (turned * -best < -1e-4) { pd.pull = 1e9; return; }   // the player turns away: hands off for this swing
+  const step = Math.min(be * A.rate, A.maxDeg * Math.PI / 180 - pd.pull); P.yaw = wrapPi(P.yaw - Math.sign(best) * step); pd.pull += step; pd.lyaw = P.yaw;
+}
+function c4Tick(dt) {
+  const C = window.GKC4; if (!C) return;
+  const now = performance.now(), pd = C4C.pend;
+  if (pd) {
+    if (pd.kind === 'proj' && !pd.aimed && now >= pd.at - Math.min(120, (NETC.rtt || 0) / 2 + 20)) { pd.aimed = true; net.send({ aim: [pd.sq, +P.pitch.toFixed(3)] }); }   // the pitch at release reaches the server before its release frame
+    if (now >= pd.at && !pd.sent) { pd.sent = true; net.send({ m: [+P.x.toFixed(2), +P.z.toFixed(2), +P.yaw.toFixed(3), ...JUMP.tail()] }); }   // the freshest pose for the server's look at the contact frame
+    if (pd.kind !== 'melee') { if (now >= pd.at) C4C.pend = null; }
+    else {
+      if (now < pd.at) c4Assist(pd, now);
+      else {
+        const hits = []; c4Strike(pd.pr, pd.R, P.yaw, hits); hits.sort((x, y) => x.d - y.d);
+        for (const t of hits) { if (pd.hits.length >= (pd.pr.cleave || 1)) break; if (pd.hits.includes(t.id)) continue; pd.hits.push(t.id); c4Impact(t, pd); }
+        if (now >= pd.end || pd.hits.length >= (pd.pr.cleave || 1)) { if (pd.hits.length) C4C.st.predicted++; C4C.preds.push({ sq: pd.sq, ids: pd.hits, got: [], t: now }); C4C.pend = null; }
+      }
+    }
+  }
+  for (let i = C4C.preds.length - 1; i >= 0; i--) if (now - C4C.preds[i].t > 2000) C4C.preds.splice(i, 1);
+  if (C4C.kb) {   // my knockback: a short slide through the normal collision (the server granted the allowance)
+    const k = C4C.kb, f = Math.min(dt, k.left) / k.T; k.left -= dt; const mx = k.x * f, mz = k.z * f;
+    if (!blocked(P.x + mx, P.z)) P.x += mx; if (!blocked(P.x, P.z + mz)) P.z += mz;
+    if (k.left <= 0) C4C.kb = null;
+  }
+  for (const [id, b] of C4C.proj) {   // projectiles in flight (the server's own path; it ends them with projEnd)
+    b.vy -= b.g * dt; b.x += b.vx * dt; b.y += b.vy * dt; b.z += b.vz * dt; b.life += dt;
+    b.m.position.set(b.x, b.y, b.z); C4C.v3.set(b.vx, b.vy, b.vz).normalize(); b.m.quaternion.setFromUnitVectors(C4C.up, C4C.v3);
+    if (b.life > 1.6 || b.y < -0.5) c4ProjFree(id);
+  }
+  if ((++C4C.fr % 3) === 0) c4Reticle();
+}
+function c4Reticle() {   // the centre dot warms up and grows a thin ring when a swing now would land (melee: the strike shape; ranged: a goblin on the line inside range)
+  const dot = document.getElementById('dot'); if (!dot) return;
+  let k = '';
+  if (GK.mode === 'play' && spawned && !invOpen && !shopOpen) {
+    const C = window.GKC4, G = itemsData(), key = invReady ? myInv.weapon : null, cb = G.combat ? G.combat(key) : null, mine = actors.get(me);
+    if (cb && mine) {
+      if (!cb.ranged && !cb.bolt) { if (c4Strike(C.profile(G, key), cb.range + (G.goblinReach ? G.goblinReach(mine.goblin) : 0), P.yaw, null)) k = 'c4in'; }
+      else {
+        const fx = -Math.sin(P.yaw) * Math.cos(P.pitch), fy = Math.sin(P.pitch), fz = -Math.cos(P.yaw) * Math.cos(P.pitch), ex = cam.position.x, ey = cam.position.y, ez = cam.position.z;
+        for (const [id, a] of actors) { if (id === me || (a.hp != null && a.hp <= 0)) continue; const [r, h] = c4Cap(a); if (C.projHit(ex, ey, ez, ex + fx * cb.range, ey + fy * cb.range, ez + fz * cb.range, 0.05, a.x, a.jy || 0, a.z, r + 0.08, h) >= 0) { k = 'c4in'; break; } }
+      }
+    }
+  }
+  C4C.fric = k ? 0.82 : 1;
+  if (k !== C4C.dotK) { C4C.dotK = k; dot.classList.toggle('c4in', !!k); }
+}
+(() => { const s = document.createElement('style'); s.textContent = '#dot{transition:background .08s,box-shadow .08s,transform .08s}#dot.c4in{background:#ff6a4a;opacity:.95;transform:scale(1.25);box-shadow:0 0 0 4px rgba(255,106,74,.22)}'; document.head.appendChild(s); })();
+function c4Confirm(h) {   // the server's hit for my swing sq: true when my client already played its impact
+  const p = C4C.preds.find(q => q.sq === h.sq) || (C4C.pend && C4C.pend.sq === h.sq ? { ids: C4C.pend.hits, got: [] } : null);
+  if (p && p.ids.includes(h.to) && !p.got.includes(h.to)) { p.got.push(h.to); C4C.st.confirmed++; return true; }
+  if (C4C.pend && C4C.pend.sq === h.sq && !C4C.pend.hits.includes(h.to)) { C4C.pend.hits.push(h.to); C4C.st.confirmed++; return false; }   // the server was first (LAN, offline): it plays the impact now and the prediction will not play it again
+  if (!h.k) C4C.st.late++; return false;
+}
+function c4Victim(h) {   // a blow on me: stagger (my wind-up is cancelled, my next swing waits) and knockback
+  const now = performance.now();
+  if (h.st) { C4C.stagUntil = now + h.st; const pd = C4C.pend; if (pd && now < pd.at) { C4C.pend = null; VM.t = -1; } VM.shake = Math.max(VM.shake, 0.6); }
+  if (h.kb && GK.mode === 'play') C4C.kb = { x: h.kb[0], z: h.kb[1], T: 0.14, left: 0.14 };
+}
+function c4Msg(d) {
+  if (d.swr) {   // my swing's result: a predicted hit the server did not confirm is rolled back (no number, no health change was ever shown for it)
+    const [sq, n, why] = d.swr, i = C4C.preds.findIndex(q => q.sq === sq), p = i >= 0 ? C4C.preds[i] : null;
+    if (p) { if (p.ids.length > p.got.length) C4C.st.rolledBack += p.ids.length - p.got.length; C4C.preds.splice(i, 1); }
+    if ((why === 'c' || why === 's') && C4C.pend && C4C.pend.sq === sq) C4C.pend = null;
+  }
+  if (d.proj) c4ProjAdd(d.proj);
+  if (d.projEnd) { const e = d.projEnd; if (!e.hit) try { GKVFX.spark({ x: e.x, y: e.y, z: e.z }, 'dust'); } catch (er) {} c4ProjFree(e.id); }
+  if (d.c4g) { const v = actors.get(d.c4g.to); if (v && (d.c4g.to === me || d.c4g.from === me)) combatFloat(d.c4g.k === 'parry' ? 'parried' : 'blocked', C4C.v3.set(v.x, 1.8 * (SCALE[v.goblin] || 1), v.z), '#a9bccc', 0.42); }
+}
+function c4ProjAdd(p) {   // a pooled mesh per projectile: a thin shaft (arrow, bolt, knife) or a pebble (sling stone); no allocation after the pool fills
+  let e = C4C.ppool.find(q => !q.busy);
+  if (!e) { if (C4C.ppool.length >= 16) return; const g = c4ProjAdd.g || (c4ProjAdd.g = new THREE.CylinderGeometry(0.012, 0.018, 0.62, 5)), m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xc9a46a })); m.frustumCulled = false; scene.add(m); e = { m, busy: false }; C4C.ppool.push(e); }
+  const age = clamp((srvNow() - (p.t || srvNow())) / 1000, 0, 0.15), b = { m: e.m, e, x: p.x + p.vx * age, y: p.y + p.vy * age - 0.5 * p.g * age * age, z: p.z + p.vz * age, vx: p.vx, vy: p.vy - p.g * age, vz: p.vz, g: p.g, life: 0 };
+  e.busy = true; e.m.visible = true; e.m.scale.set(p.k === 'stone' ? 3 : 1, p.k === 'stone' ? 0.12 : p.k === 'axe' ? 0.6 : 1, p.k === 'stone' ? 3 : 1); e.m.material.color.setHex(p.k === 'stone' ? 0x8a8780 : p.k === 'bolt' ? 0x9a9aa2 : p.k === 'knife' ? 0xd8dde2 : 0xc9a46a);
+  C4C.proj.set(p.id, b);
+}
+function c4ProjFree(id) { const b = C4C.proj.get(id); if (!b) return; b.e.busy = false; b.m.visible = false; C4C.proj.delete(id); }
+function c4Float(text, pos, color, size) {   // pooled damage numbers: one canvas + texture + sprite per slot, redrawn on reuse
+  let e = C4C.fpool.find(q => !q.busy);
+  if (!e) {
+    if (C4C.fpool.length >= 24) return false;
+    const c = document.createElement('canvas'); c.width = 192; c.height = 96; const tex = new THREE.CanvasTexture(c), sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
+    sp.renderOrder = 999; scene.add(sp); e = { c, g: c.getContext('2d'), tex, sp, busy: false }; C4C.fpool.push(e);
+  }
+  const g = e.g; g.clearRect(0, 0, 192, 96); g.font = '900 60px system-ui,sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round'; g.lineWidth = 10; g.strokeStyle = 'rgba(0,0,0,.88)'; g.strokeText(text, 96, 50); g.fillStyle = color; g.fillText(text, 96, 50); e.tex.needsUpdate = true;
+  e.busy = true; e.sp.visible = true; e.sp.material.opacity = 1; e.sp.scale.set(size * 2, size, 1); e.sp.position.copy(pos);
+  CB.floats.push({ sp: e.sp, t: 0, x: (Math.random() - 0.5) * 0.4, pool: e }); return true;
+}
+function c4Flash(x, y, z) {   // pooled red hit flash on the victim
+  let e = C4C.flpool.find(q => !q.busy);
+  if (!e) { if (C4C.flpool.length >= 8) return false; const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff3a2a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.9 })); scene.add(sp); e = { sp, busy: false }; C4C.flpool.push(e); }
+  e.busy = true; e.sp.visible = true; e.sp.material.opacity = 0.9; e.sp.scale.set(1.3, 1.3, 1); e.sp.position.set(x, y, z); CB.floats.push({ sp: e.sp, t: 0, flash: true, pool: e }); return true;
+}
+GK.c4 = { state: C4C, stats: () => ({ ...C4C.st }) };   // test hook: prediction / confirm / rollback counts
+// COMBAT4-END
 // SOCIAL-BEGIN (reconnect grace overlay + auto-retry, "disconnected" icon, goblin emotes on keys 4-7; see docs/reports/social.md)
 const SOC = (() => {
   const S = { token: null, net: null, rc: null, boot: null, unloading: false, lastEmote: 0 };
@@ -8014,44 +8379,118 @@ const SOC = (() => {
 })();
 GK.social = SOC;
 // SOCIAL-END
-// JUMP-BEGIN (Space: a cosmetic hop. y moves only my camera, my goblin, the viewmodel and the snapshot; collision, doors, ranges and hits stay 2D, so jumping dodges nothing; server side is the JUMP block in server.js)
+// JUMP-BEGIN (Space: a real jump. CLIMB: one vertical model shared with the server (world.js vstep / groundY): gravity, 1.2 m apex, auto step <= 0.35 m, coyote time, a jump buffer,
+// crate tops you can stand on; the server validates the height like x / z (server.js JUMP block). docs/reports/climb.md)
 const JUMP = (() => {
-  const H = 0.9, T = 0.55, G = 8 * H / (T * T), V0 = 4 * H / T, COYOTE = 0.08, BUF = 0.1, DIPT = 0.26;   // 0.9 m apex, 0.55 s in the air
-  const J = { y: 0, vy: 0, air: false, buf: 0, coy: COYOTE, dipT: 9 };
+  const C = WORLD.CLIMB, DIPT = 0.26;
+  const J = { y: 0, vy: 0, air: false, buf: 0, coy: C.COYOTE, dipT: 9, cy: 0, force: false, dipK: 1, top: null, hint: (() => { try { return localStorage.getItem('gkClimbHint') ? 9 : 0; } catch (e) { return 0; } })() };
   const active = () => GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked && spawned;
-  const dip = () => { const k = J.dipT / DIPT; return k >= 1 ? 0 : Math.sin(Math.PI * Math.min(1, k * 1.6)) * (1 - k); };   // 0..1 landing bump
-  const start = () => { J.air = true; J.vy = V0; J.coy = 0; J.buf = 0; snd('hup'); try { GKVFX.jump(P.x, P.z, vfxSurf(P.x, P.z)); } catch (e) {} /* VFX */ };
+  const dip = () => { const k = J.dipT / DIPT; return k >= 1 ? 0 : Math.sin(Math.PI * Math.min(1, k * 1.6)) * (1 - k) * J.dipK; };   // 0..1 landing bump, deeper after a long fall
+  const surf = () => J.top ? 'wood' : null;   // footstep / landing surface of the top I stand on
   J.key = e => {
     if (e.code !== 'Space') return;
     const tg = e.target && e.target.tagName; if (tg === 'INPUT' || tg === 'TEXTAREA' || e.ctrlKey || e.metaKey || e.altKey) return;
     if (!active()) return;
     e.preventDefault();   // no page scroll, no focused button pressed
-    if (!e.repeat) J.buf = BUF;
+    if (!e.repeat) J.buf = C.BUF;
   };
-  J.step = (dt, on) => {
-    if (!on) J.buf = 0; else J.buf = Math.max(0, J.buf - dt);
+  J.step = (dt, on) => {   // after the horizontal move: stability push (walls still block it), then gravity / jump / landing
     J.dipT += dt;
-    if (!J.air) { J.coy = COYOTE; if (on && J.buf > 0) start(); }   // coyote: there are no ledges yet, so the grace never decides anything; a jump pressed after walking off one would still count for 80 ms
-    if (J.air) {
-      J.y += J.vy * dt - 0.5 * G * dt * dt; J.vy -= G * dt;
-      if (J.y <= 0) { J.y = 0; J.vy = 0; J.air = false; J.dipT = 0; snd('thud'); try { GKVFX.land(P.x, P.z, vfxSurf(P.x, P.z)); } catch (e) {} /* VFX */ if (on && J.buf > 0) start(); }
-    }
+    if (!spawned) { J.y = J.cy = J.vy = 0; J.air = false; J.buf = 0; return; }
+    const y0 = J.y, [px, pz, ev] = WORLD.climbFrame(J, P.x, P.z, RAD, CHEST_ROOMS, dt, on);
+    if (px !== P.x || pz !== P.z) { if (!blocked(px, P.z)) P.x = px; if (!blocked(P.x, pz)) P.z = pz; const mine = actors.get(me); if (mine) { mine.x = P.x; mine.z = P.z; } }
+    J.top = J.air ? null : WORLD.topAt(P.x, P.z, CHEST_ROOMS, J.y);
+    if (ev === 'jump') { snd('hup'); try { GKVFX.jump(P.x, P.z, vfxSurf(P.x, P.z), y0); } catch (e) {} /* VFX */ J.force = true; }
+    else if (ev === 'land') { const f = J.fall || 0; J.dipT = 0; J.dipK = clamp(0.6 + f / 9, 0.6, 1.4); snd('thud', { surf: surf(), vol: clamp(0.5 + f / 10, 0.5, 1.1) }); try { GKVFX.land(P.x, P.z, vfxSurf(P.x, P.z), J.y); } catch (e) {} /* VFX */ J.force = true; if (J.y > 0.3) J.hint = 9; }
+    else if (ev === 'step') J.force = true;
+    // camera height: follows the arc exactly in the air, eases over a step up / down so the view never pops
+    if (J.air || !spawned) J.cy = J.y; else J.cy += (J.y - J.cy) * Math.min(1, dt * 14);
+    if (Math.abs(J.cy - J.y) > 0.6) J.cy = J.y - Math.sign(J.y - J.cy) * 0.6;
   };
-  J.camY = () => J.y - (GK.settings.bob === false ? 0 : 0.07 * dip());   // landing dip follows the head bob setting
-  J.vmY = () => (J.air ? 0.035 * clamp(J.vy / V0, -0.5, 1) : 0) - (GK.settings.bob === false ? 0 : 0.05 * dip());
-  J.tail = () => (J.y > 0.004 ? [Math.round(J.y * 100)] : []);   // 4th element of {m}: height in cm, only while airborne
-  J.pose = (a, u, id, dt) => {   // after GA.anim: ears flop (rising: down, falling: up, landing: a bounce), remote hop sounds
-    const y = a.jy || 0, py = a.jyP || 0; a.jyP = y;
-    if (id !== me && dt > 0) { const o = { x: a.x, z: a.z }; if (py < 0.01 && y > 0.03) snd('hup', o); else if (py > 0.03 && y < 0.01) snd('thud', o); }
-    const vy = dt > 0 ? (y - py) / dt : 0, air = y > 0.01;
-    let tg = air ? clamp(vy / 5, -1, 1) : 0; if (!air && py > 0.01) a.jfl = 1;   // landing: ears slap down
+  J.fix = f => { if (f.length > 2 && Number.isFinite(f[2])) { J.y = Math.min(J.y, f[2]); J.vy = Math.min(J.vy, 0); J.air = J.y > 0.01; } };   // the server put my feet lower
+  J.camY = () => J.cy - (GK.settings.bob === false ? 0 : 0.07 * dip());   // landing dip follows the head bob setting
+  J.vmY = () => (J.air ? 0.035 * clamp(J.vy / C.V0, -0.5, 1) : 0) - (GK.settings.bob === false ? 0 : 0.05 * dip());
+  J.tail = () => (J.y > 0.004 ? [Math.round(J.y * 100)] : []);   // 4th element of {m}: feet height in cm (absent = on the floor)
+  J.sendNow = () => { const f = J.force; J.force = false; return f; };   // a take-off / landing frame is sent at once, so the server sees every grounded moment
+  J.surf = () => surf();
+  J.pose = (a, u, id, dt) => {   // after GA.anim: squash and stretch, ears flop (rising: down, falling: up, landing: a bounce), remote hop sounds; feet on the surface, blob shadow on the ground under them
+    const y = a.jy || 0, py = a.jyP == null ? y : a.jyP; a.jyP = y;
+    const gy = id === me ? WORLD.groundY(a.x, a.z, CHEST_ROOMS, J.air ? J.y : y + 0.05) : WORLD.groundY(a.x, a.z, CHEST_ROOMS, y + 0.05), air = y > gy + 0.03, pAir = !!a.jAir; a.jAir = air;
+    if (id !== me && dt > 0) { const o = { x: a.x, z: a.z }; if (!pAir && air && y > py + 0.02) snd('hup', o); else if (pAir && !air) snd('thud', o); }
+    const vy = dt > 0 ? (y - py) / dt : 0;
+    let tg = air ? clamp(vy / 5, -1, 1) : 0; if (!air && pAir) { a.jfl = 1; a.jsq = -1; }   // landing: ears slap down, body squashes
     a.jfl = (a.jfl || 0) + (tg - (a.jfl || 0)) * Math.min(1, dt * (air ? 16 : 9));
+    const sk = air ? clamp(vy / C.V0, -0.6, 1) * 0.07 : (a.jsq || 0) * 0.11; a.jsq = (a.jsq || 0) * Math.max(0, 1 - dt * 9); if (Math.abs(a.jsq) < 0.01) a.jsq = 0;
+    if (u.rig && (Math.abs(sk) > 0.002 || a.jsk)) { const b = (SCALE[u.type] || 1) * (u.sz || 1), s = Math.abs(sk) > 0.002 ? sk : 0; u.rig.scale.set(b * (1 - s * 0.5), b * (1 + s), b * (1 - s * 0.5)); a.jsk = s !== 0; }
+    if (u.blob) { u.blob.position.y = gy - y + 0.03; const k = clamp(1 - (y - gy) / 2.2, 0.45, 1); u.blob.scale.setScalar(u.blob.userData.s0 * k); u.blob.material.opacity = 0.55 * k; }
+    a.gy = gy;
     if (Math.abs(a.jfl) < 0.01 || !u.earL) return;
     for (let i = 0; i < 2; i++) { const ear = i ? u.earR : u.earL, s = i ? 1 : -1; ear.rotation.z += s * 0.85 * a.jfl; ear.rotation.x += 0.3 * a.jfl; }
   };
+  // a quiet one-time hint: the first time a crate is close and in front of me, "Space: jump onto it" fades in under the crosshair for a moment (never again once I have stood on a top)
+  J.hintTick = dt => {
+    if (J.hint >= 9) { if (J.hintEl) { J.hintEl.remove(); J.hintEl = null; try { localStorage.setItem('gkClimbHint', '1'); } catch (e) {} } return; }
+    if (!active() || J.air) return;
+    let el = J.hintEl; const near = WORLD.propsAt(P.x, P.z, CHEST_ROOMS).some(p => p.climb && p.h > 0.4 && Math.hypot(p.x - P.x, p.z - P.z) < p.r + 1.6 && ((p.x - P.x) * -Math.sin(P.yaw) + (p.z - P.z) * -Math.cos(P.yaw)) > 0.3);
+    if (near && !el) { el = J.hintEl = document.createElement('div'); el.style.cssText = 'position:fixed;left:50%;top:58%;transform:translateX(-50%);z-index:6;pointer-events:none;font:600 13px/1 system-ui,sans-serif;color:#efe6cf;text-shadow:0 1px 3px #000;opacity:0;transition:opacity .4s'; el.innerHTML = '<span style="display:inline-block;padding:2px 7px;margin-right:6px;border:1px solid rgba(239,230,207,.6);border-radius:4px;font-size:11px">SPACE</span>jump onto it'; document.body.appendChild(el); }
+    if (!el) return;
+    J.hint = near ? Math.min(8, J.hint + dt) : J.hint; el.style.opacity = near && J.hint < 6 ? '0.85' : '0';
+    if (J.hint >= 6 && !near) J.hint = 9;
+  };
   return J;
 })();
+GK.jump = JUMP;
 // JUMP-END
+// ABILITY-BEGIN (docs/reports/balance-3.md; numbers in items.js ABIL, server side in server.js ABILITY): double-tap a direction or C to dash, hold the right mouse button to wind up a heavy blow
+const ABIL5 = (() => {
+  const A = () => itemsData().ABIL, st = { dashAt: -1e9, until: 0, dir: [0, 0], tap: {}, chg: 0 }, DIRS = { KeyW: [1, 0], KeyS: [-1, 0], KeyA: [0, -1], KeyD: [0, 1] };
+  const live = () => GK.mode === 'play' && !invOpen && !shopOpen && spawned && !GK.locked && !GK.carryHeavy;
+  const world = (f, s) => { let x = -Math.sin(P.yaw) * f + Math.cos(P.yaw) * s, z = -Math.cos(P.yaw) * f - Math.sin(P.yaw) * s; const l = Math.hypot(x, z); return l ? [x / l, z / l] : [-Math.sin(P.yaw), -Math.cos(P.yaw)]; };
+  function dash(f, s) {
+    const D = A() && A().DASH, now = performance.now(); if (!D || !live() || now < st.dashAt + D.cd) return;
+    st.dashAt = now; st.until = now + D.ms; st.dir = world(f, s); if (st.chg) release(false);
+    net.send({ dash: 1 }); snd('swing', { vol: 0.5 }); try { GK.feel && GK.feel.kick && GK.feel.kick(0.4); } catch (e) {}
+  }
+  function charge() {
+    const mine = actors.get(me), H = A() && A().HEAVY, now = performance.now();
+    if (!H || !live() || !mine || st.chg || !invReady || !A().heavyFor(myInv.weapon) || now < CB.nextAt) return;
+    st.chg = now; mine.chg = true; net.send({ charge: 1 });
+  }
+  function release(strike) {
+    const mine = actors.get(me), H = A().HEAVY, now = performance.now(), held = now - st.chg; st.chg = 0; if (mine) mine.chg = false;
+    if (!strike || !mine || !live() || held < H.chargeMs - 40) { net.send({ charge: 0 }); return; }
+    const cb = itemsData().combat(myInv.weapon); CB.last = now; CB.nextAt = now + cb.cd * H.cdMul;
+    mine.swing = 1e-4; vmSwing(mine, true); net.send({ atk: 1, heavy: 1 }); snd('swing', { fam: mine.vmFam });
+  }
+  addEventListener('keydown', e => {
+    if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || (e.target && /INPUT|TEXTAREA/.test(e.target.tagName))) return;
+    if (e.code === 'KeyC') { const f = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0), s = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0); dash(f, s); return; }
+    const d = DIRS[e.code]; if (!d) return; const now = performance.now();
+    if (now - (st.tap[e.code] || -1e9) < 260) { st.tap[e.code] = -1e9; dash(d[0], d[1]); } else st.tap[e.code] = now;
+  });
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+  canvas.addEventListener('mousedown', e => { if (e.button === 2) charge(); });
+  addEventListener('mouseup', e => { if (e.button === 2 && st.chg) release(true); });
+  addEventListener('blur', () => { if (st.chg) release(false); });
+  function move(dt, f, s) {   // -> extra metres this frame and a multiplier on the walk
+    const a = A(), now = performance.now(); if (!a) return { dx: 0, dz: 0, mul: 1 };
+    const v = now < st.until ? a.DASH.dist / a.DASH.ms * 1000 * dt : 0;
+    return { dx: st.dir[0] * v, dz: st.dir[1] * v, mul: st.chg ? a.HEAVY.moveMul : 1 };
+  }
+  function onMsg(d) {
+    if (d.dash != null && d.dash !== me) { const a = actors.get(d.dash); if (a) snd('swing', { x: a.x, z: a.z, vol: 0.4 }); }
+    if (d.charge != null && d.charge !== me) { const a = actors.get(d.charge); if (a) a.chg = !d.off; }   // the wind-up pose (crouch, lean back) is the warning
+    if (d.swing != null) { const a = actors.get(d.swing); if (a) a.chg = false; }
+    const h = d.hit; if (!h || (h.to !== me && h.from !== me)) return;
+    const v = actors.get(h.to); if (!v) return;
+    const tag = h.bs ? 'backstab' : h.rage ? 'rage' : h.heavy ? 'stagger' : null;
+    if (tag) combatFloat(tag, new THREE.Vector3(v.x, 2.25 * (SCALE[v.goblin] || 1), v.z), h.heavy ? '#ffb347' : '#ff7a5c', 0.36);
+    if (h.heavy && h.to === me) { const n = performance.now(), cd = itemsData().combat(invReady ? myInv.weapon : null).cd; CB.nextAt = Math.max(CB.nextAt, n + A().HEAVY.staggerMs); CB.last = Math.max(CB.last, n + A().HEAVY.staggerMs - cd); if (st.chg) release(false); }   // staggered: no swing for a moment
+  }
+  return { move, onMsg, dash, st };
+})();
+GK.abil = ABIL5;
+// ABILITY-END
 function frame(now) {
   const dt = clamp((now - last) / 1000, 0.001, 0.05); last = now; const t = now / 1000;
   PERF4.t0 = performance.now();   // PERF4: frame CPU for GK.perfProbe
@@ -8068,16 +8507,17 @@ function frame(now) {
     const sp = (GK.carryHeavy ? 4.6 * 0.7 : keys.has('ShiftLeft') || keys.has('ShiftRight') ? 7.5 : 4.6) * ((itemsData().SPEED || [])[mine.goblin] || (0.85 + 0.15 * SCALE[mine.goblin])) * (invReady && itemsData().armorSpeed ? itemsData().armorSpeed(myInv.armor) : 1) * (window.GKUSE ? GKUSE.speedMul() : 1);   // ARMOUR-2: worn armour speed   // BALANCE: class speed table (items.js SPEED, shared with the server): small fastest, big slowest
     let mx = -Math.sin(P.yaw) * f + Math.cos(P.yaw) * s, mz = -Math.cos(P.yaw) * f - Math.sin(P.yaw) * s;
     const len = Math.hypot(mx, mz) || 1; mx = mx / len * sp * dt * (f || s ? 1 : 0); mz = mz / len * sp * dt * (f || s ? 1 : 0);
+    if (GK.abil) { const ab = GK.abil.move(dt, f, s); mx = mx * ab.mul + ab.dx; mz = mz * ab.mul + ab.dz; }   // ABILITY: the dash burst, slower while winding up a heavy blow
     const ox = P.x, oz = P.z;
     if (!blocked(P.x + mx, P.z)) P.x += mx;
     if (!blocked(P.x, P.z + mz)) P.z += mz;
-    if (WORLD.slide && (mx || mz)) { const [qx, qz] = WORLD.slide(ox, oz, P.x, P.z, RAD, CHEST_ROOMS); if (qx !== P.x || qz !== P.z) { const bz0 = P.z; P.x = blocked(qx, bz0) ? ox : qx; P.z = blocked(P.x, qz) ? oz : qz; } }   // SOLID: slide around crates, barrels, urns and the pedestal (world.js footprints, shared with the server)
+    if (WORLD.slide && (mx || mz)) { const [qx, qz] = WORLD.slide(ox, oz, P.x, P.z, RAD, CHEST_ROOMS, false, JUMP.y);   /* CLIMB: tops within a step of my feet are walkable */ if (qx !== P.x || qz !== P.z) { const bz0 = P.z; P.x = blocked(qx, bz0) ? ox : qx; P.z = blocked(P.x, qz) ? oz : qz; } }   // SOLID: slide around crates, barrels, urns and the pedestal (world.js footprints, shared with the server)
     run.dist += Math.hypot(P.x - ox, P.z - oz);
     P.speed += (Math.hypot(P.x - ox, P.z - oz) / dt - P.speed) * Math.min(1, dt * 12);
     mine.x = P.x; mine.z = P.z; mine.yaw = P.yaw; mine.speed = P.speed;
-    sendT += dt; if (sendT > 0.05) { sendT = 0; net.send({ m: [+P.x.toFixed(2), +P.z.toFixed(2), +P.yaw.toFixed(3), ...JUMP.tail()] }); }
+    sendT += dt; if (sendT > 0.05 || JUMP.sendNow()) { sendT = 0;   /* CLIMB: take-off and landing frames go out at once */ net.send({ m: [+P.x.toFixed(2), +P.z.toFixed(2), +P.yaw.toFixed(3), ...JUMP.tail()] }); }
   }
-  JUMP.step(dt, !!(mine && spawned && GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked));   // JUMP
+  JUMP.step(dt, !!(mine && spawned && GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked)); JUMP.hintTick(dt);   // JUMP / CLIMB
   // doors
   for (const d of doors) {
     if (d.hatch) {   // 5x5: home hatches are open archways; HOME PHASE: the round-1 grille drops / rises (d.p 0 = shut, 1 = open; the blocker lets you through above 0.86)
@@ -8129,7 +8569,7 @@ function frame(now) {
     u.label.visible = id !== me && GK.settings.tags;
     if (window.GKTAGS && u.label.visible) { const tb = CB.bars.get(id), td = Math.hypot(cam.position.x - a.x, cam.position.y - (g.position.y + u.label.position.y), cam.position.z - a.z); window.GKTAGS.fit(u.label, td, true); if (tb && tb.sp.visible) window.GKTAGS.fit(tb.sp, td, true); }   // UI-TAGS: clamp size, fade up close
     const walk = clamp(a.speed / 3.5, 0, 1); a.phase += dt * a.speed * 2.7 / Math.pow(SCALE[u.type] || 1, 0.6);   // stride rate follows the leg length (small goblins scurry, big ones lumber) so the feet stay planted
-    try { GKVFX.foot(id, a.phase, a.speed, a.x, a.z, a.jy || 0, vfxSurf(a.x, a.z), 1, cam.position.x, cam.position.z); } catch (e) {} // VFX: footstep puffs
+    try { GKVFX.foot(id, a.phase, a.speed, a.x, a.z, (a.jy || 0) - (a.gy || 0), a.gy ? 'none' : vfxSurf(a.x, a.z), 1, cam.position.x, cam.position.z); } catch (e) {} // VFX: footstep puffs (CLIMB: height above the surface; no dust on crate tops / the dais)
     /* PERF2-BEGIN: far goblins refresh their pose every 2nd / 3rd frame (the skipped dt is carried over); distant ones also drop to simpler geometry */
     let adt = dt;
     if (PERF2_ON) {
@@ -8188,7 +8628,8 @@ function mqBegin(offlineMode) {   // the match formed and the world is built: wa
   if (MQ.began) return; MQ.began = true; GK.locked = true;
   if (GK.menu && GK.menu.queueDone) GK.menu.queueDone();
   const go = () => { mqEnterWorld(); setTimeout(() => { net.send({ ready: 1 }); if (offlineMode) mqCountdown({ at: Date.now() + 3000, now: Date.now() }); }, 350); };
-  if (GK.menu && GK.menu.whenRevealed) GK.menu.whenRevealed(go, 7000, 1500); else go();
+  PERF5.prep(); const gated = () => PERF5.gate(go);   // PERF5: the loading step (rooms built, programs compiled) runs behind the wheel; ready waits for it (capped)
+  if (GK.menu && GK.menu.whenRevealed) GK.menu.whenRevealed(gated, 7000, 1500); else gated();
 }
 function mqEl() {
   if (MQ.el) return MQ.el;
@@ -8224,8 +8665,8 @@ function gfxAutoProbe() {
       if (fps < 40 && i > 0) {   // too slow: one preset down
         const to = GFX_ORDER[i - 1]; GK.settings.gfx = to; GK.settings.fx = to !== 'low'; GK.gfxProbe.to = to;
         try { const s = JSON.parse(localStorage.getItem('gk.settings') || '{}'); s.gfx = to; s.fx = GK.settings.fx; localStorage.setItem('gk.settings', JSON.stringify(s)); } catch (e) {}
-        GK.applySettings(); toastMsg('Graphics set to ' + to[0].toUpperCase() + to.slice(1) + ' for smoother play (Settings > Graphics quality)', true);
-      } else if (fps > 100 && cur === 'high') toastMsg('Running at ' + Math.round(fps) + ' fps: Ultra graphics are available in Settings > Graphics quality', true);
+        GK.applySettings(); toastMsg('Graphics set to ' + to[0].toUpperCase() + to.slice(1) + ' for smoother play (Settings > Graphics > Quality preset)', true);
+      } else if (fps > 100 && cur === 'high') toastMsg('Running at ' + Math.round(fps) + ' fps: Ultra graphics are available in Settings > Graphics > Quality preset', true);
     };
     requestAnimationFrame(tick);
   }, 600);
@@ -8248,7 +8689,22 @@ function mqCountdown(c) {   // {at: server ms of GO, now: server ms when sent} -
   const itemsAudioHas = n => !!(window.GKAUDIO && GKAUDIO.names ? GKAUDIO.names.includes(n) : false);
   MQ.timer = setInterval(step, 50); step();
 }
+// MUTATORS-BEGIN (mutators.js): the match's mutator is announced at GO with a banner and stays as a small line under the round timer; Fog thickens the main scene.
+let mutEl = null;
+function mutShow(u) {
+  if (!u) return;
+  if (!mutEl) { mutEl = document.createElement('div'); mutEl.id = 'gkMut'; mutEl.style.cssText = 'position:fixed;left:50%;top:58px;transform:translateX(-50%);font:600 12px system-ui,sans-serif;color:#ffd76a;letter-spacing:.06em;text-shadow:0 1px 3px #000;pointer-events:none;z-index:20;text-align:center'; document.body.appendChild(mutEl); }
+  mutEl.textContent = u.name + (u.note ? ' · ' + u.note : ''); mutEl.title = u.text || '';
+  toastMsg(u.note || (u.name + ': ' + u.text), true, u.note ? 3000 : 4500);
+  try { scene.fog = u.id === 'fog' ? new THREE.FogExp2(0x0a0910, 0.045) : null; } catch (e) {}
+}
+// MUTATORS-END
 GK.matchOnMsg = d => {   // called by handleMsg after it has processed a message
+  if (d.matchStart && mutEl) { mutEl.textContent = ''; try { scene.fog = null; } catch (e) {} }
+  if (d.mut) mutShow(d.mut);
+  if (d.npcNote) toastMsg(d.npcNote, false, 2600);   // NPCX
+  if (d.npcRing) try { GKVFX.ring(d.npcRing.x, d.npcRing.z, parseInt(d.npcRing.c.slice(1), 16), d.npcRing.r); } catch (e) {}
+  if (d.mutPaid) toastMsg('Bounty paid: +' + d.mutPaid + ' gold', true, 3000);
   if (d.unverified) toastMsg('Character could not be verified — playing as a new goblin.', false, 6000);   // SECURITY
   if (d.queue) { mqResolve(d.goblin); if (GK.menu && GK.menu.queue) GK.menu.queue(d.queue.n, d.queue.size, d.queue.since); }
   if (d.matchStart) { mqResolve(((d.matchStart.players || []).find(p => p.id === d.matchStart.you) || {}).goblin); mqBegin(false); }
@@ -8654,7 +9110,7 @@ window.GKACT5 = (() => {
       const b = {}; for (const k of Object.keys(d.breach)) { const s = sideOfDoor[k] || (SIDES.includes(k) ? k : null); if (s) b[s] = d.breach[k]; }
       d.breach = b; A.breach = b;
     }
-    if (d.actMe && d.actMe.chan && !d.actMe.chan.label) d.actMe.chan.label = LABEL[d.actMe.chan.n] || (/^stone\d/.test(d.actMe.chan.n) ? 'Waking the root-stone' : '');   // TREE-FIX: the Elder stones run channels named stone0..2
+    if (d.actMe && d.actMe.chan && !d.actMe.chan.label) d.actMe.chan.label = LABEL[d.actMe.chan.n] || (U.LABELX && U.LABELX[d.actMe.chan.n]) || (/^stone\d/.test(d.actMe.chan.n) ? 'Waking the root-stone' : '');   // VBX: station channels; TREE-FIX: the Elder stones run channels named stone0..2
     if (d.actMe && d.actMe.timing && !d.actMe.timing.label) d.actMe.timing.label = 'Press E in the green';
   }
   let flashes = {};   // memory lanterns lit by a touch: key:a -> until (ms of performance.now)
@@ -8681,6 +9137,10 @@ window.GKACT5 = (() => {
     }
     if (f.k === 'pulse') { A.pulse = { until: performance.now() + (f.ms || 8000), ids: new Set((f.gob || []).map(g => g[0])) }; try { GK.minimap && GK.minimap.redraw(); } catch (x) {} }
     else if (f.k === 'vbNext' && f.vbNext && window.GKHUD5) { GKHUD5.S.vbNext = f.vbNext; try { GK.minimap && GK.minimap.redraw(); } catch (x) {} }
+    if (U.sound && window.GKAUDIO) { const s = U.sound(f), rr = f.r != null && W.roomRect(String(f.r)); if (s) try { GKAUDIO.play(s.name, Object.assign(rr ? { x: rr.cx, z: rr.cz } : {}, s.o)); } catch (x) {} }   // VBX: station and timing sounds
+    if (f.k === 'ledger' && f.lines) { toastMsg(f.lines.join('\n'), true, 7000); try { toastEl.style.whiteSpace = 'pre-line'; toastEl.style.textAlign = 'center'; } catch (x) {} return; }   // VBX: the Counting House ledger (private)
+    if (f.k === 'click') { toastMsg('A soft click: dial ' + ((f.d | 0) + 1) + ' sits right', true, 1300); return; }
+    if (U.TOASTX && U.TOASTX[f.k] && !(f.k === 'attuned' && f.by !== me)) toastMsg(U.TOASTX[f.k], true, 1900);
     if (f.id != null && f.id !== me && f.k !== 'gain') return;
     if (f.k === 'gain' || f.k === 'treasury') {
       const t = []; if (f.know) t.push('+' + f.know + ' knowledge'); if (f.gold) t.push('+' + f.gold + ' gold'); if (f.item) t.push(itemName(f.item)); if (f.tok) t.push(itemName(f.tok));
@@ -8711,6 +9171,7 @@ window.GKACT5 = (() => {
         let r2 = null; if (myInv) myInv.backpack.forEach((k, i) => { if (!r2 && twin(k)) r2 = { slot: i, name: infoOf(k).name }; }); return r2;
       },
       doorOpen: dir => { const d = doors[doorOfSide[dir]]; return !!d && (d.open || d.p > 0.5); },
+      slotOf: k => { if (!myInv) return null; let i = myInv.backpack.indexOf(k); if (i >= 0) return i; i = myInv.quick.indexOf(k); return i >= 0 ? 9 + i : null; },   // VBX: the offering bowl
     };
   }
   function recompute() {
@@ -8804,6 +9265,7 @@ window.GKACT5 = (() => {
         call(sk, 'setArmed', !!st.armed); call(sk, 'setResonance', st.res | 0); call(sk, 'setAltar', st.armed ? 1 : 0); break;
       }
     }
+    if (st.x && U.driveX) U.driveX(sk, e.type, st.x, now + (r.e || 0));   // VBX: the extra stations' props (absolute times in st.x are epoch ms)
   }
   function driveVault(e) {
     const d = e.api, r = rooms[W.VAULT_KEY], c = A.crown || (r && r.st) || {}, claims = c.claims || [], g = c.gaining, top = claims.find(x => x.id === g);
@@ -8824,7 +9286,7 @@ window.GKACT5 = (() => {
   return { pre, onMsg, key: e => press(e.code), prompt: () => cur && !cur.busy ? cur.acts[0].label + (cur.acts[0].hold ? ' (hold)' : '') : '', apply, rooms, A, hiddenAt: (x, z) => { if (!A.hidden || !A.hidden.length) return false; const k = W.roomKeyOf(x, z); return A.hidden.includes(k) && roomKeyAt(P.x, P.z) !== k; }, pulsed: id => !!(A.pulse && A.pulse.until > performance.now() && A.pulse.ids.has(id)), recompute, cur: () => cur };
 })();
 // ACT5UI-END
-if (window.GKART) requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => GKART.bake(renderer, { priority: () => { const v = myInv || {}; return [v.weapon, v.armor].concat(v.quick || [], v.backpack || [], (window.GKITEMS && GKITEMS.START || []).flatMap(g => [g.weapon, g.armor])).filter(k => typeof k === 'string'); } }), 600)));   // ITEMART: bake the inventory icons in small batches once the first frame is up
+if (window.GKART) requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => GKART.bake(renderer, { hold: () => !!(GK.perf5 && GK.perf5.on) && GK.mode === 'play' && !GK.locked && !(GK.panelOpen && GK.panelOpen()), priority: () => { const v = myInv || {}; return [v.weapon, v.armor].concat(v.quick || [], v.backpack || [], (window.GKITEMS && GKITEMS.START || []).flatMap(g => [g.weapon, g.armor])).filter(k => typeof k === 'string'); } }), 600)));   // ITEMART: bake the inventory icons in small batches once the first frame is up
 window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw, pitch) { P.x = x; P.z = z; P.yaw = yaw; P.pitch = pitch || 0; spawned = true; }, toggleOverview() { inside = !inside; }, build: buildGoblin };
 })();
 
@@ -8926,6 +9388,10 @@ window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw,
       g.fillStyle = DARK; g.beginPath(); g.arc(118, 62, 8, 0, 7); g.arc(142, 62, 8, 0, 7); g.fill(); g.fillRect(126, 74, 8, 8);
       g.fillStyle = GOLDC; [[30, 40], [50, 100], [210, 50], [225, 110], [70, 130]].forEach(([x, y]) => { g.beginPath(); g.arc(x, y, 8, 0, 7); g.fill(); });
       g.strokeStyle = '#ff4a3a'; g.lineWidth = 3; g.beginPath(); g.moveTo(100, 120); g.lineTo(160, 140); g.moveTo(160, 120); g.lineTo(100, 140); g.stroke(); } },
+    { t: 'Win: choose what to keep', x: 'A winner keeps a few things it carried (more with more victories, one more when crowned) and banks a little gold. Bring some into your next match within a budget: they are at stake again.', d(g) {   // KEEP (keepui.js)
+      g.fillStyle = GOLDC; g.beginPath(); g.moveTo(104, 26); g.lineTo(156, 26); g.quadraticCurveTo(156, 74, 130, 78); g.quadraticCurveTo(104, 74, 104, 26); g.fill(); g.fillRect(124, 78, 12, 14); g.fillRect(110, 92, 40, 8);
+      [['#5aa8ff', 40], ['#c06bff', 112], ['#6fdc6a', 184]].forEach(([c, x], i) => { g.strokeStyle = c; g.lineWidth = i === 1 ? 4 : 2; g.strokeRect(x, 110, 36, 36); g.fillStyle = c; g.globalAlpha = i === 1 ? .35 : .15; g.fillRect(x, 110, 36, 36); g.globalAlpha = 1; });
+      g.fillStyle = '#efe9d8'; g.font = 'bold 18px system-ui'; g.textAlign = 'center'; g.fillText('✓', 130, 135); g.textAlign = 'left'; } },
   ];
   let ov = null;
   function closeHow() { if (ov) { ov.remove(); ov = null; document.removeEventListener('keydown', onKey, true); } }

@@ -51,12 +51,12 @@ const give = async (c, key, slot) => { c.send({ give: key }); await c.until(x =>
         const hits = mine(); eq(hits[0].hit.dmg, 20); assert(!hits[0].hit.bleed, 'first hit is not a bleed'); assert(hits.slice(1, 4).every(h => h.hit.bleed === 1 && h.hit.dmg === 3), 'bleed ticks'); await sleep(600); eq(mine().length, 4, 'bleed ran longer than three ticks');
         await a.close(); await b.close();
       }],
-      ['server: a stormstaff bolt does its own damage (36), not the default 9', async () => {
+      ['server: a stormstaff bolt does its own damage (items.js WEAPON_TUNE), not the staff default', async () => {
         const [a, b] = await Promise.all([connect(srv.port, 'goblin=2&wins=0'), connect(srv.port, 'goblin=0&wins=0')]);
         await a.until(x => x.state.round && x.state.round.n >= 2, 4000, 'round 2');
         const [cx, cz] = W.rc(0), mine = () => b.msgs.filter(m => m.hit && m.hit.to === b.state.you);
         await give(a, 'w:stormstaff', 'weapon'); a.send({ tp: [cx, cz] }); a.send({ m: [cx, cz, -Math.PI / 2] }); b.send({ tp: [cx + 4, cz] }); b.send({ m: [cx + 4, cz, 0] }); await sleep(900);
-        a.send({ atk: 1 }); await b.until(x => mine().length > 0, 3000, 'bolt hit'); eq(mine()[0].hit.dmg, 36);
+        a.send({ atk: 1 }); await b.until(x => mine().length > 0, 3000, 'bolt hit'); eq(mine()[0].hit.dmg, G.combat('w:stormstaff').bolt); assert(G.combat('w:stormstaff').bolt !== G.STAFF_BOLT.dmg, 'own bolt');
         await a.close(); await b.close();
       }],
     ]);
