@@ -618,7 +618,7 @@ function c4Eval(sw) {   // one look at the swing at the current server time (con
     const [tx, tz] = sw.L > 0 || s < T ? posAt(t, s - sw.L) : [t.x, t.z], tr = c4R(t), ty = c4Y(t), th = C4.capH(c4Size(t));
     if (!C4.melee(sw.pr, sw.R, p.x, ay, p.z, p.yaw, tx, ty, tz, tr, th, O)) continue;
     if (O.d > 2.5 && inSmoke(m, t, now)) continue;   // UTILITY: nobody shoots into a smoke cloud from beyond melee range
-    if (O.d - tr > 0.35 && !c4Los(m, p.x, ay + 1, p.z, O.cx, O.cy, O.cz)) continue;   // walls, closed doors, crates, barrels, pillars between (bodies touching always connect)
+    if (O.d - tr > 0.35 && !c4Los(m, p.x, ay + CHEST_Y, p.z, O.cx, ty + CHEST_Y, O.cz)) continue;   // walls, closed doors, crates, barrels, pillars between (bodies touching always connect)
     (cand || (cand = [])).push({ tws, t, d: O.d });
   }
   if (h0) { C4STAT.evalMs += Number(process.hrtime.bigint() - h0) / 1e6; C4STAT.evals++; }   // the look itself (rewind, geometry, line of sight), not the damage it causes

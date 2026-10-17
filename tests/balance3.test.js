@@ -1,5 +1,6 @@
 // BALANCE-3 (docs/reports/balance-3.md): ladder guards over tools/balsim.js (they fail when a number change breaks a tier ladder), the damage cap,
 // and the server side of the two abilities: the dash (i-frames, movement allowance, cooldown) and the heavy blow (wind-up, damage, stagger), plus point blank and the perk cues.
+const C4T = k => require('../combat4.js').timing(require('../items.js'), k, require('../items.js').combat(k).cd).contact;   // COMBAT4: ms from the click to the blow
 const L = require('./lib.js'), { connect, sleep, assert, eq } = L, W = require('../world.js'), G = require('../items.js'), S = require('../tools/balsim.js');
 const JUNK = ['w:stick'], DASH_WAIT = G.ABIL.DASH.ms + 600;   // the Wooden Stick is the deliberate junk weapon of tier 1 (the most common drop)
 const PX = d => W.rc(1)[0] + d, PZ = W.rc(1)[1], FACE_E = -Math.PI / 2;
@@ -43,9 +44,9 @@ const hitsOn = (c, n0) => c.msgs.slice(n0).filter(m => m.hit && m.hit.to === c.s
       }],
       ['dash: blows inside the dash window miss (dodge broadcast), the next one after it lands; the cooldown holds', async () => {
         const [a, b] = await pair(srv, 10); await put(a, PX(-2), PZ, FACE_E); await put(b, PX(-0.6), PZ, 0);
-        await sleep(200); let n0 = b.msgs.length; b.send({ dash: 1 }); await sleep(30); a.send({ atk: 1 }); await sleep(250);
+        await sleep(200); let n0 = b.msgs.length; a.send({ atk: 1 }); await sleep(Math.max(0, C4T('w:club') - 60)); b.send({ dash: 1 }); await sleep(450);   // COMBAT4: the blow lands on its contact frame: the dash answers the telegraphed swing
         assert(b.msgs.slice(n0).some(m => m.dash === b.state.you), 'dash broadcast'); assert(a.msgs.some(m => m.dodge && m.dodge.dash && m.dodge.to === b.state.you), 'the blow was dodged'); eq(hitsOn(b, n0), [], 'hit during the dash');
-        await sleep(500); n0 = b.msgs.length; b.send({ dash: 1 }); a.send({ atk: 1 }); await sleep(250);
+        await sleep(500); n0 = b.msgs.length; a.send({ atk: 1 }); await sleep(Math.max(0, C4T('w:club') - 60)); b.send({ dash: 1 }); await sleep(450);
         eq(hitsOn(b, n0).length, 1, 'a second dash inside the cooldown still protected');
         await a.close(); await b.close();
       }],
@@ -61,22 +62,22 @@ const hitsOn = (c, n0) => c.msgs.slice(n0).filter(m => m.hit && m.hit.to === c.s
         const [a, b] = await pair(srv, 30); await give(a, 'w:warhammer', 'weapon'); await give(b, 'a:aegis', 'armor'); b.send({ hp: 300 }); await put(a, PX(-2), PZ, FACE_E); await put(b, PX(-0.6), PZ, Math.PI / 2);
         const dmg = G.combat('w:warhammer').dmg, mult = G.ABIL.heavyFor('w:warhammer').mult;
         let n0 = b.msgs.length; a.send({ charge: 1 }); await sleep(80); assert(b.msgs.slice(n0).some(m => m.charge === a.state.you && !m.off), 'wind-up broadcast');
-        await sleep(G.ABIL.HEAVY.chargeMs); a.send({ atk: 1, heavy: 1 }); await sleep(30); b.send({ atk: 1 }); await sleep(200);
+        await sleep(G.ABIL.HEAVY.chargeMs); a.send({ atk: 1, heavy: 1 }); await b.until(x => x.msgs.slice(n0).some(m => m.hit && m.hit.to === x.state.you), 1500, 'heavy blow landed'); b.send({ atk: 1 }); await sleep(200);   // COMBAT4: the blow lands on the contact frame; the victim's swing right after is refused
         const h = hitsOn(b, n0); eq(h.length, 1); eq(h[0].dmg, Math.round(dmg * mult), 'heavy damage'); eq(h[0].heavy, 1);
         assert(!b.msgs.slice(n0).some(m => m.swing === b.state.you), 'a staggered goblin swung');
-        await sleep(G.combat('w:warhammer').cd + 100); n0 = b.msgs.length; a.send({ charge: 1 }); await sleep(100); a.send({ atk: 1, heavy: 1 }); await sleep(200);
+        await sleep(G.combat('w:warhammer').cd + 100); n0 = b.msgs.length; a.send({ charge: 1 }); await sleep(100); a.send({ atk: 1, heavy: 1 }); await sleep(800);
         const h2 = hitsOn(b, n0); eq(h2.length, 1); eq(h2[0].dmg, dmg, 'an early release is a normal blow');
         await a.close(); await b.close();
       }],
       ['heavy blow: only heavy weapons can wind up; point blank: a bow hits for 70% inside 2 m', async () => {
         const [a, b] = await pair(srv, 40); await give(a, 'w:bow', 'weapon'); await put(a, PX(-2), PZ, FACE_E); await put(b, PX(-0.8), PZ, 0);
         let n0 = b.msgs.length; a.send({ charge: 1 }); await sleep(150); assert(!b.msgs.slice(n0).some(m => m.charge === a.state.you), 'a bow wound up');
-        a.send({ atk: 1 }); await sleep(200); const h = hitsOn(b, n0); eq(h.length, 1); eq(h[0].dmg, Math.round(G.combat('w:bow').dmg * G.POINT_BLANK.mul), 'point blank');
+        a.send({ atk: 1 }); await sleep(900); const h = hitsOn(b, n0); eq(h.length, 1); eq(h[0].dmg, Math.round(G.combat('w:bow').dmg * G.POINT_BLANK.mul), 'point blank');
         await a.close(); await b.close();
       }],
       ['perk cue: a sneak hitting from behind sends bs:1 with the hit', async () => {
         const [a, b] = await pair(srv, 50, 6, 1); await put(a, PX(-2), PZ, FACE_E); await put(b, PX(-0.8), PZ, FACE_E);   // b faces away from a
-        const n0 = b.msgs.length; a.send({ atk: 1 }); await sleep(200); const h = hitsOn(b, n0); eq(h.length, 1); eq(h[0].bs, 1);
+        const n0 = b.msgs.length; a.send({ atk: 1 }); await sleep(600); const h = hitsOn(b, n0); eq(h.length, 1); eq(h[0].bs, 1);
         await a.close(); await b.close();
       }],
     ]);

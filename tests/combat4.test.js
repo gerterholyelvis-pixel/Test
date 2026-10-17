@@ -43,7 +43,7 @@ async function group(srv, n, wins, gob = 1) { const cs = await Promise.all(Array
         const [cx, cz] = W.rc(0), wx = cx + W.roomW(0) / 2;
         await put(a, wx - 0.7, cz, FACE_E); await put(b, wx + 0.7, cz); eq(W.roomKeyOf(wx + 0.7, cz), '1');
         eq(hits(await swing(a)), [], 'hit through the closed door between room 0 and 1');
-        const pr0 = W.propsAt(cx, cz, a.state.layout).find(p => W.roomKeyOf(p.x, p.z) === '0' && p.r < 0.7 && !W.inProp(p.x - p.r - 0.6, p.z, 0.3, a.state.layout) && !W.inProp(p.x + p.r + 0.6, p.z, 0.3, a.state.layout));
+        const pr0 = W.propsAt(cx, cz, a.state.layout).find(p => W.roomKeyOf(p.x, p.z) === '0' && p.r < 0.7 && !W.inProp(p.x - p.r - 0.6, p.z, 0.3, a.state.layout) && !W.inProp(p.x + p.r + 0.6, p.z, 0.3, a.state.layout) && W.segBlocked(p.x - p.r - 0.6, p.z, p.x + p.r + 0.6, p.z, a.state.layout, 0, 0.9, 0.9));   // a prop taller than chest height (CLIMB: a blow over a low top is fine)
         if (pr0) { await sleep(700); await put(a, pr0.x - pr0.r - 0.6, pr0.z, FACE_E); await put(b, pr0.x + pr0.r + 0.6, pr0.z); eq(hits(await swing(a)), [], 'hit through a ' + pr0.k); }
         await give(a, 'w:bow'); await put(a, wx - 5, cz + 3, FACE_E); await put(b, wx + 3, cz + 3); await sleep(800);
         const ms = await swing(a); eq(hits(ms), [], 'arrow through the wall'); assert(ms.some(m => m.proj) && ms.some(m => m.projEnd && !m.projEnd.hit), 'a real projectile flew and ended');
