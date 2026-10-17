@@ -102,19 +102,19 @@ const pair = async srv => { const [a, b] = await Promise.all([connect(srv.port, 
       }],
       ['ward rune soaks exactly one hit', async () => {
         const [a, b] = await pair(srv); await give(b, 'x:ward'); let r = await use(b); assert(r.some(m => m.used && m.used.ms === 30000), 'ward up');
-        const n = a.msgs.length; a.send({ atk: 1 }); await sleep(250); const m1 = a.msgs.slice(n); assert(m1.some(m => m.ward && m.ward.id === b.state.you) && !m1.some(m => m.hit), 'the first swing is absorbed');
+        const n = a.msgs.length; a.send({ atk: 1 }); await sleep(650); const m1 = a.msgs.slice(n); assert(m1.some(m => m.ward && m.ward.id === b.state.you) && !m1.some(m => m.hit), 'the first swing is absorbed');
         const hp = hpOf(b); await sleep(900); a.send({ atk: 1 }); await b.until(x => hpOf(x) < hp, 2000, 'the second swing lands'); await a.close(); await b.close();
       }],
       ['dazzle powder: goblins within 4.5 m cannot attack for 2 s, then can again; the thrower can', async () => {
         const [a, b] = await pair(srv); await give(a, 'x:dazzle'); const r = await use(a); assert(r.some(m => m.flash), 'flash broadcast');
-        const n = b.msgs.length; b.send({ atk: 1 }); await sleep(250); assert(!b.msgs.slice(n).some(m => m.hit), 'dazzled goblin cannot hit');
-        const k = a.msgs.length; a.send({ atk: 1 }); await sleep(250); assert(a.msgs.slice(k).some(m => m.hit), 'the thrower hits');
-        await sleep(2200); const j = b.msgs.length; b.send({ atk: 1 }); await sleep(250); assert(b.msgs.slice(j).some(m => m.hit), 'recovered'); await a.close(); await b.close();
+        const n = b.msgs.length; b.send({ atk: 1 }); await sleep(650); assert(!b.msgs.slice(n).some(m => m.hit), 'dazzled goblin cannot hit');
+        const k = a.msgs.length; a.send({ atk: 1 }); await sleep(650); assert(a.msgs.slice(k).some(m => m.hit), 'the thrower hits');
+        await sleep(2200); const j = b.msgs.length; b.send({ atk: 1 }); await sleep(650); assert(b.msgs.slice(j).some(m => m.hit), 'recovered'); await a.close(); await b.close();
       }],
       ['rage brew and wolf fang raise damage, never past +50%', async () => {
         const [a, b] = await pair(srv); const club = G.combat(a.state.inv.weapon).dmg;
-        await give(a, 'x:rage'); await use(a); let n = b.msgs.length; a.send({ atk: 1 }); await sleep(250); let h = b.msgs.slice(n).find(m => m.hit); assert(h && h.hit.dmg === Math.round(club * 1.3), 'rage 1.3x: ' + (h && h.hit.dmg) + ' vs ' + club);
-        await give(a, 'c:fang', 'charm'); await sleep(1100); n = b.msgs.length; a.send({ atk: 1 }); await sleep(250); h = b.msgs.slice(n).find(m => m.hit); assert(h && h.hit.dmg === Math.round(club * 1.3 * 1.08), 'rage + fang: ' + (h && h.hit.dmg)); await a.close(); await b.close();
+        await give(a, 'x:rage'); await use(a); let n = b.msgs.length; a.send({ atk: 1 }); await sleep(650); let h = b.msgs.slice(n).find(m => m.hit); assert(h && h.hit.dmg === Math.round(club * 1.3), 'rage 1.3x: ' + (h && h.hit.dmg) + ' vs ' + club);
+        await give(a, 'c:fang', 'charm'); await sleep(1100); n = b.msgs.length; a.send({ atk: 1 }); await sleep(650); h = b.msgs.slice(n).find(m => m.hit); assert(h && h.hit.dmg === Math.round(club * 1.3 * 1.08), 'rage + fang: ' + (h && h.hit.dmg)); await a.close(); await b.close();
       }],
       ['mimic bait: the fake pile bites a stranger for 16, gives the owner his bait back, and never leaks the trick', async () => {
         const [a, b, cx, cz] = await pair(srv); await give(a, 'x:bait'); await use(a);

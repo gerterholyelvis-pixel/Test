@@ -13,7 +13,7 @@ const read = f => fs.readFileSync(path.join(L.ROOT, f), 'utf8');
     ['cache key includes model source, items, worker, three revision, icon size and tune', () => L.assert(/import\.meta\.url, new URL\('items\.js'/.test(art) && /THREE\.REVISION \+ '\.' \+ ICON \+ '\.' \+ JSON\.stringify\(tune\)/.test(art), 'version hash incomplete')],
     ['all-cached runs skip scene, render targets and PMREM entirely', () => L.assert(/if \(!q\.length\) return finish\(\);/.test(art), 'early finish missing')],
     ['render targets, env map and worker are released when the bake ends', () => L.assert(/rt && rt\.dispose\(\); rtM && rtM\.dispose\(\); env && env\.dispose\(\)/.test(art) && /wk\.w\.terminate\(\)/.test(art), 'cleanup missing')],
-    ['game passes inventory/hotbar items as bake priority', () => L.assert(/GKART\.bake\(renderer, \{ priority: /.test(game), 'priority hook missing')],
+    ['game passes inventory/hotbar items as bake priority', () => L.assert(/GKART\.bake\(renderer, \{[^}]*priority: /.test(game), 'priority hook missing')],
   ]);
   process.exit(fail ? 1 : 0);
 })();

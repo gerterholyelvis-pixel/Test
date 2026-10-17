@@ -44,7 +44,7 @@ const src = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
         await a.until(x => x.state.players && x.state.players.some(p => p.id === b.state.you), 1500, 'same match'); await a.until(x => x.state.match && x.state.match.alive === 2, 2000, 'entered');
         b.send({ give: 'a:thornhide' }); await b.until(x => x.state.inv.backpack.includes('a:thornhide'), 2000, 'armour'); b.send({ mv: ['b' + b.state.inv.backpack.indexOf('a:thornhide'), 'armor'] }); await b.until(x => x.state.inv.armor === 'a:thornhide', 2000, 'worn');
         await put(a, -34, -32, FACE_E); await put(b, -33, -32, 0);   // a plain hall (room 0): tree room 6 has corner posts at +-4.2 for some rolled types
-        const n = a.msgs.length; a.send({ atk: 1 }); await sleep(200);
+        const n = a.msgs.length; a.send({ atk: 1 }); await sleep(650);   // COMBAT4: the blow lands on the contact frame
         const hs = a.msgs.slice(n).filter(m => m.hit).map(m => m.hit), thorn = hs.find(h => h.thorns);
         assert(thorn && thorn.to === a.state.you && thorn.from === b.state.you && thorn.dmg === 3, 'thorns hit back: ' + JSON.stringify(hs)); assert(thorn.hp >= 1 && !thorn.dead);
         await a.close(); await b.close();

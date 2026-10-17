@@ -53,7 +53,7 @@ run('qa-full', [
   ['How to Play and the tips describe the 5x5 game with the home phase (not the old 3x3 rules)', () => {
     const g = R('game.js'), tips = g.slice(g.indexOf('// TIPS-BEGIN'), g.indexOf('// TIPS-END'));
     const panels = [...tips.matchAll(/\{ t: '([^']+)', x: '((?:[^'\\]|\\.)+)'/g)].map(m => ({ t: m[1], x: m[2] }));
-    eq(panels.length, 5, 'five How to Play panels');
+    eq(panels.length, 6, 'six How to Play panels (KEEP added: Win, choose what to keep)');
     assert(/round 1/i.test(panels[0].t) && /home/i.test(panels[0].x) && /elixir/i.test(panels[0].x), 'panel 1 is the home phase');
     assert(panels.some(p => /crown/i.test(p.t) && /dais/.test(p.x) && /round 5/.test(p.x) && /round 7/.test(p.x)), 'crown and time limit panel');
     assert(panels.some(p => /Forge/.test(p.x) && /Grand Recycler/.test(p.x)), 'loot rooms include the Forge and the Grand Recycler');

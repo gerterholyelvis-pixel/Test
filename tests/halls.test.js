@@ -20,14 +20,15 @@ const seeded = seed => () => { seed = (seed * 1664525 + 1013904223) >>> 0; retur
     }],
     ['plan: pieces and stand points lie inside the room, never inside another prop or a keep-clear zone, and the spots are in reach of their stand point', () => {
       for (const i of W.HALL_CELLS) {
-        const [cx, cz] = W.rc(i), hw = W.roomW(i) / 2 - W.T / 2, solids = W.solidsOf(String(i), '');
+        const [cx, cz] = W.rc(i), hw = W.roomW(i) / 2 - W.T / 2, hd = W.roomD(i) / 2 - W.T / 2, solids = W.solidsOf(String(i), '');
         for (const s of W.hallSpots(i)) {
-          assert(Math.abs(s.sx - cx) < hw && Math.abs(s.sz - cz) < hw, 'stand point of ' + s.id + ' inside the room');
+          assert(Math.abs(s.sx - cx) < hw && Math.abs(s.sz - cz) < hd, 'stand point of ' + s.id + ' inside the room');
           assert(!W.inProp(s.sx, s.sz, 0.33, null), 'stand point of ' + s.id + ' is free of props');
           assert(Math.hypot(s.sx - s.x, s.sz - s.z) <= s.r + 1.4, 'stand point of ' + s.id + ' is within reach of the spot');
         }
-        for (const p of solids) assert(Math.abs(p.x - cx) <= hw + 0.01 && Math.abs(p.z - cz) <= hw + 0.01 || !p.h, 'prop ' + p.k + ' in hall ' + i + ' inside the room');
-        const hall = solids.filter(p => p.h); assert(hall.length >= 3, 'hall ' + i + ' has furniture'); for (const p of hall) for (const q of solids) if (p !== q) assert(Math.hypot(p.x - q.x, p.z - q.z) >= Math.min(p.r, q.r) * 0.9 || p.h === q.h, 'hall prop overlaps another prop in ' + i);
+        const isHall = p => typeof p.h === 'string';   // main's crates carry a numeric h (height)
+        for (const p of solids) assert(Math.abs(p.x - cx) <= hw + 0.01 && Math.abs(p.z - cz) <= hd + 0.01 || !isHall(p), 'prop ' + p.k + ' in hall ' + i + ' inside the room');
+        const hall = solids.filter(isHall); assert(hall.length >= 3, 'hall ' + i + ' has furniture'); for (const p of hall) for (const q of solids) if (p !== q) assert(Math.hypot(p.x - q.x, p.z - q.z) >= Math.min(p.r, q.r) * 0.9 || p.h === q.h, 'hall prop overlaps another prop in ' + i);
       }
     }],
     ['plan: deterministic, and the door fronts of every hall stay reachable (flood fill over the footprints)', () => {

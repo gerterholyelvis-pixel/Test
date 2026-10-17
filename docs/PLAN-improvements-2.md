@@ -57,6 +57,13 @@ Also kept but small, folded into milestone tasks: trust basics (privacy note, cr
 
 ## 2. The kept ideas
 
+> **Status after the release pass (2026-10-17, docs/RELEASE.md).** Already done on main, so items 1 and 2 shrink:
+> - `render.yaml`: `GK_SECRET` with `generateValue: true`, `GK_TRUST_PROXY=1`, `NODE_ENV=production`, `GK_LOG=json`, `healthCheckPath: /healthz`, build step `npm ci --include=dev && npm run build`. Still open: the paid plan, `GK_ORIGINS`, the disk. **Verify `GK_TRUST_PROXY` on the first deploy**: without it every player shares Render's proxy IP and `GK_MAX_PER_IP` (8) caps the whole server at 8 sockets; with it the server uses the last `X-Forwarded-For` hop.
+> - `/healthz` (ok, uptime, matches, sockets, dist; 503 while draining) and `/version` (version, commit, build time) live in `release.js`, not a server.js `HOST` block. Still open: refusing to start in production without `GK_SECRET` (today it warns and uses `.gk-secret` or a random one, which loses every verified win on a redeploy without the env var).
+> - SIGTERM: a basic drain exists (503, stop accepting, close code 1012, exit after `GK_DRAIN_MS`). The match-preserving drain and the banner in item 2 are still to do, and should replace that 2 s exit.
+> - Version check: the build id exists (`/version`, and `dist/manifest.json` hashes); the handshake (`b` on join, "New version" prompt) is still to do. `dist/` hashed filenames already stop stale cached JS, so a reload is enough.
+> - DEPLOY.md content is in README.md (env table) and docs/RELEASE.md (tagging, rollback); a separate DEPLOY.md is optional.
+
 ### 1. Production hosting config (S)
 **Player value.** Without it nobody outside the owner's machine can rely on the game: the first player of the day waits a minute for a cold start, characters lose their verified wins on every deploy, and the per-IP cap may refuse players.
 

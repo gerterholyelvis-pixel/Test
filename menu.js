@@ -3,7 +3,7 @@
 const GK = window.GK, THREE = window.THREE;
 const $ = id => document.getElementById(id);
 const TAU = Math.PI * 2;
-const DEFAULTS = { sens: 1, fov: 75, scale: 1, invertY: false, tags: true, fx: true, fsStart: false, gfx: 'high', minimap: true, mmNorth: true };   // MINIMAP: show / hide, north-up
+const DEFAULTS = { sens: 1, fov: 75, scale: 1, invertY: false, tags: true, fx: true, fsStart: false, gfx: 'high', minimap: true, mmNorth: true, dynres: true };   // MINIMAP: show / hide, north-up
 Object.assign(DEFAULTS, GK.feelDefaults || {});   // FEEL: vol, sfx, amb, bob (feel.js)
 const SKIN = ['#9bd45a', '#6dbb44', '#3f8a36', '#4cb8a6', '#a9cc34', '#9ccf52', '#5e7a4c', '#7f9a4a', '#8a9c6a', '#8c9a3c', '#4f8f72', '#b4733a'];
 const GOBS = (window.GKITEMS && GKITEMS.GOBLINS) || [], NG = GOBS.length || 5;   // GOBTYPES: the twelve starting goblins (items.js)
@@ -38,13 +38,14 @@ $('s-mmn').onchange = e => { GK.settings.mmNorth = e.target.checked; save(); GK.
 // FEEL-END
 function syncUI() {
   for (const k in ctl) { ctl[k].value = GK.settings[k]; $('o-' + k).textContent = fmt[k](GK.settings[k]); const p = (ctl[k].value - ctl[k].min) / (ctl[k].max - ctl[k].min); ctl[k].style.setProperty('--p', (p * 100) + '%'); }
-  $('s-inv').checked = GK.settings.invertY; $('s-tags').checked = GK.settings.tags; $('s-fx').checked = GK.settings.fx; GK.feelSync && GK.feelSync(); GK.mmSync && GK.mmSync(); fsSync();   // FULLSCREEN
+  $('s-inv').checked = GK.settings.invertY; $('s-tags').checked = GK.settings.tags; $('s-fx').checked = GK.settings.fx; if ($('s-dynres')) $('s-dynres').checked = GK.settings.dynres !== false; GK.feelSync && GK.feelSync(); GK.mmSync && GK.mmSync(); fsSync();   // FULLSCREEN
   if (!['low', 'medium', 'high', 'ultra'].includes(GK.settings.gfx)) GK.settings.gfx = DEFAULTS.gfx; $('s-gfx').value = GK.settings.gfx;
 }
 for (const k in ctl) ctl[k].addEventListener('input', () => { GK.settings[k] = +ctl[k].value; syncUI(); GK.applySettings(); save(); });
 $('s-inv').onchange = e => { GK.settings.invertY = e.target.checked; GK.applySettings(); save(); };
 $('s-tags').onchange = e => { GK.settings.tags = e.target.checked; GK.applySettings(); save(); };
 $('s-fx').onchange = e => { GK.settings.fx = e.target.checked; GK.applySettings(); save(); };
+if ($('s-dynres')) $('s-dynres').onchange = e => { GK.settings.dynres = e.target.checked; GK.applySettings(); save(); };   // PERF5: dynamic resolution
 // FULLSCREEN-BEGIN (fullscreen toggle, title-screen button, F key, 'start in fullscreen' option)
 const fsEl = document.documentElement;
 const fsOn = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
@@ -195,7 +196,8 @@ function renderChars() {
     const when = document.createElement('div'); when.className = 'cwhen'; when.textContent = ago(c.lastWin); info.appendChild(when);
     card.appendChild(info);
     if (c.best && window.GKICONS) { const bi = itemInfo(c.best), bx = document.createElement('div'); bx.className = 'cbest'; bx.title = 'Best item: ' + bi.name; if (bi.tier) bx.dataset.t = bi.tier; bx.appendChild(GKICONS.canvas(bi.key || c.best, 36)); bx.onmouseenter = bx.onmousemove = e => tip(bi, e); bx.onmouseleave = () => tip(null); card.appendChild(bx); }
-    const p = document.createElement('button'); p.className = 'cplay'; p.textContent = 'Play'; p.onclick = () => startGame({ goblin: c.goblin, wins: fixedWins(c), charId: c.id });
+    const p = document.createElement('button'); p.className = 'cplay'; p.textContent = 'Play'; p.onclick = () => window.GKKEEPUI ? GKKEEPUI.play(c.id, bring => startGame({ goblin: c.goblin, wins: fixedWins(c), charId: c.id, bring })) : startGame({ goblin: c.goblin, wins: fixedWins(c), charId: c.id });   // KEEP: the start loadout picker (keepui.js)
+    if (window.GKKEEPUI) GKKEEPUI.cardNote(card, c);   // KEEP: stash size, bank, keepsakes to choose
     card.appendChild(p); box.appendChild(card);
   }
 }
@@ -257,6 +259,7 @@ function renderInv() {
     }
     grid.appendChild(s);
   }
+  if (window.GKKEEPUI) try { GKKEEPUI.inventory($('inv-sheet'), renderInv); } catch (e) { console.warn('stash view failed', e); }   // KEEP: per-goblin stashes above the old relics
 }
 addEventListener('keydown', e => {
   if (GK.mode === 'play' || !$('menu') || $('menu').classList.contains('gone')) return;

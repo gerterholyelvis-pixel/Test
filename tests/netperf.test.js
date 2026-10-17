@@ -78,6 +78,19 @@ const freeLine = (layout, key, len) => {   // a straight line of `len` metres in
         console.log('         ' + tried + ' prop approaches, ' + fixes + ' corrections'); for (const d of det) console.log('           ' + d);
         assert(tried >= 2, 'props tried: ' + tried); eq(fixes, 0, 'the server refused the client\'s slide'); await c.close();
       }],
+      ['COMBAT4 brawl: 8 goblins swinging in one room for 6 s: no crash, nobody kicked, the tick stays cheap, a swing look costs well under a millisecond', async () => {
+        const cs = await Promise.all(Array.from({ length: 8 }, (_, i) => connect(srv.port, 'goblin=' + (i % 3) + '&wins=4000&name=B' + i, { wait: 15000 })));
+        await cs[0].until(x => x.state.match && x.state.match.alive >= 8, 5000, 'eight entered').catch(() => {});
+        const raw = async () => { const c = await L.connectRaw(srv.port); c.send({ botstat: 1 }); await c.until(x => x.state.botstat, 3000, 'botstat'); const r = c.state.botstat; await c.close(); return r; };   // a raw socket: a brawler may be dead
+        const [cx, cz] = W.rc(0); cs.forEach((c, i) => c.send({ tp: [cx + Math.cos(i * 0.785) * 1.3, cz + Math.sin(i * 0.785) * 1.3] })); await sleep(300); const a0 = await raw(), t0 = Date.now();
+        const tick = setInterval(() => { const t = (Date.now() - t0) / 1000; cs.forEach((c, i) => { const ang = i * 0.785 + t * 0.6, x = cx + Math.cos(ang) * 1.3, z = cz + Math.sin(ang) * 1.3; c.send({ m: [+x.toFixed(2), +z.toFixed(2), +(Math.atan2(x - cx, z - cz) + (i % 2 ? 0.3 : -0.3)).toFixed(3)] }); if (Math.random() < 0.35) c.send({ atk: 1, sq: (t * 20 | 0) & 0xffff }); if (Math.random() < 0.3) c.send({ hp: 999 }); }); }, 50);
+        await sleep(6000); clearInterval(tick); await sleep(300); const b0 = await raw();
+        const hits = cs.reduce((s, c) => s + c.msgs.filter(m => m.hit && m.hit.from === c.state.you).length, 0), cost = (b0.tick.sum - a0.tick.sum) / Math.max(1, b0.tick.n - a0.tick.n), ev = b0.c4 ? (b0.c4.evalMs - a0.c4.evalMs) / Math.max(1, b0.c4.evals - a0.c4.evals) : 0;
+        console.log('         ' + hits + ' hits, ' + (b0.c4.swings - a0.c4.swings) + ' swings, tick cost ' + cost.toFixed(2) + ' ms, one swing look ' + (ev * 1000).toFixed(1) + ' us');
+        assert(srv.alive(), 'server died'); eq(cs.filter(c => c.closed).length, 0, 'kicked'); assert(hits > 10, 'the brawl landed hits: ' + hits);
+        assert(cost < 12, 'tick cost ' + cost.toFixed(2) + ' ms'); assert(ev < 0.5, 'swing evaluation ' + ev.toFixed(3) + ' ms');
+        for (const c of cs) await c.close();
+      }],
     ]);
   } finally { srv.stop(); }
   process.exit(fail ? 1 : 0);

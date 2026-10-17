@@ -172,7 +172,7 @@
       if (A.spawned && !inv && !shop && P.speed > 0.7) {
         stepAcc += P.speed * dt;
         const stride = 1.75;
-        if (stepAcc >= stride) { stepAcc -= stride; const sc = (GK.SCALE && mine && GK.SCALE[mine.goblin]) || 1; play('step', { vol: sprint && P.speed > 4.2 ? 0.95 : 0.8, pitch: 1.1 - 0.2 * (sc - 1), surf: surfOf(myKey), sprint: sprint && P.speed > 4.2 }); }
+        if (stepAcc >= stride) { stepAcc -= stride; const sc = (GK.SCALE && mine && GK.SCALE[mine.goblin]) || 1; play('step', { vol: sprint && P.speed > 4.2 ? 0.95 : 0.8, pitch: 1.1 - 0.2 * (sc - 1), surf: (GK.jump && GK.jump.surf()) || surfOf(myKey), /* CLIMB: wood on a crate top */ sprint: sprint && P.speed > 4.2 }); }
       } else stepAcc = Math.min(stepAcc, 0.9);
       // other players' footsteps: panned and attenuated by distance, muffled through walls
       for (const [id, o] of A.actors) {

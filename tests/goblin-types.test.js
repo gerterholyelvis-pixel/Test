@@ -68,19 +68,19 @@ if (require.main !== module) return;
         assert(hit({ goblin: 1 }, { goblin: 5 }, 10, { melee: true, rnd: 0.05 }).dodged, 'scout dodges a blow'); assert(!hit({ goblin: 1 }, { goblin: 5 }, 10, { melee: false, rnd: 0.05 }).dodged, 'not a bolt');
         assert(!hit({ goblin: 1 }, { goblin: 5 }, 10, { melee: true, rnd: 0.5 }).dodged, 'most blows land');
         eq(hit({ goblin: 6 }, { goblin: 1 }, 10, { behind: true }).dmg, 15); eq(hit({ goblin: 6 }, { goblin: 1 }, 10, { behind: false }).dmg, 10);
-        eq(hit({ goblin: 9, hp: 20, max: 60 }, { goblin: 1 }, 20, {}).dmg, 27); eq(hit({ goblin: 9, hp: 40, max: 60 }, { goblin: 1 }, 20, {}).dmg, 20);
-        eq(hit({ goblin: 1 }, { goblin: 10 }, 20, {}).dmg, 17); eq(hit({ goblin: 6, npc: 'troll' }, { goblin: 1 }, 10, { behind: true }).dmg, 10); eq(hit({ goblin: 1 }, { goblin: 10, npc: 'dumb' }, 20, {}).dmg, 20);
+        eq(hit({ goblin: 9, hp: 20, max: 60 }, { goblin: 1 }, 20, {}).dmg, Math.round(20 * G.GOB_PERKS.rage.mult)); eq(hit({ goblin: 9, hp: 40, max: 60 }, { goblin: 1 }, 20, {}).dmg, 20);
+        eq(hit({ goblin: 1 }, { goblin: 10 }, 20, {}).dmg, Math.round(20 * G.GOB_PERKS.thickhide.taken)); assert(hit({ goblin: 6 }, { goblin: 1 }, 10, { behind: true }).backstab, 'backstab cue');   // BALANCE-3: numbers from GOB_PERKS eq(hit({ goblin: 6, npc: 'troll' }, { goblin: 1 }, 10, { behind: true }).dmg, 10); eq(hit({ goblin: 1 }, { goblin: 10, npc: 'dumb' }, 20, {}).dmg, 20);
         eq(hit({ goblin: 1 }, { goblin: 1 }, 0.2, {}).dmg, 1, 'a hit always does at least 1');
         assert(G.hitRadius(11) > G.hitRadius(1) && G.hitRadius(0) < G.hitRadius(1), 'hit box follows size'); eq(G.goblinReach(11), 0.4);
         eq(G.goblinRegen(8), G.GOB_PERKS.mending); eq(G.goblinRegen(1), { idle: 1, every: 1 }); eq(G.goblinStart(7), G.GOB_PERKS.prospector); eq(G.goblinStart(0), null);
       }],
-      ['balance sim: the seven new types win 35-65% of their duels against the field, sit inside the range of the common three, and each loses to someone', async () => {
-        const { field, M } = balance(300);   // the original five are not retuned here (the Big Goblin wins most pure duels, the wizard and small goblin win by range and speed instead)
-        console.log('         duel win rates: ' + G.GOBLINS.map((g, i) => g.key + ' ' + Math.round(field[i] * 100)).join(', '));
-        for (let i = 5; i < N_TYPES; i++) {
-          assert(field[i] >= 0.35 && field[i] <= 0.65, G.GOBLINS[i].key + ' wins ' + Math.round(field[i] * 100) + '% of duels');
-          assert(field[i] > field[0] && field[i] < field[2], G.GOBLINS[i].key + ' outside the small..big range');
-          assert(M[i].some((v, j) => j !== i && v < 0.4), G.GOBLINS[i].key + ' has no counter');
+      ['balance sim (BALANCE-3, tools/balsim.js): all twelve types win 42-58% of their start-kit duels and 40-60% with even gear, and each loses to someone', async () => {
+        const rows = require('../tools/balsim.js').goblinTable(60);   // the older in-file sim (balance() above) is kept for reference; balsim models kiting, bolts, bleed, thorns, the cap and the dash
+        console.log('         duel win rates (start / even): ' + rows.map(r => r.key + ' ' + Math.round(r.start * 100) + '/' + Math.round(r.even * 100)).join(', '));
+        for (const r of rows) {
+          assert(r.start >= 0.42 && r.start <= 0.58, r.key + ' wins ' + Math.round(r.start * 100) + '% of start-kit duels');
+          assert(r.even >= 0.4 && r.even <= 0.6, r.key + ' wins ' + Math.round(r.even * 100) + '% of even-gear duels');
+          assert(r.worst < 0.45, r.key + ' has no counter');
         }
       }],
       ['client tables: game.js names / scales and menu odds come from the same table', async () => {
