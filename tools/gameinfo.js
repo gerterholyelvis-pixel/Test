@@ -6,11 +6,11 @@
 const fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..');
 const rd = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
-const SOURCES = ['items.js', 'world.js', 'elixir.js', 'homebase.js', 'activity.js', 'rooms5-trees.js', 'vb5.js', 'vault5.js', 'server.js', 'tools/gameinfo.js', 'tools/gameinfo.template.html'];
+const SOURCES = ['items.js', 'world.js', 'elixir.js', 'homebase.js', 'activity.js', 'rooms5-trees.js', 'vb5.js', 'vbx5.js', 'vault5.js', 'server.js', 'tools/gameinfo.js', 'tools/gameinfo.template.html'];
 const OUT = path.join(ROOT, 'docs', 'game-info.html');
 function srcHash() { const h = require('crypto').createHash('sha1'); for (const f of SOURCES) h.update(rd(f).replace(/\r\n?/g, '\n')); return h.digest('hex').slice(0, 8); }   // line-ending independent
 const G = require('../items.js'), WORLD = require('../world.js'), EX = require('../elixir.js'), HB = require('../homebase.js');
-const ACT = require('../activity.js'), T5 = require('../rooms5-trees.js'), VB = require('../vb5.js'), V5 = require('../vault5.js');
+const ACT = require('../activity.js'), T5 = require('../rooms5-trees.js'), VB = require('../vb5.js'), V5 = require('../vault5.js'), VBX = require('../vbx5.js');
 const SRC = { server: rd('server.js'), items: rd('items.js') };
 
 // ---------------------------------------------------------------- read constants out of server.js (it cannot be required: it starts listening)
@@ -378,6 +378,7 @@ S_.trees = [
 S_.vault = [
   p('Four vaultbreaker rooms stand in front of the vault doors, all four in every match; their positions shuffle every round. Each makes votes toward opening the vault and a token that helps the next heist. The ring: Ram, Locksmith, Counting House, Keystone, back to the Ram.'),
   tbl('vbs', 'The 4 vaultbreakers', '', [['name', 'Heist', 0, 'name'], ['role', 'Style'], ['what', 'What it does', 0, 'wrapc'], ['vote', 'Vote contribution', 0, 'wrapc'], ['token', 'Makes'], ['tokenUse', 'Token use', 0, 'wrapc']], vbs),
+  tbl('vbx', 'Vaultbreaker stations', 'Four more stations in every vaultbreaker room beside the main heist; they move with the room type. Machines reset at the re-key, items and IOUs stay. All station knowledge shares a cap of ' + VBX.K.KNOW_ROUND + ' a round.', [['room', 'Room'], ['name', 'Station', 0, 'name'], ['what', 'What it does', 0, 'wrapc'], ['reward', 'Reward'], ['risk', 'Risk']], VBX.CODEX.map((r, i) => ({ id: 'vbx-' + i, room: VB_NAMES[r.type], name: r.name, what: r.what, reward: r.reward, risk: r.risk }))),
   tbl('vbnums', 'Vaultbreaker tuning numbers', '', [['type', 'Heist', 0, 'name'], ['key', 'Constant'], ['value', 'Value']], vbConsts),
   kv('THE VAULT', vaultFacts),
   tbl('vtok', 'Vaultbreaker tokens', '', [['name', 'Token', 0, 'name'], ['made', 'Made at'], ['desc', 'What it does', 0, 'wrapc']], tokens),
