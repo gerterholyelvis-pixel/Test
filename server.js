@@ -40,7 +40,7 @@ function cached(key, file, type) {
   return e;
 }
 const missUntil = new Map();   // PERF4: url key -> time the remembered miss expires
-const CLIENT_JS = new Set(['game', 'menu', 'items', 'affix', 'mutators', 'world', 'save', 'stats', 'statsui', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'wbui', 'act5ui', 'fskeep', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)
+const CLIENT_JS = new Set(['game', 'menu', 'items', 'affix', 'mutators', 'world', 'save', 'stats', 'statsui', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'wbui', 'act5ui', 'fskeep', 'keep', 'keepui', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)   // KEEP: keep, keepui
 let CSP = '';
 function buildCsp() {   // the page has two inline scripts (importmap + module): allowed by hash, so no 'unsafe-inline' for scripts
   const page = cached('/index.html', path.join(ROOT_DIR, 'index.html'), 'text/html; charset=utf-8'), hashes = [];
@@ -78,12 +78,14 @@ function staticFor(url) {   // -> { body, type, cc } or null (404)
   return null;
 }
 const SEC_HEADERS = { 'x-content-type-options': 'nosniff', 'referrer-policy': 'same-origin' };
+const REL = require('./release.js')({ root: ROOT_DIR, secHeaders: SEC_HEADERS, csp: () => CSP, stats: () => ({ matches: matches.size, sockets: wss.clients.size }) });   // RELEASE: /healthz, /version, /privacy, icons, dist/ in production, compression, 404 page, graceful shutdown (docs/RELEASE.md)
 const srv = http.createServer((q, r) => {
   try {
+    if (q.method === 'POST' && (q.url || '').split('?')[0] === '/keep') return KS5.http(q, r);   // KEEP: claim / sell / sync a signed stash (keepsrv.js)
+    if (REL.route(q, r)) return;   // RELEASE
     const e = q.method === 'GET' || q.method === 'HEAD' ? staticFor(q.url || '/') : null;
-    if (!e) { r.writeHead(404, { ...SEC_HEADERS, 'content-type': 'text/plain' }); return r.end('Not found'); }
-    r.writeHead(200, { ...SEC_HEADERS, 'content-type': e.type, 'cache-control': e.cc, 'content-security-policy': e.csp || CSP });
-    r.end(q.method === 'HEAD' ? undefined : e.body);
+    if (!e) return REL.notFound(q, r);   // RELEASE: an HTML page for browsers, plain 'Not found' otherwise
+    REL.send(q, r, 200, { 'content-type': e.type, 'cache-control': e.cc, 'content-security-policy': e.csp || CSP }, e);   // RELEASE: compressed in production
   } catch (err) { try { r.writeHead(500); r.end(); } catch (e2) {} }
 });
 buildCsp(); if (!process.env.GK_DEBUG) codexInit();   // CODEX
@@ -146,7 +148,7 @@ const RULES = (() => { const s = new Set(RULE_DEFAULT); for (const t of (process
 const rule = n => RULES.has(n);
 const CROWN_MS = DBG && +process.env.GK_CROWN_MS > 0 ? +process.env.GK_CROWN_MS : 20000, DAIS_R = 2.2;   // stand on the vault dais this long, unhurt, to be crowned (GK_CROWN_MS only with GK_DEBUG=1)
 const DOOR_LIFE = 2, KLAXON_MS = 5000;   // doorclose: a door stays open this many rounds; the warning comes this long before the round ends
-const BOLT = { dmg: 9, range: 12, speed: 10, cd: 1000, radius: 0.6 };   // staffbolt: 9 damage per second at range (was 6 / 1.2 s = 5 dps, too weak to finish anything); melee classes do 22-31 dps at 2.2 m
+const BOLT = { dmg: require('./items.js').STAFF_BOLT.dmg, range: 12, speed: 10, cd: require('./items.js').STAFF_BOLT.cd, radius: 0.6 };   // BALANCE-3: damage and cooldown live in items.js STAFF_BOLT (16 / 0.9 s; tools/balsim.js)   // staffbolt: 9 damage per second at range (was 6 / 1.2 s = 5 dps, too weak to finish anything); melee classes do 22-31 dps at 2.2 m
 const BRIBE = { cost: 50, max: 3 };   // bribe: gold per +1 weight, and the most bribes one room can stack per round
 // RULES-END
 const CAP = DBG && /^[1-8]$/.test(process.env.GK_MATCH_SIZE || '') ? +process.env.GK_MATCH_SIZE : 8;   // GK_MATCH_SIZE only works with GK_DEBUG=1
@@ -191,6 +193,7 @@ function findMatch(wins) {
 function leave(m, ws) { // remove a player from their match; empty matches disappear
   const gone = m.players.get(ws);
   if (!m.players.delete(ws)) return;
+  KS5.left(gone);   // KEEP: the stash lock goes with the goblin
   if (gone && gone.token) socTokens.delete(gone.token);   // ROBUST: a player who left for good can never resume, free the token now
   m.dirty = true;
   if (gone && m.sel[gone.room] != null && ![...m.players.values()].some(q => q.room === gone.room)) { delete m.sel[gone.room]; if (m.selBy) delete m.selBy[gone.room]; broadcastRound(m); } // an empty room's door vote no longer counts
@@ -447,6 +450,7 @@ function endMatch(m, winner) {   // once per match: {matchEnd:{winner, top, long
   const run = places.filter(r => r.place > 1).sort((a, b) => b.secs - a.secs || a.place - b.place)[0] || null;   // longest survivor besides the winner (who survived by definition)
   const w = places[0] || null, msg = JSON.stringify({ matchEnd: { ...(m.timeLimit ? { timeLimit: 1 } : null), ...(m.crownWin ? { crown: 1 } : null), ...(m.decision ? { decision: m.decision } : null), winner: w && { id: w.id, name: w.name, goblin: w.goblin, bot: w.bot, kills: w.kills }, top, longest: run, places, size: places.length, stats: statBlocks(m, order) } });   // STATS: stats = { playerId: block } for the human players
   bcast(m, msg);
+  KS5.ended(m, winner);   // KEEP: survivors who did not win get the small consolation
   if (!m.specs.size && !humans(m)) matches.delete(m.id);
 }
 // FUN-END
@@ -517,7 +521,7 @@ function guardTick(m, now) {
   for (const [ws, p] of m.players) {
     if (p.npc || !p.entered || p.dead) continue;
     if (!(homeShut(m) && isHome(p.room))) { const k = parentCell(p.room); (occ.get(k) || occ.set(k, []).get(k)).push([ws, p]); }   // 5x5: a goblin at home occupies the arena cell outside (the hatch is open, the cell must have an exit); HOME PHASE: not in round 1, the hatch is shut and the cell stays closed
-    if (WORLD.inProp(p.x, p.z, 0.2, m.layout, true)) {   // stuck-recovery push-out
+    if (WORLD.inProp(p.x, p.z, 0.2, m.layout, true, p.y || 0)) {   // stuck-recovery push-out (CLIMB: standing on a crate top is not stuck)
       if (!p.stuckAt) p.stuckAt = now;
       else if (now - p.stuckAt >= GUARD.STUCK_MS) { const s = GUARD.freeSpot(p.x, p.z, (x, z) => roomFree(m, p.room, x, z)); p.stuckAt = 0; if (s) { place(p, s[0], s[1]); sendTo(ws, { fix: [r2(s[0]), r2(s[1])] }); m.dirty = true; } }
     } else p.stuckAt = 0;
@@ -549,16 +553,20 @@ function checkWin(m) {   // DEFAULT RULE (owner has not decided): >= 2 players e
   if (living.length === 1 && isHum(living[0][1])) win(living[0][0], living[0][1]);   // a bot standing last wins nothing (the match is dropped when no human is left)
   else if (!humans(m) && living.length <= 1 && m.specs.size) endMatch(m, null);   // FUN: only spectators are left: the last bot decides the match
 }
-function attack(m, ws, p, now, rt) {   // {atk:1, rt}: rate limit by weapon, nearest valid target in range, in the 70 degree cone, same room key; targets are rewound to server time rt (what the attacker saw), at most 200 ms
+function attack(m, ws, p, now, rt, heavy) {   // {atk:1, rt, heavy}: rate limit by weapon, nearest valid target in range, in the 70 degree cone, same room key; targets are rewound to server time rt (what the attacker saw), at most 200 ms
   if (!p.entered || p.dead) return;
   if (p.carry) return;   // ACT5: no attacks while carrying a bucket or a coin sack
+  if (now < (p.staggerUntil || 0)) return;   // ABILITY: staggered by a heavy blow
+  const hm = heavy ? heavyOf(p, now) : 0, base = p.npc ? 0 : G.combat(p.inv.weapon).dmg;   // ABILITY: a heavy blow released after its wind-up; BALANCE-3: base = the bare weapon damage the cap is measured on
   let cb = G.combat(p.inv.weapon); if (p.npc) cb = { ...cb, dmg: p.npcDmg, cd: p.npcCd };
   const bolt = boltWeapon(p); if (bolt && !cb.bolt) cb = { ...cb, cd: BOLT.cd };   // WEAPONS3: a tuned wand/staff keeps its own cd and bolt damage
     // staffbolt: staves and scepters throw a slow bolt instead of a melee bonk   // mystery enemies have their own damage and cooldown
   if (now < (p.dazeUntil || 0)) return;   // USE2: dazzled
   if (!p.npc) { const dm = dmgMul(p, now); if (dm !== 1) cb = { ...cb, dmg: Math.round(cb.dmg * dm) }; }   // USE2: Wolf Fang, Rage Brew
   if (now - (p.atkAt || 0) < cb.cd * 0.9) return;   // 10% jitter allowance
-  p.atkAt = now; bcast(m, { swing: p.id });
+  p.atkAt = now; bcast(m, { swing: p.id, ...(hm ? { heavy: 1 } : null) });
+  if (p.charge) p.charge = 0;   // ABILITY: any swing ends a wind-up
+  if (hm) p.atkAt = now - Math.round(cb.cd * (1 - HEAVY.cdMul));   // ABILITY: the wind-up already took its time, so the next swing comes sooner
   if (bolt) return fireBolt(m, p, now, cb.bolt);
   const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw), reach = cb.range + C.slack + (cb.ranged || p.npc ? 0 : G.goblinReach(p.goblin));   // GOBTYPES: the hobgoblin's long arms;   // forward vector, same as the client's movement
   let best = null, bd = Infinity;
@@ -566,15 +574,17 @@ function attack(m, ws, p, now, rt) {   // {atk:1, rt}: rate limit by weapon, nea
   for (const [tws, t] of m.players) {
     if (t === p || t.dead || !t.entered) continue;
     const [tx, tz] = at < T ? posAt(t, at) : [t.x, t.z]; if (roomKeyOf(tx, tz) !== p.room) continue;
-    const dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz);
-    if (d > reach + (t.npc ? 0 : G.hitRadius(t.goblin) - G.HIT_R)) continue;   // GOBTYPES: bigger goblins are easier to reach
+    const dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz), dy = Math.max(0, Math.abs((t.y || 0) - (p.y || 0)) - CLIMB_REACH_Y);   // CLIMB: reach is 3D, but a body is tall: only a height gap beyond 0.8 m counts
+    if (Math.hypot(d, dy) > reach + (t.npc ? 0 : G.hitRadius(t.goblin) - G.HIT_R)) continue;   // GOBTYPES: bigger goblins are easier to reach
     if (d > 2.5 && inSmoke(m, t, now)) continue;   // UTILITY: nobody shoots into a smoke cloud from beyond melee range
     if (d > 0.05 && (dx * fx + dz * fz) / d < Math.cos(C.cone)) continue;
-    if (d > 0.9 && WORLD.segBlocked(p.x, p.z, tx, tz, m.layout)) continue;   // SOLID: no swinging through a crate or barrel
+    if (d > 0.9 && WORLD.segBlocked(p.x, p.z, tx, tz, m.layout, 0, (p.y || 0) + CHEST_Y, (t.y || 0) + CHEST_Y)) continue;   // SOLID: no swinging through a crate or barrel (CLIMB: over a low top is fine)
     if (d < bd) { bd = d; best = [tws, t]; }
   }
   if (!best) return;
-  const [tws, t] = best, hp0 = t.stats.health; hitTarget(m, ws, p, tws, t, cb.dmg, now, undefined, { melee: !cb.ranged });   // thorns and the scout's dodge only apply to melee
+  const [tws, t] = best, hp0 = t.stats.health, hg = highGround(p, t), pb = cb.ranged && bd < G.POINT_BLANK.r ? G.POINT_BLANK.mul : 1;   // BALANCE-3: bows, crossbows, slings and thrown weapons hit for 60% inside 2 m
+  const landed = hitTarget(m, ws, p, tws, t, Math.max(1, Math.round(cb.dmg * pb * (hm || 1) * (hg ? CLIMB_HG : 1))), now, undefined, { melee: !cb.ranged, base, hg, ...(hm ? { heavy: 1 } : null) });   // thorns and the scout's dodge only apply to melee
+  if (landed && hm && !t.dead) { t.staggerUntil = now + HEAVY.staggerMs; if (t.charge) { t.charge = 0; bcast(m, { charge: t.id, off: 1 }); } }   // ABILITY: a heavy hit staggers and breaks the target's own wind-up
   if (cb.bleed && t.stats.health > 0 && t.stats.health < hp0) t.bleed = { by: p, dmg: cb.bleed[0], left: cb.bleed[1], next: now + BLEED_MS, w: p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon] ? G.ITEMS[p.inv.weapon].name : '' };   // WEAPONS3: whips and tridents leave a bleed
   if (cb.bleedAff || cb.leech) affixHit(m, p, t, cb, hp0, now);   // AFFIX
 }
@@ -594,11 +604,40 @@ function weapons3Tick(m, now) {
     if (t.dead || !t.entered || bl.left <= 0) { t.bleed = null; continue; }
     if (now < bl.next) continue;
     bl.next = now + BLEED_MS; bl.left--; if (bl.left <= 0) t.bleed = null;
-    hitTarget(m, bl.by.ws, bl.by, tws, t, bl.dmg, now, bl.w, { bleed: true });
+    hitTarget(m, bl.by.ws, bl.by, tws, t, bl.dmg, now, bl.w, { bleed: true, base: bl.dmg });   // BALANCE-3: base for the damage cap
   }
   if (!rule('staffbolt') && m.bolts && m.bolts.length) boltTick(m, now);   // ruleTick handles bolts when the rule is on
 }
 // WEAPONS3-END
+// ABILITY-BEGIN (docs/reports/balance-3.md): the dash (everyone) and the heavy blow (hammer, axe, mace, club, flail). The numbers live in items.js ABIL; bots use both in botFight.
+const DASH = G.ABIL.DASH, HEAVY = G.ABIL.HEAVY;
+const canAct = (m, p, now) => p.entered && !p.dead && !!m.goAt && now >= m.goAt && !p.carry && now >= (p.staggerUntil || 0) && now >= (p.dazeUntil || 0);
+function dash(m, p, now) {   // {dash:1}: DASH.dist metres of extra movement allowance for DASH.ms (the client moves, applyMove validates walls and doors); blows in the first iframeMs miss
+  if (!canAct(m, p, now) || now < (p.dashAt || 0) + DASH.cd * 0.95) return false;   // 5% jitter allowance on the cooldown
+  p.dashAt = now; p.iUntil = now + DASH.iframeMs; p.dashBank = DASH.dist + 0.4;
+  if (p.charge) { p.charge = 0; bcast(m, { charge: p.id, off: 1 }); }   // a dash cancels a wind-up
+  bcast(m, { dash: p.id }); return true;
+}
+function windUp(m, p, now, on) {   // {charge:1}: start winding up a heavy blow (heavy weapons only), {charge:0}: let it go without striking. Everyone sees the wind-up: that is the counterplay
+  if (!on) { if (p.charge) { p.charge = 0; bcast(m, { charge: p.id, off: 1 }); } return; }
+  if (!canAct(m, p, now) || !G.ABIL.heavyFor(p.inv.weapon) || (p.charge && now - p.charge < 4000)) return;
+  p.charge = now; bcast(m, { charge: p.id });
+}
+const heavyOf = (p, now) => { const h = p.charge && now - p.charge >= HEAVY.chargeMs - 80 && now - p.charge < 4000 && G.ABIL.heavyFor(p.inv.weapon); return h ? h.mult : 0; };   // the multiplier when a heavy blow is released now (80 ms latency grace), else 0
+function abilMsg(m, p, d, now) { if (d.dash !== undefined) dash(m, p, now); else windUp(m, p, now, d.charge === 1); }
+const dashBank = (p, now) => now - (p.dashAt || 0) < DASH.ms + 450 ? (p.dashBank || 0) : 0;   // movement allowance left from a recent dash (450 ms for jitter)
+function botAbil(m, p, t, d, rx, rz, ranged, cb, now) {   // a fighting bot, four decisions a second: dash out of a wind-up, dash in on a kiter, dash back when hurt, wind up a heavy blow. true = it dashed (skip the orbit this tick)
+  const b = p.brain; if (now < (b.abilAt || 0) || p.charge) return false; b.abilAt = now + 250;
+  const ready = now >= (p.dashAt || 0) + DASH.cd, side = Math.random() < 0.5 ? 1 : -1, caution = b.caution || 0.5, aggr = b.aggr || 0.5;
+  let dir = null;
+  if (ready && t.charge && now - t.charge > HEAVY.chargeMs - 350 && d < 3.5 && Math.random() < 0.45 + 0.35 * caution) dir = [-rx * 0.5 - rz * side * 0.87, -rz * 0.5 + rx * side * 0.87];   // sidestep a heavy blow
+  else if (ready && !ranged && t.inv && (G.combat(t.inv.weapon).ranged || boltWeapon(t)) && d > 3.2 && d < 6.5 && Math.random() < 0.15 + 0.35 * aggr) dir = [rx, rz];   // close the gap on an archer or a wizard
+  else if (ready && hpFrac(p) < 0.4 && d < 2.4 && Math.random() < 0.15 + 0.2 * caution) dir = [-rx, -rz];   // break away
+  if (dir && dash(m, p, now)) { const l = Math.hypot(dir[0], dir[1]) || 1; b.dashDir = [dir[0] / l, dir[1] / l]; b.dashUntil = now + DASH.ms; return true; }
+  if (!ranged && G.ABIL.heavyFor(p.inv.weapon) && d <= cb.range + 0.8 && now - (p.atkAt || 0) >= cb.cd && Math.random() < 0.25 + 0.2 * aggr) windUp(m, p, now, true);
+  return false;
+}
+// ABILITY-END
 // RULES-LOGIC-BEGIN (the four experimental rules; every function is a no-op unless its rule is on)
 const ruleState = m => RULES.size ? { rules: [...RULES], ...(rule('bribe') ? { bribes: m.bribes || {} } : null), ...(rule('doorclose') ? { openLeft: Object.fromEntries((m.open || []).filter(d => m.openLeft && m.openLeft[d]).map(d => [d, m.openLeft[d]])) } : null) } : null;
 function ruleOpen(m, fresh) {   // doorclose: the doors stay open for DOOR_LIFE rounds (m.openLeft counts the rounds still to go), a door picked again is refreshed
@@ -609,28 +648,32 @@ function ruleOpen(m, fresh) {   // doorclose: the doors stay open for DOOR_LIFE 
   for (const d of fresh) { next[d] = DOOR_LIFE; if (!keep.includes(d)) keep.push(d); }
   m.openLeft = next; return keep;
 }
-function hitTarget(m, ws, p, tws, t, dmg, now, wname, opts) {   // damage, hit broadcast, kill bookkeeping (melee and bolts share it)
+function hitTarget(m, ws, p, tws, t, dmg, now, wname, opts) {   // damage, hit broadcast, kill bookkeeping (melee and bolts share it). Returns true when the hit landed.
+  if (!(opts && opts.bleed) && now < (t.iUntil || 0)) { bcast(m, { dodge: { from: p.id, to: t.id, dash: 1 } }); return false; }   // ABILITY: inside a dash's first quarter second every blow misses (bleeds keep ticking)
   if (t.ward && dmg > 0) { const live = t.ward.until > now; t.ward = null; if (live) { bcast(m, { ward: { id: t.id } }); return; } }   // USE2: a Ward Rune soaks the hit
+  let cue = null;   // BALANCE-3: which attacker perk fired (backstab / rage), shown by the client
   { const behind = (p.x - t.x) * -Math.sin(t.yaw || 0) + (p.z - t.z) * -Math.cos(t.yaw || 0) < -0.3 * Math.hypot(p.x - t.x, p.z - t.z);   // GOBTYPES: type perks (dodge, backstab, rage, thick hide)
     const r = G.goblinHit({ goblin: p.goblin, hp: p.stats ? p.stats.health : 0, max: p.stats ? p.stats.maxHealth : 0, npc: p.npc }, { goblin: t.goblin, npc: t.npc }, dmg, { melee: !!(opts && opts.melee), behind });
-    if (r.dodged) { bcast(m, { dodge: { from: p.id, to: t.id } }); return; } dmg = r.dmg; }
+    if (r.dodged) { bcast(m, { dodge: { from: p.id, to: t.id } }); return; } dmg = r.dmg; if (r.backstab || r.rage) cue = r.backstab ? { bs: 1 } : { rage: 1 }; }
   dmg = NX.hit(m, p, t, dmg);   // NPCX: the shieldbearer takes little from the front
   dmg = A5.hitMul(m, p, t, dmg, wname, opts);   // ACT5: Fury blessing, Hollow Oak ambush
+  if (opts && opts.base) dmg = G.capHit(opts.base, dmg, t);   // BALANCE-3: one blow never carries more than x1.75 of its weapon damage (items.js DMG_CAP)
   let hp = Math.max(0, t.stats.health - dmg);
   if (hp <= 0 && !t.npc && !t.swUsed && G.hasPerk(t.perks, 'secondwind')) { hp = 1; t.swUsed = true; sendTo(t.ws, { secondWind: 1 }); }   // KNOWLEDGE: Second Wind
   statHit(p, t, t.stats.health - hp);   // STATS
   t.stats.health = hp; t.hurtAt = now; t.hitBy = p.id; m.dirty = true;   // hitBy: a bot notices whoever hurt it at once
   A5.hurt(m, t, p);   // ACT5: a hit breaks channels and drops carried sacks / buckets
-  bcast(m, { hit: { from: p.id, to: t.id, dmg, hp, max: t.stats.maxHealth, dead: hp <= 0, ...(opts && opts.bleed ? { bleed: 1 } : null) } });
+  bcast(m, { hit: { from: p.id, to: t.id, dmg, hp, max: t.stats.maxHealth, dead: hp <= 0, ...(opts && opts.bleed ? { bleed: 1 } : null), ...cue, ...(opts && opts.hg ? { hg: 1 } : null), ...(opts && opts.heavy ? { heavy: 1 } : null) } });
   const th = opts && opts.melee && hp > 0 && !p.dead ? G.armorThorns(t.inv && t.inv.armor) + A5.reflect(m, t, dmg) : 0;   /* ACT5: + the Thorns blessing */   // ARMOUR-3: thorns hurt a melee attacker (never lethal, so no kill bookkeeping is needed)
   if (th && p.stats.health > 1) { const ph = Math.max(1, p.stats.health - th); p.stats.health = ph; p.hurtAt = now; bcast(m, { hit: { from: t.id, to: p.id, dmg: th, hp: ph, max: p.stats.maxHealth, dead: false, thorns: 1 } }); }
   if (hp <= 0) { p.kills = (p.kills || 0) + 1; const bounty = paceBounty(p, t); t.killedBy = p.id; { const kw = p.npc ? null : p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; t.killer = { name: p.name || 'Goblin', npc: !!p.npc, w: wname || (kw ? kw.name : (p.npc ? '' : 'Fists')) }; } sendTo(ws, { kills: p.kills, ...(bounty ? { bounty } : null) }); mutKill(m, p, t); sendFeed(m, p, t); die(tws, t); }
+  return true;   // ABILITY: the hit landed (a heavy blow staggers only then)
 }
 function boltWeapon(p) { const w = p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; if (w && G.combat(p.inv.weapon).bolt) return true; if (!rule('staffbolt')) return false; return !!w && (w.family === 'staff' || w.family === 'scepter'); }
 function fireBolt(m, p, now, dmg) {   // staffbolt: a slow projectile straight ahead, 12 m range, never leaves the room it was fired in
   m.bolts = m.bolts || []; m.boltN = (m.boltN || 0) + 1;
-  const b = { id: m.boltN, by: p, x: p.x, z: p.z, vx: -Math.sin(p.yaw) * BOLT.speed, vz: -Math.cos(p.yaw) * BOLT.speed, dist: 0, room: p.room, t: now, dmg: Math.round((dmg || BOLT.dmg) * dmgMul(p, now)) };
-  m.bolts.push(b); bcast(m, { bolt: { id: b.id, by: p.id, x: +p.x.toFixed(2), z: +p.z.toFixed(2), vx: +b.vx.toFixed(2), vz: +b.vz.toFixed(2), range: BOLT.range } });
+  const b = { id: m.boltN, by: p, x: p.x, z: p.z, vx: -Math.sin(p.yaw) * BOLT.speed, vz: -Math.cos(p.yaw) * BOLT.speed, dist: 0, room: p.room, t: now, dmg: Math.round((dmg || BOLT.dmg) * dmgMul(p, now)), y: (p.y || 0) + CHEST_Y, base: dmg || BOLT.dmg, grd: !p.cAir };   // CLIMB: flies level at the shooter's chest height
+  m.bolts.push(b); bcast(m, { bolt: { id: b.id, by: p.id, x: +p.x.toFixed(2), z: +p.z.toFixed(2), vx: +b.vx.toFixed(2), vz: +b.vz.toFixed(2), range: BOLT.range, y: r2(b.y) } });
 }
 function boltTick(m, now) {
   if (!m.bolts || !m.bolts.length) return;
@@ -638,10 +681,10 @@ function boltTick(m, now) {
   m.bolts = m.bolts.filter(b => {
     b.x += b.vx * dt; b.z += b.vz * dt; b.dist += BOLT.speed * dt;
     let hit = null;
-    for (const [tws, t] of m.players) { if (t === b.by || t.dead || !t.entered || t.room !== b.room) continue; if (Math.hypot(t.x - b.x, t.z - b.z) < BOLT.radius + (t.npc ? 0 : G.hitRadius(t.goblin) - G.HIT_R) && !(Math.hypot(t.x - b.by.x, t.z - b.by.z) > 2.5 && inSmoke(m, t, now))) { hit = [tws, t]; break; } }
-    if (hit && WORLD.segBlocked(b.x - b.vx * dt, b.z - b.vz * dt, hit[1].x, hit[1].z, m.layout)) hit = null;   // SOLID: a prop between the bolt and the goblin shields him
-    if (hit) { hitTarget(m, b.by.ws, b.by, hit[0], hit[1], b.dmg || BOLT.dmg, now); bcast(m, { boltEnd: { id: b.id, hit: 1 } }); return false; }
-    if (WORLD.inProp(b.x, b.z, 0.08, m.layout)) { bcast(m, { boltEnd: { id: b.id } }); return false; }   // SOLID: the bolt dies on a crate, barrel or urn
+    for (const [tws, t] of m.players) { if (t === b.by || t.dead || !t.entered || t.room !== b.room) continue; if (Math.abs(b.y - (t.y || 0) - 0.7) > 1.1) continue; /* CLIMB: the bolt passes over / under him */ if (Math.hypot(t.x - b.x, t.z - b.z) < BOLT.radius + (t.npc ? 0 : G.hitRadius(t.goblin) - G.HIT_R) && !(Math.hypot(t.x - b.by.x, t.z - b.by.z) > 2.5 && inSmoke(m, t, now))) { hit = [tws, t]; break; } }
+    if (hit && WORLD.segBlocked(b.x - b.vx * dt, b.z - b.vz * dt, hit[1].x, hit[1].z, m.layout, 0, b.y, b.y)) hit = null;   // SOLID: a prop between the bolt and the goblin shields him (CLIMB: unless the bolt flies over its top)
+    if (hit) { const hg = b.grd && b.y - CHEST_Y - (hit[1].y || 0) >= 0.5; hitTarget(m, b.by.ws, b.by, hit[0], hit[1], hg ? Math.round((b.dmg || BOLT.dmg) * CLIMB_HG) : b.dmg || BOLT.dmg, now, undefined, { base: b.base, ...(hg ? { hg } : null) }); bcast(m, { boltEnd: { id: b.id, hit: 1 } }); return false; }
+    if (WORLD.inProp(b.x, b.z, 0.08, m.layout, false, b.y - 0.12 - CL.STEP)) { bcast(m, { boltEnd: { id: b.id } }); return false; }   // SOLID: the bolt dies on a crate, barrel or urn (CLIMB: unless it passes 0.12 m over a climbable top, the segBlocked rule)
     if (b.dist >= BOLT.range || roomKeyOf(b.x, b.z) !== b.room) { bcast(m, { boltEnd: { id: b.id } }); return false; }
     return true;
   });
@@ -653,7 +696,7 @@ function bribe(m, p) {   // bribe: pay gold at your room's panel for +1 weight o
   if ((m.bribes[p.room] || 0) >= BRIBE.max) return 'max';
   const cost = Math.round(BRIBE.cost * (G.charmEff(p.inv.charm, 'bribe') || 1));   // USE2: Silver Tongue
   if (p.gold < cost) return 'gold';
-  p.gold -= cost; m.bribes[p.room] = (m.bribes[p.room] || 0) + 1; sendGold(p); A5.bribe(m, cost); broadcastRound(m);   // ACT5: half of it goes into the Counting House strongbox
+  p.gold -= cost; m.bribes[p.room] = (m.bribes[p.room] || 0) + 1; sendGold(p); A5.bribe(m, cost, p); broadcastRound(m);   // ACT5: half of it goes into the Counting House strongbox (VBX: the payer goes in its ledger)
   return null;
 }
 function crownTick(m, now) {   // crown: stand on the vault dais for CROWN_MS without being hurt and you win the match
@@ -721,12 +764,35 @@ function win(ws, p) { // everything carried goes home with the winner, nothing i
   const m = p.match; if (p.dead || !m) return;
   const items = allItems(p.inv);
   p.dead = true; p.diedAt = Date.now(); endMatch(m, p); leave(m, ws);
-  sendTo(ws, { won: { st: statBlock(m, p), items, gold: p.gold, parts: p.parts, ctoken: makeToken({ c: p.charId, g: p.goblin, w: Math.min(9999, p.wins + 1), n: p.name }) } });   // SECURITY: signed character token
+  sendTo(ws, { won: { st: statBlock(m, p), items, gold: p.gold, parts: p.parts, keep: KS5.won(m, p, items), ctoken: makeToken({ c: p.charId, g: p.goblin, w: Math.min(9999, p.wins + 1), n: p.name }) } });   // SECURITY: signed character token
 }
 
-// JUMP-BEGIN (server side: the jump is cosmetic; movement, walls and attack ranges stay 2D)
-const JUMP_MAX_CM = 100;   // the client arc peaks at 90 cm; anything above is clamped
-const jumpV = p => r1(p.spd || 0) + 100 * (p.jy | 0);   // snapshot speed slot carries the jump: v = speed + 100 * cm (speed is always < 100)
+// JUMP-BEGIN (server side) / CLIMB: the 4th element of {m} is the feet height in cm (jump arc, crate tops, the dais). It is validated here like x / z (docs/reports/climb.md).
+const CL = WORLD.CLIMB, Y_TOL = 0.06, SUP_SRV = CL.SUP + 0.08;   // the server's support circle is a little wider (positions arrive rounded to cm)
+const jumpV = p => r1(p.spd || 0) + 100 * (p.jy | 0);   // snapshot speed slot carries the height: v = speed + 100 * cm (speed is always < 100)
+// the feet height a legal client may report at (x, z) now. p.cAir = when he left the ground (0 = grounded), p.cGy = the surface he stands on / jumped from, p.cFell = he is falling.
+// Rules: never below the surface under him (raised to it), never above launch + APEX (no flying, no climbing tall things: only climbable tops support), no rising again once falling
+// (no hovering, no double jump), back on the ground after AIRMAX s, and a top more than a step above where he stood is only reached through the air (no teleport up).
+function climbY(m, p, x, z, yc, now) {
+  let y = Number.isFinite(yc) && yc > 0 ? Math.min(CL.MAXY, yc) : 0;
+  const gs = WORLD.groundY(x, z, m.layout, y, SUP_SRV), gy0 = p.cGy || 0, py = p.y || 0, st = { cAir: p.cAir || 0, cGy: gy0, cFell: !!p.cFell, bad: false };
+  if (y <= gs + Y_TOL && !(st.cAir && y > py + 0.01 && y < gs - Y_TOL)) {   // on the ground (or below the surface: raised to it; not while still rising past a top)
+    if (gs > gy0 + CL.STEP + Y_TOL && !st.cAir && gs > py + CL.STEP + Y_TOL) { const g2 = WORLD.groundY(x, z, m.layout, py, SUP_SRV); st.bad = true; y = g2; st.cGy = g2; }   // stepped onto a high top without jumping
+    else { y = gs; st.cGy = gs; }
+    st.cAir = 0; st.cFell = false; return [y, st];
+  }
+  if (!st.cAir) st.cAir = now;
+  const cap = gy0 + CL.APEX + 0.12;
+  if (y > cap) { y = cap; st.bad = true; }
+  if (st.cFell && y > py + 0.03) { y = py; st.bad = true; }   // rising again in mid air
+  if (y < py - 0.02) st.cFell = true;
+  if (now - st.cAir > CL.AIRMAX * 1000) { y = gs; st.cAir = 0; st.cFell = false; st.cGy = gs; st.bad = true; }   // hovering: put him down
+  return [y, st];
+}
+// hits in 3D: melee reach ignores the first 0.8 m of height difference (a goblin on a crate is always reachable from its foot), bolts fly at chest height.
+// High ground: standing (not jumping) at least 0.5 m above the target gives +10% damage, melee and ranged; the hit message says hg:1. Small, readable, and the crates are open to everyone.
+const CLIMB_REACH_Y = 0.8, CLIMB_HG = 1.1, CHEST_Y = 0.9;
+const highGround = (p, t) => !p.cAir && (p.y || 0) - (t.y || 0) >= 0.5;
 // JUMP-END
 // NET-BEGIN (movement validation, 20 Hz snapshots, position history for lag compensation; see docs/reports/netcode.md)
 const T0 = Date.now(), srvT = () => Date.now() - T0;   // server clock in ms, sent with every snapshot and pong
@@ -742,13 +808,14 @@ function inBounds(x, z) {   // inside a room of the grid, or inside one of the 2
   const id = WORLD.attachedAt(x, z, SLACK);
   return id >= 0 && 'c' + id === roomKeyOf(x, z);
 }
-function pathOk(m, x0, z0, x1, z1, who) {   // walk the segment in 0.2 m steps: every room change must go through an OPEN door, inside its opening
+function pathOk(m, x0, z0, x1, z1, who, fy) {   // walk the segment in 0.2 m steps: every room change must go through an OPEN door, inside its opening. CLIMB: fy = the highest feet height on the segment (crate tops below it are walkable)
   if (who) who.lockDeny = false;   // ELIXIR: set again by homeGate when a Door Lock refuses this step
-  const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 0.2)); let prev = roomKeyOf(x0, z0); const inside0 = WORLD.inProp(x0, z0, PROP_R, m.layout, true);
+  const yy = fy == null ? undefined : fy + 0.1;   // CLIMB: 10 cm of tolerance
+  const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 0.2)); let prev = roomKeyOf(x0, z0); const inside0 = WORLD.inProp(x0, z0, PROP_R, m.layout, true, yy);
   for (let i = 1; i <= n; i++) {
     const x = x0 + (x1 - x0) * i / n, z = z0 + (z1 - z0) * i / n;
     if (!inBounds(x, z)) return false;
-    if (!inside0 && WORLD.inProp(x, z, PROP_R, m.layout, true)) return false;   // SOLID: crates, barrels, urns, pedestal, vault pillars (the client keeps 0.45, the server accepts 0.33)
+    if (!inside0 && WORLD.inProp(x, z, PROP_R, m.layout, true, yy)) return false;   // SOLID: crates, barrels, urns, pedestal, vault pillars (the client keeps 0.45, the server accepts 0.33)
     const k = roomKeyOf(x, z); if (k === prev) continue;
     const d = DOOR_AT[prev + '|' + k];
     if (!d || !isOpen(m, d.id) || Math.abs((d.axis === 'x' ? x : z) - d.c) > d.hw) return false;
@@ -758,7 +825,7 @@ function pathOk(m, x0, z0, x1, z1, who) {   // walk the segment in 0.2 m steps: 
   return true;
 }
 function place(p, x, z) {   // hard set (spawn, debug teleport): resets speed budget and history
-  const prev = p.room; p.x = x; p.z = z; p.box = boxOf(x, z); p.room = roomKeyOf(x, z); p.spd = 0; p.fixAt = 0; p.budget = BUDGET; p.mvAt = Date.now(); p.mvT = srvT(); p.hist = [[p.mvT, x, z]]; p.sd = true;
+  const prev = p.room; p.x = x; p.z = z; p.box = boxOf(x, z); p.room = roomKeyOf(x, z); p.spd = 0; p.fixAt = 0; p.budget = BUDGET; p.mvAt = Date.now(); p.mvT = srvT(); p.hist = [[p.mvT, x, z]]; p.sd = true; p.y = 0; p.jy = 0; p.cAir = 0; p.cGy = 0; p.cFell = false;   // CLIMB: on the floor (a dais or a step raises him with the next move)
   if (p.room !== prev) p.roomAt = p.mvAt;   // BOTS: when he arrived in this room (bots take a moment to notice newcomers)
 }
 function applyMove(m, ws, p, x, z, yaw, now, jy) {   // {m:[x,z,yaw]}: accept, or keep the old position and answer {fix:[x,z]}
@@ -766,14 +833,17 @@ function applyMove(m, ws, p, x, z, yaw, now, jy) {   // {m:[x,z,yaw]}: accept, o
   const dt = p.mvAt ? Math.min(0.5, (now - p.mvAt) / 1000) : 0.066; p.mvAt = now; const prevRoom = p.room;
   const hv = !!(p.carry && p.carry.heavy);   // ACT5: a carried coin sack: 70% of the walk (x1.3 for jitter), no sprint, and a small slack so the limit holds over time (the normal 0.3 m slack would allow 9 m/s at 15 messages a second)
   p.budget = Math.min(hv ? 0.8 : BURST + (now < lagUntil ? lagBonus : 0),(p.budget == null ? BUDGET : p.budget) + dt * (hv ? Math.min(MAXV, walkOf(p) * 0.7 * 1.3) : MAXV) * (now < (p.tonicUntil || 0) + 500 ? G.ITEMS['x:tonic'].n : 1) * (G.charmEff(p.inv.charm, 'spd') || 1));   // UTILITY: a speed tonic raises the movement allowance
-  const dist = Math.hypot(x - p.x, z - p.z);
-  if (dist > 0.0005 && (dist > p.budget + (hv ? 0.08 : MOVE_SLACK) || !pathOk(m, p.x, p.z, x, z, p))) {
+  const dist = Math.hypot(x - p.x, z - p.z), db = hv ? 0 : dashBank(p, now);   // ABILITY: a dash adds its distance to the allowance
+  const [cy, cst] = climbY(m, p, x, z, jy == null ? 0 : jy / 100, now);   // CLIMB: validated feet height (m)
+  if (dist > 0.0005 && (dist > p.budget + (hv ? 0.08 : MOVE_SLACK) + db || !pathOk(m, p.x, p.z, x, z, p, Math.max(p.y || 0, cy)))) {
     if (now - (p.fixAt || 0) > 150) { p.fixAt = now; sendTo(ws, { fix: [r2(p.x), r2(p.z)] }); if (!p.lockDeny && secFix(p, ws, now)) return false; }   // ELIXIR: a Door Lock refusal is not a speed-hack correction
     if (yaw !== p.yaw) { p.yaw = yaw; p.sd = true; }
     return false;
   }
+  if (db && dist > p.budget) p.dashBank = Math.max(0, p.dashBank - (dist - p.budget));   // ABILITY: spend the dash allowance first on what the budget cannot cover
   p.budget = Math.max(0, p.budget - dist);
-  { const j = jy > 0 ? Math.min(JUMP_MAX_CM, Math.round(jy)) : 0; if (j !== (p.jy | 0)) { p.jy = j; p.sd = true; } }   // JUMP: cosmetic height in cm, never used for collision or hits
+  { p.y = cy; p.cAir = cst.cAir; p.cGy = cst.cGy; p.cFell = cst.cFell; const j = Math.round(cy * 100); if (j !== (p.jy | 0)) { p.jy = j; p.sd = true; }   // CLIMB: the accepted height (snapshots carry it in cm)
+    if (cst.bad && ws && now - (p.yFixAt || 0) > 150) { p.yFixAt = now; sendTo(ws, { fix: [r2(x), r2(z), r2(cy)] }); } }   // a refused height: tell him where his feet are (not counted as a speed correction)
   const t = srvT(), v = dist < 0.004 ? 0 : Math.min(12, dist / Math.max(dt, 0.04));
   const spd = v === 0 ? 0 : p.spd ? p.spd * 0.6 + v * 0.4 : v;
   if (dist > 0.0005 || yaw !== p.yaw || r1(spd) !== r1(p.spd || 0)) p.sd = true;
@@ -979,8 +1049,54 @@ function mv(m, p, x, z, yaw, now) {   // the one place a brain moves: applyMove 
     // bounce off it 4 times in a row: the server refused the move, tests/bots.test.js counted 7-59 refused moves). Shorten such a step (halve up to 3 times) until the chord is clear.
     for (let k = 0; k < 3 && Math.hypot(x - p.x, z - p.z) > 0.15 && [0.25, 0.5, 0.75].some(f => WORLD.inProp(p.x + (x - p.x) * f, p.z + (z - p.z) * f, PROP_R, m.layout, true)) && !pathOk(m, p.x, p.z, x, z); k++) { x = p.x + (x - p.x) / 2; z = p.z + (z - p.z) / 2; }
   }
-  return applyMove(m, null, p, x, z, yaw, now, jy);
+  return applyMove(m, null, p, x, z, yaw, now, jy + Math.round(WORLD.groundY(x, z, m.layout, 0) * 100));   // CLIMB: bots walk on the floor / dais (perches: climbBot)
 }
+// CLIMB-BEGIN (bots: a crate top is optional high ground. An idle bot now and then hops onto a climbable top near it, looks around for a few seconds and hops off; a target, a hit or a refused move ends it at once.
+// Otherwise bots keep walking around every prop (mv slides in 2D), so they never end up on a top by accident.)
+const PERCH_MS = DBG && +process.env.GK_BOT_PERCH_MS > 0 ? +process.env.GK_BOT_PERCH_MS : 0;   // GK_DEBUG only: perch soon and often (tests)
+const tLand = h => (CL.V0 + Math.sqrt(Math.max(0, CL.V0 * CL.V0 - 2 * CL.G * h))) / CL.G;   // jump from the floor, land on a top of height h
+function climbIdle(m, p, now) {   // botThink, idle: maybe start a perch; true when one started
+  const b = p.brain; if (!b.perchAt) b.perchAt = now + (PERCH_MS || rnd(20000, 45000));
+  if (now < b.perchAt || p.carry) return false;
+  b.perchAt = now + (PERCH_MS || rnd(25000, 60000));
+  let best = null, bd = 6;
+  for (const pr of WORLD.propsAt(p.x, p.z, m.layout)) {
+    if (!pr.climb || pr.h < 0.45 || pr.h > 1.05) continue;
+    const d = Math.hypot(pr.x - p.x, pr.z - p.z), ux = (p.x - pr.x) / (d || 1), uz = (p.z - pr.z) / (d || 1), lx = pr.x + ux * (pr.r + 0.75), lz = pr.z + uz * (pr.r + 0.75);
+    if (d < bd && roomKeyOf(lx, lz) === p.room && inBounds(lx, lz) && !WORLD.inProp(lx, lz, 0.5, m.layout, true) && pathOk(m, lx, lz, pr.x, pr.z, null, pr.h)) { bd = d; best = { pr, lx, lz }; }
+  }
+  if (!best) return false;
+  b.perch ={ ...best, ph: 'go', t0: now, room: p.room }; return true;
+}
+function climbBot(m, p, now, dt) {   // botThink, every tick while perching; false = the perch is over and the normal brain runs
+  const b = p.brain, P = b.perch, pr = P.pr, t = (now - P.t0) / 1000, yaw = yawTo(p, pr.x, pr.z);
+  const end = () => { b.perch = null; return false; };
+  if (p.room !== P.room || p.dead) return end();
+  if (P.ph === 'go') {
+    if (t > 5 || (b.tgt && !b.tgt.dead)) return end();
+    if (Math.hypot(p.x - P.lx, p.z - P.lz) > 0.3) { stepTo(m, p, P.lx, P.lz, dt, now); return true; }
+    P.ph = 'up'; P.t0 = now; P.sx = p.x; P.sz = p.z; P.T = tLand(pr.h); return true;
+  }
+  if (P.ph === 'up') {   // the same arc as a human jump: V0, G; the feet land on the top after P.T
+    const f = Math.min(1, t / (P.T * 0.8)), x = P.sx + (pr.x - P.sx) * f * 0.92, z = P.sz + (pr.z - P.sz) * f * 0.92, y = t >= P.T ? pr.h : Math.max(0, CL.V0 * t - 0.5 * CL.G * t * t);
+    if (!applyMove(m, null, p, x, z, yaw, now, Math.round(y * 100))) return end();
+    if (t >= P.T) { P.ph = 'stand'; P.t0 = now; P.until = now + rnd(3000, 7000); P.yaw = p.yaw; P.dir = Math.random() < 0.5 ? -1 : 1; }
+    return true;
+  }
+  if (P.ph === 'stand') {   // look around from up there; leave when something happens
+    if (now >= P.until || (b.tgt && !b.tgt.dead) || now - (p.hurtAt || 0) < 600) { P.ph = 'off'; P.t0 = now; P.sx = p.x; P.sz = p.z; return true; }
+    P.yaw += P.dir * 0.8 * dt; if (Math.random() < 0.01) P.dir = -P.dir;
+    applyMove(m, null, p, p.x, p.z, P.yaw, now, Math.round(pr.h * 100)); return true;
+  }
+  // 'off': walk out toward the launch spot at 3.2 m/s; free fall from the top once past the rim
+  const L = Math.hypot(P.lx - P.sx, P.lz - P.sz) || 1, s = Math.min(1, 3.2 * t / L), x = P.sx + (P.lx - P.sx) * s, z = P.sz + (P.lz - P.sz) * s;
+  if (P.tOff == null && Math.hypot(x - pr.x, z - pr.z) >= pr.r + CL.SUP) P.tOff = t;
+  const tf = P.tOff == null ? 0 : t - P.tOff, y = Math.max(WORLD.groundY(x, z, m.layout, 0), pr.h - 0.5 * CL.G * tf * tf);
+  if (!applyMove(m, null, p, x, z, p.yaw, now, Math.round(y * 100))) return end();
+  if (s >= 1 && y <= 0.2) return end();
+  return true;
+}
+// CLIMB-END
 function startJump(p, now) { const b = p.brain; if (b.jump || now < b.jumpAt) return; b.jump = { t0: now, dur: rnd(480, 620), h: rnd(55, 90) }; b.jumpAt = now + rnd(30000, 60000); }   // at most 1-2 a minute
 function inView(p, q) {   // 2.5 m all round, or inside the 150 degree cone in front of the yaw within 12 m
   const dx = q.x - p.x, dz = q.z - p.z, d = Math.hypot(dx, dz);
@@ -1014,6 +1130,7 @@ function pickTarget(m, p, now, vis) {   // aggression sets the range and the ner
 }
 function idleLook(m, p, now) {   // standing around: every 1-3 s turn 60-180 degrees over about half a second, so something behind us gets noticed
   const b = p.brain, s = b.scan;
+  if (p.bot && !s && !p.crafting && !b.tgt && !b.jump && climbIdle(m, p, now)) return;   // CLIMB: standing around is a good moment to take the high ground
   if (s) { const f = (now - s.t0) / 500; if (f >= 1) { b.scan = null; mv(m, p, p.x, p.z, s.y1, now); } else mv(m, p, p.x, p.z, s.y0 + (s.y1 - s.y0) * f, now); return; }
   if (!b.scanAt) b.scanAt = now + rnd(300, 1500);
   if (now >= b.scanAt) {
@@ -1054,8 +1171,10 @@ function botFight(m, p, t, now, dt) {   // melee: orbit the target at 1.2-1.8 m,
   const b = p.brain, cb = G.combat(p.inv.weapon), ranged = !!(cb.ranged || boltWeapon(p)), dx = t.x - p.x, dz = t.z - p.z, d = Math.hypot(dx, dz) || 0.001, rx = dx / d, rz = dz / d;
   const hold = m.focusIds && m.focusIds[t.id] ? m.focusIds[t.id].indexOf(p.id) >= MAX_GANG : false;   // FAIR: the 3rd+ bot on the same goblin circles at HOLD_D instead of piling on
   b.scan = null;
+  if (now < (b.dashUntil || 0)) { const st = DASH.dist / DASH.ms * dt * 1000, [cx, cz] = clampIn(p.room, p.x + b.dashDir[0] * st, p.z + b.dashDir[1] * st, 0.5), [nx, nz] = BN.slide(p.x, p.z, cx, cz, obstaclesFor(m, p.room)); mv(m, p, nx, nz, yawTo({ x: nx, z: nz }, t.x, t.z), now); return; }   // ABILITY: mid-dash
+  if (!hold && botAbil(m, p, t, d, rx, rz, ranged, cb, now)) return;   // ABILITY: dash or wind up
   if (now >= b.strafeAt) { b.strafe = Math.random() < 0.85 ? -b.strafe : b.strafe; b.strafeAt = now + (ranged ? rnd(500, 1100) : rnd(600, 1500)); b.orbitR = rnd(1.2, 1.8); if (Math.random() < 0.2) b.rangeD = rnd(5, 8); }
-  const R = hold ? HOLD_D : ranged ? b.rangeD : b.orbitR, walk = walkOf(p), step = walk * dt, err = d - R, backing = !ranged && !hold && now < b.backUntil;
+  const R = hold ? HOLD_D : ranged ? b.rangeD : b.orbitR, walk = walkOf(p) * (p.charge ? HEAVY.moveMul : 1), step = walk * dt,   /* ABILITY: slower while winding up */ err = d - R, backing = !ranged && !hold && now < b.backUntil;
   let cr, ct = 0;   // metres toward the target and sideways this tick
   if (backing) cr = -step;
   else if (err > (ranged ? 3 : 1.5)) cr = Math.min(err, sprintOf(p) * dt);   // far away: sprint at it
@@ -1063,6 +1182,12 @@ function botFight(m, p, t, now, dt) {   // melee: orbit the target at 1.2-1.8 m,
   const px = p.x + rx * cr - rz * ct, pz = p.z + rz * cr + rx * ct, [cx, cz] = clampIn(p.room, px, pz, 0.5), [nx, nz] = BN.slide(p.x, p.z, cx, cz, obstaclesFor(m, p.room));   // NAV: props block the orbit too
   if (Math.abs(nx - px) + Math.abs(nz - pz) > 0.15) b.strafe = -b.strafe;   // a wall in the way: orbit the other way
   if (!mv(m, p, nx, nz, yawTo({ x: nx, z: nz }, t.x, t.z) + (Math.random() - 0.5) * 0.18, now)) { BS.bad++; b.strafe = -b.strafe; return; }
+  if (p.charge) {   // ABILITY: a bot's heavy blow: strike once the wind-up is done and the target is in reach, give up when it got away
+    const td = Math.hypot(t.x - nx, t.z - nz);
+    if (now - p.charge >= HEAVY.chargeMs + rnd(0, 150) && td <= cb.range + 0.2) { if (Math.random() < BOT_MISS) mv(m, p, nx, nz, yawTo(p, t.x, t.z) + (Math.random() < 0.5 ? -1 : 1) * (1.5 + Math.random() * 0.5), now); attack(m, null, p, now, undefined, true); }
+    else if (td > cb.range + 2 || now - p.charge > 2500) windUp(m, p, now, false);
+    return;
+  }
   if (!hold && !backing && Math.hypot(t.x - nx, t.z - nz) <= (ranged ? 10 : 2.0) && Math.random() < 0.85) {
     if (Math.random() < BOT_MISS) mv(m, p, nx, nz, yawTo(p, t.x, t.z) + (Math.random() < 0.5 ? -1 : 1) * (1.5 + Math.random() * 0.5), now);   // FAIR: a swing aimed wide on purpose
     attack(m, null, p, now);
@@ -1493,6 +1618,7 @@ function botThink(m, p, now, dt) {
     if (b.chkAt !== p.roomAt) { b.chkAt = p.roomAt; b.reactAt = 0; b.entering = true; }
   }
   if (bot) botHeal(m, p, now);   // NAV: healing consumables by stat
+  if (b.perch && climbBot(m, p, now, dt)) return;   // CLIMB: perched on a crate top
   if (now < b.pauseUntil) { if (b.jump) mv(m, p, p.x, p.z, p.yaw, now); return; }
   { const lu = lureFor(m, p, now); if (lu) { b.route = []; b.tgt = null; b.mode = ''; const [lx, lz] = clampIn(p.room, lu.x, lu.z, 0.5); if (Math.hypot(lx - p.x, lz - p.z) > 0.9) stepTo(m, p, lx, lz, dt, now); return; } }   // LOOT: a thrown plushie distracts
   if (b.turnTo && now >= b.blindUntil) {   // AI: turn toward whoever hit us from outside the view
@@ -2116,6 +2242,7 @@ function startMatch(m) {   // close the queue match, give everyone their own out
   }
   { const seen = new Set(); for (const p of m.players.values()) { let n = p.name || 'Goblin'; if (seen.has(n.toLowerCase())) { const free = BOT_NAMES.filter(b => !seen.has(b.toLowerCase())); n = free.length ? free[Math.floor(Math.random() * free.length)] : n + ' ' + p.id; } p.name = n; seen.add(n.toLowerCase()); } }   // unique names inside a match
   fillWithBots(m);
+  KS5.start(m);   // KEEP: the brought loadout and bank go on now (they are at stake from here)
   const players = [...m.players.values()].map(pub);
   for (const [ws, p] of m.players) {
     sendTo(ws, { you: p.id, chests: m.chests, chestKeys: m.chestKeys, layout: m.layout, mystery: m.mystery, shops: m.shops, drops: m.drops, ...roundState(m), match: matchInfo(m), players,
@@ -2196,6 +2323,7 @@ function socWelcome(m, ws, p) {   // full resync: the welcome fields of startMat
   if (m.phase === 'play') sendTo(ws, { board: { left: matchInfo(m).alive, rows: boardRows(m) } });
   if (m.phase === 'countdown') sendTo(ws, { countdown: { at: m.goAt, now: Date.now() } });
   A5.welcome(m, ws, p);   // ACT5: trees, the room's activity state, the crown
+  KS5.resume(ws, p);   // KEEP
 }
 function socEmote(m, ws, p, n, now) {   // {emote:n}: relayed to everyone else (specs included), at most one per second per player
   if (!Number.isInteger(n) || n < 0 || n >= EMOTES || p.dc || m.phase === 'queue' || now - (p.emoteAt || 0) < EMOTE_MS) return;
@@ -2209,6 +2337,9 @@ setInterval(() => { for (const [t, p] of socTokens) if (p.dead || !p.match || !p
 const A5 = require('./act5.js')({ G, DBG, rule, bcast, sendTo, sendInv, sendGold, sendParts, giveItem, recalc, place, die, addDrop, broadcastRound, sendBoard, isOpen, VAULT, eatBrain, srvT, T0, newId: () => nextId++, equip, newBrain, npcFight, stepTo, clampIn });
 // ACT5-END
 const NX = NPCX({ NPC, WORLD, equip, recalc, place, newBrain, newId: () => nextId++, bcast, sendTo, sendGold, stepTo, clampIn, face, G });   // NPCX
+// KEEP-BEGIN (what a winner keeps: keep.js rules, keepsrv.js tokens / store / POST /keep; docs/reports/keep-on-win.md)
+const KS5 = require('./keepsrv.js')({ G, sign, b64u, DBG, sendTo, recalc, isHum, statBlock, matches, originOk, ipOf, fs, path });
+// KEEP-END
 wss.on('connection', (ws, req) => {
   { const ip = ipOf(req); ipCount.set(ip, (ipCount.get(ip) || 0) + 1); ws.once('close', () => { const n = (ipCount.get(ip) || 1) - 1; if (n > 0) ipCount.set(ip, n); else ipCount.delete(ip); }); }   // SECURITY: per-IP socket count
   ws.on('error', () => {});
@@ -2228,7 +2359,7 @@ wss.on('connection', (ws, req) => {
   if (!m) { sendTo(ws, { busy: 1 }); return ws.close(); }
   const id = nextId++, nq = cleanName(tokName != null ? tokName : q.get('name'));
   p = { id, wins, charId, ws, name: nq || BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)], ...spawn() }; equip(p, goblin); place(p, p.x, p.z);
-  p.match = m; m.players.set(ws, p); m.dirty = true; socToken(p); p.unverified = unverified; }
+  p.match = m; m.players.set(ws, p); m.dirty = true; socToken(p); p.unverified = unverified; KS5.join(ws, p, q, !!tok); /* KEEP */ }
   // SECURITY-END
   ws.on('error', () => {});
   if (resumed) socWelcome(m, ws, p); else { /* MATCH-BEGIN */ sendTo(ws, { queue: queueInfo(m), goblin, wins: p.wins, token: p.token, ...(DBG ? { dbg: 1 } : null), ...(p.unverified ? { unverified: 1 } : null) }); broadcastQueue(m, ws); if (m.players.size >= CAP) startMatch(m); /* MATCH-END */ }
@@ -2276,7 +2407,8 @@ wss.on('connection', (ws, req) => {
     } else if (typeof d.throw === 'string') { throwPlushie(m, p, d.throw, now);   // LOOT
     } else if (typeof d.use === 'string') { const why = useItem(m, p, d.use, now); if (why) sendTo(ws, { useFail: why });   // UTILITY
     } else if (dbg && d.botlab) { botLab(m, ws, p, d.botlab);
-    } else if (d.atk === 1) { attack(m, ws, p, now, d.rt);
+    } else if (d.dash !== undefined || d.charge !== undefined) { abilMsg(m, p, d, now);   // ABILITY: the dash and the heavy blow's wind-up
+    } else if (d.atk === 1) { attack(m, ws, p, now, d.rt, d.heavy === 1);
     } else if (d.bribe === 1) { if (rule('bribe')) { const why = bribe(m, p); if (why) sendTo(ws, { bribeFail: why }); }   // RULES
     } else if (d.enter === 1) { /* legacy: the match start (GO) replaced it */
     } else if (typeof d.eat === 'string') { eat(p, d.eat);
@@ -2308,4 +2440,5 @@ wss.on('connection', (ws, req) => {
 });
 
 srv.on('error', e => { console.error('listen failed', e); process.exit(1); });   // SECURITY: the uncaughtException handler must not turn a port clash into a silent zombie
-srv.listen(process.env.PORT || 3000, () => console.log('Goblin King on :' + (process.env.PORT || 3000)));
+REL.shutdown(srv, () => wss);   // RELEASE: SIGTERM / SIGINT drain
+srv.listen(process.env.PORT || 3000, () => console.log('Goblin King on :' + (process.env.PORT || 3000) + (REL.PROD ? ' (production, ' + (REL.dist().on ? 'dist ' + REL.VERSION.version : 'source files') + ')' : '')));

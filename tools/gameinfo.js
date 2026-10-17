@@ -6,11 +6,11 @@
 const fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..');
 const rd = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
-const SOURCES = ['items.js', 'world.js', 'elixir.js', 'homebase.js', 'activity.js', 'rooms5-trees.js', 'vb5.js', 'vault5.js', 'server.js', 'tools/gameinfo.js', 'tools/gameinfo.template.html'];
+const SOURCES = ['items.js', 'world.js', 'elixir.js', 'homebase.js', 'activity.js', 'rooms5-trees.js', 'vb5.js', 'vbx5.js', 'vault5.js', 'server.js', 'tools/gameinfo.js', 'tools/gameinfo.template.html'];
 const OUT = path.join(ROOT, 'docs', 'game-info.html');
 function srcHash() { const h = require('crypto').createHash('sha1'); for (const f of SOURCES) h.update(rd(f).replace(/\r\n?/g, '\n')); return h.digest('hex').slice(0, 8); }   // line-ending independent
 const G = require('../items.js'), WORLD = require('../world.js'), EX = require('../elixir.js'), HB = require('../homebase.js');
-const ACT = require('../activity.js'), T5 = require('../rooms5-trees.js'), VB = require('../vb5.js'), V5 = require('../vault5.js');
+const ACT = require('../activity.js'), T5 = require('../rooms5-trees.js'), VB = require('../vb5.js'), V5 = require('../vault5.js'), VBX = require('../vbx5.js');
 const SRC = { server: rd('server.js'), items: rd('items.js') };
 
 // ---------------------------------------------------------------- read constants out of server.js (it cannot be required: it starts listening)
@@ -30,7 +30,7 @@ function srvConst(name, src) {
     else if (depth === 0 && (c === ',' || c === ';' || c === '\n')) break;
   }
   const expr = s.slice(st, i).trim();
-  try { return new Function('DBG', 'process', 'return (' + expr + ')')(false, { env: {} }); } catch (e) { throw new Error('gameinfo: cannot evaluate server.js ' + name + ': ' + e.message); }
+  try { return new Function('DBG', 'process', 'require', 'return (' + expr + ')')(false, { env: {} }, f => require(path.join(ROOT, f))); }   /* BALANCE-3: server.js BOLT reads items.js STAFF_BOLT */ catch (e) { throw new Error('gameinfo: cannot evaluate server.js ' + name + ': ' + e.message); }
 }
 // a number captured by a regex from a source file (for the few values that sit inside code, not in a named constant)
 function srcNum(re, src, what) { const m = re.exec(src || SRC.server); if (!m) throw new Error('gameinfo: cannot find ' + what); return +m[1]; }
@@ -275,6 +275,8 @@ const combatFacts = [['Melee reach', cb.melee + ' m'], ['Ranged reach (bows, cro
   ['Reforge', '+' + pc(G.KNOW.up - 1) + ' attack or health, at least +2'], ['Perk numbers', 'Field Medic x' + G.KNOW.medic + ', Brain Gourmet +' + G.KNOW.gourmet + ' HP, one knowledge point per ' + G.KNOW.step + ' knowledge']];
 const thornArm = armours.filter(a => a.thorns).map(a => a.name.v + ' ' + a.thorns).join(', ');
 combatFacts.push(['Thorns armour', thornArm + ' (flat damage back to a melee attacker, never lethal)']);
+for (const [k, v] of G.ABIL.TEXT) combatFacts.push([k, v]);   // ABILITY (BALANCE-3): the dash, the heavy blow and the damage cap
+combatFacts.push(['Point blank', 'bows, crossbows, slings and thrown weapons hit for ' + pc(G.POINT_BLANK.mul) + ' inside ' + G.POINT_BLANK.r + ' m (not bolts)']);
 const npcAll = [...Object.entries(SV.NPC).map(([k, n]) => ({ id: 'e-' + k, name: n.name, from: k === 'rat' ? 'Rat Swarm send' : 'Mystery room', ...npcRow(n) })),
   ...T5.TYPES.map(t => ACT.get(t)).filter(sp => sp.npc).flatMap(sp => Object.values(sp.npc).map(n => ({ id: 'e-' + n.name, name: n.name, from: T5.NAMES[sp.type], ...npcRow(n) }))),
   { id: 'e-warden', name: wardenNpc.name, from: 'Locksmith alarm, vault claim', ...npcRow(wardenNpc) }, { id: 'e-wisp', name: wispNpc.name, from: 'Keystone resonance', ...npcRow(wispNpc) }];
@@ -387,6 +389,7 @@ S_.trees = [
 S_.vault = [
   p('Four vaultbreaker rooms stand in front of the vault doors, all four in every match; their positions shuffle every round. Each makes votes toward opening the vault and a token that helps the next heist. The ring: Ram, Locksmith, Counting House, Keystone, back to the Ram.'),
   tbl('vbs', 'The 4 vaultbreakers', '', [['name', 'Heist', 0, 'name'], ['role', 'Style'], ['what', 'What it does', 0, 'wrapc'], ['vote', 'Vote contribution', 0, 'wrapc'], ['token', 'Makes'], ['tokenUse', 'Token use', 0, 'wrapc']], vbs),
+  tbl('vbx', 'Vaultbreaker stations', 'Four more stations in every vaultbreaker room beside the main heist; they move with the room type. Machines reset at the re-key, items and IOUs stay. All station knowledge shares a cap of ' + VBX.K.KNOW_ROUND + ' a round.', [['room', 'Room'], ['name', 'Station', 0, 'name'], ['what', 'What it does', 0, 'wrapc'], ['reward', 'Reward'], ['risk', 'Risk']], VBX.CODEX.map((r, i) => ({ id: 'vbx-' + i, room: VB_NAMES[r.type], name: r.name, what: r.what, reward: r.reward, risk: r.risk }))),
   tbl('vbnums', 'Vaultbreaker tuning numbers', '', [['type', 'Heist', 0, 'name'], ['key', 'Constant'], ['value', 'Value']], vbConsts),
   kv('THE VAULT', vaultFacts),
   tbl('vtok', 'Vaultbreaker tokens', '', [['name', 'Token', 0, 'name'], ['made', 'Made at'], ['desc', 'What it does', 0, 'wrapc']], tokens),

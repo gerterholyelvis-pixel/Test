@@ -2,7 +2,7 @@
 // window.GKAUDIO.play(name, opts)
 //   names: step, door, vaultDoor, panel, pickup, coins, buy, craft, recycle, invOpen, invClose, uiHover, uiClick, tick, tickLast,
 //          gong, eat, deny, hit, hurt, swing, death, victory, emoteTaunt, emoteLaugh, emotePoint, emoteDance
-//   family hooks: swing/hit take {fam: weapon family, armor: victim armour family}; step takes {surf: 'stone'|'vault'|'rug'|'metal', sprint}.
+//   family hooks: swing/hit take {fam: weapon family, armor: victim armour family}; step takes {surf: 'stone'|'vault'|'rug'|'metal'|'wood', sprint}.
 //          GKAUDIO.weaponClass(fam), armorClass(fam) and itemSound(item, action) map any item family (new families fall back sensibly).
 //          more names: chest, equip, drink, heartbeat, go
 //   opts:  x, z    world position (metres): the sound is panned and attenuated relative to the listener (see setListener)
@@ -134,6 +134,12 @@
         noise(out, t, 0.07, 0.22 * lvl, 'lowpass', 700 * p, 260, 0.6, { a: 0.004 });
         return;
       }
+      if (surf === 'wood') {   // CLIMB: a crate top: a hollow wooden knock
+        tone(out, 'sine', 180 * p, t, 0.08, 0.42 * lvl, { f1: 120 * p, a: 0.002 });
+        tone(out, 'triangle', 410 * p, t, 0.05, 0.1 * lvl, { f1: 330 * p, a: 0.001 });
+        noise(out, t, 0.05, 0.22 * lvl, 'bandpass', 1300 * p, 900, 2.2, { a: 0.001 });
+        return;
+      }
       if (surf === 'metal') {   // grates: a tiny ring over the thud
         tone(out, 'sine', 125 * p, t, 0.09, 0.45 * lvl, { f1: 60 * p, a: 0.002 });
         noise(out, t, 0.05, 0.3 * lvl, 'lowpass', 1800 * p, 500, 0.7, { a: 0.002 });
@@ -151,9 +157,10 @@
       tone(out, 'sine', 340, t + 0.004, 0.07, 0.1, { f1: 520, a: 0.008 });
       noise(out, t, 0.07, 0.15, 'bandpass', 1200, 1900, 1.2, { a: 0.006 });
     },
-    thud(out, t) {   // landing: a soft low thud and a scuff
+    thud(out, t, o) {   // landing: a soft low thud and a scuff (CLIMB: plus a hollow knock on a crate top)
       tone(out, 'sine', 105, t, 0.14, 0.38, { f1: 48, a: 0.002 });
       noise(out, t, 0.06, 0.2, 'lowpass', 900, 300, 0.7, { a: 0.002 });
+      if (o && o.surf === 'wood') { tone(out, 'sine', 165, t, 0.12, 0.3, { f1: 110, a: 0.002 }); noise(out, t, 0.06, 0.16, 'bandpass', 1100, 800, 2, { a: 0.001 }); }
     },
     // JUMP-END
     door(out, t) {   // sliding door between rooms: servo whine, air hiss, clunk
@@ -411,6 +418,13 @@
     roundHorn(out, t) { for (const [f, d, du] of [[196, 0, 0.5], [196, 0.6, 0.35], [294, 1.05, 1.5]]) { tone(out, 'sawtooth', f, t + d, du, 0.24, { a: 0.06 }); tone(out, 'sawtooth', f * 1.005, t + d, du, 0.16, { a: 0.06, det: 12 }); tone(out, 'square', f * 2, t + d, du, 0.05, { a: 0.08 }); noise(out, t + d, du * 0.8, 0.05, 'lowpass', 1200, 800, 0.7, { a: 0.05 }); } },   // 2-minute horn
     rekeyWarn(out, t) { for (let i = 0; i < 3; i++) { const tt = t + i * 0.2; tone(out, 'triangle', 330, tt, 0.14, 0.24, { f1: 300, a: 0.003 }); ping(out, tt, 660, 0.12, 0.2); } noise(out, t + 0.6, 0.3, 0.2, 'bandpass', 500, 1500, 1.5, { a: 0.1 }); tone(out, 'square', 140, t + 0.65, 0.3, 0.1, { f1: 240, a: 0.05 }); }
   });
+  // VBX-BEGIN: the vaultbreaker stations (vbx5.js): a war drum beat (opts.pitch rises with the chant) and the auctioneer's gavel
+  Object.assign(SND, {
+    drumBeat(out, t, o) { const p = num(o.pitch, 1); tone(out, 'sine', 72 * p, t, 0.32, 0.8, { f1: 44, a: 0.002 }); noise(out, t, 0.12, 0.4, 'lowpass', 700, 180, 0.8, { a: 0.001 }); tone(out, 'triangle', 150 * p, t, 0.06, 0.12, { f1: 90, a: 0.001 }); },
+    gavel(out, t) { for (let i = 0; i < 2; i++) { const tt = t + i * 0.16; noise(out, tt, 0.05, 0.5, 'bandpass', 1300, 700, 2, { a: 0.001 }); tone(out, 'sine', 210, tt, 0.09, 0.35, { f1: 120, a: 0.001 }); } },
+  });
+  Object.assign(GAP, { drumBeat: 0.12, gavel: 0.3 });
+  // VBX-END
   Object.assign(GAP, { pumpTick: 0.18, sentryShot: 0.09, lockpickClick: 0.05, coinCount: 0.04, captureTick: 0.1, timingHit: 0.08, timingMiss: 0.1, riskWarn: 0.25, raidAlarm: 1, vaultAlarm: 1, roundHorn: 2, doorBar: 0.15, doorLock: 0.15, wardenRoar: 1.5, rewardChime: 0.4, runeChime: 0.08, winchCreak: 0.3, coinPile: 0.4 });
   Object.assign(PRIORITY_LOW, { pumpTick: 1, captureTick: 1, lockpickClick: 1, coinCount: 1, riskWarn: 1 });
 

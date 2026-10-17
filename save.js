@@ -21,14 +21,37 @@
   }
   function statsStore(s) { smem = s; try { localStorage.setItem(SKEY, JSON.stringify(s)); } catch (e) {} }
   // STATS-END
+  // KEEP-BEGIN (save version 2, docs/reports/keep-on-win.md). Per character, all optional so version 1 saves load unchanged:
+  //   c.keep = { tok, i: [item keys], b: bank gold }   the server-signed stash (the server re-checks everything; this is a copy to show and to send back)
+  //   c.offer = { otok, how, n, items, trophies, stipend, why, x }   a "choose what to keep" offer not claimed yet (x: expiry)
+  //   c.load = [item keys]   the last start loadout; c.trophies = [keys] transcendent items it won with; s.hall = retired characters
+  // The old global s.stash (version 1, unsigned, never brought into a match) stays as display-only "old relics".
+  const VER = 2;
+  function keepWin(c, k) {
+    if (typeof k.otok === 'string') c.offer = { otok: k.otok, how: k.how, n: k.n | 0, items: Array.isArray(k.items) ? k.items : [], trophies: k.trophies || [], stipend: k.stipend | 0, why: k.why || '', x: Date.now() + 7 * 864e5 };
+    if (typeof k.tok === 'string') c.keep = { tok: k.tok, i: Array.isArray(k.i) ? k.i : [], b: k.b | 0 };
+    if (Array.isArray(k.trophies) && k.trophies.length) c.trophies = (c.trophies || []).concat(k.trophies).slice(-24);
+  }
+  function keepEdit(id, f) { const s = load(); s.ver = VER; const c = s.characters.find(x => x.id === id); if (!c) return null; f(c, s); store(s); return c; }
+  const keepApi = {
+    ver: VER,
+    keepOf: id => { const c = load().characters.find(x => x.id === id); return c && c.keep ? c.keep : { tok: '', i: [], b: 0 }; },
+    setKeep: (id, v) => keepEdit(id, c => { if (v && typeof v.tok === 'string') c.keep = { tok: v.tok, i: Array.isArray(v.i) ? v.i : [], b: v.b | 0 }; }),
+    setOffer: (id, o) => keepEdit(id, c => { if (o) keepWin(c, o); else delete c.offer; }),
+    setLoad: (id, keys) => keepEdit(id, c => { c.load = Array.isArray(keys) ? keys.slice(0, 5) : []; }),
+    retire: id => keepEdit(id, (c, s) => { s.hall = (s.hall || []).concat({ name: c.name, goblin: c.goblin, wins: c.wins | 0, best: c.best || null, t: Date.now() }).slice(-50); s.characters = s.characters.filter(x => x !== c); }),
+    hall: () => load().hall || [],
+  };
+  // KEEP-END
   window.GKSAVE = {
+    ...keepApi,   // KEEP
     load,
     stash: () => load().stash,
     parts: () => load().parts || {},   // recycled parts brought back from won runs: { wood: n, metal: n, ... }
     characters: () => load().characters,
     getCharacter: id => load().characters.find(c => c.id === id) || null,
     // A won run: the character is saved (or gets another victory) and everything it carried goes to the stash.
-    recordWin({ charId, goblin, items, parts, name, token }) {   // token: the server's signed character token (proves goblin, victories and name on the next join)   // name: the name the server gave this goblin in the match; a NEW character keeps it, so the feed, standings and victory card agree
+    recordWin({ charId, goblin, items, parts, name, token, keep }) {   // KEEP: keep = the server's offer ({won}.keep); with it nothing goes to the old global stash, the goblin chooses its keepsakes instead   // token: the server's signed character token (proves goblin, victories and name on the next join)   // name: the name the server gave this goblin in the match; a NEW character keeps it, so the feed, standings and victory card agree
       const s = load();
       let c = charId != null ? s.characters.find(x => x.id === charId) : null;
       if (!c) {
@@ -40,7 +63,7 @@
       c.wins++; c.lastWin = Date.now();
       if (typeof token === 'string' && token) { c.token = token; c.goblin = goblin; }   // the server rolled this goblin; the local victory count is for display only
       for (const it of items || []) { const k = typeof it === 'string' ? it : it && it.key, i = k && window.GKITEMS && GKITEMS.info && GKITEMS.info(k); if (i && (!c.best || score(i) > score(GKITEMS.info(c.best) || {}))) c.best = k; }   // the best thing this goblin ever brought home (shown on its card)
-      for (const it of items || []) if (it) s.stash.push(it);
+      if (keep && typeof keep === 'object') keepWin(c, keep); else for (const it of items || []) if (it) s.stash.push(it);   // KEEP
       s.parts = s.parts || {}; for (const k in parts || {}) if (parts[k] > 0) s.parts[k] = (s.parts[k] || 0) + (parts[k] | 0);
       store(s); return c;
     },

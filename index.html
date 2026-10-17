@@ -1,6 +1,14 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Goblin King</title><link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M4 26 2 9l8 7 6-12 6 12 8-7-2 17z' fill='%23f5c451'/%3E%3C/svg%3E"><!-- QA-FULL: no /favicon.ico 404 in the console -->
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<!-- RELEASE-BEGIN (docs/RELEASE.md): icons, share card, boot checks (unsupported browser, phones, loading progress, version) -->
+<meta name="description" content="Goblin King: a multiplayer goblin heist in the browser. Eight goblins, one vault, one crown. Pick doors, loot, craft, betray.">
+<meta name="theme-color" content="#0b0b0e"><meta name="color-scheme" content="dark">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="manifest" href="/manifest.webmanifest">
+<meta property="og:type" content="website"><meta property="og:title" content="Goblin King"><meta property="og:description" content="A multiplayer goblin heist in the browser. Eight goblins, one vault, one crown."><meta property="og:image" content="/og.jpg"><meta name="twitter:card" content="summary_large_image">
+<script src="/client/boot.js"></script>
+<noscript><style>#menu,#tcurtain{display:none}</style><p style="position:fixed;inset:40% 0 auto;text-align:center;color:#efe9d8;font:20px Georgia,serif">Goblin King needs JavaScript. Turn it on and reload.</p></noscript>
+<!-- RELEASE-END -->
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&family=Barlow+Condensed:wght@500;600;700&display=swap">
 <style>
@@ -835,7 +843,7 @@ h3.st-h{margin-top:var(--s3)}
      <tr><td><span class="kc">Tab</span><span class="kc">I</span></td><td>Inventory</td></tr>
      <tr><td><span class="kc">1</span><span class="kc">2</span><span class="kc">3</span></td><td>Quick slots (scroll wheel cycles)</td></tr>
      <tr><td><span class="kc">Shift</span></td><td>Sprint</td></tr>
-     <tr><td><span class="kc">Space</span></td><td>Jump (just for show: it does not dodge attacks)</td></tr>
+     <tr><td><span class="kc">Space</span></td><td>Jump: onto crates and barrels for high ground (+10% damage from a top)</td></tr>
      <tr><td><span class="kc">4</span></td><td>Emote: taunt (chest beat)</td></tr>
      <tr><td><span class="kc">5</span></td><td>Emote: laugh</td></tr>
      <tr><td><span class="kc">6</span></td><td>Emote: point</td></tr>
@@ -872,7 +880,8 @@ h3.st-h{margin-top:var(--s3)}
  </div>
 </div>
 
-<script src="/audio.js"></script><script src="/feel.js"></script><script src="/vfx.js"></script><script src="/hud5.js"></script><script src="/world.js"></script><script src="/affix.js"></script><script src="/mutators.js"></script><script src="/items.js"></script><script src="/stats.js"></script><script src="/save.js"></script><script src="/statsui.js"></script><script src="/icons.js"></script><script src="/homebase.js"></script><script src="/homeui.js"></script><script src="/wbui.js"></script><script src="/act5ui.js"></script><script src="/fskeep.js"></script>
+<script src="/audio.js"></script><script src="/feel.js"></script><script src="/vfx.js"></script><script src="/hud5.js"></script><script src="/world.js"></script><script src="/affix.js"></script><script src="/mutators.js"></script><script src="/items.js"></script><script src="/stats.js"></script><script src="/save.js"></script><script src="/statsui.js"></script><script src="/keep.js"></script><script src="/keepui.js"></script><script src="/icons.js"></script><script src="/homebase.js"></script><script src="/homeui.js"></script><script src="/wbui.js"></script><script src="/act5ui.js"></script><script src="/fskeep.js"></script>
+
 <script type="module">
 import * as THREE from 'three';
 window.THREE = THREE;
