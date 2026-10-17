@@ -26,7 +26,7 @@ const get = url => new Promise((res, rej) => http.get(url, r => { let b = ''; r.
   const send = (method, params = {}) => new Promise(r => { const i = ++id; pend.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
   const ev = async expr => { const r = await send('Runtime.evaluate', { expression: '(async()=>(' + expr + '))()', awaitPromise: true, returnByValue: true }); if (r.result.exceptionDetails) throw new Error(JSON.stringify(r.result.exceptionDetails).slice(0, 500)); return r.result.result.value; };
   await send('Runtime.enable'); await send('Page.enable');
-  await send('Page.navigate', { url: base + '/tools/icon-lab.html?' + new URLSearchParams({ filter, px, cell, cols, small }) });
+  await send('Page.navigate', { url: base + '/tools/icon-lab.html?' + new URLSearchParams({ filter, px, cell, cols, small, ...(process.env.DROPS ? { drops: process.env.DROPS } : {}) }) });
   let st = null; for (let i = 0; i < 1200; i++) { await sleep(500); try { st = await ev('window.__sheet ? {n: __sheet.n, ms: __sheet.bakeMs} : null'); } catch (e) {} if (st) break; if (i % 40 === 39) console.log('waiting', i / 2, 's', logs.slice(-2)); }
   if (!st) { console.log('no sheet', logs.slice(0, 8)); ch.kill(); srv.close(); process.exit(1); }
   const url = await ev(/.jpe?g$/.test(out) ? '__sheet.jpg' : '__sheet.url'); fs.writeFileSync(out, Buffer.from(url.split(',')[1], 'base64'));

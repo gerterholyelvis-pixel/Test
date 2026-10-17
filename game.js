@@ -4396,6 +4396,7 @@ function applyDrops(list) {
     const neck = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.25, 10), sack.material); neck.position.y = 0.58; g.add(neck);
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffd24a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.8 })); glow.scale.set(1.6, 1.6, 1); glow.position.y = 0.5; g.add(glow);
     const lab = new THREE.Sprite(new THREE.SpriteMaterial({ map: textTex(d.items.map(itemName).join(' · '), '#ffd75e', 'rgba(10,10,16,.6)', 640, 96, 'bold 40px system-ui'), transparent: true, depthWrite: false })); lab.scale.set(2.4, 0.36, 1); lab.position.y = 1.1; g.add(lab);
+    try { window.GKART && GKART.dropLook && GKART.dropLook(g, d.items, glow, lab); } catch (e) {}   // ICONFRAME: tier beam + the best item floating over the bag
     scene.add(g); lootMeshes.set(d.id, g);
   }
   if (typeof lootOpen !== 'undefined' && lootOpen) paintLoot();

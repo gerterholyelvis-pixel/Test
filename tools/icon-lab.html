@@ -18,6 +18,17 @@ const keys = all.filter(sel);
 const t0 = performance.now();
 await GKART.bake(renderer, { keys, force: true, noCache: true, budget: 60, gap: 0 });
 const bakeMs = Math.round(performance.now() - t0);
+if (q.get('drops')) {   // ?drops=k1,k2,... : a row of loot piles seen from across a room (world drop look)
+  const ks = q.get('drops').split(','), W = 1000, Hh = 520; renderer.setSize(W, Hh);
+  const sc = new THREE.Scene(); sc.background = new THREE.Color(0xe8e4dc); sc.add(new THREE.HemisphereLight(0xffffff, 0x8a8478, 1.6)); const dl = new THREE.DirectionalLight(0xffffff, 1.4); dl.position.set(-3, 6, 4); sc.add(dl);
+  const fl = new THREE.Mesh(new THREE.PlaneGeometry(60, 30), new THREE.MeshStandardMaterial({ color: 0xd8d3c8 })); fl.rotation.x = -Math.PI / 2; sc.add(fl);
+  const gtex = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
+  ks.forEach((k, i) => { const g = new THREE.Group(); g.position.set((i - (ks.length - 1) / 2) * 2.2, 0, 0); const sack = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 12), new THREE.MeshStandardMaterial({ color: 0x7a5a34 })); sack.scale.y = 0.8; sack.position.y = 0.25; g.add(sack);
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: gtex, color: 0xffd24a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.8 })); glow.scale.set(1.6, 1.6, 1); glow.position.y = 0.5; g.add(glow);
+    GKART.dropLook(g, [k], glow, null); sc.add(g); });
+  const cam = new THREE.PerspectiveCamera(50, W / Hh, 0.1, 100); cam.position.set(0, 2.6, 9.5); cam.lookAt(0, 2.0, 0);
+  renderer.render(sc, cam); window.__sheet = { n: ks.length, bakeMs, url: renderer.domElement.toDataURL('image/png'), jpg: renderer.domElement.toDataURL('image/jpeg', 0.92) }; throw new Error('drops done');
+}
 const cell = +q.get('cell') || 160, cols = +q.get('cols') || 8, lab = 16, small = q.get('small') === '1', rows = Math.ceil(keys.length / cols), rowH = cell + lab + (small ? 48 : 0);
 const c = document.createElement('canvas'); c.width = cols * cell; c.height = rows * rowH; const g = c.getContext('2d');
 g.fillStyle = q.get('bg') || '#1b1c22'; g.fillRect(0, 0, c.width, c.height); g.font = '600 11px system-ui,sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';

@@ -1230,6 +1230,25 @@ function bake(renderer, opts = {}) {
 }
 const icon = key => { const k = canon(key); return k ? icons.get(k) || null : null; };
 
+// ---------- ICONFRAME: world drop look. A pile that holds anything above common gets a tier-coloured light beam (readable from across a room) and the best item floating over the bag ----------
+const BEAMS = { uncommon: [0x7fe08a, 2.6, 0.16, 0.2], rare: [0x4a8dff, 3.6, 0.22, 0.26], mythic: [0xa455ff, 4.6, 0.28, 0.3], legendary: [0xff9a1a, 5.4, 0.34, 0.36], transcendent: [0x3ff0ff, 5.8, 0.4, 0.4] };   // colour, height, base radius, opacity
+const beamTex = () => memo('beamtex', () => { const c = document.createElement('canvas'); c.width = 4; c.height = 64; const g = c.getContext('2d'), gr = g.createLinearGradient(0, 64, 0, 0); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.35, 'rgba(255,255,255,0.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 4, 64); return new THREE.CanvasTexture(c); });
+const beamGeo = tier => memo('beamgeo' + tier, () => { const [, h, r] = BEAMS[tier], g = new THREE.CylinderGeometry(r * 0.35, r, h, 10, 1, true); g.translate(0, h / 2, 0); return g; });
+const beamMat = tier => memo('beammat' + tier, () => new THREE.MeshBasicMaterial({ map: beamTex(), color: BEAMS[tier][0], transparent: true, opacity: BEAMS[tier][3] * 1.5, depthWrite: false, side: THREE.DoubleSide, fog: false, toneMapped: false }));
+function dropLook(g, items, glow, label) {   // g: the pile group in the scene; items: the item keys in it; glow/label: the pile's existing sprites (recoloured / lifted here)
+  let best = -1, bk = null;
+  for (const k of items || []) { const it = infoOf(k); if (!it || !it.tier || it.type === 'consumable' && !canon(k)) continue; const t = TIER_ORDER.indexOf(it.tier); if (t > best || (t === best && it.type !== 'consumable' && infoOf(bk).type === 'consumable')) { best = t; bk = k; } }
+  if (bk == null) return;
+  const tier = TIER_ORDER[best];
+  if (glow && best >= 1) glow.material.color.setHex(GLOW[tier] || 0xffd24a);
+  if (BEAMS[tier]) { const bm = new THREE.Mesh(beamGeo(tier), beamMat(tier)); bm.renderOrder = 5; bm.userData.beam = tier; g.add(bm); }
+  const m = model(bk); if (!m) return;
+  for (const o of m.children.slice()) if (o.material && o.material.userData.stand) m.remove(o);
+  const bb = new THREE.Box3().setFromObject(m), sz = bb.getSize(new THREE.Vector3()), sc = 0.8 / Math.max(sz.x, sz.y, sz.z, 0.01);
+  m.scale.setScalar(sc); m.position.y = 1.15; m.rotation.y = (hash(bk) % 628) / 100; m.rotation.z = (best >= 0 && infoOf(bk).type === 'weapon') ? 0.5 : 0; g.add(m);
+  if (label) label.position.y = 1.65;
+}
+
 // ---------- contact sheet (debug): all baked icons in a grid with names ----------
 function sheet(opts = {}) {
   const keys = opts.keys || allKeys().filter(k => icons.has(k)), cell = opts.cell || 128, cols = opts.cols || 8, lab = 16, rows = Math.ceil(keys.length / cols);
@@ -1248,5 +1267,5 @@ function showSheet(opts) {
   const c = sheet(opts); c.style.cssText = 'max-width:100%;height:auto'; d.appendChild(c); d.onclick = () => d.remove(); document.body.appendChild(d); return d;
 }
 
-const GKART = window.GKART = { model, bake, icon, sheet, showSheet, canon, keys: allKeys, drawCalls, bakeMs: 0, ICON, tune, count: () => icons.size, stats: () => lastBake };
+const GKART = window.GKART = { model, bake, icon, dropLook, sheet, showSheet, canon, keys: allKeys, drawCalls, bakeMs: 0, ICON, tune, count: () => icons.size, stats: () => lastBake };
 export default GKART;
