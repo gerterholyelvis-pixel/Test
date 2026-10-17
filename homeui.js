@@ -112,7 +112,7 @@
     if (!doc.getElementById('huCss')) { const st = ce('style'); st.id = 'huCss'; st.textContent = CSS; doc.head.appendChild(st); }
     const scr = ce('div', 'hu hu-screen'); scr.id = 'gkHome'; scr.setAttribute('role', 'dialog'); scr.setAttribute('aria-label', 'Elixir Screen');
     scr.innerHTML = '<div class="hu-win"><div class="hu-head"><div class="hu-ttl">ELIXIR SCREEN</div><div class="hu-purse"></div></div><div class="hu-tabs" role="tablist"></div><div class="hu-body"></div>'
-      + '<div class="hu-foot"><div class="hu-msg" aria-live="polite"></div><div class="hu-keys">1 2 3 TABS &nbsp; ARROWS MOVE &nbsp; ENTER BUY &nbsp; ESC CLOSE</div><button class="hu-close">CLOSE (ESC)</button></div></div>';
+      + '<div class="hu-foot"><div class="hu-msg" aria-live="polite"></div><div class="hu-keys">1 2 3 TABS &nbsp; ARROWS MOVE &nbsp; ENTER BUY &nbsp; E CLOSE</div><button class="hu-close">CLOSE (E)</button></div></div>';
     root.appendChild(scr);
     const purse = scr.querySelector('.hu-purse'), tabsEl = scr.querySelector('.hu-tabs'), body = scr.querySelector('.hu-body'), msgEl = scr.querySelector('.hu-msg');
     const ctr = ce('div', 'hu hu-ctr', DROP + '<span class="v">0</span><small></small>'); ctr.setAttribute('aria-label', 'Elixir');
