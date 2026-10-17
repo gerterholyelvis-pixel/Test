@@ -31,7 +31,7 @@ async function startServer(root, env) {
 function loadClientNet(root) {
   const src = fs.readFileSync(path.join(root, 'game.js'), 'utf8'), a = src.indexOf('// NET-BEGIN'), b = src.indexOf('// NET-END', a);
   if (a < 0 || b < 0) throw new Error('NET block not found in game.js');
-  const box = { __now: 0, actors: new Map(), P: { x: 0, z: 0 }, GK: { mode: 'play' }, me: 0, performance: null, document: { createElement: () => ({ style: {}, set textContent(v) {} }), body: { appendChild() {} } }, window: { GK_OFFLINE: false }, setInterval: () => 0, Math };
+  const box = { __now: 0, actors: new Map(), P: { x: 0, z: 0 }, GK: { mode: 'play', settings: {} }, location: { search: '' }, me: 0, performance: null, document: { createElement: () => ({ style: {}, set textContent(v) {} }), body: { appendChild() {} } }, window: { GK_OFFLINE: false }, setInterval: () => 0, Math };
   box.performance = { now: () => box.__now };
   const pre = 'const clamp = (v, a, b) => Math.max(a, Math.min(b, v)); const wrapPi = a => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };\n';
   const names = ['NETC', 'netSnap', 'netSample', 'netRenderT', 'netPong', 'netFixStep', 'srvNow'];
@@ -128,6 +128,7 @@ function replay(root, walkers, ob, rec, t0, end, o, M) {
       M.visual.push(T - bt);
     }
   }
+  if (o.debugC) console.error('NETC', JSON.stringify({ off: C.NETC.off, offPong: C.NETC.offPong, rtt: C.NETC.rtt, delay: C.NETC.delay, target: C.NETC.target, lagN: C.NETC.lagN, jit: C.NETC.jit }));
   return C;
 }
 // Deterministic model of the whole chain (seeded, no server): walkers send every sendMs, the server ticks every 50 ms (+- tickJit), snapshots are built like server.js does (entries stamped with age), the link is the same model as above. Used to tune and guard the client's interpolation without machine noise.
@@ -138,7 +139,11 @@ function model(o = {}) {
   const SO = 5000, t0 = 1000, end = t0 + secs * 1000;   // server clock = real + SO
   const walkers = Array.from({ length: n }, (_, i) => ({ id: i + 1, R: 1.2 + rnd() * 1.6, v: 4.2 + rnd() * 0.8, ph: rnd() * 6.28, cx: 0, cz: 0, up: link(), down: link(), rec: [], sent: [] }));
   const arrivals = [];   // moves reaching the server: { at, w, x, z, yaw }
-  for (const w of walkers) { for (let t = t0 + rnd() * sendMs; t < end; t += sendMs) { const [x, z, yaw] = pathAt(w, (t - t0) / 1000); const at = w.up(t); arrivals.push({ at, w, x: +x.toFixed(2), z: +z.toFixed(2), yaw: +yaw.toFixed(3), sent: t }); } for (let t = t0 + 500; t < end; t += 2000) { const at = w.up(t); arrivals.push({ at, w, ping: t }); } }
+  for (const w of walkers) {
+    const sends = []; for (let t = t0 + rnd() * sendMs; t < end; t += sendMs) sends.push({ t }); for (let t = t0 + 500; t < end; t += 2000) sends.push({ t, ping: true });
+    sends.sort((a, b) => a.t - b.t);   // the link keeps order, so feed it in send order
+    for (const q of sends) { const at = w.up(q.t); if (q.ping) arrivals.push({ at, w, ping: q.t }); else { const [x, z, yaw] = pathAt(w, (q.t - t0) / 1000); arrivals.push({ at, w, x: +x.toFixed(2), z: +z.toFixed(2), yaw: +yaw.toFixed(3), sent: q.t }); } }
+  }
   arrivals.sort((a, b) => a.at - b.at);
   let ai = 0; const upObs = [];
   for (let tk = t0 - 500; tk < end + 600; tk += 50) {
@@ -152,6 +157,7 @@ function model(o = {}) {
     }
   }
   const M = { visual: [], frames: 0, starve: 0, freeze: 0, pops: 0 }, obs = walkers.slice(0, Math.min(3, n));
+  if (o.hook) o.hook(walkers);
   for (const ob of obs) replay(root, walkers, ob, ob.rec, t0, end, o, M);
   return { scen: typeof o.scen === 'string' ? o.scen : JSON.stringify(o.scen), upObsP50: +pct(upObs, 0.5).toFixed(0), upObsP95: +pct(upObs, 0.95).toFixed(0), visualP50: +pct(M.visual, 0.5).toFixed(0), visualP95: +pct(M.visual, 0.95).toFixed(0), starvePct: +(100 * M.starve / Math.max(1, M.frames)).toFixed(2), freezePct: +(100 * M.freeze / Math.max(1, M.frames)).toFixed(2), popsPerMin: +(M.pops / (obs.length * (secs - 3.2) / 60)).toFixed(2) };
 }

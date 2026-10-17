@@ -220,7 +220,7 @@ function tickLoop() {
   const t = performance.now();
   if (tickPrev) { const d = t - tickPrev; TS.dn++; TS.dsum += d; TS.dsq += d * d; if (d > TS.dmax) TS.dmax = d; if (d > 75) TS.late++; TS.hist[Math.min(7, Math.floor(d / 25))]++; }   // measured interval between ticks: GK_DEBUG {botstat:1}.tick.{dn,dsum,dsq,dmax,late,hist}
   tickPrev = t;
-  const late = t - tickDue; if (late > 30) { lagUntil = Date.now() + 700; lagBonus = Math.min(late, 700) / 1000 * MAXV; }   // the event loop stalled (GC, another match, a loaded box): the moves that queued up arrive in one burst, let the speed budget cover the stall (applyMove)
+  const late = t - tickDue; if (late > 100) { lagUntil = Date.now() + 700; lagBonus = Math.min(late, 700) / 1000 * MAXV; }   // the event loop stalled (GC, another match, a loaded box): the moves that queued up arrive in one burst, let the speed budget cover the stall (applyMove)
   try { tickAll(); } catch (e) { console.error('tick', e); }
   tickDue += TICK_MS; const n = performance.now();
   if (tickDue < n - 2 * TICK_MS) { TS.skip++; tickDue = n; }   // stalled for more than 2 ticks: do not burst to catch up
@@ -685,6 +685,7 @@ const T0 = Date.now(), srvT = () => Date.now() - T0;   // server clock in ms, se
 const RSCALE = process.env.GK_DEBUG && +process.env.GK_REGEN_SCALE > 0 ? +process.env.GK_REGEN_SCALE : 1;   // GK_DEBUG only: speeds regeneration up for the tests
 const MAXV = 7.5 * Math.max(...G.SPEED) * G.MAX_ARMOR_SPEED * Math.max(1, ...G.CHARM_KEYS.map(k => G.charmEff(k, 'spd') || 1)) * 1.1, BUDGET = 1.0, SLACK = 0.3, MOVE_SLACK = 0.3;   // BALANCE: the fastest class multiplier comes from items.js SPEED (shared with the client)   // fastest goblin sprint (game.js) x 1.1; the distance a client may bank while idle; SLACK: bounds tolerance in m; MOVE_SLACK: extra distance per move (SECURITY: was 1.25 / 1.2 / 0.3 per move)
 const HIST_MS = 1000, REWIND_MAX = 200;
+const BURST = 2.0;   // PERF4: the bank a still player can hold: 200 ms of the speed limit. A TCP retransmit or a stalled event loop delivers 5 moves in one burst; with the old 1.0 m cap the burst was refused, the player rubber-banded and 15 of those in 10 s KICKED him (measured: 7 of 8 kicked at 2% loss). The average speed limit is unchanged; walls and doors are still checked in 0.2 m steps.
 const r1 = v => Math.round(v * 10) / 10, r2 = v => Math.round(v * 100) / 100, r3 = v => Math.round(v * 1000) / 1000;
 const PROP_R = 0.33;   // SOLID: the walker radius the server checks against prop footprints (game.js RAD is 0.45; the gap keeps a slide along an edge from being corrected)
 function inBounds(x, z) {   // inside a room of the grid, or inside one of the 16 attached rooms (not the void around them)
@@ -716,7 +717,7 @@ function applyMove(m, ws, p, x, z, yaw, now, jy) {   // {m:[x,z,yaw]}: accept, o
   x = clamp(x); z = clamp(z); yaw = Math.max(-1e3, Math.min(1e3, yaw));
   const dt = p.mvAt ? Math.min(0.5, (now - p.mvAt) / 1000) : 0.066; p.mvAt = now; const prevRoom = p.room;
   const hv = !!(p.carry && p.carry.heavy);   // ACT5: a carried coin sack: 70% of the walk (x1.3 for jitter), no sprint, and a small slack so the limit holds over time (the normal 0.3 m slack would allow 9 m/s at 15 messages a second)
-  p.budget = Math.min(hv ? 0.8 : BUDGET + (now < lagUntil ? lagBonus : 0),(p.budget == null ? BUDGET : p.budget) + dt * (hv ? Math.min(MAXV, walkOf(p) * 0.7 * 1.3) : MAXV) * (now < (p.tonicUntil || 0) + 500 ? G.ITEMS['x:tonic'].n : 1) * (G.charmEff(p.inv.charm, 'spd') || 1));   // UTILITY: a speed tonic raises the movement allowance
+  p.budget = Math.min(hv ? 0.8 : BURST + (now < lagUntil ? lagBonus : 0),(p.budget == null ? BUDGET : p.budget) + dt * (hv ? Math.min(MAXV, walkOf(p) * 0.7 * 1.3) : MAXV) * (now < (p.tonicUntil || 0) + 500 ? G.ITEMS['x:tonic'].n : 1) * (G.charmEff(p.inv.charm, 'spd') || 1));   // UTILITY: a speed tonic raises the movement allowance
   const dist = Math.hypot(x - p.x, z - p.z);
   if (dist > 0.0005 && (dist > p.budget + (hv ? 0.08 : MOVE_SLACK) || !pathOk(m, p.x, p.z, x, z, p))) {
     if (now - (p.fixAt || 0) > 150) { p.fixAt = now; sendTo(ws, { fix: [r2(p.x), r2(p.z)] }); if (!p.lockDeny && secFix(p, ws, now)) return false; }   // ELIXIR: a Door Lock refusal is not a speed-hack correction
@@ -760,7 +761,7 @@ function snapshots(m) {   // {s:[t, id,x,z,yaw,speed,age, ...]} with the players
     if (q.resync) { if (buf > SNAP_BACKLOG / 4) continue; q.resync = false; let s = '{"s":[' + t; for (const o of m.players.values()) if (o !== q && !o.npc) s += ',' + fmt(o); ws.send(s + ']}'); continue; }
     const nb = nearOf(q.room); let s = '{"s":[' + t;
     if (moved) for (let i = 0; i < moved.length; i++) { const p = moved[i]; if (p !== q && (!nb || nb.has(p.room))) s += ',' + fmt(p); }
-    if (far) for (let i = 0; i < far.length; i++) { const p = far[i]; if (p !== q && nb && !nb.has(p.room)) s += ',' + fmt(p); }
+    if (far) for (let i = 0; i < far.length; i++) { const p = far[i]; if (p !== q && nb && !nb.has(p.room)) s += ',' + fmt(p); }   // far entries ride in the same message (their age field already says how old they are)
     if (s.length > 6 + tl) ws.send(s + ']}');
   }
   if (moved && m.specs.size) { let s = '{"s":[' + t; for (const p of moved) s += ',' + fmt(p); s += ']}'; for (const ws of m.specs.keys()) sendTo(ws, s); }   // FUN: spectators get every mover
