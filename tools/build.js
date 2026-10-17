@@ -1,5 +1,5 @@
 // RELEASE: production build (npm run build). Minifies every client script into dist/ and writes a content-hashed copy of each one next to it.
-//   node tools/build.js [--out dist] [--fast]      (--fast: lower Brotli quality, for the tests)
+//   node tools/build.js [--out dist] [--fast] [--no-vendor]      (--fast: lower Brotli quality; --no-vendor: skip minifying three.js; both for the tests)
 // Layout of dist/:
 //   index.html               the page; <script src> tags point at the hashed files and the import map remaps every "/x.js" module specifier to "/x.<hash>.js",
 //                            so import('/game.js') and friends load the hashed file without touching the game code
@@ -13,7 +13,7 @@
 const fs = require('fs'), path = require('path'), crypto = require('crypto'), zlib = require('zlib');
 const ROOT = path.join(__dirname, '..');
 const arg = (k, d) => { const i = process.argv.indexOf('--' + k); return i < 0 ? d : (process.argv[i + 1] && !process.argv[i + 1].startsWith('--') ? process.argv[i + 1] : true); };
-const OUT = path.resolve(ROOT, String(arg('out', 'dist'))), FAST = !!arg('fast', false);
+const OUT = path.resolve(ROOT, String(arg('out', 'dist'))), FAST = !!arg('fast', false), NO_VENDOR = !!arg('no-vendor', false);   // --no-vendor: keep three.js unminified (tests)
 const sha = b => crypto.createHash('sha256').update(b).digest('hex');
 
 // the client files: server.js's CLIENT_JS allow-list (root *.js) plus every client/**/*.js module
@@ -58,7 +58,7 @@ async function build() {
   }
   // three.js: minified copies under a versioned folder (immutable); the addons stay at /three/addons/ and import the same 'three' through the import map
   let threeUrl = null;
-  try {
+  if (!NO_VENDOR) try {
     const tv = JSON.parse(fs.readFileSync(path.join(ROOT, 'node_modules/three/package.json'), 'utf8')).version, dir = 'vendor/three-' + tv;
     fs.mkdirSync(path.join(OUT, dir), { recursive: true });
     for (const f of ['three.module.js', 'three.core.js']) {
