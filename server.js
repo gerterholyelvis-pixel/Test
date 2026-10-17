@@ -1809,10 +1809,10 @@ function fight6(m, p, t, now, dt, hold) {   // one fight tick by botgoals fightP
   if (!plan.flank && Math.abs(nx - px) + Math.abs(nz - pz) > 0.15) b.strafe = -b.strafe;   // a wall in the way: orbit the other way
   let ax = t.x, az = t.z;
   if (cb.bolt) { const fl = Math.min(1.4, d / BOLT.speed) * L.lead; ax += e.vx * fl; az += e.vz * fl; }   // lead a moving goblin with the slow bolt
-  if (!mv(m, p, nx, nz, yawTo({ x: nx, z: nz }, ax, az) + (Math.random() - 0.5) * L.aim, now)) { BS.bad++; b.strafe = -b.strafe; return; }
+  if (!mv(m, p, nx, nz, yawTo({ x: nx, z: nz }, ax, az) + (b.wide6 && now < b.wide6.until ? b.wide6.off : (Math.random() - 0.5) * L.aim), now)) { BS.bad++; b.strafe = -b.strafe; return; }
   const dn = Math.hypot(t.x - nx, t.z - nz);   // swing as soon as a swing would land from where it stands now (a player clicks the moment the foe is in reach)
   if ((plan.swing || (ready <= 0 && dn <= reach - 0.05)) && !hold && Math.random() < 0.9 && dn <= reach) {
-    if (Math.random() < L.miss) mv(m, p, nx, nz, yawTo(p, t.x, t.z) + (Math.random() < 0.5 ? -1 : 1) * (1.5 + Math.random() * 0.5), now);   // FAIR: a swing aimed wide on purpose (per level)
+    if (Math.random() < L.miss) { const off = (Math.random() < 0.5 ? -1 : 1) * (1.5 + Math.random() * 0.5); b.wide6 = { until: now + 400, off: yawTo(p, t.x, t.z) + off - yawTo({ x: nx, z: nz }, ax, az) }; mv(m, p, nx, nz, yawTo(p, t.x, t.z) + off, now); }   // FAIR: a swing aimed wide on purpose (per level); the aim stays wide through COMBAT4's contact frame (re-aiming next tick turned every miss into a hit)
     const was = p.atkAt; attack(m, null, p, now);
     if (p.atkAt === now && was !== now) { if (behind) S.behind++; if (swung && BG.readyIn(now, t.atkAt, fcb.cd || 600) > 0 && (style === 'heavy' || style === 'brawler')) S.window++; if (plan.flank || (behind && style === 'quick')) S.flank++; }
   }
