@@ -176,8 +176,8 @@ function flankSide(px, pz, tx, tz, tyaw) {
 }
 
 // ---- one fight decision. o: {style, d, reach (my hit reach, m), foeReach, foeRanged, ready (ms until I can swing), foeReady (ms until the foe can),
-// behind (I am behind it now), wantFlank (the per-engagement flank roll), useWindow (the per-engagement whiff-punish roll), kite (kite roll),
-// waited (ms I have been hovering for a window), rangeD (the archer's preferred range), orbitR (the brawler's orbit), hold (FAIR: stand off at holdR), holdR}
+// behind (I am behind it now), wantFlank (the per-engagement flank roll: Sneaks only), useWindow (the per-engagement spacing roll, only once the foe has swung), kite (kite roll),
+// waited (unused, kept for callers), rangeD (the archer's preferred range), orbitR (the brawler's orbit), hold (FAIR: stand off at holdR), holdR}
 // -> {R: wanted distance, lat: share of the step that goes sideways, swing: swing now if it would land, flank: circle to the back, sprint: close fast, back: step away}
 function fightPlan(o) {
   const out = { R: o.orbitR || 1.5, lat: 0.85, swing: false, flank: false, sprint: false, back: false };
