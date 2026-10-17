@@ -129,5 +129,218 @@ function persona(r) {
   return { skill: 0.2 + 0.7 * r(), coop: r(), homeBody: r(), spoil: r() < 0.22, tree: 0.6 + 0.8 * r(), heist: 0.6 + 0.8 * r() };
 }
 
-const BG = { K, roomTerm, vaultWant, vaultVote, stepFactor, tapNow, pressOk, lantern, standPoint, inReach, watch, allDist, craftValue, persona };
+// =====================================================================================================================================
+// BOTS6 (docs/reports/bots6.md): skill levels, fight spacing by weapon family, consumables at the right moment, target judgement,
+// claim timing, danger checks and sends. Pure: every input is a small plain object built by server.js (the BOTS6 block), every
+// random roll comes in as a number. Nothing here reads more than a human could know: what the bot saw, heard or was told.
+// =====================================================================================================================================
+
+// ---- skill levels (PLAN-fun feature 8): one table of parameters, no extra code paths.
+// notice: ms before a newcomer is noticed; miss: share of deliberate misses; react: re-decide interval [lo, hi] ms; aim: yaw error (rad, +-);
+// skill: timing-press skill (null = personality); spoil: sabotage share; sends: chance a send is worth it; mem: ms a sighting is remembered;
+// hear: metres a fight is heard through walls; hesitate: chance of a short pause per decision; flank / window / kite: how often the bot uses
+// the family tactic (flanking with daggers, waiting out a swing, kiting with bows); items: how often it uses a consumable when one would help;
+// dodge: chance it steps out of a bomb or a telegraphed send; third: appetite for finishing a goblin someone else wore down; tokens: heist weight; lead: how well it leads a moving goblin with a slow bolt.
+const LEVELS = {
+  easy:   { name: 'easy',   notice: 1200, miss: 0.45, react: [380, 650], aim: 0.30, skill: 0.25, spoil: 0,    sends: 0,    mem: 2500, hear: 7,  hesitate: 0.08, flank: 0.1, window: 0.25, kite: 0.35, items: 0.45, dodge: 0.25, third: 0.3, tokens: 0.5, lead: 0.2 },
+  normal: { name: 'normal', notice: 700,  miss: 0.30, react: [220, 420], aim: 0.18, skill: null, spoil: 0.22, sends: 0.45, mem: 4000, hear: 10, hesitate: 0.04, flank: 0.6, window: 0.7,  kite: 0.8,  items: 0.85, dodge: 0.65, third: 0.7, tokens: 1, lead: 0.6 },
+  hard:   { name: 'hard',   notice: 450,  miss: 0.15, react: [150, 300], aim: 0.10, skill: 0.8,  spoil: 0.30, sends: 0.9,  mem: 6000, hear: 14, hesitate: 0.02, flank: 0.9, window: 0.95, kite: 1,    items: 1,    dodge: 0.9,  third: 1,   tokens: 1.1, lead: 0.9 },
+};
+const lvlOf = n => LEVELS[n] || LEVELS.normal;
+// the level of the i-th bot of a match: a fixed name, or 'mix' (easy, normal, hard in turn: the sim measures them side by side)
+function lvlFor(mode, i) { if (mode === 'mix') return ['easy', 'normal', 'hard'][((i | 0) % 3 + 3) % 3]; return LEVELS[mode] ? mode : 'normal'; }
+
+// ---- fight style by weapon: cb = items.js combat(key) ({dmg, range, cd, ranged, bolt?, bleed?}), fam = the weapon family.
+// caster: wands and staves throw slow bolts (keep distance); archer: bows, crossbows, slings, knives (kite); poke: long reach (spears,
+// halberds, whips: hit from the edge of the reach); heavy: slow swings (hammers, flails, ogre clubs: wait for the foe to whiff, then commit);
+// quick: daggers (flank, stab from behind); brawler: everything else (orbit, punish whiffs).
+function styleOf(cb, fam) {
+  if (!cb) return 'brawler';
+  if (cb.bolt) return 'caster';
+  if (cb.ranged) return 'archer';
+  if (cb.range >= 2.55 || fam === 'spear' || fam === 'halberd' || fam === 'whip') return 'poke';
+  if (cb.cd >= 850) return 'heavy';
+  if (cb.cd <= 460 || fam === 'dagger') return 'quick';
+  return 'brawler';
+}
+// ms until a goblin can swing again (from the swing it was SEEN to make: every swing is broadcast)
+const readyIn = (now, atkAt, cd) => Math.max(0, (atkAt || 0) + (cd || 600) * 0.9 - now);
+// is (px, pz) behind a goblin at (tx, tz) facing tyaw? The same test server.js hitTarget uses for the Sneak's backstab.
+const isBehind = (px, pz, tx, tz, tyaw) => (px - tx) * -Math.sin(tyaw || 0) + (pz - tz) * -Math.cos(tyaw || 0) < -0.3 * Math.hypot(px - tx, pz - tz);
+// the spot d metres behind a goblin
+const behindPoint = (tx, tz, tyaw, d) => [tx + Math.sin(tyaw || 0) * d, tz + Math.cos(tyaw || 0) * d];
+// which way to circle to get behind: +1 / -1 in the bot's strafe convention (lateral = (-rz, rx) of the unit vector toward the target)
+function flankSide(px, pz, tx, tz, tyaw) {
+  const [bx, bz] = behindPoint(tx, tz, tyaw, 1), rx = tx - px, rz = tz - pz;
+  return (-rz) * (bx - px) + rx * (bz - pz) >= 0 ? 1 : -1;
+}
+
+// ---- one fight decision. o: {style, d, reach (my hit reach, m), foeReach, foeRanged, ready (ms until I can swing), foeReady (ms until the foe can),
+// behind (I am behind it now), wantFlank (the per-engagement flank roll), useWindow (the per-engagement whiff-punish roll), kite (kite roll),
+// waited (ms I have been hovering for a window), rangeD (the archer's preferred range), orbitR (the brawler's orbit), hold (FAIR: stand off at holdR), holdR}
+// -> {R: wanted distance, lat: share of the step that goes sideways, swing: swing now if it would land, flank: circle to the back, sprint: close fast, back: step away}
+function fightPlan(o) {
+  const out = { R: o.orbitR || 1.5, lat: 0.85, swing: false, flank: false, sprint: false, back: false };
+  if (o.hold) { out.R = o.holdR || 3.6; out.lat = 0.5; return out; }
+  const inReach = o.d <= o.reach - 0.05, ready = o.ready <= 0, foeMelee = !o.foeRanged, foeArmed = o.foeReady <= 120;
+  switch (o.style) {
+    case 'caster': case 'archer':
+      out.R = o.rangeD || 6.5; out.lat = 0.7;
+      if (o.kite && foeMelee && o.d < Math.max(3.5, o.foeReach + 1.4)) { out.back = true; out.sprint = o.d < o.foeReach + 0.6; out.lat = 0.35; }   // a melee foe closing in: back off first
+      out.swing = ready && o.d <= o.reach;
+      return out;
+    case 'poke': {
+      const edge = o.reach - 0.3;
+      out.R = foeMelee && o.foeReach < edge - 0.25 ? Math.max(o.foeReach + 0.35, edge - 0.15) : edge;   // outside his reach, inside mine
+      out.lat = 0.6; out.swing = ready && inReach;
+      if (!ready && foeMelee && foeArmed && o.d < o.foeReach + 0.2) out.back = true;   // reloading inside his reach: step out
+      return out;
+    }
+    case 'heavy':
+      if (!foeMelee || !o.useWindow) { out.R = 1.3; out.lat = 0.6; out.swing = ready && inReach; return out; }
+      if (!ready) { out.R = Math.max(o.foeReach + 0.5, 2.7); out.lat = 0.7; return out; }   // my hammer is still coming round: stay out of his reach
+      if (!foeArmed || o.waited > 1400) { out.R = 1.2; out.lat = 0.25; out.sprint = o.d > 2.2; out.swing = inReach; return out; }   // he just swung (or we waited long enough): commit
+      out.R = o.foeReach + 0.4; out.lat = 0.8; return out;   // both ready: hover at the edge of his reach and wait for him to whiff
+    case 'quick':
+      out.R = 1.1; out.lat = 0.9; out.swing = ready && inReach;
+      if (o.wantFlank && !o.behind) { out.flank = true; out.R = 1.3; out.lat = 1; out.swing = ready && inReach && o.d < 1.3; }   // circle to his back; swing at the back (or point blank)
+      if (!ready && foeMelee && foeArmed && o.d < o.foeReach) { out.back = true; out.R = o.foeReach + 0.3; }
+      return out;
+    default:   // brawler
+      out.R = o.orbitR || 1.5; out.swing = ready && inReach;
+      if (o.useWindow && foeMelee) {
+        if (ready && foeArmed && o.waited < 1200 && o.foeReach >= o.reach - 0.2) { out.R = o.foeReach + 0.35; out.swing = false; out.lat = 0.85; }   // wait for his swing
+        else if (ready && !foeArmed) { out.R = 1.2; out.sprint = o.d > 2.3; out.swing = inReach; }   // he is reloading: step in
+        else if (!ready && foeArmed && o.d < o.foeReach) { out.back = true; out.R = o.foeReach + 0.35; }
+      }
+      return out;
+  }
+}
+
+// ---- weapon value for equip and loot: damage per hit blended with damage per second (a swing that lands counts most), plus bleed, reach and range.
+// it = the item, cb = combat(key). A staff that throws a 36 bolt is worth more than a 15 club; a dagger is not worth twice a sword.
+function weaponScore(it, cb) {
+  if (!it || it.type !== 'weapon' || !cb) return -1;
+  const dmg = cb.bolt || Math.max(1, it.attack || 0), cd = Math.max(250, cb.cd || 600);
+  let s = dmg * (0.5 + 0.5 * 600 / cd);
+  if (cb.bleed) s += cb.bleed[0] * cb.bleed[1] * 0.6;
+  if (cb.ranged || cb.bolt) s *= 1.1; else if (cb.range >= 2.55) s *= 1.08;
+  return s;
+}
+// armour for a fighting style: items.js armorScore weighs health, speed (1% ~ 2% health) and thorns (1 ~ 6 health); kiters and flankers value speed more,
+// brawlers and heavy hitters thorns. it = item {health, speed, thorns}.
+function armorFor(it, style) {
+  if (!it || it.type !== 'armor') return -1;
+  const sp = (it.speed || 1) - 1, kite = style === 'archer' || style === 'caster' || style === 'quick', melee = style === 'brawler' || style === 'heavy';
+  return it.health * (1 + (kite ? 3 : 2) * sp) + (it.thorns || 0) * (melee ? 8 : 4);
+}
+// which charm to wear: c = {hp, spd, dmg, gold, know, bribe} effects of one charm; who = {aggr, greed, caution, style}
+function charmScore(c, who) {
+  if (!c) return -1;
+  let s = 0;
+  if (c.hp) s += c.hp * (0.15 + 0.15 * (who.caution || 0));
+  if (c.spd) s += (c.spd - 1) * 30 * (who.style === 'archer' || who.style === 'caster' || who.style === 'quick' ? 1.4 : 0.9);
+  if (c.dmg) s += (c.dmg - 1) * 30 * (0.6 + 0.8 * (who.aggr || 0));
+  if (c.gold) s += (c.gold - 1) * 6 * (who.greed || 0);
+  if (c.know) s += (c.know - 1) * 2;
+  if (c.bribe) s += (1 - c.bribe) * 3 * (who.greed || 0);
+  return s;
+}
+
+// ---- consumables: what to use NOW (one item per decision). o = {hp, max, sudden, foes (seen in the last second, this room), near (m to the closest),
+// hurtAgo (ms since the last hit), fleeing, pursued (a foe follows within 7 m), foeRanged, atDoor (within 2.5 m of the doorway it runs for),
+// chase (the target runs and is low), cluster (foes within 2.5 m of where a bomb would land, 6 m ahead), still (that target is busy: claiming,
+// channeling or fighting someone else), homeGuard (at its own home in the home phase, near the hatch, the arena about to open),
+// heal (the HP of the best heal item, 0 = none), regen, smoke, bomb, trap, tonic, recall (have one), roll (0..1), items (level share)}
+// -> 'heal' | 'regen' | 'smoke' | 'bomb' | 'trap' | 'tonic' | 'recall' | null
+function useNow(o) {
+  if (o.roll > o.items) return null;   // a weaker bot forgets its pockets now and then
+  const f = o.hp / Math.max(1, o.max), miss = o.max - o.hp, quiet = (!o.foes || o.near > 7) && o.hurtAgo > 2500;
+  if (!o.sudden && o.heal > 0) {
+    if (f < 0.3 && (o.near > 3 || o.hurtAgo > 1500)) return 'heal';   // emergency: drink when not being hit this very moment
+    if (quiet && miss >= o.heal * 0.8) return 'heal';                  // patch up when safe, without wasting the potion
+  }
+  if (!o.sudden && o.regen && !o.foes && o.hurtAgo > 3500 && miss >= 10) return 'regen';   // a hit would end it: only when alone
+  if (o.fleeing) {
+    if (o.smoke && (o.foeRanged || o.near < 5) && o.foes) return 'smoke';
+    if (o.trap && o.atDoor && o.pursued) return 'trap';
+    if (o.tonic && o.pursued) return 'tonic';
+    if (o.recall && !o.sudden && f < 0.35 && o.near > 6) return 'recall';
+  }
+  if (o.bomb && (o.cluster >= 2 || (o.cluster >= 1 && o.still))) return 'bomb';
+  if (o.tonic && o.chase) return 'tonic';
+  if (o.trap && o.homeGuard) return 'trap';
+  return null;
+}
+
+// ---- target judgement on top of server.js pickTarget. o = {claimant (it is gaining the crown now), leader (it leads the crown claims), worn (someone else
+// hit it in the last 2 s), hp (its HP fraction), truce (a live truce with it), traitor (it broke a truce), hitMe (it hit me lately), third (level appetite)}
+// -> {adj (metres added to the score, negative = preferred), force (take it on even if it looks stronger), skip}
+function targetAdj(o) {
+  const out = { adj: 0, force: false, skip: false };
+  if (o.truce && !o.hitMe && !o.traitor) { out.skip = true; return out; }
+  if (o.claimant) { out.adj -= 6; out.force = true; }                 // the crown claimant wins the match if nobody stops him
+  else if (o.leader) out.adj -= 2;
+  if (o.worn && o.hp < 0.45) { out.adj -= 3 * (o.third || 0); if (o.hp < 0.3 && o.third >= 0.5) out.force = true; }   // finish a goblin someone else wore down
+  if (o.traitor) { out.adj -= 4; out.force = true; }
+  return out;
+}
+
+// ---- the crown: stand on the dais and claim now? o = {round, sudden, sudRound, hp (fraction), foes (other goblins seen in the vault), onDais (another goblin
+// is on the dais), mine (my claim ms), top (the best claim ms of anyone else), msLeft, aggr, wardens}
+function claimNow(o) {
+  if (o.onDais) return true;                                          // 2 on the dais freeze his claim
+  if (o.sudden) return o.hp > 0.25;
+  if (o.hp < 0.4) return false;
+  if (o.wardens >= 2 && o.hp < 0.7) return false;
+  if (!o.foes) return o.round >= 2;                                   // nobody here: bank claim time (it is cumulative)
+  if (o.round >= o.sudRound - 1) return o.hp > 0.5 || o.top > o.mine;   // late: the crown decides the match
+  return o.aggr > 0.6 && o.hp > 0.7;
+}
+
+// ---- leave this room now? o = {send (kind of a send telegraphed or running here: gas | rats | bell | spike | jam | leech), home (it is my home),
+// hp, wardens, vault, claiming, alarm (heist alarm here), heistRisk (noise / resonance 0..100), vented, sudden}
+// -> a reason string or null
+function danger(o) {
+  if (o.send === 'gas') return 'gas';
+  if (o.send === 'rats' && (!o.home || o.hp < 0.4)) return 'rats';
+  if (o.send === 'bell' && !o.vault) return 'bell';
+  if (o.vault && o.wardens >= 2 && o.hp < 0.45 && !o.sudden && !o.claiming) return 'wardens';
+  if ((o.alarm || o.heistRisk > 75) && o.hp < 0.5) return 'alarm';
+  return null;
+}
+
+// ---- a bomb landing near me: step out? b = {x, z, r}; px, pz = me. Returns the unit escape vector [x, z] or null.
+function bombDodge(b, px, pz) {
+  const dx = px - b.x, dz = pz - b.z, d = Math.hypot(dx, dz);
+  if (d > (b.r || 2.5) + 0.6) return null;
+  return d < 0.05 ? [1, 0] : [dx / d, dz / d];
+}
+
+// ---- give up a chase? A bot that has run after the same goblin for long without landing a hit lets it go (no grief loops, no endless chases).
+// o = {chaseMs, dealt (damage dealt to it in this engagement), fled (it left the room at least once), human}
+const giveUp = o => o.chaseMs > (o.human ? 9000 : 14000) && o.dealt < 5 || (o.fled >= 2 && o.chaseMs > 6000);
+
+// ---- a "Truce?" from a goblin (parley wheel, PLAN-fun 5): accepted with 0.7 - aggression (easier for easy bots, harder for hard ones). r = roll.
+const truceAccept = (aggr, lvl, r) => r < Math.max(0.05, 0.7 - (aggr || 0) + (lvl === 'easy' ? 0.15 : lvl === 'hard' ? -0.1 : 0));
+
+// ---- a sendable worth its elixir: homes = [{room, owner, kills, claim (crown claim s), dead, hops, me (it is my own)}], o = {elixir, round, reserve, sends (level share), roll}
+// -> {id, room} or null. A Pump Leech on the leader's home (crown claim, then kills), else on a close neighbour.
+function sendPick(homes, o) {
+  if (o.round < 2 || o.roll > o.sends || o.elixir < 20 + (o.reserve || 0)) return null;
+  let best = null, bs = -1e9;
+  for (const h of homes || []) {
+    if (h.dead || h.me) continue;
+    const s = (h.claim || 0) * 0.6 + (h.kills || 0) * 2 - (h.hops || 0) * 0.4;
+    if (s > bs) { bs = s; best = h; }
+  }
+  return best ? { id: 'leech', room: best.room } : null;
+}
+
+// ---- where to go next by memory: rooms where goblins were seen or heard lately (instead of knowing where everyone is).
+// seen = {room: ms of the last sighting / sound}, now, mem (level ms) -> weight 0..1 for the room
+const memWeight = (seen, room, now, mem) => { const t = seen && seen[room]; if (!t) return 0; const a = now - t; return a >= mem * 4 ? 0 : 1 - a / (mem * 4); };
+
+const BG = { K, roomTerm, vaultWant, vaultVote, stepFactor, tapNow, pressOk, lantern, standPoint, inReach, watch, allDist, craftValue, persona,
+  LEVELS, lvlOf, lvlFor, styleOf, readyIn, isBehind, behindPoint, flankSide, fightPlan, weaponScore, armorFor, charmScore, useNow, targetAdj, claimNow, danger, bombDodge, giveUp, truceAccept, sendPick, memWeight };
 module.exports = BG;
