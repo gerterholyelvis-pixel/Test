@@ -243,12 +243,15 @@ export const LAYOUT = { BX: 4.7, LZ: 3.9, RZ: -3.9 };
 const BX = LAYOUT.BX, LZ = LAYOUT.LZ, RZ = LAYOUT.RZ;
 const shiftA = (anchors, B, L, R) => { const mv = (names, dx, dz) => { for (const n of names) { const a = anchors[n]; if (!a) continue; for (const o of Array.isArray(a) ? a : [a]) { o.x += dx; o.z += dz; } } }; mv(B, BX, 0); mv(L, 0, LZ); mv(R, 0, RZ); };
 const A = (x, z, r = 0.6, y = 0, extra) => ({ x, y, z, r, ...extra });
+// VBX (docs/reports/vaultbreaker-depth.md): the extra station spots S1..S4 (world.js ACT_LOCAL.vb / VB_SOLIDS) and the Keystone's ritual plates G1..G4 around S2
+export const XSPOTS = [{ id: 'S1', x: -6.4, z: -4.8 }, { id: 'S2', x: 6.4, z: -4.8 }, { id: 'S3', x: -6.4, z: 3.8 }, { id: 'S4', x: 6.8, z: 3.4 }];
 /** Fixed footprints, identical for all four skins (the plan's anchor geometry): a few circles per solid box. */
 export function vaultbreakerSolids() {
   return [
     { id: 'B', x: BX - 0.8, z: HZ - 0.5, r: 0.58 }, { id: 'B', x: BX, z: HZ - 0.5, r: 0.58 }, { id: 'B', x: BX + 0.8, z: HZ - 0.5, r: 0.58 },
     { id: 'L', x: -HX + 0.6, z: LZ, r: 0.72 }, { id: 'R', x: HX - 0.6, z: RZ, r: 0.72 },
     { id: 'FL', x: -3, z: -HZ + 2, r: 0.6 }, { id: 'FR', x: 3, z: -HZ + 2, r: 0.6 },
+    ...XSPOTS.map(s => ({ id: s.id, x: s.x, z: s.z, r: 0.65 })),   // VBX: the four extra stations (EXTRAS below), the same for every skin
   ];
 }
 /** room-local solids -> world circles for a room at (cx, cz) turned by rotY (same rotation as `group.rotation.y`). */

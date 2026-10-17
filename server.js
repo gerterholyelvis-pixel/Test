@@ -639,7 +639,7 @@ function bribe(m, p) {   // bribe: pay gold at your room's panel for +1 weight o
   if ((m.bribes[p.room] || 0) >= BRIBE.max) return 'max';
   const cost = Math.round(BRIBE.cost * (G.charmEff(p.inv.charm, 'bribe') || 1));   // USE2: Silver Tongue
   if (p.gold < cost) return 'gold';
-  p.gold -= cost; m.bribes[p.room] = (m.bribes[p.room] || 0) + 1; sendGold(p); A5.bribe(m, cost); broadcastRound(m);   // ACT5: half of it goes into the Counting House strongbox
+  p.gold -= cost; m.bribes[p.room] = (m.bribes[p.room] || 0) + 1; sendGold(p); A5.bribe(m, cost, p); broadcastRound(m);   // ACT5: half of it goes into the Counting House strongbox (VBX: the payer goes in its ledger)
   return null;
 }
 function crownTick(m, now) {   // crown: stand on the vault dais for CROWN_MS without being hurt and you win the match
