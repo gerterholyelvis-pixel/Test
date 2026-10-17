@@ -218,7 +218,7 @@
       for (const c of (cls === 'any' ? shuf(mids).concat(shuf(cands)) : shuf(cands).concat(shuf(mids)))) {   // wall pieces try the walls first, then the open floor (drawn as an island); 'any' pieces prefer the open floor and leave the walls to the others
         const cs = rectCircles('hall:' + h, c.x, c.z, c.fx, c.fz);
         if (!cs.every(q => clearOK(i, q.x, q.z, q.r) && Math.abs(q.x) > 2.35 + q.r && Math.abs(q.z) > 2.35 + q.r && Math.abs(q.x) + q.r <= hx0 + 0.01 && Math.abs(q.z) + q.r <= hz0 + 0.01 && [hx0 - Math.abs(q.x) - q.r, hz0 - Math.abs(q.z) - q.r].every(w => w < 0.35 || w >= 1.0) && !taken.some(o => { const g = Math.hypot(o.x - q.x, o.z - q.z) - o.r - q.r; return g < 0.05 || (g > 0.35 && g < 1.0); }))) continue;   // gaps between props are either closed (<= 0.35 m) or wide enough to walk through (>= 1 m)
-        for (const q of cs) { q.h = h; q.art = true; loc.push(q); taken.push(q); }
+        for (const q of cs) { q.piece = h; q.art = true; loc.push(q); taken.push(q); }   // piece: the hall furniture name (h is the prop's top height, set by climbTag)
         pieces.push({ h, x: c.x, z: c.z, yaw: c.yaw, hx: c.fx, hz: c.fz, spot: sk ? { id: i + ':' + n, kind: sk } : null }); break;
       }
     });

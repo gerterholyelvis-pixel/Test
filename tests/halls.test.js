@@ -26,7 +26,7 @@ const seeded = seed => () => { seed = (seed * 1664525 + 1013904223) >>> 0; retur
           assert(!W.inProp(s.sx, s.sz, 0.33, null), 'stand point of ' + s.id + ' is free of props');
           assert(Math.hypot(s.sx - s.x, s.sz - s.z) <= s.r + 1.4, 'stand point of ' + s.id + ' is within reach of the spot');
         }
-        const isHall = p => typeof p.h === 'string';   // main's crates carry a numeric h (height)
+        const isHall = p => typeof p.piece === 'string';
         for (const p of solids) assert(Math.abs(p.x - cx) <= hw + 0.01 && Math.abs(p.z - cz) <= hd + 0.01 || !isHall(p), 'prop ' + p.k + ' in hall ' + i + ' inside the room');
         const hall = solids.filter(isHall); assert(hall.length >= 3, 'hall ' + i + ' has furniture'); for (const p of hall) for (const q of solids) if (p !== q) assert(Math.hypot(p.x - q.x, p.z - q.z) >= Math.min(p.r, q.r) * 0.9 || p.h === q.h, 'hall prop overlaps another prop in ' + i);
       }
