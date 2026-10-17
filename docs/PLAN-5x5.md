@@ -85,6 +85,8 @@ Fairness check: every home's cell is an edge cell next to a corner, with 3 arena
   - It never appears on a panel and never counts for the door guard.
 - **Loot door:** a loot room has exactly one door, which is its exit for the door guard. For the arena cell outside it is **no** exit (the loot room is a dead end): a corner cell with only its two loot doors open counts as locked in, and the guard opens one of its arena doors.
 
+- **Doors stay open (docs/reports/doors-persist.md):** once a door opens it stays open for the rest of the match. Votes only add doors. Only a vault bar shuts one, and only until the round ends. A hatch is shut in round 1 and open from round 2. Round 2 opens nothing else, so every home's hall starts closed and its panel picks the first way out. A loot room is reached through its parent cell's panel.
+
 ### 1.5 The 20 attached rooms
 - **Homes (positions 2 and 4):** 10x10, with the doorway on the arena side. Contents along the back wall:
   - a **normal workbench**
@@ -415,6 +417,7 @@ It keeps working:
 - `VAULT` = the doors of `WORLD.VAULT_KEY`.
 - Every `'4'` literal becomes `VK` (11 in server.js, 1 in doorguard.js, 4 in game.js, 2 in feel.js).
 - **Open-door check:** `isOpen(m, d) = WORLD.alwaysOpen(d) || m.open.includes(d)`. It is used by `pathOk`, `bfsPath`, `reach`, `follow`, `doorClamp` and the guard. Sudden death and showdown keep `m.open = all ids`.
+- **Persistent doors (docs/reports/doors-persist.md):** a door that opened stays open for the rest of the match, whatever opened it (vote, Broken vault door, crown alarm, Crowbar, Door Wedge, guard, PACE). At the round end `m.open` = the old set + this round's doors + `m.shut`. `m.shut` holds the vault doors barred from inside this round (a finished bar takes its door out of `m.open` at once; the round end puts it back). A vote on a door that is already open is ignored, and bots never cast one. The experimental `doorclose` rule keeps the old closing doors.
 - **`inBounds`:** inside the grid, or inside one of the 20 attached rects (`WORLD.attachedAt(x, z)`).
 
 ### 5.2 Spawns, rounds, votes
@@ -423,13 +426,14 @@ It keeps working:
 - **Sudden death and max rounds:** `SUDDEN_ROUND = 5`, `MAX_ROUND = 7`.
 - **Pacing:** `PACE.income` goes from 10 to **20** per round (there are fewer, longer rounds). Merchant price growth stays at +10% per round after round 2.
 - **Votes:** one pick per occupied room, as today. Arena rooms have 2-4 votable doors and loot rooms have 1. Homes and hatches are not votable.
-  - `paceNoDoor` (a dead round opens one door) stays and excludes hatches.
+  - `paceNoDoor` (a round where nobody picked opens one door) stays. It excludes hatches and doors that are already open, and it does not run at the end of round 1.
 - **Vault tally:** `vaultVotes` is the sum over rooms whose pick is a vault door, `1 + (keystone ? 1 : 0) + bribes + picked`. Opening needs ≥ 2. Rammed doors are added after the vote.
 - **Exit guarantee** (doorguard.js):
   - `trapped(room, isOpenFn, roomDoors, vaultDoors, skip)` skips **homes** (their doorway is always open, and the trap check moves to the arena cell outside) and the vault.
-  - `isExit` excludes hatches. So a hall whose only open way is the hatch back home counts as trapped and gets an arena door after `TRAP_MS`. A goblin can never be stuck in home + cell for 2 minutes.
+  - `isExit` excludes hatches. So a hall whose only open way is the hatch back home counts as trapped and gets an arena door after `TRAP_MS`. From round 3 a goblin is never stuck in home + cell; round 2 is the exception below.
   - **Round 1:** everyone steps from home into their cell. 5 s later the guard opens one arena door per occupied cell. Round 1 is never dead.
   - **Superseded by the home phase (docs/reports/home-phase.md):** round 1 is spent at home with every hatch shut and the guard exempt; round 2 opens the hatches and one exit per occupied home's cell at once.
+  - **Superseded by persistent doors (docs/reports/doors-persist.md):** round 2 is the **hall round**: the hatches open and nothing else (no PACE door, no cell exit). The guard skips homes and the 8 home cells for round 2 only (each hall votes its way out at its panel; the pick opens at the round end). From round 3 the guarantee above holds again.
 - **Dev fast-forward:** `{dbgFF:1}` is honoured only if `DBG && m.phase === 'play' && m.started && !m.ended`. It sets `m.endsAt = Math.min(m.endsAt, now + 10000)` and calls `broadcastRound(m)`. Otherwise it is ignored silently (and counted by the security fuzz).
 - **New match state:**
   - `m.layout` (16)

@@ -40,7 +40,7 @@ function cached(key, file, type) {
   return e;
 }
 const missUntil = new Map();   // PERF4: url key -> time the remembered miss expires
-const CLIENT_JS = new Set(['game', 'menu', 'items', 'combat4', 'world', 'save', 'stats', 'statsui', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'act5ui', 'fskeep', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)
+const CLIENT_JS = new Set(['game', 'menu', 'items', 'combat4', 'world', 'save', 'stats', 'statsui', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'wbui', 'act5ui', 'fskeep', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)
 let CSP = '';
 function buildCsp() {   // the page has two inline scripts (importmap + module): allowed by hash, so no 'unsafe-inline' for scripts
   const page = cached('/index.html', path.join(ROOT_DIR, 'index.html'), 'text/html; charset=utf-8'), hashes = [];
@@ -127,6 +127,12 @@ for (const d of WORLD.DOORS) DOOR_AT[d.a + '|' + d.b] = DOOR_AT[d.b + '|' + d.a]
 const homeShut = m => m.round === 1;   // HOME PHASE (docs/reports/home-phase.md): round 1 is spent at home, every home's hatch is shut until round 2 starts
 const isOpen = (m, d) => WORLD.alwaysOpen(d) ? !homeShut(m) : m.open.includes(d);   // a home's hatch is open from round 2 on, whatever m.open says (never voted, never pried)
 const isHatch = d => WORLD.alwaysOpen(d);
+// DOORS-PERSIST (docs/reports/doors-persist.md): a door that opened (vote, heist, alarm, Crowbar, Door Wedge, guard, PACE, showdown) stays open for the rest of the match.
+// m.open is what stands open right now: the persistent set minus m.shut, the vault doors barred from inside this round (they reopen at the round end).
+// Round 2 is the cell round: the hatches open and nothing else; each home's cell votes its way out (the guard leaves the home cells alone in round 2).
+// The experimental 'doorclose' rule (GK_RULES) brings back doors that close after DOOR_LIFE rounds.
+const CELL_ROUND = 2, HOME_CELLS = new Set(WORLD.HOME_IDS.map(id => String(WORLD.CHEST[id].parent)));
+const everOpen = (m, d) => m.open.includes(d) || (!!m.shut && m.shut.includes(d));   // open for good (barred or not): a vote on it is wasted
 const isArena = k => typeof k === 'string' && /^\d{1,2}$/.test(k) && +k < WORLD.NARENA;
 const isHome = k => typeof k === 'string' && k[0] === 'c' && !!WORLD.CHEST[+k.slice(1)] && WORLD.CHEST[+k.slice(1)].home;
 const parentCell = k => isHome(k) ? String(WORLD.CHEST[+k.slice(1)].parent) : k;   // a home's arena cell (the door guard counts a goblin at home as an occupant of it)
@@ -168,7 +174,7 @@ function newMatch() {
 }
 const VAULT = ROOM_DOORS[VK] || []; // the 4 doors touching the middle vault room
 const vaultVotes = m => { const rooms = Object.keys(m.sel).filter(k => VAULT.includes(m.sel[k])); return (rule('bribe') ? rooms.reduce((n, k) => n + 1 + ((m.bribes && m.bribes[k]) || 0), 0) : rooms.length) + rooms.filter(k => m.picked && m.picked[k]).length + A5.voteExtra(m); };   /* ACT5: + Keystone armed, net writs, Cracked doors (vb5.js heistVotes) */ // distinct rooms selecting a vault door (bribe rule: each room weighs 1 + its bribes)
-const roundState = m => ({ round: { n: m.round, left: Math.max(0, m.endsAt - Date.now()), dur: m.dur }, sel: m.sel, selBy: m.selBy || {}, lastSel: m.lastSel || {}, open: m.open, vaultVotes: vaultVotes(m), fizzled: m.fizzled || [], relic: m.relicKey && !m.relicTaken ? m.relicKey : null, ...(m.sudden ? { sudden: 1 } : null), ...(m.showdown && !m.sudden ? { showdown: 1 } : null), ...(homeShut(m) ? { homeLock: 1 } : null), ...A5.roundFields(m), ...ruleState(m) });   // vb: task B (vaultbreaker assignment)
+const roundState = m => ({ round: { n: m.round, left: Math.max(0, m.endsAt - Date.now()), dur: m.dur }, sel: m.sel, selBy: m.selBy || {}, lastSel: m.lastSel || {}, open: m.open, ...(m.shut && m.shut.length ? { shut: m.shut } : null), vaultVotes: vaultVotes(m), fizzled: m.fizzled || [], relic: m.relicKey && !m.relicTaken ? m.relicKey : null, ...(m.sudden ? { sudden: 1 } : null), ...(m.showdown && !m.sudden ? { showdown: 1 } : null), ...(homeShut(m) ? { homeLock: 1 } : null), ...A5.roundFields(m), ...ruleState(m) });   // vb: task B (vaultbreaker assignment)
 const broadcastRound = m => bcast(m, roundState(m));
 const matchInfo = m => { let lo = Infinity, hi = -Infinity, n = 0, alive = 0; for (const p of m.players.values()) { if (p.npc) continue; n++; lo = Math.min(lo, p.wins); hi = Math.max(hi, p.wins); if (p.entered && !p.dead) alive++; } return { size: n, minWins: n ? lo : 0, maxWins: n ? hi : 0, alive }; };   // mystery enemies never count
 const broadcastMatch = m => bcast(m, { match: matchInfo(m) });
@@ -214,7 +220,7 @@ function tickAll() { // steps every match (scheduled by the TICK block below)
     if (!m.started) m.endsAt = now + m.dur;   // round 1 waits until someone has left the wheel and entered the rooms
     if (now >= m.endsAt) {
       const picked = [...new Set(Object.values(m.sel))], ok = vaultVotes(m) >= 2; // vault doors need 2 different rooms
-      const fresh = A5.doors(m, paceNoDoor(m, picked.filter(d => ok || !VAULT.includes(d))), now); m.open = useOpen(m, ruleOpen(m, fresh)); m.fizzled = ok ? [] : picked.filter(d => VAULT.includes(d)); m.lastSel = { ...m.sel }; m.sel = {}; m.selBy = {}; m.bribes = {}; m.round++; m.dur = NEXT_MS; m.endsAt = now + m.dur; suddenCheck(m); homeOpen(m); paceRound(m); lootRound(m); A5.round(m, now); broadcastRound(m); m.lastRound = now; }
+      const votes = picked.filter(d => ok || !VAULT.includes(d)), fresh = A5.doors(m, homeShut(m) ? votes : paceNoDoor(m, votes), now); m.open = useOpen(m, ruleOpen(m, fresh)); m.fizzled = ok ? [] : picked.filter(d => VAULT.includes(d) && !m.open.includes(d)); m.lastSel = { ...m.sel }; m.sel = {}; m.selBy = {}; m.bribes = {}; m.round++; m.dur = NEXT_MS; m.endsAt = now + m.dur; suddenCheck(m); paceRound(m);   /* DOORS-PERSIST: the end of round 1 has no PACE door: round 2 opens the hatches and nothing else (no panel can be reached from a home; only a GK_DEBUG teleport makes a round-1 pick) */ lootRound(m); A5.round(m, now); broadcastRound(m); m.lastRound = now; }
     else if (now - m.lastRound >= 1000) { m.lastRound = now; broadcastRound(m); }
     // COMBAT-BEGIN regen: 1 HP every 4 s once a player has not been hit for 6 s. SUDDEN DEATH: only inside THE VAULT (the sanctuary everyone converges on), nowhere else.
     for (const p of m.players.values()) if ((!m.sudden || p.room === VK) && p.entered && !p.dead && p.stats && p.stats.health < p.stats.maxHealth && now - (p.hurtAt || 0) >= C.regenIdle * RSCALE * G.goblinRegen(p.goblin).idle && now - (p.regenAt || 0) >= C.regenEvery * RSCALE * G.goblinRegen(p.goblin).every) { p.regenAt = now; p.stats.health = Math.min(p.stats.maxHealth, p.stats.health + C.regenAmt); m.dirty = true; }
@@ -465,7 +471,7 @@ function dbgFF(m, now) {   // the dev fast-forward button: honoured only under G
 }
 function suddenCheck(m) {   // right after m.round++ (the round that just ended is m.round - 1)
   if (m.ended) return;
-  if (m.round > SUDDEN_ROUND) { m.sudden = true; m.open = Array.from({ length: nDoors }, (_, i) => i); m.openLeft = {}; m.fizzled = []; }
+  if (m.round > SUDDEN_ROUND) { m.sudden = true; m.open = Array.from({ length: nDoors }, (_, i) => i); m.shut = []; m.openLeft = {}; m.fizzled = []; }
   if (m.round > MAX_ROUND) timeLimit(m);
 }
 function timeLimit(m) {
@@ -487,7 +493,7 @@ function paceBounty(p, t) {   // the killer takes half of the victim's gold plus
 }
 function paceNoDoor(m, fresh) {   // a round that would open nothing at all (nobody picked) opens one outer door of a room that holds somebody, so a round is never dead time
   if (fresh.length || m.sudden || rule('doorclose')) return fresh;
-  const cand = r => (ROOM_DOORS[r] || []).filter(d => !VAULT.includes(d) && !isHatch(d));   // never a vault door, never a home's hatch (it is open anyway)
+  const cand = r => (ROOM_DOORS[r] || []).filter(d => !VAULT.includes(d) && !isHatch(d) && !everOpen(m, d));   // never a vault door, never a home's hatch (it is open anyway); DOORS-PERSIST: a door still shut
   const rooms = [...new Set([...m.players.values()].filter(q => !q.npc && q.entered && !q.dead).map(q => parentCell(q.room)))].filter(r => cand(r).length);
   const ds = rooms.length ? cand(rooms[Math.floor(Math.random() * rooms.length)]) : [];
   return ds.length ? [ds[Math.floor(Math.random() * ds.length)]] : fresh;
@@ -496,7 +502,7 @@ function paceRound(m) {   // right after m.round++: round income for everyone st
   if (m.ended || m.round < 2) return;
   for (const q of m.players.values()) if (!q.npc && q.entered && !q.dead) { q.gold = (q.gold || 0) + Math.round(PACE.income * goldMul(q)); sendGold(q); }
   if (!m.sudden && !m.showdown && m.round >= 3 && (m.enteredEver || 0) >= 4 && matchInfo(m).alive <= PACE.showdownAt) m.showdown = true;
-  if (m.showdown && !m.sudden) { m.open = Array.from({ length: nDoors }, (_, i) => i); m.openLeft = {}; m.fizzled = []; }
+  if (m.showdown && !m.sudden) { m.open = Array.from({ length: nDoors }, (_, i) => i); m.shut = []; m.openLeft = {}; m.fizzled = []; }
 }
 // PACE-END
 // GUARD-BEGIN (docs/reports/door-guard.md): every occupied room except the vault keeps an open exit to a non-vault neighbour. After TRAP_MS without one, the room's own pick (else a random door of it) unlocks and stays open until the round ends. A goblin stuck inside a prop is moved to the nearest free spot.
@@ -516,10 +522,10 @@ function guardTick(m, now) {
     } else p.stuckAt = 0;
   }
   const since = m.trapSince;
-  const op = d => isOpen(m, d);
-  for (const k of Object.keys(since)) if (!occ.has(k) || !GUARD.trapped(k, op, ROOM_DOORS, VAULT)) delete since[k];
+  const op = d => isOpen(m, d), go = guardOpts(m);
+  for (const k of Object.keys(since)) if (!occ.has(k) || !GUARD.trapped(k, op, ROOM_DOORS, VAULT, go)) delete since[k];
   for (const [room, ps] of occ) {
-    if (!GUARD.trapped(room, op, ROOM_DOORS, VAULT)) continue;
+    if (!GUARD.trapped(room, op, ROOM_DOORS, VAULT, go)) continue;
     if (since[room] == null) { since[room] = now; for (const [ws, p] of ps) if (isHum(p)) sendTo(ws, { exitHint: { ms: TRAP_MS } }); }
     else if (now - since[room] >= TRAP_MS) {
       const d = GUARD.pickExit(room, m.sel, ROOM_DOORS, VAULT);
@@ -530,12 +536,9 @@ function guardTick(m, now) {
     }
   }
 }
-function homeOpen(m) {   // HOME PHASE: right after m.round++ into round 2 every hatch opens (isOpen), and each occupied home's arena cell gets one exit at once (its round-1 pick, else a random non-vault door), so nobody waits TRAP_MS in the cell; the guard and PACE take over from here
-  if (m.ended || m.round !== 2 || m.sudden) return;
-  const cells = new Set(); for (const p of m.players.values()) if (!p.npc && p.entered && !p.dead) cells.add(parentCell(p.room));
-  for (const c of cells) { if (!GUARD.trapped(c, d => isOpen(m, d), ROOM_DOORS, VAULT)) continue; const d = GUARD.pickExit(c, m.lastSel, ROOM_DOORS, VAULT); if (d >= 0 && !m.open.includes(d)) m.open = m.open.concat(d); }
-  if (m.fizzled) m.fizzled = m.fizzled.filter(d => !m.open.includes(d));
-}
+// DOORS-PERSIST: round 2 (the cell round) opens only the hatches, so home + cell is every goblin's own pocket for that round: the guard leaves the home cells alone then
+// (their panel votes the way out, it opens at the round end). From round 3 a home cell whose only open way is its hatch is trapped again and gets a door after TRAP_MS.
+const guardOpts = m => m.round === CELL_ROUND && !m.sudden && !m.showdown ? { skip: k => isHome(k) || HOME_CELLS.has(k) } : undefined;
 // GUARD-END
 
 // COMBAT-BEGIN (server-authoritative melee/ranged attacks, kills and the DEFAULT win rule: last goblin standing; see docs/FEATURES.md)
@@ -706,7 +709,8 @@ function weapons3Tick(m, now) {
 // RULES-LOGIC-BEGIN (the four experimental rules; every function is a no-op unless its rule is on)
 const ruleState = m => RULES.size ? { rules: [...RULES], ...(rule('bribe') ? { bribes: m.bribes || {} } : null), ...(rule('doorclose') ? { openLeft: Object.fromEntries((m.open || []).filter(d => m.openLeft && m.openLeft[d]).map(d => [d, m.openLeft[d]])) } : null) } : null;
 function ruleOpen(m, fresh) {   // doorclose: the doors stay open for DOOR_LIFE rounds (m.openLeft counts the rounds still to go), a door picked again is refreshed
-  if (!rule('doorclose')) return fresh;
+  if (!rule('doorclose')) { const all = [...new Set([...(m.open || []), ...(m.shut || []), ...fresh])]; m.shut = []; return all; }   // DOORS-PERSIST (default): this round's doors join the ones already open, barred doors reopen
+  m.shut = [];
   const left = m.openLeft || {}, next = {}, keep = [];
   for (const d of m.open || []) if ((left[d] || 1) - 1 > 0) { next[d] = left[d] - 1; keep.push(d); }
   for (const d of fresh) { next[d] = DOOR_LIFE; if (!keep.includes(d)) keep.push(d); }
@@ -1233,7 +1237,7 @@ function voteDoor(m, p, now, except) {   // weighted pick of a door of this room
   let tot = 0;
   for (const d of doors) {
     const o = DOOR_ROOMS[d][0] === p.room ? DOOR_ROOMS[d][1] : DOOR_ROOMS[d][0]; let w;
-    if (d === except || isHatch(d)) w = 0;   // 5x5: a home's hatch is never voted on
+    if (d === except || isHatch(d) || (!rule('doorclose') && everOpen(m, d))) w = 0;   // 5x5: a home's hatch is never voted on; DOORS-PERSIST: nor a door that is open for good
     else if (o === VK) w = (m.round > 3 ? 7 : 0.4) * (hurt ? 0.5 : 1);   // late rounds: the vault (not when wounded)
     else if (o[0] === 'c') {
       const id = +o.slice(1), L = m.layout[id], my = m.mystery[id];
@@ -1242,7 +1246,7 @@ function voteDoor(m, p, now, except) {   // weighted pick of a door of this room
       else if (L === 'chest') w *= p.claimed && p.claimed.has(id) ? 0.3 : hurt ? 2.5 : 1;   // wounded bots want a quiet chest room
       else if (L === 'mystery' && my && my.kind === 'enemy') w *= hurt ? 0.25 : 1;
     } else w = 1 + (m.round > 3 && DIST_V[o] < DIST_V[p.room] ? 3 : 0);
-    if (p.bot && !isHatch(d) && d !== except) w = b5Vote(m, p, d, o, w);   // BOTS5: the 2-room vault rule, doors toward the bot's goal
+    if (p.bot && !isHatch(d) && d !== except && (rule('doorclose') || !everOpen(m, d))) w = b5Vote(m, p, d, o, w);   // BOTS5: the 2-room vault rule, doors toward the bot's goal
     ws.push(w); tot += w;
   }
   if (!doors.length || tot <= 0) return;
@@ -1503,7 +1507,7 @@ function vote5(m, p, now) {   // every ~1.5 s: vote in each room the bot passes 
   const t0 = process.hrtime.bigint(), S = st5(m), room = p.room;
   try {
     if (m.sel[room] == null && b.votedRound === m.round && b.vr5[room] !== m.round && now - (p.roomAt || 0) > 2000 + b.patience * 4000 && !humanIn(m, room)) { b.vr5[room] = m.round; voteDoor(m, p, now); }   // a second room this round gets a pick too
-    const vd = (ROOM_DOORS[room] || []).find(d => VAULT.includes(d)); if (vd == null) return;
+    const vd = (ROOM_DOORS[room] || []).find(d => VAULT.includes(d)); if (vd == null || (!rule('doorclose') && everOpen(m, vd))) return;   // DOORS-PERSIST: an open vault door needs no vote
     let others = 0; for (const k in m.sel) if (k !== room && VAULT.includes(m.sel[k])) others++;
     if (others >= 1 && m.sel[room] !== vd && b.coop5 !== m.round && (b.v5 || 0) > 2 && !b.p5.spoil && !(m.sealed && m.sealed[room]) && !humanIn(m, room) && (m.sel[room] == null || [...m.players.values()].some(q => q.bot && q.id === m.selBy[room]))) {
       b.coop5 = m.round; m.sel[room] = vd; m.selBy[room] = p.id; S.coop++; broadcastRound(m);   // co-op: a second room's vault vote completes the rule
@@ -1666,7 +1670,7 @@ function botTick(m, now) {   // ~10 Hz per match
 // {use: slot} from a quick slot or the backpack. The item is only spent when the effect applies; a refused use answers {useFail: reason}. Success answers {used: {key, slot, ...}} to the user.
 const USE_CD = 500, TOSS_FLY = 600, BOMB_FUSE = 1000, MAX_CLOUDS = 6;
 const inSmoke = (m, q, now) => { for (const s of m.smokes || []) if (s.room === q.room && now >= s.from && now <= s.until && Math.hypot(q.x - s.x, q.z - s.z) <= s.r) return true; return false; };
-function useOpen(m, open) {   // a round ends: wedged doors stay open for the next round, seals and lockpicks are spent
+function useOpen(m, open) {   // a round ends: wedged doors open (DOORS-PERSIST: for good), seals and lockpicks are spent
   const keep = (m.wedged || []).filter(d => !open.includes(d));
   m.wedged = []; m.sealed = {}; m.picked = {}; m.pried = []; m.pried = [];
   return keep.length ? open.concat(keep) : open;
@@ -1705,7 +1709,7 @@ function useItem(m, p, slot, now) {   // returns null or a failure reason
     case 'wedge': {
       if (m.sudden) return 'sudden';
       let best = null, bd = it.r; m.wedged = m.wedged || [];
-      for (const e of ADJ[p.room] || []) { if (!m.open.includes(e.door) || VAULT.includes(e.door) || isHatch(e.door) || m.wedged.includes(e.door)) continue; const d = Math.hypot(e.w1[0] - p.x, e.w1[1] - p.z); if (d <= bd) { bd = d; best = e; } }
+      for (const e of ADJ[p.room] || []) { if (everOpen(m, e.door) || VAULT.includes(e.door) || isHatch(e.door) || m.wedged.includes(e.door)) continue; const d = Math.hypot(e.w1[0] - p.x, e.w1[1] - p.z); if (d <= bd) { bd = d; best = e; } }   // DOORS-PERSIST: a wedge goes into a SHUT door, which opens for good at the round end (useOpen)
       if (!best) return 'door';
       m.wedged.push(best.door); extra = { door: best.door }; break;
     }
@@ -1773,7 +1777,7 @@ function use2(m, p, it, now) {
       let best = null, bd = it.r;
       for (const e of ADJ[p.room] || []) { if (isOpen(m, e.door) || VAULT.includes(e.door) || isHatch(e.door)) continue; const d = Math.hypot(e.w1[0] - p.x, e.w1[1] - p.z); if (d <= bd) { bd = d; best = e; } }
       if (!best) return 'door';
-      m.open = m.open.concat(best.door); (m.pried = m.pried || []).push({ door: best.door, until: now + it.ms }); broadcastRound(m); return { door: best.door, ms: it.ms };
+      m.open = m.open.concat(best.door); if (rule('doorclose')) (m.pried = m.pried || []).push({ door: best.door, until: now + it.ms }); broadcastRound(m); return rule('doorclose') ? { door: best.door, ms: it.ms } : { door: best.door };   // DOORS-PERSIST: pried open for good (it slams shut after it.ms only under the doorclose rule)
     }
     case 'ward': if (p.ward && p.ward.until > now) return 'busy'; p.ward = { until: now + it.ms }; return { ms: it.ms };
     case 'know': {
@@ -2376,6 +2380,7 @@ wss.on('connection', (ws, req) => {
       }
     } else if (Number.isInteger(d.sel) && d.sel >= 0 && d.sel < nDoors && !isHatch(d.sel) && (ROOM_DOORS[p.room] || []).includes(d.sel)) {
       if (m.sealed && m.sealed[p.room]) sendTo(ws, { sealBlock: 1 });   // UTILITY: sealing wax
+      else if (!rule('doorclose') && everOpen(m, d.sel)) {}   // DOORS-PERSIST: that door is open for good already, a vote on it would be wasted
       else if (m.sel[p.room] !== d.sel) { m.sel[p.room] = d.sel; (m.selBy || (m.selBy = {}))[p.room] = p.id; broadcastRound(m); }
     }
   }
