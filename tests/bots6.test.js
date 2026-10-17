@@ -33,20 +33,20 @@ const dg = o => BG.danger(Object.assign({ send: null, home: false, hp: 1, warden
       assert(!plan({ style: 'poke', reach: 3.4, d: 3.6 }).swing, 'no swing out of reach');
       assert(plan({ style: 'poke', reach: 3.4, foeReach: 2.5, d: 2.3, ready: 400, foeReady: 0 }).back, 'reloading inside his reach: back');
     }],
-    ['hammer: waits outside his reach while reloading, hovers while both are ready, commits right after he whiffs (or after waiting too long)', () => {
-      const reload = plan({ style: 'heavy', ready: 500, foeReach: 2.85 }); assert(reload.R >= 2.85 + 0.5 && !reload.swing, 'reload outside: ' + reload.R);
-      const hover = plan({ style: 'heavy', ready: 0, foeReady: 0, d: 3.2 }); assert(hover.R > 2.85 && !hover.swing, 'hover at the edge');
-      const go = plan({ style: 'heavy', ready: 0, foeReady: 500, d: 3.2 }); assert(go.R <= 1.3 && go.sprint && !go.swing, 'he just swung: close in');
-      assert(plan({ style: 'heavy', ready: 0, foeReady: 500, d: 2.0 }).swing, 'and swing once in reach');
-      assert(plan({ style: 'heavy', ready: 0, foeReady: 0, waited: 2000, d: 2.0 }).swing, 'waited long enough: commit');
-      assert(plan({ style: 'heavy', ready: 0, useWindow: false, d: 2.0 }).swing, 'a hammer without the window habit just swings');
-      assert(plan({ style: 'heavy', ready: 0, foeRanged: true, d: 2.0 }).swing, 'against a shooter: no waiting');
+    ['hammer: steps out of his reach while reloading, moves to the edge of its own reach when ready, commits right after he swings', () => {
+      const reload = plan({ style: 'heavy', ready: 500, foeReach: 2.85, d: 2.0 }); assert(reload.back && reload.sprint && reload.R >= 2.85 + 0.3 && !reload.swing, 'reload: out ' + JSON.stringify(reload));
+      const outside = plan({ style: 'heavy', ready: 500, foeReach: 2.85, d: 3.2 }); assert(!outside.back && outside.R > 2.85, 'already outside: wait there');
+      const edge = plan({ style: 'heavy', ready: 0, foeReady: 0, d: 3.2 }); assert(edge.R < 2.85 && !edge.swing, 'ready: to the edge of the reach');
+      assert(plan({ style: 'heavy', ready: 0, foeReady: 0, d: 2.7 }).swing, 'and swing the moment he is in it');
+      const go = plan({ style: 'heavy', ready: 0, foeReady: 500, d: 3.2 }); assert(go.R <= 1.6 && go.sprint && !go.swing, 'he just swung: close in');
+      assert(plan({ style: 'heavy', ready: 0, useWindow: false, d: 2.0 }).swing, 'a hammer without the spacing habit just swings');
+      const sh = plan({ style: 'heavy', ready: 300, foeRanged: true, d: 4 }); assert(sh.R <= 1.2 && sh.sprint && !sh.back, 'against a shooter: get on him');
     }],
-    ['dagger: circles to the back (flank), swings from behind or point blank; without the flank roll it just stabs', () => {
-      const f = plan({ style: 'quick', d: 1.8, behind: false }); assert(f.flank && f.lat === 1 && !f.swing, 'circling: ' + JSON.stringify(f));
-      assert(plan({ style: 'quick', d: 1.2, behind: false }).swing, 'point blank');
+    ['dagger: a Sneak circles to the back (flank) and stabs whenever in reach; without the flank roll it just stabs', () => {
+      const f = plan({ style: 'quick', d: 1.8, behind: false }); assert(f.flank && f.lat === 1 && f.swing && f.R <= 1.4, 'circling: ' + JSON.stringify(f));
       const bh = plan({ style: 'quick', d: 1.6, behind: true }); assert(!bh.flank && bh.swing, 'behind: stab');
       assert(plan({ style: 'quick', d: 1.8, wantFlank: false }).swing && !plan({ style: 'quick', d: 1.8, wantFlank: false }).flank, 'no flank roll');
+      assert(plan({ style: 'quick', d: 2.0, ready: 200, foeReady: 0 }).back, 'reloading in his reach: out');
     }],
     ['bow and wand: keep range, back off a melee foe closing in (kite), shoot when ready; no kiting from another shooter', () => {
       const k = plan({ style: 'archer', d: 2.5, reach: 12, foeReach: 2.85 }); assert(k.back && k.swing && k.R >= 5, 'kite and shoot: ' + JSON.stringify(k));
@@ -55,12 +55,12 @@ const dg = o => BG.danger(Object.assign({ send: null, home: false, hp: 1, warden
       assert(!plan({ style: 'archer', d: 2.5, reach: 12, kite: false }).back, 'no kite roll');
       assert(!plan({ style: 'archer', d: 5, reach: 12, ready: 300 }).swing, 'reloading');
     }],
-    ['brawler: waits for an active foe to swing, steps in while he reloads, backs out of his reach while reloading; the FAIR hold stands off', () => {
-      const w = plan({ style: 'brawler', ready: 0, foeReady: 0, d: 2.6 }); assert(!w.swing && w.R > 2.85, 'wait');
-      const s = plan({ style: 'brawler', ready: 0, foeReady: 400, d: 2.0 }); assert(s.swing && s.R <= 1.2, 'step in and swing');
+    ['brawler: swings when in reach, backs out of his reach while reloading if he can swing, stays close while he reloads too; the FAIR hold stands off', () => {
+      assert(plan({ style: 'brawler', ready: 0, foeReady: 0, d: 2.6 }).swing, 'in reach and ready');
       assert(plan({ style: 'brawler', ready: 300, foeReady: 0, d: 2.0 }).back, 'reloading in his reach: back out');
-      assert(plan({ style: 'brawler', ready: 0, foeReady: 0, waited: 1500, d: 2.0 }).swing, 'stop waiting after 1.2 s');
-      assert(plan({ style: 'brawler', ready: 0, useWindow: false, d: 2.0 }).swing, 'old-style orbit without the window');
+      const both = plan({ style: 'brawler', ready: 300, foeReady: 300, d: 2.0 }); assert(!both.back && both.R < 2.85, 'both reloading: stay in range');
+      eq(plan({ style: 'brawler', ready: 0, useWindow: false, d: 2.0, orbitR: 1.5 }).R, 1.5, 'old-style orbit without the spacing habit');
+      const sp = plan({ style: 'poke', ready: 0, reach: 3.45, foeReach: 2.5, d: 3.0 }); assert(sp.R > 2.5 && sp.swing, 'a pike outreaches a sword');
       eq(plan({ hold: true, holdR: 3.6 }).R, 3.6);
     }],
     ['behind test matches server.js hitTarget, the behind point is behind, the flank side turns toward it', () => {
@@ -86,7 +86,7 @@ const dg = o => BG.danger(Object.assign({ send: null, home: false, hp: 1, warden
       assert(BG.charmScore(magnet, { greed: 1 }) > BG.charmScore(magnet, { greed: 0 }), 'greedy: magnet');
     }],
     ['consumables: heal when safe without waste, drink in an emergency, never in sudden death; regen only alone', () => {
-      eq(use({ hp: 60, heal: 30, foes: 0 }), 'heal'); eq(use({ hp: 90, heal: 30 }), null, 'no waste'); eq(use({ hp: 60, heal: 30, foes: 1, near: 3, hurtAgo: 400 }), null, 'mid-fight at 60%: keep fighting');
+      eq(use({ hp: 60, heal: 30, foes: 0 }), 'heal'); eq(use({ hp: 90, heal: 30 }), null, 'no waste'); eq(use({ hp: 50, max: 100, heal: 60 }), 'heal', 'at half health a big potion is fine'); eq(use({ hp: 60, heal: 30, foes: 1, near: 3, hurtAgo: 400 }), null, 'mid-fight at 60%: keep fighting');
       eq(use({ hp: 20, heal: 30, foes: 1, near: 5, hurtAgo: 400 }), 'heal', 'emergency'); eq(use({ hp: 20, heal: 30, foes: 1, near: 1.5, hurtAgo: 200 }), null, 'not while being hit point blank');
       eq(use({ hp: 20, heal: 30, sudden: true }), null, 'useless in sudden death'); eq(use({ hp: 70, regen: true }), 'regen'); eq(use({ hp: 70, regen: true, foes: 1, near: 9 }), null, 'regen: alone only');
       eq(use({ hp: 20, heal: 30, roll: 0.9, items: 0.45 }), null, 'easy bots forget their pockets sometimes');

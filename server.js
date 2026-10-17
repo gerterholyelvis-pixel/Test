@@ -1461,6 +1461,7 @@ function style6(p) {   // the fighting style of the weapon in hand (a Sneak with
   const s = BG.styleOf(cb, it ? it.family : null), g = G.GOBLINS[p.goblin | 0];
   return s === 'brawler' && g && g.perk === 'backstab' ? 'quick' : s;
 }
+const sneak6 = p => { const g = G.GOBLINS[p.goblin | 0]; return !!g && g.perk === 'backstab'; };   // the Sneak's backstab: +50% from behind
 const aval6 = p => { const s = style6(p); return it => BG.armorFor(it, s); };
 function charm6(p) {   // wear the charm that suits the bot (or keep the one it has)
   const b = p.brain, who = { aggr: b.aggr, greed: b.greed, caution: b.caution, style: style6(p) }, sc = k => { const it = k && G.ITEMS[k]; return it && it.type === 'charm' ? BG.charmScore(it.eff, who) : -1; };
@@ -1498,7 +1499,7 @@ function fight6(m, p, t, now, dt, hold) {   // one fight tick by botgoals fightP
   const reach = cb.bolt ? cb.range : cb.range + C.slack + (cb.ranged ? 0 : G.goblinReach(p.goblin)) + (t.npc ? 0 : G.hitRadius(t.goblin) - G.HIT_R);   // the same sums attack() makes
   const foeReach = fRanged ? 12 : fcb.range + C.slack + (t.npc ? 0 : G.goblinReach(t.goblin)) + G.hitRadius(p.goblin) - G.HIT_R;
   let e = b.e6;
-  if (!e || e.id !== t.id) { e = b.e6 = { id: t.id, t0: now, flank: Math.random() < L.flank, win: Math.random() < L.window, kite: Math.random() < L.kite, w0: 0, hp0: t.stats.health, vx: 0, vz: 0, lx: t.x, lz: t.z, lt: now, kited: 0 }; S.styles[style] = (S.styles[style] || 0) + 1; }
+  if (!e || e.id !== t.id) { e = b.e6 = { id: t.id, t0: now, flank: sneak6(p) && Math.random() < L.flank, win: Math.random() < L.window, kite: Math.random() < L.kite, w0: 0, hp0: t.stats.health, vx: 0, vz: 0, lx: t.x, lz: t.z, lt: now, kited: 0 }; S.styles[style] = (S.styles[style] || 0) + 1; }
   if (now - e.lt >= 90) { const s = (now - e.lt) / 1000; e.vx = e.vx * 0.5 + (t.x - e.lx) / s * 0.5; e.vz = e.vz * 0.5 + (t.z - e.lz) / s * 0.5; e.lx = t.x; e.lz = t.z; e.lt = now; }   // his velocity, for leading a bolt
   if (!hold && BG.giveUp({ chaseMs: now - e.t0, dealt: e.hp0 - t.stats.health, fled: 0, human: isHum(t) }) && !(p.hitBy === t.id && now - (p.hurtAt || 0) < 4000)) { b.gu6[t.id] = now + 12000; b.tgt = null; b.e6 = null; S.gaveUp++; return; }   // no endless standoffs
   const swung = (t.atkAt || 0) >= e.t0, ready = BG.readyIn(now, p.atkAt, cb.cd), behind = BG.isBehind(p.x, p.z, t.x, t.z, t.yaw);   // every swing is broadcast: a player sees when his foe has just swung
@@ -1521,7 +1522,8 @@ function fight6(m, p, t, now, dt, hold) {   // one fight tick by botgoals fightP
   let ax = t.x, az = t.z;
   if (cb.bolt) { const fl = Math.min(1.4, d / BOLT.speed) * L.lead; ax += e.vx * fl; az += e.vz * fl; }   // lead a moving goblin with the slow bolt
   if (!mv(m, p, nx, nz, yawTo({ x: nx, z: nz }, ax, az) + (Math.random() - 0.5) * L.aim, now)) { BS.bad++; b.strafe = -b.strafe; return; }
-  if (plan.swing && !hold && Math.random() < 0.9 && Math.hypot(t.x - nx, t.z - nz) <= reach) {
+  const dn = Math.hypot(t.x - nx, t.z - nz);   // swing as soon as a swing would land from where it stands now (a player clicks the moment the foe is in reach)
+  if ((plan.swing || (ready <= 0 && dn <= reach - 0.05)) && !hold && Math.random() < 0.9 && dn <= reach) {
     if (Math.random() < L.miss) mv(m, p, nx, nz, yawTo(p, t.x, t.z) + (Math.random() < 0.5 ? -1 : 1) * (1.5 + Math.random() * 0.5), now);   // FAIR: a swing aimed wide on purpose (per level)
     const was = p.atkAt; attack(m, null, p, now);
     if (p.atkAt === now && was !== now) { if (behind) S.behind++; if (swung && BG.readyIn(now, t.atkAt, fcb.cd || 600) > 0 && (style === 'heavy' || style === 'brawler')) S.window++; if (plan.flank || (behind && style === 'quick')) S.flank++; }
@@ -1662,8 +1664,21 @@ function duel6Lab(m, o) {   // GK_DEBUG {duel6:{a:{w, arm, tac}, b:{w, arm, tac}
   });
   m.dirty = true; return { ids: out, room: key };
 }
+function bot6Lab(m, sender, o) {   // GK_DEBUG {bot6:{lvl, sure, give, at ('cell' = the bot's home cell, or [x, z]), hp, hurtAgo, send, bomb}}: set up the first living bot (tests/bots6-lab.test.js); replies its state
+  const p = [...m.players.values()].find(q => q.bot && !q.dead && q.entered), now = Date.now(); if (!p || !p.brain || !p.brain.tac6) return { err: 'bot' };
+  const b = p.brain; o = o && typeof o === 'object' ? o : {};
+  if (typeof o.lvl === 'string') { b.L6 = BG.lvlOf(o.lvl); b.lvl = b.L6.name; b.react = b.L6.react; }
+  if (o.sure) b.L6 = Object.assign({}, b.L6, { dodge: 1, items: 1 });   // no dice: the behaviour always fires
+  if (Array.isArray(o.give)) for (const k of o.give) if (G.ITEMS[k]) giveItem(p, k);
+  if (o.at) { const c = o.at === 'cell' ? RB[String(WORLD.CHEST[+p.home.slice(1)].parent)] : null, x = c ? c.cx + 1 : +o.at[0], z = c ? c.cz + 1 : +o.at[1], pr = p.room; place(p, x, z); noteRoom(m, p, pr); Object.assign(b, { route: [], g5: null, mode: '', tgt: null, idleUntil: now + 4000, pauseUntil: 0 }); }
+  if (Number.isFinite(o.hp)) { p.stats.health = Math.max(1, Math.min(p.stats.maxHealth, Math.round(o.hp))); p.hurtAt = now - (+o.hurtAgo || 0); }
+  if (typeof o.send === 'string' && HB.SENDS[o.send]) { m.sends = m.sends || []; m.sends.push({ kind: o.send, from: sender.id, room: p.room, warnAt: now, startsAt: now + HB.TELEGRAPH_MS, endsAt: now + 20000, id: (m.sendN = (m.sendN || 0) + 1), by: sender, byName: 'Lab' }); }
+  if (o.bomb) { m.bombs = m.bombs || []; m.bombs.push({ id: 9000 + (m.tossId = (m.tossId || 0) + 1), x: p.x + 0.8, z: p.z, room: p.room, from: now, at: now + 1500, by: sender, n: 22, r: 2.5 }); }
+  m.dirty = true; const S = st6(m);
+  return { id: p.id, room: p.room, x: p.x, z: p.z, hp: p.stats.health, max: p.stats.maxHealth, pack: [...p.inv.backpack, ...p.inv.quick].filter(Boolean), mode: b.mode, lvl: b.lvl, use: S.use, danger: S.danger, dodge: S.dodge };
+}
 function bot6Stat(m) {   // part of GK_DEBUG {bot5:1}: levels by bot id and the BOTS6 tallies
-  const S = st6(m); return { lvl: S.lvl, use: S.use, styles: S.styles, flank: S.flank, behind: S.behind, window: S.window, kite: S.kite, dodge: S.dodge, danger: S.danger, sends: S.sends, gaveUp: S.gaveUp, truce: S.truce, defend: S.defend, regroup: S.regroup, heard: S.heard, f6: BS.f6 || 0 };
+  const S = st6(m); return { lvl: S.lvl, dead: m.dead.filter(q => q.bot).map(q => q.id), use: S.use, styles: S.styles, flank: S.flank, behind: S.behind, window: S.window, kite: S.kite, dodge: S.dodge, danger: S.danger, sends: S.sends, gaveUp: S.gaveUp, truce: S.truce, defend: S.defend, regroup: S.regroup, heard: S.heard, f6: BS.f6 || 0 };
 }
 // BOTS6-END
 function pickDest(m, p, now) {   // idle: where to go next (claimable rooms, the merchant, the vault later, hunting, otherwise wander in the room)
@@ -2440,7 +2455,8 @@ wss.on('connection', (ws, req) => {
     let d; try { d = JSON.parse(raw.toString()); } catch { return; }
     if (p.dead && d && typeof d.ping === 'number' && Number.isFinite(d.ping)) return sendTo(ws, { pong: d.ping, t: srvT() });
     if (p.dead && d && d.botstat && process.env.GK_DEBUG) return sendTo(ws, { botstat: { n: BS.n, sum: BS.sum, max: BS.max, calls: BS.calls, bad: BS.bad, tick: TS, cpu: process.cpuUsage(), heap: process.memoryUsage().heapUsed, matches: matches.size, tokens: socTokens.size, ips: ipCount.size } });   // debug stats still answer a dead human (bots can kill the test client)
-    if (d && d.duel6 && process.env.GK_DEBUG) return sendTo(ws, { duel6: duel6Lab(m, d.duel6) });   // BOTS6: the duel harness (tests/sim-duel.js)
+    if (d && d.duel6 && process.env.GK_DEBUG) return sendTo(ws, { duel6: duel6Lab(m, d.duel6) });
+    if (d && d.bot6 && process.env.GK_DEBUG) return sendTo(ws, { bot6: bot6Lab(m, p, d.bot6) });   // BOTS6: lab (tests/bots6-lab.test.js)   // BOTS6: the duel harness (tests/sim-duel.js)
     if (d && d.bot5 && process.env.GK_DEBUG) { if (typeof d.bot5 === 'object') bot5Lab(m, d.bot5); return sendTo(ws, { bot5: bot5Stat(m) }); }   // BOTS5: per-match bot stats (tests, sim), also for a dead spectator; {bot5:{goal}} lab
     if (p.dead || !d || typeof d !== 'object' || Array.isArray(d)) return;
     const dbg = !!process.env.GK_DEBUG;

@@ -189,34 +189,23 @@ function fightPlan(o) {
       if (o.kite && foeMelee && o.d < Math.max(3.5, o.foeReach + 1.4)) { out.back = true; out.sprint = o.d < o.foeReach + 0.6; out.lat = 0.35; }   // a melee foe closing in: back off first
       out.swing = ready && o.d <= o.reach;
       return out;
-    case 'poke': {
-      const edge = o.reach - 0.3;
-      out.R = foeMelee && o.foeReach < edge - 0.25 ? Math.max(o.foeReach + 0.35, edge - 0.15) : edge;   // outside his reach, inside mine
-      out.lat = 0.6; out.swing = ready && inReach;
-      if (!ready && foeMelee && foeArmed && o.d < o.foeReach + 0.2) out.back = true;   // reloading inside his reach: step out
+    default: {   // melee (poke, heavy, quick, brawler): spacing. Swing the moment a swing would land; while reloading, stand outside his reach if he can swing
+      const quick = o.style === 'quick', heavy = o.style === 'heavy', edge = o.reach - (o.style === 'poke' ? 0.25 : 0.35), orbit = o.orbitR || 1.5, sp = !!o.useWindow;
+      out.lat = o.style === 'poke' || heavy ? 0.6 : quick ? 0.9 : 0.85;
+      out.swing = ready && inReach;
+      if (!foeMelee) { out.R = 1.2; out.sprint = o.d > 2.5; return out; }   // a shooter: get on him
+      if (!ready) {
+        if (sp && foeArmed && o.d < o.foeReach + 0.15) { out.back = true; out.R = o.foeReach + 0.35; out.sprint = heavy; }   // reloading inside his reach: step out (a hammer reloads longest)
+        else out.R = sp ? (foeArmed ? o.foeReach + 0.35 : edge - 0.2) : orbit;   // he can swing: wait outside; he is reloading too: stay close for the next swing
+      } else {
+        out.R = !sp ? orbit : o.foeReach < edge - 0.25 ? Math.max(o.foeReach + 0.3, edge - 0.15) : edge;   // ready: the edge of my reach (outside his when mine is longer: the spear's poke)
+        if (heavy && sp && !foeArmed) { out.R = Math.min(out.R, 1.6); out.sprint = o.d > out.R + 0.8; }   // he just swung: commit the hammer
+      }
+      if (quick && o.wantFlank && !o.behind) { out.flank = true; out.lat = 1; out.R = Math.min(out.R, 1.4); }   // a Sneak circles to the back (+50% from behind)
       return out;
     }
-    case 'heavy':
-      if (!foeMelee || !o.useWindow) { out.R = 1.3; out.lat = 0.6; out.swing = ready && inReach; return out; }
-      if (!ready) { out.R = Math.max(o.foeReach + 0.5, 2.7); out.lat = 0.7; return out; }   // my hammer is still coming round: stay out of his reach
-      if (!foeArmed || o.waited > 1400) { out.R = 1.2; out.lat = 0.25; out.sprint = o.d > 2.2; out.swing = inReach; return out; }   // he just swung (or we waited long enough): commit
-      out.R = o.foeReach + 0.4; out.lat = 0.8; return out;   // both ready: hover at the edge of his reach and wait for him to whiff
-    case 'quick':
-      out.R = 1.1; out.lat = 0.9; out.swing = ready && inReach;
-      if (o.wantFlank && !o.behind) { out.flank = true; out.R = 1.3; out.lat = 1; out.swing = ready && inReach && o.d < 1.3; }   // circle to his back; swing at the back (or point blank)
-      if (!ready && foeMelee && foeArmed && o.d < o.foeReach) { out.back = true; out.R = o.foeReach + 0.3; }
-      return out;
-    default:   // brawler
-      out.R = o.orbitR || 1.5; out.swing = ready && inReach;
-      if (o.useWindow && foeMelee) {
-        if (ready && foeArmed && o.waited < 1200 && o.foeReach >= o.reach - 0.2) { out.R = o.foeReach + 0.35; out.swing = false; out.lat = 0.85; }   // wait for his swing
-        else if (ready && !foeArmed) { out.R = 1.2; out.sprint = o.d > 2.3; out.swing = inReach; }   // he is reloading: step in
-        else if (!ready && foeArmed && o.d < o.foeReach) { out.back = true; out.R = o.foeReach + 0.35; }
-      }
-      return out;
   }
 }
-
 // ---- weapon value for equip and loot: damage per hit blended with damage per second (a swing that lands counts most), plus bleed, reach and range.
 // it = the item, cb = combat(key). A staff that throws a 36 bolt is worth more than a 15 club; a dagger is not worth twice a sword.
 function weaponScore(it, cb) {
@@ -258,7 +247,7 @@ function useNow(o) {
   const f = o.hp / Math.max(1, o.max), miss = o.max - o.hp, quiet = (!o.foes || o.near > 7) && o.hurtAgo > 2500;
   if (!o.sudden && o.heal > 0) {
     if (f < 0.3 && (o.near > 3 || o.hurtAgo > 1500)) return 'heal';   // emergency: drink when not being hit this very moment
-    if (quiet && miss >= o.heal * 0.8) return 'heal';                  // patch up when safe, without wasting the potion
+    if (quiet && (miss >= o.heal * 0.8 || f < 0.55)) return 'heal';   // patch up when safe, without wasting the potion (below 55% waste does not matter)
   }
   if (!o.sudden && o.regen && !o.foes && o.hurtAgo > 3500 && miss >= 10) return 'regen';   // a hit would end it: only when alone
   if (o.fleeing) {
