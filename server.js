@@ -1006,8 +1006,9 @@ function climbIdle(m, p, now) {   // botThink, idle: maybe start a perch; true w
     const d = Math.hypot(pr.x - p.x, pr.z - p.z), ux = (p.x - pr.x) / (d || 1), uz = (p.z - pr.z) / (d || 1), lx = pr.x + ux * (pr.r + 0.75), lz = pr.z + uz * (pr.r + 0.75);
     if (d < bd && roomKeyOf(lx, lz) === p.room && inBounds(lx, lz) && !WORLD.inProp(lx, lz, 0.5, m.layout, true) && pathOk(m, lx, lz, pr.x, pr.z, null, pr.h)) { bd = d; best = { pr, lx, lz }; }
   }
+  if (PERCH_MS && process.env.GK_PERCH_LOG) console.log('PERCH', p.id, p.room, best ? 'start' : 'none');
   if (!best) return false;
-  b.perch = { ...best, ph: 'go', t0: now, room: p.room }; return true;
+  b.perch ={ ...best, ph: 'go', t0: now, room: p.room }; return true;
 }
 function climbBot(m, p, now, dt) {   // botThink, every tick while perching; false = the perch is over and the normal brain runs
   const b = p.brain, P = b.perch, pr = P.pr, t = (now - P.t0) / 1000, yaw = yawTo(p, pr.x, pr.z);
@@ -1071,6 +1072,7 @@ function pickTarget(m, p, now, vis) {   // aggression sets the range and the ner
 }
 function idleLook(m, p, now) {   // standing around: every 1-3 s turn 60-180 degrees over about half a second, so something behind us gets noticed
   const b = p.brain, s = b.scan;
+  if (p.bot && !s && !p.crafting && !b.tgt && !b.jump && climbIdle(m, p, now)) return;   // CLIMB: standing around is a good moment to take the high ground
   if (s) { const f = (now - s.t0) / 500; if (f >= 1) { b.scan = null; mv(m, p, p.x, p.z, s.y1, now); } else mv(m, p, p.x, p.z, s.y0 + (s.y1 - s.y0) * f, now); return; }
   if (!b.scanAt) b.scanAt = now + rnd(300, 1500);
   if (now >= b.scanAt) {
@@ -1601,7 +1603,6 @@ function botThink(m, p, now, dt) {
   if (looting && lootNearby(m, p, dt, now)) { b.lootAt = now; return; }
   if (relicGoal(m, p, dt, now)) { b.lootAt = now; return; }   // LOOT
   if (looting) { const dn = b.done[p.room]; roomGoals(m, p); if (!dn && b.done[p.room]) b.lootAt = now; }
-  if (bot && climbIdle(m, p, now)) return;   // CLIMB: sometimes take the high ground
   if (now >= b.idleUntil) pickDest(m, p, now); else idleLook(m, p, now);
 }
 function botTick(m, now) {   // ~10 Hz per match
