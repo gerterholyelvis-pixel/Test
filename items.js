@@ -311,9 +311,9 @@
     const kind = ['weapon', 'armor', 'enemy', 'stations', 'gold', 'plushie'][Math.floor(Math.random() * 6)];
     if (kind === 'weapon') return { kind, key: foundKey(randomWeaponKey()) };
     if (kind === 'armor') return { kind, key: foundKey(randomArmorKey()) };
-    if (kind === 'enemy') {   // enemy goblins: troll 2, archer 8, speedy 20, dumb 30, regular 50 (these add up to 110, so they are used as relative weights)
-      let x = Math.random() * 110, enemy = 'regular';
-      for (const [e, w] of [['troll', 2], ['archer', 8], ['speedy', 20], ['dumb', 30], ['regular', 50]]) { if ((x -= w) < 0) { enemy = e; break; } }
+    if (kind === 'enemy') {   // enemy goblins as relative weights (npcx.js WEIGHTS must match): troll 2, archer 8, speedy 20, dumb 30, regular 50, bomber 14, summoner 8, shield 8, thief 10
+      let x = Math.random() * 150, enemy = 'regular';
+      for (const [e, w] of [['troll', 2], ['archer', 8], ['speedy', 20], ['dumb', 30], ['regular', 50], ['bomber', 14], ['summoner', 8], ['shield', 8], ['thief', 10]]) { if ((x -= w) < 0) { enemy = e; break; } }
       return { kind, enemy };
     }
     if (kind === 'stations') { const st = ['recycler', 'knowledge', 'workbench']; st.splice(Math.floor(Math.random() * 3), 1); return { kind, stations: st }; }

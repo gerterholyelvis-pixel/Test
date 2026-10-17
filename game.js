@@ -4407,9 +4407,9 @@ const net = { send: m => netReal && !(GK.locked && (m.atk || m.claim || m.m || m
 net.stats = netStats; net.overlay = netOverlay;   // PERF4
 const actors = new Map();
 function npcLook(group, kind) {   // BOTS: hostile mystery enemy = normal goblin model with a type tint (no new geometry, no lights); materials are cloned so the shared ones stay untouched
-  const tint = { troll: 0x6a8a5a, archer: 0x7a5a3a, speedy: 0xff7a3a, dumb: 0xb89a6a, regular: 0xd05a4a, rat: 0x8a7560 }[kind] || 0xd05a4a, c = new THREE.Color(tint);
+  const tint = { troll: 0x6a8a5a, archer: 0x7a5a3a, speedy: 0xff7a3a, dumb: 0xb89a6a, regular: 0xd05a4a, rat: 0x8a7560, bomber: 0xff5a28, summoner: 0x8a5cd0, shield: 0x8a9aa8, thief: 0x4a4a58, imp: 0xb070ff }[kind] || 0xd05a4a, c = new THREE.Color(tint);   // NPCX tints
   group.traverse(o => { if (o.isMesh && o.material && o.material.color && !Array.isArray(o.material)) { o.material = o.material.clone(); o.material.color.multiply(c).multiplyScalar(1.4); } });
-  group.scale.setScalar(kind === 'troll' ? 1.8 : kind === 'speedy' ? 0.9 : kind === 'rat' ? 0.4 : 1.1);
+  group.scale.setScalar(kind === 'troll' ? 1.8 : kind === 'shield' ? 1.6 : kind === 'speedy' || kind === 'thief' ? 0.9 : kind === 'bomber' ? 0.95 : kind === 'imp' ? 0.5 : kind === 'rat' ? 0.4 : 1.1);
 }
 let me = 0, spawned = false;
 const P = { x: 0, z: 0, yaw: 0, pitch: 0, speed: 0 };
@@ -8260,6 +8260,8 @@ function mutShow(u) {
 GK.matchOnMsg = d => {   // called by handleMsg after it has processed a message
   if (d.matchStart && mutEl) { mutEl.textContent = ''; try { scene.fog = null; } catch (e) {} }
   if (d.mut) mutShow(d.mut);
+  if (d.npcNote) toastMsg(d.npcNote, false, 2600);   // NPCX
+  if (d.npcRing) try { GKVFX.ring(d.npcRing.x, d.npcRing.z, parseInt(d.npcRing.c.slice(1), 16), d.npcRing.r); } catch (e) {}
   if (d.mutPaid) toastMsg('Bounty paid: +' + d.mutPaid + ' gold', true, 3000);
   if (d.unverified) toastMsg('Character could not be verified — playing as a new goblin.', false, 6000);   // SECURITY
   if (d.queue) { mqResolve(d.goblin); if (GK.menu && GK.menu.queue) GK.menu.queue(d.queue.n, d.queue.size, d.queue.since); }
