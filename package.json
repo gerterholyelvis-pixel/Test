@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "test": "node tests/run.js",
-    "gameinfo": "node tools/gameinfo.js"
+    "gameinfo": "node tools/gameinfo.js",
+    "gameinfo:pdf": "node tools/gameinfo-pdf.js"
   },
   "repository": {
     "type": "git",
