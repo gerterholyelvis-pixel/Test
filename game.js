@@ -8785,7 +8785,7 @@ window.GKACT5 = (() => {
       case 'oak': call(api, 'setWarden', st.held ? 1 : 0); break;
       case 'elder': {
         const need = st.need || 20000, lit = (st.stones || []).filter(s => s.lit).length;
-        (st.stones || []).forEach((s, i) => { const c = chOf(st, 'stone' + i); call(api, 'setStone', i, s.lit ? 1 : clamp01(((s.prog | 0) + (c ? now - (c.t0 - r.e) : 0)) / need)); });
+        (st.stones || []).forEach((s, i) => { const c = chOf(st, 'stone' + i); call(api, 'setStone', i, s.lit ? 1 : clamp01(((s.prog | 0) + (c ? Math.min(250, performance.now() - r.tSeen) : 0)) / need)); });   // TREE-FIX: s.prog already counts the running channel (server ticks add dt); adding the channel time again drew the gauge at double speed
         call(api, 'setWake', st.phase === 'waking' || st.phase === 'seed' ? 1 : st.phase === 'withered' ? 0 : lit / 3 * 0.6); call(api, 'setSeed', st.phase === 'seed'); call(api, 'setWithered', st.phase === 'withered'); break;
       }
     }
