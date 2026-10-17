@@ -101,6 +101,7 @@ const dg = o => BG.danger(Object.assign({ send: null, home: false, hp: 1, warden
       const c = ta({ claimant: true }); assert(c.force && c.adj <= -6, 'claimant'); assert(ta({ leader: true }).adj < 0 && !ta({ leader: true }).force, 'leader');
       const w = ta({ worn: true, hp: 0.2, third: 1 }); assert(w.force && w.adj <= -3, 'finish him'); assert(!ta({ worn: true, hp: 0.2, third: 0.3 }).force, 'easy bots do not force it');
       eq(ta({ worn: true, hp: 0.9 }).adj, 0, 'a healthy goblin is not worn down');
+      assert(ta({ newbie: true, round: 2 }).skip && !ta({ newbie: true, round: 2, hitMe: true }).skip && !ta({ newbie: true, round: 2, claimant: true }).skip, 'a new player is left alone in rounds 2-3'); assert(ta({ newbie: true, round: 4 }).adj > 0, 'and less wanted later');
       assert(ta({ truce: true }).skip, 'truce'); assert(!ta({ truce: true, hitMe: true }).skip, 'he hit me'); const t = ta({ traitor: true }); assert(t.force && t.adj < 0, 'traitor');
     }],
     ['claim timing: contest anyone on the dais, bank claim time when alone, not when hurt or with a warden pack, late rounds and sudden death claim', () => {
@@ -119,6 +120,11 @@ const dg = o => BG.danger(Object.assign({ send: null, home: false, hp: 1, warden
       assert(BG.giveUp({ chaseMs: 10000, dealt: 0, human: true }), 'a human kiting for 10 s untouched'); assert(!BG.giveUp({ chaseMs: 10000, dealt: 20, human: true }), 'making progress');
       assert(!BG.giveUp({ chaseMs: 10000, dealt: 0, human: false }), 'a bot gets 14 s'); assert(BG.giveUp({ chaseMs: 15000, dealt: 0 }), 'then gives up');
       assert(BG.truceAccept(0.3, 'normal', 0.3) && !BG.truceAccept(0.9, 'normal', 0.3), 'aggression'); assert(BG.truceAccept(0.5, 'easy', 0.3) && !BG.truceAccept(0.5, 'hard', 0.15), 'level');
+    }],
+    ['late rounds with nobody seen for 20 s: pull toward the vault ring and rooms not visited lately', () => {
+      eq(BG.seekTerm({ quiet: 10000, round: 4, hops: 0, visited: null }), 0); eq(BG.seekTerm({ quiet: 60000, round: 2, hops: 0 }), 0);
+      assert(BG.seekTerm({ quiet: 60000, round: 4, hops: 0, visited: 1000 }) > BG.seekTerm({ quiet: 60000, round: 4, hops: 3, visited: 1000 }), 'the vault first');
+      assert(BG.seekTerm({ quiet: 60000, round: 4, hops: 3, visited: null }) > 0, 'unvisited rooms'); assert(BG.seekTerm({ quiet: 60000, round: 4, hops: 1, visited: 0 }) > BG.seekTerm({ quiet: 25000, round: 4, hops: 1, visited: 0 }), 'grows with the quiet');
     }],
     ['sends: a Pump Leech on the crown leader, else the top killer, never on a dead or own home, not without spare elixir or in round 1; memory fades', () => {
       const homes = [{ room: 'c1', me: true, kills: 9 }, { room: 'c3', kills: 1, hops: 2 }, { room: 'c6', kills: 0, claim: 20, hops: 6 }, { room: 'c8', kills: 5, dead: true }];

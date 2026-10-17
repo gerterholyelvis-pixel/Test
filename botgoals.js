@@ -268,6 +268,7 @@ function useNow(o) {
 function targetAdj(o) {
   const out = { adj: 0, force: false, skip: false };
   if (o.truce && !o.hitMe && !o.traitor) { out.skip = true; return out; }
+  if (o.newbie && !o.hitMe && !o.claimant) { if (o.round <= 3) { out.skip = true; return out; } out.adj += 2; }   // a new player (few wins) gets the first arena rounds to find his feet
   if (o.claimant) { out.adj -= 6; out.force = true; }                 // the crown claimant wins the match if nobody stops him
   else if (o.leader) out.adj -= 2;
   if (o.worn && o.hp < 0.45) { out.adj -= 3 * (o.third || 0); if (o.hp < 0.3 && o.third >= 0.5) out.force = true; }   // finish a goblin someone else wore down
@@ -328,8 +329,15 @@ function sendPick(homes, o) {
 
 // ---- where to go next by memory: rooms where goblins were seen or heard lately (instead of knowing where everyone is).
 // seen = {room: ms of the last sighting / sound}, now, mem (level ms) -> weight 0..1 for the room
+// ---- nobody seen for a while (late rounds): where to look. o = {quiet (ms since a goblin was last seen or heard), round, hops (to the vault), visited (ms since this bot was in the room, null = never)}
+// -> a pickDest bonus: toward the vault and its ring, and rooms it has not been in lately, so the late game does not stall with goblins idling apart.
+function seekTerm(o) {
+  if (o.round < 3 || o.quiet < 20000) return 0;
+  const urge = Math.min(1, (o.quiet - 20000) / 30000 + 0.4);
+  return urge * ((o.hops === 0 ? 3 : o.hops === 1 ? 2 : 0) + (o.visited == null || o.visited > 40000 ? 1.5 : 0));
+}
 const memWeight = (seen, room, now, mem) => { const t = seen && seen[room]; if (!t) return 0; const a = now - t; return a >= mem * 4 ? 0 : 1 - a / (mem * 4); };
 
 const BG = { K, roomTerm, vaultWant, vaultVote, stepFactor, tapNow, pressOk, lantern, standPoint, inReach, watch, allDist, craftValue, persona,
-  LEVELS, lvlOf, lvlFor, styleOf, readyIn, isBehind, behindPoint, flankSide, fightPlan, weaponScore, armorFor, charmScore, useNow, targetAdj, claimNow, danger, bombDodge, giveUp, truceAccept, sendPick, memWeight };
+  LEVELS, lvlOf, lvlFor, styleOf, readyIn, isBehind, behindPoint, flankSide, fightPlan, weaponScore, armorFor, charmScore, useNow, targetAdj, claimNow, danger, bombDodge, giveUp, truceAccept, sendPick, memWeight, seekTerm };
 module.exports = BG;

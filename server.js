@@ -989,7 +989,7 @@ function perceive(m, p, now) {   // the goblins this bot notices right now (same
     if (q === p || q.dead || !q.entered || q.room !== p.room || !noticed(p, q, now) || !canSee(p, q, now)) continue;
     const e = b.mem[q.id] || (b.mem[q.id] = {}); e.x = q.x; e.z = q.z; e.t = now; e.room = q.room; out.push(q);
   }
-  if (b.r6 && out.length) b.r6[p.room] = now;   // BOTS6: remember where goblins were seen (pickDest hunts by memory, not by knowing)
+  if (b.r6 && out.length) { b.r6[p.room] = now; if (out.some(q => !q.npc)) b.q6 = now; }   // BOTS6: remember where goblins were seen (pickDest hunts by memory, not by knowing)
   return out;
 }
 function pickTarget(m, p, now, vis) {   // aggression sets the range and the nerve to take on a stronger goblin; weaker and wounded targets are preferred
@@ -1455,6 +1455,7 @@ function bot5Stat(m) {   // GK_DEBUG {bot5:1}: this match's bot stats for tests/
 // through the player paths (applyMove via mv, attack, useItem, A5.act, baseMsg). Hooks elsewhere in BOTS are one-liners tagged BOTS6. GK_BOTS6=0: the old bots.
 // GK_BOT_LEVEL = easy | normal | hard | mix (mix: easy, normal, hard in turn, for the sim); m.botLvl overrides it per match (lobbies, later).
 const B6_LVL = process.env.GK_BOT_LEVEL || 'normal';
+const NEWBIE6 = process.env.GK_NEWBIE_WINS !== undefined ? +process.env.GK_NEWBIE_WINS : DBG ? 0 : 3;   // (off in GK_DEBUG tests unless GK_NEWBIE_WINS is set) humans with fewer wins are left alone in rounds 2-3 unless they attack (QA: new players died within 40 s of the arena opening)
 const st6 = m => m.b6 || (m.b6 = { lvl: {}, use: {}, styles: {}, flank: 0, behind: 0, window: 0, kite: 0, dodge: 0, danger: {}, sends: 0, gaveUp: 0, truce: 0, defend: 0, regroup: 0, heard: 0 });
 const healOf6 = it => !it ? 0 : it.use === 'heal' ? it.n || 0 : BN.healValue(it);   // HP one use restores (draughts and bandages carry `n`)
 const wsc6 = k => BG.weaponScore(G.ITEMS[k], G.combat(k));
@@ -1493,7 +1494,7 @@ function top6(m, now) {   // the crown leader (public: the crown message shows t
 function tadj6(m, p, q, now) {   // botgoals targetAdj for one visible goblin
   const b = p.brain, v = m.act && m.act.vault;
   return BG.targetAdj({ claimant: !q.npc && !!v && v.gaining === q.id, leader: !q.npc && top6(m, now) === q.id, worn: !!q.hitBy && q.hitBy !== p.id && now - (q.hurtAt || 0) < 2000, hp: hpFrac(q),
-    truce: (b.truce[q.id] || 0) > now, traitor: (b.traitor[q.id] || 0) > now, hitMe: p.hitBy === q.id && now - (p.hurtAt || 0) < 5000, third: b.L6.third });
+    truce: (b.truce[q.id] || 0) > now, traitor: (b.traitor[q.id] || 0) > now, hitMe: p.hitBy === q.id && now - (p.hurtAt || 0) < 5000, third: b.L6.third, newbie: isHum(q) && (q.wins | 0) < NEWBIE6, round: m.round });
 }
 function fight6(m, p, t, now, dt, hold) {   // one fight tick by botgoals fightPlan: spacing and strafing by weapon family, whiff punishing, flanking, kiting. One validated move per tick.
   const b = p.brain, L = b.L6, S = st6(m), wk = p.inv.weapon, bolt = boltWeapon(p); let cb = G.combat(wk);
@@ -1542,7 +1543,7 @@ function hear6(m, p, now) {   // a fight within the level's hearing range: remem
   for (const q of ns) {
     if (q === p) continue;
     const d = Math.hypot(q.x - p.x, q.z - p.z); if (d > L.hear * (q.room === p.room ? 1.6 : 1)) continue;
-    if (b.r6[q.room] !== now) { b.r6[q.room] = now; st6(m).heard++; }
+    if (b.r6[q.room] !== now) { b.r6[q.room] = now; st6(m).heard++; if (!q.npc) b.q6 = now; }
     if (q.room === p.room && !b.tgt && !b.turnTo && !inView(p, q)) { b.turnTo = q.id; b.blindUntil = now + rnd(L.react[0], L.react[1]); }
   }
 }
@@ -1614,6 +1615,8 @@ function pd6(m, p, now, dist) {   // pickDest extras per room: defend the home o
   if (h && !h.dead && HB.level(h, 'alarm') >= 1 && p.room !== p.home && dist[p.home] != null && dist[p.home] <= 3 && hp > 0.5) {   // the alarm tells the owner when someone walks in
     for (const q of m.players.values()) if (q.room === p.home && q !== p && !q.dead && q.entered && !q.npc) { out[p.home] = 6; if (b.df6 !== q.id) { b.df6 = q.id; st6(m).defend++; } break; }
   }
+  const quiet = now - (b.q6 || m.goAt || now); (b.v6 || (b.v6 = {}))[p.room] = now;   // late rounds with nobody around: go looking (toward the vault, rooms not seen lately)
+  if (quiet >= 20000 && m.round >= 3) for (const k in dist) { const v = BG.seekTerm({ quiet, round: m.round, hops: DIST_V[k], visited: b.v6[k] == null ? null : now - b.v6[k] }); if (v) out[k] = (out[k] || 0) + v; }
   const rg = b.rg6;
   if (rg && now - rg.t > 45000) b.rg6 = null;
   else if (rg && hp > 0.75 && dist[rg.room] != null && rg.room !== p.room) { out[rg.room] = (out[rg.room] || 0) + 2.5; if (b.avoidRoom === rg.room) b.avoidUntil = 0; b.rg6 = null; st6(m).regroup++; }
