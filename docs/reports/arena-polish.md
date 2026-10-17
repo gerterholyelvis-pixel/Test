@@ -10,3 +10,10 @@ Tested: `npm run check`, `npm run test:affected` (17 files pass), hud5 test.
 Screens: docs/screens/arena/before-a.jpg (before), after-a.jpg (after), fx-a.jpg (Medium).
 Not done: walking every room edge for clipping (no collision-vs-visual diff run), door-open dust puffs (existing burst particles untouched), no settings-menu checkbox for ambfx (menu out of scope), torch flicker only on cold-fire embers (chest-room torches already flicker). Ultra tour shots could not be taken with the driver (position reset to home); perfbench ultra shot looked fine.
 Merger notes: game.js edits in ROOMART (ROOM_ACC, CELLS, 4b), LAMPS (colour lerp), HUD5 interval, new ARENAFX block; hud5.js ARENAHUE block.
+
+## Follow-up (concrete pass)
+- tests/arena-solid.test.js (pure, world.js): over every arena, hall, tree (10 types), vaultbreaker, loot (6 types) room: no NaN, no prop through a wall, nothing in the first 4.5 m door lane, finite groundY, every hall piece has collision and every hall solid a piece, hall pieces do not overlap. All pass; no placement fixes were needed.
+- Headless walk (real W+Shift input, doors open) from 6 corners/edges of rooms 1, 6, 7, 10, 12, 13, 17, 22: always stopped inside the room, never outside.
+- Door-open dust puffs and sparks already existed (doorBurst); added a vault glow pulse (gold emissive +1.6 fading over 1.6 s when a vault door opens).
+- Settings > Graphics: "Ambient effects" checkbox (ambfx; uiorg.js row, menu.js default) turns off the Points effects and the pulse.
+- Low vault view: 232 calls, 7.0 ms CPU, --budget within budget.
