@@ -6,17 +6,17 @@
   const W = [   // [key, name, family, chance %, attack]
     ['stick', 'Wooden Stick', 'club', 10.5, 6], ['dagger', 'Dagger', 'dagger', 10, 10], ['sword', 'Rusty Sword', 'sword', 9.5, 12], ['bow', 'Short Bow', 'bow', 8.5, 14],
     ['club', 'Nailed Club', 'club', 8, 15], ['handaxe', 'Hand Axe', 'axe', 7.5, 16], ['spear', 'War Spear', 'spear', 6.5, 18], ['mace', 'Spiked Mace', 'mace', 6, 20],
-    ['ironsword', 'Iron Sword', 'sword', 5.5, 24], ['crossbow', 'Crossbow', 'crossbow', 5, 27], ['axe', 'Battle Axe', 'axe', 4.5, 30], ['flail', 'Spiked Flail', 'flail', 4, 34],
-    ['longbow', 'Longbow', 'bow', 3.5, 38], ['halberd', 'Halberd', 'halberd', 3, 43], ['warhammer', 'Warhammer', 'hammer', 2.5, 49], ['claymore', 'Claymore', 'sword', 2, 56],
-    ['wyrmspear', 'Wyrmfang Spear', 'spear', 1.5, 64], ['executioner', "Executioner's Axe", 'axe', 1, 75], ['shadowfang', 'Shadowfang Dagger', 'dagger', 0.6, 90], ['slayer', 'Goblin Slayer', 'sword', 0.4, 110],
+    ['ironsword', 'Iron Sword', 'sword', 5.5, 17], ['crossbow', 'Crossbow', 'crossbow', 5, 27], ['axe', 'Battle Axe', 'axe', 4.5, 25], ['flail', 'Spiked Flail', 'flail', 4, 34],
+    ['longbow', 'Longbow', 'bow', 3.5, 38], ['halberd', 'Halberd', 'halberd', 3, 43], ['warhammer', 'Warhammer', 'hammer', 2.5, 49], ['claymore', 'Claymore', 'sword', 2, 48],
+    ['wyrmspear', 'Wyrmfang Spear', 'spear', 1.5, 58], ['executioner', "Executioner's Axe", 'axe', 1, 66], ['shadowfang', 'Shadowfang Dagger', 'dagger', 0.6, 80], ['slayer', 'Goblin Slayer', 'sword', 0.4, 80],
   ];
   // WEAPONS 2: nine more weapons with their own feel (per-item reach / swing time in WEAPON_TUNE below). They reuse existing families so models, icons and swing clips work; chances are relative weights (the pool no longer sums to exactly 100).
-  W.push(['scrapcleaver', 'Scrap Cleaver', 'sword', 7.2, 14], ['handxbow', 'Hand Crossbow', 'crossbow', 5, 14], ['twinfangs', 'Twin Fangs', 'dagger', 4.6, 9], ['throwaxe', 'Throwing Axe', 'axe', 4.6, 21],
-    ['pike', 'Heavy Pike', 'spear', 3, 30], ['ogreclub', 'Ogre Club', 'club', 2.6, 40], ['maul', 'Siege Maul', 'hammer', 1.1, 72], ['arbalest', 'Arbalest', 'crossbow', 1, 66], ['crownsplitter', 'Crownsplitter', 'axe', 0.3, 120]);
+  W.push(['scrapcleaver', 'Scrap Cleaver', 'sword', 7.2, 13], ['handxbow', 'Hand Crossbow', 'crossbow', 5, 16], ['twinfangs', 'Twin Fangs', 'dagger', 4.6, 9], ['throwaxe', 'Throwing Axe', 'axe', 4.6, 21],
+    ['pike', 'Heavy Pike', 'spear', 3, 30], ['ogreclub', 'Ogre Club', 'club', 2.6, 44], ['maul', 'Siege Maul', 'hammer', 1.1, 80], ['arbalest', 'Arbalest', 'crossbow', 1, 84], ['crownsplitter', 'Crownsplitter', 'axe', 0.3, 120]);
   // WEAPONS 3: fourteen more, with new families whip / sling / wand and per-weapon twists in WEAPON_TUNE (reach, swing time, ranged, bleed, magic bolt damage). Relative weights again.
-  W.push(['shiv', 'Bone Shiv', 'dagger', 7.4, 8], ['pan', 'Frying Pan', 'club', 7, 15], ['sling', 'Goblin Sling', 'sling', 7, 10], ['knives', 'Throwing Knives', 'dagger', 4.8, 8], ['bullwhip', 'Bullwhip', 'whip', 4.7, 11],
-    ['trident', 'Trident', 'spear', 4.6, 21], ['emberwand', 'Ember Wand', 'wand', 4.6, 12], ['glaive', 'Reaper Glaive', 'halberd', 2.9, 38], ['ballchain', 'Ball and Chain', 'flail', 3, 52], ['barbedlash', 'Barbed Lash', 'whip', 2.7, 20],
-    ['stormstaff', 'Stormstaff', 'staff', 2.6, 36], ['archstaff', 'Archmage Staff', 'staff', 1.3, 62], ['gildedlash', 'Gilded Lash', 'whip', 0.4, 62], ['sunstaff', 'Sunspire Staff', 'staff', 0.3, 95]);
+  W.push(['shiv', 'Bone Shiv', 'dagger', 7.4, 8], ['pan', 'Frying Pan', 'club', 7, 15], ['sling', 'Goblin Sling', 'sling', 7, 10], ['knives', 'Throwing Knives', 'dagger', 4.8, 11], ['bullwhip', 'Bullwhip', 'whip', 4.7, 11],
+    ['trident', 'Trident', 'spear', 4.6, 18], ['emberwand', 'Ember Wand', 'wand', 4.6, 12], ['glaive', 'Reaper Glaive', 'halberd', 2.9, 35], ['ballchain', 'Ball and Chain', 'flail', 3, 52], ['barbedlash', 'Barbed Lash', 'whip', 2.7, 20],
+    ['stormstaff', 'Stormstaff', 'staff', 2.6, 36], ['archstaff', 'Archmage Staff', 'staff', 1.3, 62], ['gildedlash', 'Gilded Lash', 'whip', 0.4, 50], ['sunstaff', 'Sunspire Staff', 'staff', 0.3, 95]);
   const A = [   // [key, name, family, chance %, health]
     ['sack', 'Burlap Sack', 'cloth', 10.5, 20], ['cloth', 'Patched Cloth', 'cloth', 10, 30], ['rags', 'Ragged Tunic', 'cloth', 9.5, 40], ['scraps', 'Leather Scraps', 'leather', 8.5, 45],
     ['vest', 'Studded Vest', 'leather', 8, 50], ['jerkin', 'Hide Jerkin', 'leather', 7.5, 56], ['gambeson', 'Padded Gambeson', 'cloth', 6.5, 62], ['boiled', 'Boiled Leather', 'leather', 6, 70],
@@ -31,7 +31,7 @@
     // ARMOUR-3: ten more families. 6th value = speed multiplier, 7th = thorns (flat damage a melee attacker takes back, never lethal; see hitTarget in server.js). Light pieces trade health for speed, heavy ones the reverse.
     ['cloak', "Hunter's Cloak", 'cloak', 7.5, 36, 1.08], ['tabard', 'Sentry Tabard', 'tabard', 6, 68], ['carapace', 'Carapace', 'shell', 5.2, 84, 0.97], ['thornhide', 'Thornhide', 'thorn', 4.6, 80, 1, 3],
     ['runed', 'Runed Vestments', 'runic', 3.6, 86, 1.06], ['ironbark', 'Ironbark Plate', 'timber', 3.2, 128, 0.95], ['cairn', 'Cairn Plate', 'stone', 2.2, 182, 0.9], ['quillhide', 'Quillhide Mail', 'quill', 2, 135, 0.97, 6],
-    ['shroud', 'Gravewalker Shroud', 'shroud', 1.6, 100, 1.1], ['emberforge', 'Emberforge Plate', 'ember', 0.5, 265, 0.95, 8],
+    ['shroud', 'Gravewalker Shroud', 'shroud', 1.6, 125, 1.1], ['emberforge', 'Emberforge Plate', 'ember', 0.5, 265, 0.95, 8],
   ];
   // Tiers 0-5 are named: 0 common, 1 uncommon, 2 rare, 3 mythic, 4 legendary, 5 transcendent. Dropped items are tiers 1-5 (by drop chance); tier 0 is the base items the crafting bench can make.
   const TIER_NAMES = ['common', 'uncommon', 'rare', 'mythic', 'legendary', 'transcendent'];
@@ -69,11 +69,11 @@
   WEAPONS.staff = { name: 'Gnarled Staff', attack: 0, family: 'staff', chance: 0, tier: 'rare' };
   WEAPONS.scepter = { name: 'Royal Scepter', attack: 20, family: 'scepter', chance: 0, tier: 'rare' };
   ARMOR.robe = { name: 'Starry Robe', health: 60, family: 'robe', chance: 0, tier: 'rare' };
-  ARMOR.royal = { name: 'Royal Mantle', health: 100, family: 'royal', chance: 0, tier: 'mythic' };
+  ARMOR.royal = { name: 'Royal Mantle', health: 63, family: 'royal', chance: 0, tier: 'mythic' };
   ITEMS['w:staff'] = { key: 'w:staff', type: 'weapon', name: 'Gnarled Staff', attack: 0, family: 'staff', chance: 0, tier: 'rare', tierN: 2, price: 70 };
   ITEMS['w:scepter'] = { key: 'w:scepter', type: 'weapon', name: 'Royal Scepter', attack: 20, family: 'scepter', chance: 0, tier: 'rare', tierN: 2, price: 150 };
   ITEMS['a:robe'] = { key: 'a:robe', type: 'armor', name: 'Starry Robe', health: 60, family: 'robe', chance: 0, tier: 'rare', tierN: 2, price: 90 };
-  ITEMS['a:royal'] = { key: 'a:royal', type: 'armor', name: 'Royal Mantle', health: 100, family: 'royal', chance: 0, tier: 'mythic', tierN: 3, price: 180 };
+  ITEMS['a:royal'] = { key: 'a:royal', type: 'armor', name: 'Royal Mantle', health: 63, family: 'royal', chance: 0, tier: 'mythic', tierN: 3, price: 180 };
 
   // LOOT: the mystery-room goblin plushie is a one-use throwable (quick slot key = throw). Never dropped by chance, only found in plushie mystery rooms. The server decides where it lands; bots and mystery enemies within 8 m run to it for 3 s.
   ITEMS['x:plushie'] = { key: 'x:plushie', type: 'consumable', name: 'Goblin Plushie', family: 'plushie', chance: 0, tier: 'common', tierN: 0, price: 15, desc: 'Press its quick key to throw it. It squeaks, and bots within 8 m run to it for 3 s. One use.' };
@@ -153,7 +153,7 @@
   // ACT5-ITEMS-END
   const pickUtil = () => { let r = Math.random() * UTIL_KEYS.reduce((a, k) => a + ITEMS[k].shop, 0); for (const k of UTIL_KEYS) { if ((r -= ITEMS[k].shop) < 0) return k; } return UTIL_KEYS[0]; };   // weighted by `shop`
   const START = [   // starting gear per goblin type: 0 small, 1 medium, 2 big, 3 wizard, 4 king
-    { weapon: 'w:dagger', armor: 'a:rags' }, { weapon: 'w:club', armor: 'a:vest' }, { weapon: 'w:mace', armor: 'a:harness' },
+    { weapon: 'w:dagger', armor: 'a:jerkin' }, { weapon: 'w:club', armor: 'a:vest' }, { weapon: 'w:mace', armor: 'a:scraps' },   // BALANCE-3: small rags -> jerkin, big harness -> scraps (duels at start were 31% / 96%)
     { weapon: 'w:staff', armor: 'a:robe' }, { weapon: 'w:scepter', armor: 'a:royal' },
   ];
   const KNOWLEDGE = [60, 40, 30, 80, 40];   // innate stat per goblin type
@@ -167,22 +167,22 @@
   const GOBLINS = [
     { key: 'small', name: 'Small Goblin', odds: 20, size: 0.75, hp: 0, reach: 0, perk: null, perkName: 'Quick', perkText: 'The fastest of the common goblins.', desc: 'Tiny, twitchy and easy to overlook. Stay low, stay quick.' },
     { key: 'medium', name: 'Goblin', odds: 20, size: 1, hp: 0, reach: 0, perk: null, perkName: 'Steady', perkText: 'No weakness, no tricks: a club and a vest.', desc: 'A sturdy brawler of the horde. Dependable and mean.' },
-    { key: 'big', name: 'Big Goblin', odds: 20, size: 1.3, hp: 0, reach: 0, perk: null, perkName: 'Heavy', perkText: 'Starts in a warlord harness. Slow, and a big target.', desc: 'Hulking, loud and hard to ignore. Everyone gets out of your way.' },
+    { key: 'big', name: 'Big Goblin', odds: 20, size: 1.3, hp: 0, reach: 0, perk: null, perkName: 'Heavy', perkText: 'Starts with a spiked mace. Slow, and a big target.', desc: 'Hulking, loud and hard to ignore. Everyone gets out of your way.' },
     { key: 'wizard', name: 'Goblin Wizard', odds: 4.5, size: 1.1, hp: 0, reach: 0, perk: null, perkName: 'Staff bolt', perkText: 'Starts with a staff that throws bolts. The most knowledge.', desc: 'Robed and rare. The horde whispers of your spells.' },
     { key: 'king', name: 'GOBLIN KING', odds: 1, size: 1.2, hp: 0, reach: 0, perk: null, perkName: 'Royal', perkText: 'Royal gear, but rivals see your crown through the walls.', desc: 'One in a hundred. Every goblin in the cave kneels to you.' },
-    { key: 'scout', name: 'Goblin Scout', odds: 11.2, size: 0.9, hp: 22, reach: 0, perk: 'nimble', perkName: 'Nimble', perkText: '1 in 8 melee blows against you miss.', desc: 'Long ears and light feet. Hears you coming, gets there first.' },
-    { key: 'sneak', name: 'Goblin Sneak', odds: 8.2, size: 0.88, hp: -4, reach: 0, perk: 'backstab', perkName: 'Backstab', perkText: '+50% damage when you hit a goblin from behind.', desc: 'Hooded, crouched and never where you look.' },
-    { key: 'miner', name: 'Goblin Miner', odds: 6.1, size: 0.92, hp: -12, reach: 0, perk: 'prospector', perkName: 'Prospector', perkText: 'Starts with 40 more gold and a pouch of metal, wood and a gem.', desc: 'Short, stocky and covered in grit. Smells gold through rock.' },
+    { key: 'scout', name: 'Goblin Scout', odds: 11.2, size: 0.9, hp: 0, reach: 0, perk: 'nimble', perkName: 'Nimble', perkText: '1 in 12 melee blows against you miss.', desc: 'Long ears and light feet. Hears you coming, gets there first.' },
+    { key: 'sneak', name: 'Goblin Sneak', odds: 8.2, size: 0.88, hp: -10, reach: 0, perk: 'backstab', perkName: 'Backstab', perkText: '+50% damage when you hit a goblin from behind.', desc: 'Hooded, crouched and never where you look.' },
+    { key: 'miner', name: 'Goblin Miner', odds: 6.1, size: 0.92, hp: -4, reach: 0, perk: 'prospector', perkName: 'Prospector', perkText: 'Starts with 40 more gold and a pouch of metal, wood and a gem.', desc: 'Short, stocky and covered in grit. Smells gold through rock.' },
     { key: 'shaman', name: 'Goblin Shaman', odds: 3.3, size: 1, hp: -4, reach: 0, perk: 'mending', perkName: 'Mending', perkText: 'Heals twice as often, and starts healing sooner after a hit.', desc: 'Bone mask, horns and old charms. The wounds close by themselves.' },
-    { key: 'berserker', name: 'Goblin Berserker', odds: 2.5, size: 1.15, hp: -12, reach: 0, perk: 'rage', perkName: 'Rage', perkText: '+35% damage while below half health.', desc: 'Painted red and screaming. Hurting it only makes it worse.' },
-    { key: 'bog', name: 'Bog Goblin', odds: 1.8, size: 0.95, hp: 0, reach: 0, perk: 'thickhide', perkName: 'Thick hide', perkText: 'Takes 15% less damage from everything.', desc: 'A wide-mouthed swamp goblin with a tail. Slimy, slow and hard to hurt.' },
-    { key: 'hob', name: 'Hobgoblin', odds: 1.4, size: 1.3, hp: 4, reach: 0.4, perk: 'longarms', perkName: 'Long arms', perkText: 'Melee reach +0.4 m. Tall, so easy to hit.', desc: 'A tall, rust-skinned cousin from the deep. Keeps you at spear length.' },
+    { key: 'berserker', name: 'Goblin Berserker', odds: 2.5, size: 1.15, hp: -7, reach: 0, perk: 'rage', perkName: 'Rage', perkText: '+30% damage while below half health.', desc: 'Painted red and screaming. Hurting it only makes it worse.' },
+    { key: 'bog', name: 'Bog Goblin', odds: 1.8, size: 0.95, hp: -2, reach: 0, perk: 'thickhide', perkName: 'Thick hide', perkText: 'Takes 10% less damage from everything.', desc: 'A wide-mouthed swamp goblin with a tail. Slimy, slow and hard to hurt.' },
+    { key: 'hob', name: 'Hobgoblin', odds: 1.4, size: 1.3, hp: 0, reach: 0.4, perk: 'longarms', perkName: 'Long arms', perkText: 'Melee reach +0.4 m. Tall, so easy to hit.', desc: 'A tall, rust-skinned cousin from the deep. Keeps you at spear length.' },
   ];
-  START.push({ weapon: 'w:sword', armor: 'a:swiftwrap' }, { weapon: 'w:twinfangs', armor: 'a:scraps' }, { weapon: 'w:handaxe', armor: 'a:scrapplate' },
-    { weapon: 'w:club', armor: 'a:bonemail' }, { weapon: 'w:scrapcleaver', armor: 'a:furmantle' }, { weapon: 'w:spear', armor: 'a:rags' }, { weapon: 'w:spear', armor: 'a:cloth' });
+  START.push({ weapon: 'w:scrapcleaver', armor: 'a:bonemail' }, { weapon: 'w:twinfangs', armor: 'a:scraps' }, { weapon: 'w:handaxe', armor: 'a:furmantle' },   // BALANCE-3: scout, miner, shaman, berserker and hob kits retuned (tools/balsim.js)
+    { weapon: 'w:club', armor: 'a:jerkin' }, { weapon: 'w:club', armor: 'a:bonemail' }, { weapon: 'w:spear', armor: 'a:rags' }, { weapon: 'w:spear', armor: 'a:rags' });
   KNOWLEDGE.push(50, 55, 45, 70, 25, 45, 50);
-  SPEED.push(1.04, 1.06, 0.94, 1.0, 1.03, 0.96, 1.0);   // the scout's swiftwrap adds its own x1.12
-  const GOB_PERKS = { nimble: { dodge: 0.125 }, backstab: { mult: 1.5 }, prospector: { gold: 40, parts: { metal: 3, wood: 2, gem: 1 } }, mending: { idle: 0.5, every: 0.5 }, rage: { below: 0.5, mult: 1.35 }, thickhide: { taken: 0.85 }, longarms: {} };
+  SPEED.push(1.04, 1.06, 0.94, 1.0, 1.03, 0.96, 1.0);
+  const GOB_PERKS = { nimble: { dodge: 0.08 }, backstab: { mult: 1.5 }, prospector: { gold: 40, parts: { metal: 3, wood: 2, gem: 1 } }, mending: { idle: 0.5, every: 0.5 }, rage: { below: 0.5, mult: 1.3 }, thickhide: { taken: 0.9 }, longarms: {} };
   const HIT_R = 0.35;   // hit-box radius of a size-1 goblin (m): bigger goblins are a little easier to reach, smaller ones a little harder
   const gob = g => GOBLINS[g | 0] || GOBLINS[1];
   function rollGoblin(r) {   // weighted roll -> type id; r in [0, 1) (default Math.random())
@@ -196,11 +196,11 @@
   function goblinHit(att, tgt, dmg, ctx = {}) {   // att / tgt: { goblin, hp, max, npc }; ctx: { melee, behind, rnd }. -> { dmg, dodged }. NPCs have no perks.
     const pa = att && !att.npc ? gob(att.goblin).perk : null, pt = tgt && !tgt.npc ? gob(tgt.goblin).perk : null, rnd = ctx.rnd == null ? Math.random() : ctx.rnd;
     if (pt === 'nimble' && ctx.melee && rnd < GOB_PERKS.nimble.dodge) return { dmg: 0, dodged: true };
-    let d = dmg;
-    if (pa === 'backstab' && ctx.behind) d *= GOB_PERKS.backstab.mult;
-    if (pa === 'rage' && att.max > 0 && att.hp < att.max * GOB_PERKS.rage.below) d *= GOB_PERKS.rage.mult;
+    let d = dmg; const cue = {};   // BALANCE-3: cue says which perk fired, so the client can show it (backstab / rage)
+    if (pa === 'backstab' && ctx.behind) { d *= GOB_PERKS.backstab.mult; cue.backstab = 1; }
+    if (pa === 'rage' && att.max > 0 && att.hp < att.max * GOB_PERKS.rage.below) { d *= GOB_PERKS.rage.mult; cue.rage = 1; }
     if (pt === 'thickhide') d *= GOB_PERKS.thickhide.taken;
-    return { dmg: Math.max(1, Math.round(d)), dodged: false };
+    return { dmg: Math.max(1, Math.round(d)), dodged: false, ...cue };
   }
   const goblinRegen = g => gob(g).perk === 'mending' ? GOB_PERKS.mending : { idle: 1, every: 1 };   // multipliers on COMBAT.regenIdle / regenEvery
   const goblinStart = g => gob(g).perk === 'prospector' ? GOB_PERKS.prospector : null;   // extra gold and parts at the start
@@ -322,14 +322,14 @@
   const CHEST_WEAPONS = ['w:sword', 'w:axe', 'w:spear', 'w:mace', 'w:bow', 'w:dagger'];   // legacy: old 6-entry chest list (indices), kept until the client reads chestKeys
   // ---- COMBAT rules shared by server and client (server is authoritative). weaponKey may be null (unarmed).
   const COMBAT = { melee: 2.2, ranged: 12, cone: 70 * Math.PI / 180, slack: 0.3, unarmed: 1, regenIdle: 6000, regenEvery: 4000, regenAmt: 1 };
-  const SWING_CD = { dagger: 450, sword: 600, club: 600, mace: 650, spear: 650, axe: 750, flail: 750, hammer: 900, halberd: 850, bow: 700, crossbow: 1000, staff: 600, scepter: 600, whip: 520, sling: 520, wand: 650 };   // ms between swings per weapon family, default 600
+  const SWING_CD = { dagger: 500, sword: 600, club: 600, mace: 650, spear: 650, axe: 750, flail: 750, hammer: 900, halberd: 850, bow: 700, crossbow: 1000, staff: 600, scepter: 600, whip: 520, sling: 520, wand: 650 };   // ms between swings per weapon family, default 600
   // per-weapon overrides of the family defaults: range (m), cd (ms between swings), ranged (hits from afar, like a bow). Reach / speed / weight is what tells the new weapons apart.
   const WEAPON_TUNE = { 'w:scrapcleaver': { range: 1.9, cd: 560 }, 'w:twinfangs': { range: 1.9, cd: 300 }, 'w:handxbow': { range: 10, cd: 650, ranged: true }, 'w:throwaxe': { range: 8, cd: 900, ranged: true },
-    'w:pike': { range: 3.1, cd: 850 }, 'w:ogreclub': { cd: 1000 }, 'w:maul': { cd: 1300 }, 'w:arbalest': { range: 16, cd: 1700, ranged: true }, 'w:crownsplitter': { range: 2.4, cd: 800 },
+    'w:pike': { range: 3.1, cd: 850 }, 'w:ogreclub': { cd: 950 }, 'w:maul': { cd: 1200 }, 'w:arbalest': { range: 16, cd: 1050, ranged: true }, 'w:longbow': { cd: 950 }, 'w:crownsplitter': { range: 2.4, cd: 800 },
     // WEAPONS 3. bleed: [damage per tick, ticks] (one tick a second, a new bleed replaces the old). bolt: damage of the slow magic bolt this staff/wand throws instead of swinging (the old staff and scepter keep 9).
     'w:shiv': { range: 1.9, cd: 380 }, 'w:pan': { range: 1.9, cd: 640 }, 'w:sling': { range: 9, cd: 520, ranged: true }, 'w:knives': { range: 8, cd: 430, ranged: true }, 'w:bullwhip': { range: 3.4, cd: 520 },
-    'w:trident': { range: 2.6, cd: 640, bleed: [2, 3] }, 'w:emberwand': { cd: 650, bolt: 12 }, 'w:glaive': { range: 3.0, cd: 800 }, 'w:ballchain': { range: 2.4, cd: 1150 }, 'w:barbedlash': { range: 3.6, cd: 540, bleed: [3, 3] },
-    'w:stormstaff': { cd: 1100, bolt: 36 }, 'w:archstaff': { cd: 1200, bolt: 62 }, 'w:gildedlash': { range: 4.2, cd: 450, bleed: [6, 3] }, 'w:sunstaff': { cd: 1000, bolt: 95 } };
+    'w:trident': { range: 2.6, cd: 640, bleed: [2, 3] }, 'w:emberwand': { cd: 650, bolt: 16 }, 'w:glaive': { range: 3.0, cd: 800 }, 'w:ballchain': { range: 2.4, cd: 1050 }, 'w:barbedlash': { range: 3.6, cd: 540, bleed: [3, 3] },
+    'w:stormstaff': { cd: 1000, bolt: 42 }, 'w:archstaff': { cd: 1200, bolt: 62 }, 'w:gildedlash': { range: 4.2, cd: 500, bleed: [5, 3] }, 'w:sunstaff': { cd: 900, bolt: 115 } };
   function combat(weaponKey) {   // { dmg, range, cd } for the equipped weapon; damage is the attack stat, at least 1 (a staff with attack 0 still bonks for 1)
     const w = weaponKey && ITEMS[weaponKey], fam = w ? w.family : null, ranged = fam === 'bow' || fam === 'crossbow';
     const t = (w && (WEAPON_TUNE[weaponKey] || (w.base && WEAPON_TUNE[w.base]))) || {}, isR = t.ranged != null ? t.ranged : ranged;
@@ -394,5 +394,26 @@
     if (ITEMS[key] && !RECIPES.some(r => r.out === key)) RECIPES.push({ id: 'r:' + key, out: key, tier, cost, needs: KNOWLEDGE_TIERS[tier - 1] });
   // KNOWLEDGE-END
   root.GKITEMS = { KNOW, BRANCHES, PERKS, PERK, hasPerk, perkSpent, knowPoints, knowTier, learnFail, recipeCost, recycleFor, healMult, reforgeCost, UTIL_KEYS, pickUtil, armorSpeed, MAX_ARMOR_SPEED, randomShop, START_GOLD, randomMystery, randomLayout, STATIONS, recycleEff, canCraft, benchSpec, benchCraft, partCost, addKnowledge, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, WEAPON_TUNE, START, KNOWLEDGE, SPEED, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info, armorThorns, armorScore, GOBLINS, GOB_PERKS, HIT_R, rollGoblin, goblinHp, hitRadius, goblinReach, goblinHit, goblinRegen, goblinStart, CHARM_KEYS, pickCharm, charmEff, isFlask, flaskN };
+  // BALANCE3-BEGIN (docs/reports/balance-3.md; tools/balsim.js measures every number here). The damage cap, the staff bolt and the two abilities, shared by server, client, bots and the Codex.
+  // DMG_CAP: one blow never carries more than x1.75 of its weapon's damage, whatever stacks on it (Wolf Fang, Rage Brew, backstab, berserker rage, Fury, the Oak ambush, the heavy blow).
+  // The defender's own reduction (thick hide) still applies after the cap.
+  const DMG_CAP = 1.75, STAFF_BOLT = { dmg: 16, cd: 900 }, POINT_BLANK = { r: 2, mul: 0.7 };   // POINT_BLANK: bows, crossbows, slings and thrown weapons hit for 70% inside 2 m (not bolts)
+  const goblinTaken = t => t && !t.npc && gob(t.goblin).perk === 'thickhide' ? GOB_PERKS.thickhide.taken : 1;
+  const capHit = (base, dmg, tgt) => base > 0 ? Math.min(dmg, Math.max(1, Math.round(base * DMG_CAP * goblinTaken(tgt)))) : dmg;
+  // ABILITY: everyone has a DASH (double-tap a direction, or C): a quick 3 m burst with a short window in which blows miss, on a cooldown. Heavy weapons (hammer, axe, mace,
+  // club, flail) also have a HEAVY BLOW (hold the right mouse button): a visible wind-up, then a hit for `mult` x damage that staggers the target (it cannot attack for
+  // staggerMs). The counterplay to a wind-up is the dash, the counterplay to the dash is to wait it out (cooldown).
+  const ABIL = {
+    DASH: { dist: 3.2, ms: 200, iframeMs: 250, cd: 3000 },
+    HEAVY: { fams: { hammer: 1.6, axe: 1.5, mace: 1.5, club: 1.45, flail: 1.5 }, chargeMs: 550, cdMul: 0.5, staggerMs: 400, moveMul: 0.6 },
+    heavyFor: key => { const w = key && ITEMS[key], m = w && w.type === 'weapon' && ABIL.HEAVY.fams[w.family]; return m ? { mult: m } : null; },
+    TEXT: [   // what the Codex and the how-to show
+      ['Dash', 'Double-tap a direction (or press C): a quick 3 m dash. Blows that land in its first quarter second miss. 3 s cooldown.'],
+      ['Heavy blow', 'Hammers, axes, maces, clubs and flails: hold the right mouse button to wind up (0.55 s, you move slower), release to strike for x1.45-1.6 damage. A heavy hit staggers: the target cannot attack for 0.4 s. A dash dodges it.'],
+      ['Damage cap', 'One blow never carries more than x1.75 of its weapon damage, whatever stacks on it (charms, Rage Brew, backstab, berserker rage, blessings, the heavy blow).'],
+    ],
+  };
+  Object.assign(root.GKITEMS, { DMG_CAP, STAFF_BOLT, POINT_BLANK, goblinTaken, capHit, ABIL });
+  // BALANCE3-END
   if (typeof module !== 'undefined' && module.exports) module.exports = root.GKITEMS;
 })(typeof window !== 'undefined' ? window : globalThis);

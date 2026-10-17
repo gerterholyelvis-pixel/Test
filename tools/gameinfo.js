@@ -30,7 +30,7 @@ function srvConst(name, src) {
     else if (depth === 0 && (c === ',' || c === ';' || c === '\n')) break;
   }
   const expr = s.slice(st, i).trim();
-  try { return new Function('DBG', 'process', 'return (' + expr + ')')(false, { env: {} }); } catch (e) { throw new Error('gameinfo: cannot evaluate server.js ' + name + ': ' + e.message); }
+  try { return new Function('DBG', 'process', 'require', 'return (' + expr + ')')(false, { env: {} }, f => require(path.join(ROOT, f))); }   /* BALANCE-3: server.js BOLT reads items.js STAFF_BOLT */ catch (e) { throw new Error('gameinfo: cannot evaluate server.js ' + name + ': ' + e.message); }
 }
 // a number captured by a regex from a source file (for the few values that sit inside code, not in a named constant)
 function srcNum(re, src, what) { const m = re.exec(src || SRC.server); if (!m) throw new Error('gameinfo: cannot find ' + what); return +m[1]; }
@@ -275,6 +275,8 @@ const combatFacts = [['Melee reach', cb.melee + ' m'], ['Ranged reach (bows, cro
   ['Reforge', '+' + pc(G.KNOW.up - 1) + ' attack or health, at least +2'], ['Perk numbers', 'Field Medic x' + G.KNOW.medic + ', Brain Gourmet +' + G.KNOW.gourmet + ' HP, one knowledge point per ' + G.KNOW.step + ' knowledge']];
 const thornArm = armours.filter(a => a.thorns).map(a => a.name.v + ' ' + a.thorns).join(', ');
 combatFacts.push(['Thorns armour', thornArm + ' (flat damage back to a melee attacker, never lethal)']);
+for (const [k, v] of G.ABIL.TEXT) combatFacts.push([k, v]);   // ABILITY (BALANCE-3): the dash, the heavy blow and the damage cap
+combatFacts.push(['Point blank', 'bows, crossbows, slings and thrown weapons hit for ' + pc(G.POINT_BLANK.mul) + ' inside ' + G.POINT_BLANK.r + ' m (not bolts)']);
 const npcAll = [...Object.entries(SV.NPC).map(([k, n]) => ({ id: 'e-' + k, name: n.name, from: k === 'rat' ? 'Rat Swarm send' : 'Mystery room', ...npcRow(n) })),
   ...T5.TYPES.map(t => ACT.get(t)).filter(sp => sp.npc).flatMap(sp => Object.values(sp.npc).map(n => ({ id: 'e-' + n.name, name: n.name, from: T5.NAMES[sp.type], ...npcRow(n) }))),
   { id: 'e-warden', name: wardenNpc.name, from: 'Locksmith alarm, vault claim', ...npcRow(wardenNpc) }, { id: 'e-wisp', name: wispNpc.name, from: 'Keystone resonance', ...npcRow(wispNpc) }];
