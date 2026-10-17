@@ -14,6 +14,19 @@ run('qa-full', [
     assert(/k === 'e' \|\| k === 'E'\)[^\n]*close\(true\)/.test(onKey), 'E closes the screen');
     assert(onKey.indexOf("k === 'e'") < onKey.indexOf('e.stopPropagation()'), 'handled before the key is stopped');
   }],
+  ['a browser that refuses the pointer lock still swings on click (the retry click used to reset the refusal before the swing check)', () => {
+    const g = R('game.js'), rl = g.slice(g.indexOf('const requestLock = () => {'), g.indexOf("canvas.addEventListener('mousedown', requestLock)"));
+    assert(rl.indexOf('lockPrevRefused = lockRefused') >= 0 && rl.indexOf('lockPrevRefused = lockRefused') < rl.indexOf('lockRefused = false;'), 'requestLock remembers the refusal before it resets it');
+    assert(/mousedown', e => \{ if \(e\.button === 0 && \(lockOk\(\) \|\| lockRefused \|\| lockPrevRefused\)\)/.test(g), 'the swing handler accepts a remembered refusal');
+    assert(/lockRefused = lockPrevRefused = false/.test(g), 'a real lock clears it');
+    // the two mousedown listeners run in registration order: requestLock first, then the swing; simulate both
+    let lockOk = false, lockRefused = true, lockPrevRefused = false, swung = 0;
+    const requestLock = () => { if (lockOk) return; lockPrevRefused = lockRefused; lockRefused = false; };
+    const swing = () => { if (lockOk || lockRefused || lockPrevRefused) swung++; };
+    for (let i = 0; i < 3; i++) { requestLock(); swing(); lockRefused = true; }   // the browser refuses again after each click
+    eq(swung, 3, 'every click swings while the lock is refused');
+    lockOk = true; lockRefused = lockPrevRefused = false; swing(); eq(swung, 4);
+  }],
   ['home toasts sit below the round timer and the home-phase line, not on top of them', () => {
     const m = /\.hu-tw\{[^}]*top:(\d+)vh/.exec(R('homeui.js')); assert(m && +m[1] >= 15, 'toast stack top ' + (m && m[1]));
   }],

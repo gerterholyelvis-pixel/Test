@@ -5546,14 +5546,15 @@ const canvas = renderer.domElement;
 const lockOk = () => document.pointerLockElement === canvas;
 
 // pointer lock with raw (unaccelerated) mouse input where the browser supports it, so the view moves 1:1 with the mouse
-let lockRefused = false;
+let lockRefused = false, lockPrevRefused = false;
 const requestLock = () => {
   if (lockOk()) return;
+  lockPrevRefused = lockRefused;   // QA-FULL: remembered for the swing check below (this click resets lockRefused before the swing handler runs, so a browser that keeps refusing the lock never swung at all)
   lockRefused = false;   // every click retries the lock: one refusal (e.g. the browser's short cooldown after Esc) must not leave the cursor free for the rest of the session
   const plain =() => { try { const r = canvas.requestPointerLock(); r && r.catch && r.catch(() => { lockRefused = true; }); } catch (e) { lockRefused = true; } };
   try { const r = canvas.requestPointerLock({ unadjustedMovement: true }); if (r && r.catch) r.catch(plain); } catch (e) { plain(); }
 };
-document.addEventListener('pointerlockchange', () => { if (lockOk()) lockRefused = false; });
+document.addEventListener('pointerlockchange', () => { if (lockOk()) lockRefused = lockPrevRefused = false; });
 document.addEventListener('pointerlockerror', () => { lockRefused = true; });
 canvas.addEventListener('mousedown', requestLock);
 // FULLSCREEN-2: a key in play with no panel open takes the pointer lock back, fullscreen or not (fskeep.js install, wired by menu.js)
@@ -7087,7 +7088,7 @@ function combatSwing() {   // left click: swing animation on my own goblin now, 
   if (now - CB.last < cb.cd) return false;
   CB.last = now; CB.nextAt = now + cb.cd; /* FEEL2: cooldown end for buffer/hold */ mine.swing = 1e-4; vmSwing(mine, true); net.send({ atk: 1 }); snd('swing', { fam: mine.vmFam }); return true;
 }
-canvas.addEventListener('mousedown', e => { if (e.button === 0 && (lockOk() || lockRefused)) { /* FEEL2: hold + input buffer */ CB.held = true; if (!combatSwing() && CB.nextAt - performance.now() <= 180) CB.buf = true; } });   // the click that captures the mouse does not swing
+canvas.addEventListener('mousedown', e => { if (e.button === 0 && (lockOk() || lockRefused || lockPrevRefused)) { /* FEEL2: hold + input buffer */ CB.held = true; if (!combatSwing() && CB.nextAt - performance.now() <= 180) CB.buf = true; } });   // the click that captures the mouse does not swing
 // FEEL2-BEGIN (attack input buffer + hold-to-attack, directional damage arc, crosshair hit marker; see docs/reports/feel-2.md)
 CB.nextAt = 0; CB.held = false; CB.buf = false; CB.arc = null; CB.arcAnim = null; CB.hm = null; CB.hmAnim = null;
 addEventListener('mouseup', e => { if (e.button === 0) { CB.held = false; } });
@@ -7095,7 +7096,7 @@ addEventListener('blur', () => { CB.held = false; CB.buf = false; });
 function feel2Tick() {   // frame(): fire a buffered click or a held button as soon as the cooldown allows, through the normal combatSwing()
   if (!CB.held && !CB.buf) return;
   if (GK.mode !== 'play' || invOpen || shopOpen || !spawned || GK.locked) { CB.buf = false; return; }
-  if (CB.held && !lockOk() && !lockRefused) { CB.held = false; return; }   // lock dropped (Esc): stop auto-swinging
+  if (CB.held && !lockOk() && !lockRefused && !lockPrevRefused) { CB.held = false; return; }   // lock dropped (Esc): stop auto-swinging
   if (performance.now() < CB.nextAt) return;
   CB.buf = false; combatSwing();
 }
