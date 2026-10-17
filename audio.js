@@ -29,7 +29,7 @@
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -14; comp.knee.value = 20; comp.ratio.value = 5; comp.attack.value = 0.004; comp.release.value = 0.2;
     master = ctx.createGain(); sfxBus = ctx.createGain(); ambBus = ctx.createGain();
-    sfxBus.connect(master); ambBus.connect(master); master.connect(comp); comp.connect(ctx.destination);
+    sfxBus.connect(master); duckG = ctx.createGain(); ambBus.connect(duckG); duckG.connect(master); master.connect(comp); comp.connect(ctx.destination);   // DUCK: ambience (and music) pass through duckG
     const n = ctx.sampleRate * 2; noiseBuf = ctx.createBuffer(1, n, ctx.sampleRate);
     const d = noiseBuf.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
     refresh();
@@ -510,8 +510,21 @@
     const out = route(o, t);
     if (!out) return false;
     try { fn(out, t, o); } catch (e) { return false; }
+    if (DUCK[name] && !(o.x != null && name === 'death')) duck(DUCK[name][0], DUCK[name][1]);   // DUCK (a far-away death does not duck)
     return true;
   }
+  // DUCK-BEGIN (docs/reports/research-game.md): the big moments get room in the mix. Ambience and music dip under them and come back
+  // smoothly. A deeper duck already running is never made shallower. [depth (gain), hold seconds]
+  const DUCK = { death: [0.25, 2.2], victory: [0.3, 3], gong: [0.45, 1.6], go: [0.5, 1.2], hurt: [0.7, 0.45] };
+  let duckG = null;
+  function duck(depth, secs) {
+    if (!ctx || !duckG) return false;
+    const t = ctx.currentTime, g = duckG.gain, d = clamp(Math.min(num(depth, 0.5), g.value), 0.05, 1), s = clamp(num(secs, 1), 0.1, 6);
+    try { g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(d, t + 0.05); g.setTargetAtTime(1, t + 0.05 + s * 0.5, s * 0.25); } catch (e) { return false; }
+    return true;
+  }
+  function musicOut() { return ensure() && ambBus ? { ctx, out: ambBus } : null; }   // MUSIC (client/music5.js): music rides the ambient slider and the duck
+  // DUCK-END
 
   // ---------- ambient room hum (a bit deeper in the vault) ----------
   let amb = null;
@@ -550,6 +563,7 @@
     itemSound,
     refresh,
     resume,
+    duck, musicOut, DUCK,   // DUCK
     setListener(x, z, yaw) { L.x = x; L.z = z; L.yaw = yaw; },
     get state() { return ctx ? ctx.state : 'none'; },
     get ctx() { return ctx; },
