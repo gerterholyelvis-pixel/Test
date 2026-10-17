@@ -44,6 +44,9 @@ run('qa-full', [
     assert(m && +m[1] >= 3200, 'delay ' + (m && m[1])); assert(/later\('bnRekey', \(\) => showBanner\(html, 4200\), REKEY_DELAY\)/.test(h), 'shown through the delayed timer');
     const g = R('game.js'); const a = /RS\.arenaUntil = now \+ (\d+)/.exec(g); assert(a && +a[1] <= +m[1], 'the arena banner (' + (a && a[1]) + ' ms) is gone before the strip');
   }],
+  ['the death / victory title fits the 560 px card on one line at 1080p ("YOU DIED" wrapped at 88 px)', () => {
+    const m = /\.rs-big\{[^}]*font-size:clamp\(40px,min\(10vw,11vh\),(\d+)px\)/.exec(R('index.html')); assert(m && +m[1] <= 78, 'max ' + (m && m[1]));
+  }],
   ['home toasts sit below the round timer and the home-phase line, not on top of them', () => {
     const m = /\.hu-tw\{[^}]*top:(\d+)vh/.exec(R('homeui.js')); assert(m && +m[1] >= 15, 'toast stack top ' + (m && m[1]));
   }],
