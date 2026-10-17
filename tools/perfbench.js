@@ -22,7 +22,7 @@ const freePort = () => new Promise(res => { const s = net.createServer(); s.list
 
 // injected before any page script: seeded Math.random, passive bots, a per-frame probe that wraps requestAnimationFrame and (once it exists) renderer.render
 const PROBE = `(() => {
-  let s = 0x9e3779b9; Math.random = () => { s |= 0; s = s + 0x6D2B79F5 | 0; let t = Math.imul(s ^ s >>> 15, 1 | s); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  let s = 0x9e3779b9; window.__reseed = () => { s = 0x9e3779b9; }; Math.random = () => { s |= 0; s = s + 0x6D2B79F5 | 0; let t = Math.imul(s ^ s >>> 15, 1 | s); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
   window.GK_BOTS_PASSIVE = true;
   try { localStorage.setItem('gk.gfxAuto', 'user'); localStorage.setItem('gk.tips', JSON.stringify({ off: true })); } catch (e) {}
   const pf = window.__pf = { on: false, rows: [], cur: null, ts: -1, wrapped: false, hideActors: false, baked: 0 };
@@ -41,7 +41,7 @@ const PROBE = `(() => {
     const orig = r.render.bind(r); r.info.autoReset = false;
     r.render = (sc, cm) => {
       const c0 = r.info.render.calls, t0 = r.info.render.triangles, a = now();
-      let hid = null; if (pf.hideActors && GK.actors) { hid = []; for (const x of GK.actors.values()) if (x.group && x.group.visible) { x.group.visible = false; hid.push(x.group); } }
+      let hid = null; if (pf.hideActors && GK.actors) { hid = []; for (const x of GK.actors.values()) if (x.group && x.group.visible) { x.group.visible = false; hid.push(x.group); } for (const c of GK.cam.children) if (c.visible) { c.visible = false; hid.push(c); } }
       try { orig(sc, cm); } finally { if (hid) for (const g of hid) g.visible = true; }
       if (pf.cur) { pf.cur.rcpu += now() - a; pf.cur.calls += r.info.render.calls - c0; pf.cur.tris += r.info.render.triangles - t0; pf.cur.passes++; }
       if (r.info.render.calls > 1e7) r.info.reset();
@@ -79,18 +79,12 @@ async function profile(send, ev) {   // 4 s CPU profile (self time by function) 
   console.log('  allocations (4 s, ' + (at / 1048576).toFixed(1) + ' MB sampled):');
   for (const [k, b] of [...al].sort((a, b) => b[1] - a[1]).slice(0, 25)) console.log('    ' + (b / 1024).toFixed(0).padStart(7) + ' KB  ' + k);
 }
-async function main() {
-  if (!BROWSER) throw new Error('no Edge / Chrome found (set CHROME)');
-  if (!fs.existsSync(path.join(ROOT, 'node_modules', 'three'))) throw new Error('no node_modules/three next to ' + ROOT + ' (the server would 404 three.js)');
-  const port = await freePort(), dport = await freePort(), base = 'http://127.0.0.1:' + port;
-  const srv = spawn(process.execPath, [path.join(ROOT, 'server.js')], { cwd: ROOT, env: Object.assign({}, process.env, { PORT: String(port), GK_DEBUG: '1' }), stdio: 'ignore' });
-  for (let i = 0; i < 60; i++) { try { await get(base + '/'); break; } catch (e) { await sleep(150); } }
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gkbench-'));
+async function openBrowser() {   // headless Edge / Chrome on the real GPU, one page, CDP helpers
+  const dport = await freePort(), dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gkbench-'));
   const flags = ['--headless=new', '--remote-debugging-port=' + dport, '--user-data-dir=' + dir, '--window-size=' + W + ',' + H, '--hide-scrollbars', '--mute-audio', '--no-first-run', '--ignore-gpu-blocklist', '--enable-gpu', '--use-angle=' + (process.env.ANGLE || 'd3d11'), '--enable-precise-memory-info', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--autoplay-policy=no-user-gesture-required'];
   if (process.env.UNCAPPED === '1') flags.push('--disable-gpu-vsync', '--disable-frame-rate-limit');
   const ch = spawn(BROWSER, flags.concat('about:blank'), { stdio: 'ignore' });
-  const cleanup = () => { try { ch.kill(); } catch (e) {} try { srv.kill(); } catch (e) {} };
-  process.on('exit', cleanup);
+  const cleanup = () => { try { ws.close(); } catch (e) {} try { ch.kill(); } catch (e) {} };
   let tabs; for (let i = 0; i < 60; i++) { try { tabs = JSON.parse(await get('http://127.0.0.1:' + dport + '/json')); if (tabs.some(t => t.type === 'page')) break; } catch (e) {} await sleep(200); }
   if (process.platform === 'win32' && process.env.PRIO !== '0') {   // the machine is shared: run this browser (all its processes) at high priority so other load inflates the numbers less
     const ps = "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*" + path.basename(dir) + "*' } | ForEach-Object { try { (Get-Process -Id $_.ProcessId).PriorityClass = 'High' } catch {} }";
@@ -103,6 +97,17 @@ async function main() {
   const ev = async expr => { const r = await send('Runtime.evaluate', { expression: '(async()=>(' + expr + '))()', awaitPromise: true, returnByValue: true }); if (r.result.exceptionDetails) throw new Error(String(r.result.exceptionDetails.exception && r.result.exceptionDetails.exception.description || JSON.stringify(r.result.exceptionDetails)).slice(0, 400)); return r.result.result.value; };
   await send('Runtime.enable'); await send('Page.enable');
   await send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: 1, mobile: false });
+  return { send, ev, cleanup, logs };
+}
+async function main() {
+  if (!BROWSER) throw new Error('no Edge / Chrome found (set CHROME)');
+  if (!fs.existsSync(path.join(ROOT, 'node_modules', 'three'))) throw new Error('no node_modules/three next to ' + ROOT + ' (the server would 404 three.js)');
+  const port = await freePort(), base = 'http://127.0.0.1:' + port;
+  const srv = spawn(process.execPath, [path.join(ROOT, 'server.js')], { cwd: ROOT, env: Object.assign({}, process.env, { PORT: String(port), GK_DEBUG: '1' }), stdio: 'ignore' });
+  for (let i = 0; i < 60; i++) { try { await get(base + '/'); break; } catch (e) { await sleep(150); } }
+  const { send, ev, cleanup: closeB, logs } = await openBrowser();
+  const cleanup = () => { closeB(); try { srv.kill(); } catch (e) {} };
+  process.on('exit', cleanup);
   await send('Page.addScriptToEvaluateOnNewDocument', { source: PROBE });
   const results = { browser: path.basename(BROWSER), root: ROOT, w: W, h: H, gpu: null, load: null, views: {}, soak: null, errors: logs };
   const startMatch = async gfx => {
@@ -113,7 +118,7 @@ async function main() {
     if (!results.gpu) results.gpu = await ev(`(()=>{const g=GK.renderer.getContext(),e=g.getExtension('WEBGL_debug_renderer_info');return e?g.getParameter(e.UNMASKED_RENDERER_WEBGL):'?'})()`);
     await sleep(1200);
     const lt = await ev(`(()=>{ window.__lt = []; try { new PerformanceObserver(l => { for (const e of l.getEntries()) __lt.push(Math.round(e.duration)); }).observe({ entryTypes: ['longtask'] }); } catch (e) {} return 1 })()`);
-    const clickStart = "(()=>{const b=[...document.querySelectorAll('button')].find(x=>/^(start|play)/i.test(x.textContent.trim())&&x.offsetParent); b&&b.click(); return !!b})()";
+    const clickStart = "(()=>{__reseed();const b=[...document.querySelectorAll('button')].find(x=>/^(start|play)/i.test(x.textContent.trim())&&x.offsetParent); b&&b.click(); return !!b})()";
     await ev(clickStart); const t1 = Date.now(); let goMs = 0;
     for (let i = 0; i < 240; i++) {
       const s = await ev('JSON.stringify({m: GK.mode, l: GK.locked, p: GK.r5 && GK.r5.pending ? GK.r5.pending().length : 0})').catch(() => '{}');
@@ -155,8 +160,8 @@ async function main() {
       if (PROFILE && pi === 0 && vk === VIEWS[0]) await profile(send, ev);
       if (ATTRIB) console.log('    ' + (await ev('__pf.attribute(10)')).join('\n    '));
       if (SHOTS) {
-        await ev('(__pf.hideActors=true,1)'); await sleep(120);
-        const s = await send('Page.captureScreenshot', { format: 'png' }); await ev('(__pf.hideActors=false,1)');
+        await ev("(__pf.hideActors=true,document.head.insertAdjacentHTML('beforeend','<style id=pfhide>body>*:not(canvas){visibility:hidden!important}</style>'),1)"); await sleep(150);
+        const s = await send('Page.captureScreenshot', { format: 'png' }); await ev("(__pf.hideActors=false,document.getElementById('pfhide').remove(),1)");
         const f = SHOTS + '-' + gfx + '-' + vk + '.png'; fs.mkdirSync(path.dirname(path.resolve(f)), { recursive: true }); fs.writeFileSync(f, Buffer.from(s.result.data, 'base64'));
       }
     }
@@ -181,7 +186,33 @@ async function main() {
     const errs = logs.filter(l => !/favicon/.test(l)); if (errs.length) bad.push(errs.length + ' console errors');
     console.log(bad.length ? 'OVER BUDGET: ' + bad.join('; ') : 'within budget');
   }
-  ws.close(); cleanup(); setTimeout(() => process.exit(bad.length ? 1 : 0), 300);
+  cleanup(); setTimeout(() => process.exit(bad.length ? 1 : 0), 300);
+}
+// --diff <prefixA> <prefixB> <outPrefix>: A/B screenshot comparison of every <prefix>-<preset>-<view>.png pair (taken by --shots with goblins, viewmodel and HUD hidden).
+// Writes <outPrefix>-<preset>-<view>.jpg (A | B | difference x8) and prints the mean absolute difference and the share of pixels that differ by more than 24 / 255.
+async function diff(A, B, OUTP) {
+  const dirA = path.dirname(path.resolve(A)), pa = path.basename(A), pb = path.basename(B), dirB = path.dirname(path.resolve(B));
+  const pairs = fs.readdirSync(dirA).filter(f => f.startsWith(pa + '-') && f.endsWith('.png')).map(f => f.slice(pa.length)).filter(t => fs.existsSync(path.join(dirB, pb + t)));
+  const { send, ev, cleanup } = await openBrowser(); const out = [];
+  for (const t of pairs) {
+    const a = fs.readFileSync(path.join(dirA, pa + t)).toString('base64'), b = fs.readFileSync(path.join(dirB, pb + t)).toString('base64');
+    const r = await ev(`(async () => {
+      const load = s => new Promise(r => { const i = new Image(); i.onload = () => r(i); i.src = 'data:image/png;base64,' + s; });
+      const [ia, ib] = await Promise.all([load(${JSON.stringify(a)}), load(${JSON.stringify(b)})]), w = ia.width, h = ia.height;
+      const px = i => { const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d'); g.drawImage(i, 0, 0); return g.getImageData(0, 0, w, h); };
+      const da = px(ia), db = px(ib), dd = new ImageData(w, h); let sum = 0, big = 0;
+      for (let i = 0; i < da.data.length; i += 4) { let m = 0; for (let c = 0; c < 3; c++) { const v = Math.abs(da.data[i + c] - db.data[i + c]); sum += v; if (v > m) m = v; dd.data[i + c] = Math.min(255, v * 8); } dd.data[i + 3] = 255; if (m > 24) big++; }
+      const sw = 640, sh = Math.round(h * sw / w), cv = document.createElement('canvas'); cv.width = sw * 3; cv.height = sh; const g = cv.getContext('2d');
+      const tmp = document.createElement('canvas'); tmp.width = w; tmp.height = h; tmp.getContext('2d').putImageData(dd, 0, 0);
+      g.drawImage(ia, 0, 0, sw, sh); g.drawImage(ib, sw, 0, sw, sh); g.drawImage(tmp, sw * 2, 0, sw, sh);
+      g.font = 'bold 16px sans-serif'; g.fillStyle = '#ff0'; g.fillText('before', 8, 20); g.fillText('after', sw + 8, 20); g.fillText('|difference| x8', sw * 2 + 8, 20);
+      return { mad: +(sum / (w * h * 3)).toFixed(3), bigPct: +(100 * big / (w * h)).toFixed(3), jpg: cv.toDataURL('image/jpeg', 0.82).split(',')[1] };
+    })()`);
+    fs.mkdirSync(path.dirname(path.resolve(OUTP)), { recursive: true }); fs.writeFileSync(OUTP + t.replace(/\.png$/, '.jpg'), Buffer.from(r.jpg, 'base64'));
+    out.push({ shot: t.slice(1, -4), mad: r.mad, bigPct: r.bigPct }); console.log(t.slice(1, -4).padEnd(16), 'mean |diff|', r.mad, ' pixels > 24:', r.bigPct + '%');
+  }
+  cleanup(); return out;
 }
 module.exports = { PROBE };
-if (require.main === module) main().catch(e => { console.error(e); process.exit(2); });
+if (require.main === module && arg('diff', false)) { const i = process.argv.indexOf('--diff'); diff(process.argv[i + 1], process.argv[i + 2], process.argv[i + 3]).then(() => setTimeout(() => process.exit(0), 300), e => { console.error(e); process.exit(2); }); }
+else if (require.main === module) main().catch(e => { console.error(e); process.exit(2); });
