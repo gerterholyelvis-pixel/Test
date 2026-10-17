@@ -4754,6 +4754,7 @@ window.GKHUD5 = (() => {
     const k = roomKeyAt(P.x, P.z);
     if (k !== lastRoom) { lastRoom = k; const t = typeAt(k); if (t) hud.enterRoom(k, t); }
     if (S.crown && GK.minimap) GK.minimap.redraw();
+    { const cr = hud.el && hud.el.querySelector('.gk5-cr'), quiet = !S.crown && k !== WORLD.VAULT_KEY; if (cr && cr.style.visibility !== (quiet ? 'hidden' : '')) cr.style.visibility = quiet ? 'hidden' : ''; }   // QA-FULL: the crown claim list sat in the middle of the view all match after any claim; now only while someone gains, the alarm runs, or I am in the vault
   }, 200);
   // wall maps: the special room icons go onto the shared facility texture (called by drawShared)
   GK.hud5Map = (g, mx, my, MS) => {
@@ -5260,7 +5261,7 @@ GK.hover = () => ({ room: hoverRoom, kind: hoverKind });
 function stationInteract() {   // E while looking at a merchant, recycler or workbench opens it; true if it did
   if (hoverRoom < 0 || invOpen || shopOpen || GK.mode !== 'play') return false;
   if ((hoverKind === 's' || hoverKind === 'p' || hoverKind === 'b') && window.GKHOMEW) return GKHOMEW.interact(hoverKind, hoverRoom);   // ELIXIR: Elixir Screen, pump, lockbox
-  if (hoverKind === 'r') openStation('recycle', hoverRoom); else if (hoverKind === 'w' || hoverKind === 'k') openStation('craft', hoverRoom);   // KNOWLEDGE: the tree and the bench open the same screen else openShop(hoverRoom);
+  if (hoverKind === 'r') openStation('recycle', hoverRoom); else if (hoverKind === 'w' || hoverKind === 'k') openStation('craft', hoverRoom); else openShop(hoverRoom);   // KNOWLEDGE: the tree and the bench open the same screen. QA-FULL: "else openShop" had slipped into this comment, so E never opened a merchant
   return true;
 }
 // ---------- materials (parts), recycler, workbench, loot piles, eating ----------

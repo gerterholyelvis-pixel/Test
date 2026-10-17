@@ -27,6 +27,18 @@ run('qa-full', [
     eq(swung, 3, 'every click swings while the lock is refused');
     lockOk = true; lockRefused = lockPrevRefused = false; swing(); eq(swung, 4);
   }],
+  ['E on a merchant opens the shop (the "else openShop" had slipped into a line comment)', () => {
+    const g = R('game.js').replace(/\r\n/g, '\n'), i = g.indexOf('function stationInteract()'), body = g.slice(i, g.indexOf('\n}\n', i) + 2);
+    const calls = []; const f = new Function('hoverRoom', 'hoverKind', 'invOpen', 'shopOpen', 'GK', 'window', 'openStation', 'openShop', body + '\nreturn stationInteract();');
+    const go = kind => { calls.length = 0; const r = f(3, kind, false, false, { mode: 'play' }, {}, (k, id) => calls.push(k + ':' + id), id => calls.push('shop:' + id)); return [r, calls.join()]; };
+    eq(go('m'), [true, 'shop:3']); eq(go('r'), [true, 'recycle:3']); eq(go('w'), [true, 'craft:3']); eq(go('k'), [true, 'craft:3']);
+  }],
+  ['the Master Forge and the Grand Recycler say so in the E prompt', () => {
+    const f = R('feel.js'); assert(/=== 'grand' \? 'Use the Grand Recycler'/.test(f) && /=== 'forge' \? 'Use the Master Forge'/.test(f));
+  }],
+  ['the crown claim list only shows while someone gains, the alarm runs, or I am in the vault', () => {
+    assert(/quiet = !S\.crown && k !== WORLD\.VAULT_KEY/.test(R('game.js')));
+  }],
   ['home toasts sit below the round timer and the home-phase line, not on top of them', () => {
     const m = /\.hu-tw\{[^}]*top:(\d+)vh/.exec(R('homeui.js')); assert(m && +m[1] >= 15, 'toast stack top ' + (m && m[1]));
   }],
