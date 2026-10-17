@@ -233,16 +233,18 @@ module.exports = function create(S) {
     return id;
   }
   function despawn(m, p) { p.dead = true; m.players.delete(p.key); m.act.npcs.delete(p.id); VB5.npcGone(m.act.H, p.id); m.dirty = true; }
-  function npcLoot(kind) {
+  function npcLoot(kind, m, by) {
     const N = NPCS[kind]; if (!N || !N.loot) return [];
     if (typeof N.loot[0] === 'string') return N.loot.slice();   // husks: a Husk Brain
     const out = [], [n, tier] = N.loot;
-    for (let i = 0; i < (n | 0); i++) { let k = null; for (let t = 0; t < 40; t++) { k = (i % 2 ? G.randomArmorKey : G.randomWeaponKey)(); if (G.ITEMS[k].tierN >= tier) break; } if (k) out.push(k); }
+    const src = VB5.NPC[kind] || VAULT5.NPC[kind] ? 'heist' : 'kill', lk = G.RARE.killerLuck(G.ITEMS, m, by);   // RARE: vault guards pay by the 'heist' ladder, the rest by 'kill'
+    for (let i = 0; i < (n | 0); i++) { const k = (i % 2 ? G.randomArmorKey : G.randomWeaponKey)(src, tier, m && m.rare, lk); if (k) out.push(k); }
+    if (src === 'heist' && n > 0 && Math.random() < 0.3) out.push((Math.random() < 0.5 ? G.pickUtil : G.pickCharm)('heist', m && m.rare, { luck: lk }));   // RARE: a vault guard sometimes carries a consumable or a charm
     return out;
   }
   function npcDied(m, p) {   // dieNpc hook for activity NPCs: loot, wave bookkeeping, the room's onKill (Thorn bowl, Press, Elder)
     const A = m.act; despawn(m, p);
-    const items = npcLoot(p.npc); if (items.length) S.addDrop(m, p, items);
+    const items = npcLoot(p.npc, m, p.killedBy); if (items.length) S.addDrop(m, p, items);
     if (S.sendBoard) S.sendBoard(m);
     const killer = findP(m, p.killedBy), key = p.room, now = Date.now();
     try { if (kindOfKey(key) === 'tree') { const t = A.trees[key]; ACT.kill(t.st, t.type, killer, { npc: true, id: p.id }, ctx(m, key, now)); } } catch (e) { oops('npcDied', e); }
@@ -468,8 +470,7 @@ module.exports = function create(S) {
     } catch (e) { oops('round', e); }
   }
   function restockRelic(m) {
-    const keys = Object.keys(G.ITEMS).filter(k => G.ITEMS[k].chance > 0 && G.ITEMS[k].tierN >= 3 && (G.ITEMS[k].type === 'weapon' || G.ITEMS[k].type === 'armor'));
-    let r = Math.random() * keys.reduce((s, k) => s + G.ITEMS[k].chance, 0), key = keys[0]; for (const k of keys) { if ((r -= G.ITEMS[k].chance) < 0) { key = k; break; } }
+    const key = (Math.random() < 0.5 ? G.randomWeaponKey : G.randomArmorKey)('treasure', 3, m.rare);   // RARE: mythic or better by the 'treasure' ladder
     m.relicKey = key; m.relicTaken = null; S.bcast(m, { relic: key });
   }
   function roundFields(m) {   // merged into roundState: vb, vbNext (15 s before the end), breach {doorId}, armed [cell], writs {cell}, trees, hidden (held Hollow Oak), vent, crown

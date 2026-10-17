@@ -34,7 +34,7 @@ const why = async (c, key, msg) => { delete c.state[key]; c.send(msg); await c.u
         eq(G.recipeCost({ cost: { wood: 3, bone: 1 } }, ['thrifty']), { wood: 2, bone: 1 });
       }],
       ['reforged twins: every pool weapon and armour has one, stronger, never dropped, same feel', async () => {
-        const gear = Object.keys(G.ITEMS).filter(k => (G.ITEMS[k].type === 'weapon' || G.ITEMS[k].type === 'armor') && !G.ITEMS[k].up);
+        const gear = Object.keys(G.ITEMS).filter(k => (G.ITEMS[k].type === 'weapon' || G.ITEMS[k].type === 'armor') && !G.ITEMS[k].up && !G.ITEMS[k].rare);   // RARE: the 13 rare weapons and armours cannot be reforged (no twin)
         for (const k of gear) { const a = G.ITEMS[k], b = G.ITEMS[k + '+'], s = a.type === 'weapon' ? 'attack' : 'health'; assert(b && b.up && b.base === k && b.chance === 0 && b[s] >= a[s] + 2 && b.family === a.family && b.tierN === a.tierN, k); eq(G.reforgeCost(k + '+'), null); assert(G.reforgeCost(k), k + ' cost'); }
         for (let i = 0; i < 300; i++) { assert(!G.ITEMS[G.randomWeaponKey()].up && !G.ITEMS[G.randomArmorKey()].up, 'reforged item dropped'); }
         const t = G.combat('w:pike'), u = G.combat('w:pike+'); eq([u.range, u.cd, u.ranged], [t.range, t.cd, t.ranged]); assert(u.dmg > t.dmg);

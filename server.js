@@ -40,7 +40,7 @@ function cached(key, file, type) {
   return e;
 }
 const missUntil = new Map();   // PERF4: url key -> time the remembered miss expires
-const CLIENT_JS = new Set(['game', 'menu', 'items', 'combat4', 'affix', 'mutators', 'world', 'save', 'stats', 'statsui', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'baseactui', 'baseact', 'camterm', 'wbui', 'act5ui', 'halls', 'fskeep', 'uiorg', 'menuhost', 'keep', 'keepui', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)   // KEEP: keep, keepui
+const CLIENT_JS = new Set(['game', 'menu', 'rareitems', 'rareui', 'items', 'combat4', 'affix', 'mutators', 'world', 'save', 'stats', 'statsui', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'baseactui', 'baseact', 'camterm', 'wbui', 'act5ui', 'halls', 'fskeep', 'uiorg', 'menuhost', 'keep', 'keepui', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)   // KEEP: keep, keepui
 let CSP = '';
 function buildCsp() {   // the page has two inline scripts (importmap + module): allowed by hash, so no 'unsafe-inline' for scripts
   const page = cached('/index.html', path.join(ROOT_DIR, 'index.html'), 'text/html; charset=utf-8'), hashes = [];
@@ -166,11 +166,12 @@ const avgWins = m => { let s = 0; for (const p of m.players.values()) s += p.win
 const tolerance = w => w <= 5 ? 1 : Math.ceil(w * 0.25);
 function newMatch() {
   const R1 = process.env.GK_DEBUG && +process.env.GK_ROUND_MS > 0 ? +process.env.GK_ROUND_MS : ROUND_MS; // GK_DEBUG only: shorter round 1 so the tests run fast
+  const rareCtx = {};   // RARE: this match's transcendent-drop record (one per kind)
   const m = { id: nextMatch++, players: new Map(), round: 1, dur: R1, endsAt: Date.now() + R1, started: false, phase: 'queue', formedAt: Date.now(), goAt: 0, sel: {}, selBy: {}, lastSel: {}, open: [], drops: [], nextDrop: 1, dirty: false, lastRound: 0, specs: new Map(), dead: [], npcSpawned: new Set(),
-    chests: Array.from({ length: WORLD.NATT }, () => Math.floor(Math.random() * 6)), chestKeys: Array.from({ length: WORLD.NATT }, () => GKITEMS.foundKey(GKITEMS.randomWeaponKey())), layout: GKITEMS.randomLayout(),
+    chests: Array.from({ length: WORLD.NATT }, () => Math.floor(Math.random() * 6)), chestKeys: Array.from({ length: WORLD.NATT }, () => GKITEMS.foundKey(GKITEMS.randomWeaponKey('chest', 0, rareCtx))), rare: rareCtx, layout: GKITEMS.randomLayout(),
     trees: null, vb: null, vbNext: null, ram: null, claimant: null, relicRestock: null };   // 5x5 hooks (docs/PLAN-5x5.md 5.2): tree rooms and vaultbreakers (task B), crown claim and relic restock (task A) fill these; null = inert
-  m.shops = m.layout.map(x => x === 'merchant' ? GKITEMS.randomShop() : null);   // each merchant's 5 items with gold prices, rolled once per match
-  m.mystery = m.layout.map(x => x === 'mystery' ? (DBG && process.env.GK_ENEMY && NPC[process.env.GK_ENEMY] ? { kind: 'enemy', enemy: process.env.GK_ENEMY } : GKITEMS.randomMystery()) : null);   // GK_ENEMY (GK_DEBUG only): every mystery room holds this enemy   // what is inside each mystery room, rolled once per match // weapon index per chest room
+  m.shops = m.layout.map(x => x === 'merchant' ? GKITEMS.randomShop(rareCtx) : null);   // each merchant's 5 items with gold prices, rolled once per match
+  m.mystery = m.layout.map(x => x === 'mystery' ? (DBG && process.env.GK_ENEMY && NPC[process.env.GK_ENEMY] ? { kind: 'enemy', enemy: process.env.GK_ENEMY } : GKITEMS.randomMystery(rareCtx)) : null);   // GK_ENEMY (GK_DEBUG only): every mystery room holds this enemy   // what is inside each mystery room, rolled once per match // weapon index per chest room
   lootInit(m);   // LOOT: vault relic, shop base prices, lures
   H5.init(m);   // HALLS: containers, stations and events of the plain halls (halls5.js)
   A5.init(m);   // ACT5: tree roll, vaultbreaker layout, the activity rooms' state (act5.js)
@@ -265,6 +266,7 @@ tickDue = performance.now() + TICK_MS; setTimeout(tickLoop, TICK_MS);
 // goblin types and their odds: items.js GOBLINS (GOBTYPES)
 // Equipment decides combat stats: attack damage comes from the weapon (items.js), health from the armour.
 const G = require('./items.js'), ITEMS = G.ITEMS, C = G.COMBAT;
+const RS = require('./raresrv.js')({ G, bcast, sendTo, hit: (...a) => hitTarget(...a), stagger: (...a) => c4Stagger(...a), recalc: p => recalc(p) });   // RARE: what the rare items do (raresrv.js); the RARE-HOOK lines below call it
 const MUTS = require('./mutators.js'), mutMul = (m, k, d) => MUTS.mul(m && m.mut, k, d);   // MUTATORS: bounded multipliers of the match's mutator (1 when none)
 const info = k => (typeof k === 'string' && k.length < 40 && G.info(k)) || null; // any item key incl. goblin brains
 const isItem = k => !!info(k);
@@ -275,7 +277,7 @@ const fits = (id, key) => key == null || (id === 'weapon' ? info(key).type === '
 const allItems = inv => [inv.weapon, inv.armor, inv.charm, ...inv.backpack, ...inv.quick].filter(Boolean);
 function recalc(p) { // derived stats from the equipped items
   const w = p.inv.weapon && info(p.inv.weapon), a = p.inv.armor && info(p.inv.armor);
-  const maxHealth0 = p.npc ? (a ? a.health : 10) : G.goblinHp(p.goblin, a ? a.health : 10) + (p.npc ? 0 : (G.charmEff(p.inv.charm, 'hp') || 0));   // GOBTYPES: plus the type's health bonus
+  const maxHealth0 = p.npc ? (a ? a.health : 10) : G.goblinHp(p.goblin, a ? a.health : 10) + (p.npc ? 0 : (G.charmEff(p.inv.charm, 'hp') || 0) + RS.maxHp(p));   // GOBTYPES: plus the type's health bonus
   const maxHealth = p.npc ? maxHealth0 : Math.max(1, Math.round(maxHealth0 * mutMul(p.match, 'hp')));   // MUTATORS: Glass Cannon
   p.stats = { knowledge: p.stats ? p.stats.knowledge : G.KNOWLEDGE[p.goblin], attack: w ? w.attack : 0, health: Math.min(p.stats ? p.stats.health : maxHealth, maxHealth), maxHealth };
   p.gear = { weapon: w ? w.name : 'None', armor: a ? a.name : 'None' };
@@ -404,7 +406,7 @@ const sendInv = p => { if (p.ws) sendTo(p.ws, { inv: p.inv }); };
 function giveItem(p, key) { // first free backpack slot; false when full or unknown item
   if (!isItem(key)) return false;
   const i = p.inv.backpack.indexOf(null); if (i < 0) return false;
-  p.inv.backpack[i] = key; sendInv(p); return true;
+  p.inv.backpack[i] = key; sendInv(p); RS.found(p.match, p, key); return true;   // RARE-HOOK: the pickup announcement
 }
 function move(p, from, to) { // inventory move/swap, strictly validated
   if (typeof from !== 'string' || typeof to !== 'string' || !SLOT_IDS.has(from) || !SLOT_IDS.has(to) || from === to) return false;
@@ -664,12 +666,13 @@ function c4Apply(m, sw, tws, t, dmg, now, proj) {   // one landed blow: guard, d
   const landed = hitTarget(m, sw.ws, p, tws, t, dmg, now, undefined, opts); C4STAT.hits++;
   if (landed && (sw.cb.bleedAff || sw.cb.leech)) affixHit(m, p, t, sw.cb, hp0, now);   // AFFIX
   if (!landed || t.dead || t.stats.health <= 0) return;
-  if (sw.hm) { t.staggerUntil = now + HEAVY.staggerMs; if (t.charge) { t.charge = 0; bcast(m, { charge: t.id, off: 1 }); } }   // ABILITY: a heavy hit staggers and breaks the target's own wind-up
+  if (sw.hm && !RS.stagImmune(t)) { t.staggerUntil = now + HEAVY.staggerMs; if (t.charge) { t.charge = 0; bcast(m, { charge: t.id, off: 1 }); } }   // ABILITY: a heavy hit staggers and breaks the target's own wind-up
   if (sw.cb.bleed && !proj && t.stats.health < hp0) t.bleed = { by: p, dmg: sw.cb.bleed[0], left: sw.cb.bleed[1], next: now + BLEED_MS, w: p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon] ? G.ITEMS[p.inv.weapon].name : '' };   // WEAPONS3: whips and tridents leave a bleed
   if (st) c4Stagger(m, t, st, now);
   if (kb >= 0.05) c4Push(m, t, kx, kz);
 }
 function c4Stagger(m, t, ms, now) {   // the victim's wind-up is cancelled and he cannot start a swing for ms; then he is immune to staggers for a moment
+  if (RS.stagImmune(t)) return;   // RARE-HOOK: Stonebark Shell
   t.c4stag = Math.max(t.c4stag || 0, now + ms); t.staggerUntil = Math.max(t.staggerUntil || 0, now + ms); t.c4imm = now + C4.STAG_IMMUNE;   // staggerUntil: the ABILITY flag (no dash / wind-up while staggered)
   if (t.c4sw && srvT() < t.c4sw.at) c4Done(t.c4sw, 's');
 }
@@ -739,7 +742,7 @@ function weapons3Tick(m, now) {
 const DASH = G.ABIL.DASH, HEAVY = G.ABIL.HEAVY;
 const canAct = (m, p, now) => p.entered && !p.dead && !!m.goAt && now >= m.goAt && !p.carry && now >= (p.staggerUntil || 0) && now >= (p.dazeUntil || 0);
 function dash(m, p, now) {   // {dash:1}: DASH.dist metres of extra movement allowance for DASH.ms (the client moves, applyMove validates walls and doors); blows in the first iframeMs miss
-  if (!canAct(m, p, now) || now < (p.dashAt || 0) + DASH.cd * 0.95) return false;   // 5% jitter allowance on the cooldown
+  if (!canAct(m, p, now) || now < (p.dashAt || 0) + DASH.cd * 0.95 * RS.dashMul(p, now)) return false;   // 5% jitter allowance on the cooldown
   p.dashAt = now; p.iUntil = now + DASH.iframeMs; p.dashBank = DASH.dist + 0.4;
   if (p.charge) { p.charge = 0; bcast(m, { charge: p.id, off: 1 }); }   // a dash cancels a wind-up
   bcast(m, { dash: p.id }); return true;
@@ -784,9 +787,13 @@ function hitTarget(m, ws, p, tws, t, dmg, now, wname, opts) {   // damage, hit b
   dmg = H5.hitMul(p, dmg, now);   // HALLS: a whetstone's edge
   dmg = NX.hit(m, p, t, dmg);   // NPCX: the shieldbearer takes little from the front
   dmg = A5.hitMul(m, p, t, dmg, wname, opts);   // ACT5: Fury blessing, Hollow Oak ambush
+  dmg = RS.out(m, p, t, dmg, now, opts);   // RARE-HOOK: weapon and charm multipliers (capped just below)
   if (opts && opts.base) dmg = G.capHit(opts.base, dmg, t);   // BALANCE-3: one blow never carries more than x1.75 of its weapon damage (items.js DMG_CAP)
+  if (!(dmg = RS.inn(m, t, p, dmg, now, opts))) return;   // RARE-HOOK: Phasecloak, Stoneskin, Mirrorscale, Stonebark, the Aegis
   let hp = Math.max(0, t.stats.health - dmg);
   if (hp <= 0 && !t.npc && !t.swUsed && G.hasPerk(t.perks, 'secondwind')) { hp = 1; t.swUsed = true; sendTo(t.ws, { secondWind: 1 }); }   // KNOWLEDGE: Second Wind
+  if (hp <= 0 && RS.save(m, t, now)) hp = 1;   // RARE-HOOK: Phoenix Ember
+  const rareLost = t.stats.health - hp;   // RARE-HOOK
   statHit(p, t, t.stats.health - hp);   // STATS
   recapHit(p, t, t.stats.health - hp, now, wname, opts, cue);   // RECAP
   t.stats.health = hp; t.hurtAt = now; t.hitBy = p.id; m.dirty = true;   // hitBy: a bot notices whoever hurt it at once
@@ -794,7 +801,8 @@ function hitTarget(m, ws, p, tws, t, dmg, now, wname, opts) {   // damage, hit b
   A5.hurt(m, t, p);   // ACT5: a hit breaks channels and drops carried sacks / buckets
   bcast(m, { hit: { from: p.id, to: t.id, dmg, hp, max: t.stats.maxHealth, dead: hp <= 0, ...(opts && opts.bleed ? { bleed: 1 } : null), ...cue, ...(opts && opts.hg ? { hg: 1 } : null), ...(opts && opts.heavy ? { heavy: 1 } : null), ...(opts && opts.c4x ? opts.c4x : null) } });   // COMBAT4: c4x = { sq, st, kb, blk, k } (swing id, stagger ms, knockback, blocked, projectile kind)
   const th = opts && opts.melee && hp > 0 && !p.dead ? G.armorThorns(t.inv && t.inv.armor) + A5.reflect(m, t, dmg) : 0;   /* ACT5: + the Thorns blessing */   // ARMOUR-3: thorns hurt a melee attacker (never lethal, so no kill bookkeeping is needed)
-  if (th && p.stats.health > 1) { const ph = Math.max(1, p.stats.health - th); p.stats.health = ph; p.hurtAt = now; bcast(m, { hit: { from: t.id, to: p.id, dmg: th, hp: ph, max: p.stats.maxHealth, dead: false, thorns: 1 } }); }
+  if (th && p.stats.health > 1) { const ph = Math.max(1, p.stats.health - th); p.stats.health = ph; p.hurtAt = now; bcast(m, { hit: { from: t.id, to: p.id, dmg: th, hp: ph, max: p.stats.maxHealth, dead: false, thorns: 1 } }); RS.thorned(m, t, now); }
+  RS.dealt(m, p, t, tws, rareLost, hp <= 0, now, opts, dmg);   // RARE-HOOK: leech, echo, chain, shatter, thunder, kill heals
   if (hp <= 0) { p.kills = (p.kills || 0) + 1; const bounty = paceBounty(p, t); t.killedBy = p.id; { const kw = p.npc ? null : p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; t.killer = { name: p.name || 'Goblin', npc: !!p.npc, w: wname || (kw ? kw.name : (p.npc ? '' : 'Fists')) }; } sendTo(ws, { kills: p.kills, ...(bounty ? { bounty } : null) }); mutKill(m, p, t); recapKill(m, p, t, now); /* RECAP */ sendFeed(m, p, t); die(tws, t); }
   return true;   // ABILITY: the hit landed (a heavy blow staggers only then)
 }
@@ -1141,21 +1149,22 @@ function spawnGuard(m, cell, kind, x, z) {
   place(p, x, z); p.home = [x, z]; p.brain = newBrain(p, S.speed); p.brain.react = S.react; m.players.set(key, p);
 }
 function noteRoom(m, p, prev) { if (p.room !== prev && !p.npc) { A5.room(m, p, prev); H5.room(m, p, prev); } /* ACT5, HALLS */ if (p.room !== prev && !p.npc && p.entered) { const mm = /^c(\d+)$/.exec(p.room); if (mm) spawnNpc(m, +mm[1]); } }
-function npcLoot(kind) {
-  const S = NPC[kind], out = [];
+function npcLoot(kind, m, by) {
+  const S = NPC[kind], out = [], lk = G.RARE.killerLuck(ITEMS, m, by), rc = m && m.rare;   // RARE: the 'kill' ladder, the killer's luck
+
   if (!S.loot[0]) return out;   // ELIXIR: rats carry nothing
   for (let i = 0; i < S.loot[0]; i++) {
-    let k = null; for (let t = 0; t < 40; t++) { k = (i % 2 ? G.randomArmorKey : G.randomWeaponKey)(); if (G.ITEMS[k].tierN >= S.loot[1]) break; }
+    const k = (i % 2 ? G.randomArmorKey : G.randomWeaponKey)('kill', S.loot[1], rc, lk);
     out.push(G.foundKey(k));   // AFFIX: found gear can carry affixes
   }
-  if (Math.random() < 0.4) out.push(G.pickUtil());   // UTILITY: a mystery-room enemy sometimes carries a utility item
-  if (Math.random() < 0.15) out.push(G.pickCharm());   // USE2: or a charm
+  if (Math.random() < 0.4) out.push(G.pickUtil('kill', rc, { luck: lk }));   // UTILITY: a mystery-room enemy sometimes carries a utility item
+  if (Math.random() < 0.15) out.push(G.pickCharm('kill', rc, { luck: lk }));   // USE2: or a charm
   return out;
 }
 function dieNpc(m, p) {   // loot by type, counts as a kill for the attacker (done in attack()), not as a death
   if (p.actNpc) return A5.npcDied(m, p);   // ACT5: husks, rootlings, wardens, wisps
   p.dead = true; m.players.delete(p.key); m.dirty = true; sendBoard(m); NX.died(m, p, Date.now());   // NPCX: bomber fuse, thief gold back
-  addDrop(m, p, npcLoot(p.npc).concat(mutMul(m, 'npcBrain', 0) && NPC[p.npc].loot[0] ? [G.brainKey(20)] : []));   // MUTATORS: Brain Rain
+  addDrop(m, p, npcLoot(p.npc, m, p.killedBy).concat(mutMul(m, 'npcBrain', 0) && NPC[p.npc].loot[0] ? [G.brainKey(20)] : []));   // MUTATORS: Brain Rain
 }
 
 // ---- the brain
@@ -2164,6 +2173,7 @@ function explode(m, b, now) {
   for (const [tws, t] of hit) if (!t.dead) hitTarget(m, b.by.ws, b.by, tws, t, Math.max(1, Math.round(b.n * (1 - 0.5 * Math.hypot(t.x - b.x, t.z - b.z) / b.r))), now, 'Powder Bomb');
 }
 function useTick(m, now) {   // from the 50 ms match loop
+  RS.tick(m, now);   // RARE-HOOK: Mossback regrowth
   use2Tick(m, now);   // USE2
   if (m.bombs && m.bombs.length) { const due = m.bombs.filter(b => now >= b.at); if (due.length) { m.bombs = m.bombs.filter(b => now < b.at); for (const b of due) explode(m, b, now); } }
   if (m.smokes && m.smokes.length && m.smokes[0].until < now - 1000) m.smokes = m.smokes.filter(s => s.until > now);
@@ -2233,7 +2243,7 @@ function use2(m, p, it, now) {
     case 'bell':
       m.bells = sweep(m.bells, m, now, 'bellEnd', true); if (m.bells.filter(o => o.by === p).length >= MAX_PLACED) return 'busy';
       m.bells.push({ id, x: p.x, z: p.z, room: p.room, by: p, until: now + it.ms }); sendTo(p.ws, { bell: { id, x: hx, z: hz, room: p.room } }); return {};
-    default: return null;
+    default: return RS.use(m, p, it, now);   // RARE-HOOK: the rare consumables
   }
 }
 function baitTake(m, p, dr, mode) {   // {loot} on a Mimic Bait pile: its owner gets the bait back, anybody else is bitten
@@ -2302,8 +2312,7 @@ const RELIC_POS = WORLD.RELIC;   // the pedestal on the dais edge (the game.js L
 const priceAt = (base, round) => Math.max(5, Math.round(base * (1 + 0.1 * Math.max(0, round - 2)) / 5) * 5);   // +10 % per round after round 2, rounded to 5 gold
 const LURE_FLY = 650, LURE_MS = 3000, LURE_RANGE = 8;
 function lootInit(m) {
-  const keys = Object.keys(ITEMS).filter(k => ITEMS[k].chance > 0 && ITEMS[k].tierN >= 3 && (ITEMS[k].type === 'weapon' || ITEMS[k].type === 'armor'));   // mythic or better, weighted by the normal drop chances
-  let r = Math.random() * keys.reduce((s, k) => s + ITEMS[k].chance, 0); m.relicKey = keys[0]; for (const k of keys) { if ((r -= ITEMS[k].chance) < 0) { m.relicKey = k; break; } }
+  m.relicKey = (Math.random() < 0.5 ? G.randomWeaponKey : G.randomArmorKey)('treasure', 3, m.rare);   // RARE: mythic or better, by the 'treasure' ladder (rareitems.js)
   m.relicTaken = null; m.lures = [];
   for (const s of m.shops) if (s) for (const it of s) it.base = it.price;
 }

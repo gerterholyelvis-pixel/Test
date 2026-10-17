@@ -1,6 +1,7 @@
 // Shared item data. Works in the browser (window.GKITEMS) and in Node (require('./items.js')).
 (function (root) {
   const AFF = root.GKAFFIX || require('./affix.js'), MINTED = Object.create(null);   // AFFIX (affix.js must load first in the browser)
+  const RARE = root.GKRARE || require('./rareitems.js');   // RARE (rareitems.js must load before items.js in the browser): the rarity ladder, the drop weights per source and the rare items
   // ---- 20 base weapons and 20 base armours: every one has its own drop chance (percent, each list adds up to 100)
   // and the rarer it is the stronger it is. `family` says which model/icon shape it uses, `tier` is derived from the chance.
   // Two class items are not in the drop pool: the wizard's Gnarled Staff and Starry Robe, and the king's Royal Scepter and Royal Mantle (start-only, pool: false).
@@ -133,7 +134,7 @@
     ITEMS[key] = { key, type: 'charm', name, family: k, chance: 0, tier, tierN: TIER_N[tier], price, eff, desc, shop, scrap };
     RECIPES.push({ id: 'r:' + key, out: key, tier: craft[0], cost: craft[1], needs: craft[0] * 20 });
   }
-  const pickCharm = () => { let r = Math.random() * CHARM_KEYS.reduce((a, k) => a + ITEMS[k].shop, 0); for (const k of CHARM_KEYS) { if ((r -= ITEMS[k].shop) < 0) return k; } return CHARM_KEYS[0]; };
+  const pickCharm = (src, ctx, o) => RARE.pick(ITEMS, 'charm', src || 'chest', { ctx, ...o });   // RARE: weighted by the source's rarity ladder (rareitems.js); the old shop weights still order the charms inside a tier
   const charmEff = (key, field) => { const it = key && ITEMS[key]; return it && it.eff && it.eff[field] != null ? it.eff[field] : undefined; };
   // UTIL2-END
   // ACT5-ITEMS-BEGIN (docs/PLAN-5x5-rooms.md 3 and 4.6, docs/reports/special-rooms-server.md): what the tree rooms and the vaultbreaker heists make. Never sold, never dropped by chance
@@ -152,7 +153,7 @@
     ['scion', 'Scion', 'mushroom', 'uncommon', 'Cut from the Grafting Bench tree. Graft it onto a weapon or armour in the vise for its reforged twin.'],
   ]) ITEMS['x:' + k] = { key: 'x:' + k, type: 'consumable', name, family, chance: 0, tier, tierN: TIER_N[tier], price: 0, desc, act5: 1, ...(extra || {}) };
   // ACT5-ITEMS-END
-  const pickUtil = () => { let r = Math.random() * UTIL_KEYS.reduce((a, k) => a + ITEMS[k].shop, 0); for (const k of UTIL_KEYS) { if ((r -= ITEMS[k].shop) < 0) return k; } return UTIL_KEYS[0]; };   // weighted by `shop`
+  const pickUtil = (src, ctx, o) => RARE.pick(ITEMS, 'consumable', src || 'chest', { ctx, ...o });   // RARE: weighted by the source's rarity ladder; `shop` still orders the items inside a tier
   const START = [   // starting gear per goblin type: 0 small, 1 medium, 2 big, 3 wizard, 4 king
     { weapon: 'w:dagger', armor: 'a:jerkin' }, { weapon: 'w:club', armor: 'a:vest' }, { weapon: 'w:mace', armor: 'a:scraps' },   // BALANCE-3: small rags -> jerkin, big harness -> scraps (duels at start were 31% / 96%)
     { weapon: 'w:staff', armor: 'a:robe' }, { weapon: 'w:scepter', armor: 'a:royal' },
@@ -239,7 +240,8 @@
     return out;
   }
   function recycleYield(key) {   // -> { part: amount } for a weapon key, or null if the item cannot be recycled (armour is not recyclable yet)
-    const it = ITEMS[key]; if (it && it.scrap) return { ...it.scrap };   // UTILITY: utility items break down into one or two parts
+    const it = ITEMS[key]; if (it && it.trophy) return null;   // RARE: one-of-a-kind finds are trophies, never scrap
+    if (it && it.scrap) return { ...it.scrap };   // UTILITY: utility items break down into one or two parts
     if (it && it.type === 'armor') return armorYield(it);   // ARMOUR-3: armour breaks down too (class robes are not recyclable)
     if (!it || it.type !== 'weapon') return null;
     const base = FAMILY_PARTS[it.family] || { metal: 2 }, m = TIER_MULT[it.tier] || 1, out = {};
@@ -253,15 +255,18 @@
   const weaponKeys = Object.keys(ITEMS).filter(k => ITEMS[k].type === 'weapon' && ITEMS[k].chance > 0);
   const armorKeys = Object.keys(ITEMS).filter(k => ITEMS[k].type === 'armor' && ITEMS[k].chance > 0);
   const pickWeighted = keys => { let r = Math.random() * keys.reduce((s, k) => s + ITEMS[k].chance, 0); for (const k of keys) { if ((r -= ITEMS[k].chance) < 0) return k; } return keys[0]; };
-  const randomWeaponKey = () => pickWeighted(weaponKeys);   // e.g. 'w:axe'
-  const randomArmorKey = () => pickWeighted(armorKeys);     // e.g. 'a:chain'
+  // RARE-BEGIN (rareitems.js): every gear roll goes through the rarity ladder of its source. randomWeaponKey(src, minTier, ctx, luck): src is a key of GKRARE.SOURCES (default 'chest'), minTier drops the rungs below it,
+  // ctx is the per-match object that enforces one transcendent drop per kind, luck is the Four-Leaf Clover. With no arguments it behaves like a chest roll.
+  const randomWeaponKey = (src, min, ctx, luck, rnd) => RARE.pick(ITEMS, 'weapon', src || 'chest', { min, ctx, luck, rnd });   // e.g. 'w:axe'
+  const randomArmorKey = (src, min, ctx, luck, rnd) => RARE.pick(ITEMS, 'armor', src || 'chest', { min, ctx, luck, rnd });     // e.g. 'a:chain'
+  // RARE-END
 
   // A merchant's stock for one match: 5 different random items (weapons or armour, rarer ones less often), each with a gold price (base price +-20%, rounded to 5).
-  function randomShop() {
-    const pool = weaponKeys.concat(armorKeys), out = [];
-    while (out.length < 5) { const k = pickWeighted(pool); if (!out.some(o => o.key === k)) out.push({ key: k, price: Math.max(5, Math.round(ITEMS[k].price * (0.8 + Math.random() * 0.4) / 5) * 5) }); }
-    if (Math.random() < 0.75) { const k = pickUtil(); out[Math.floor(Math.random() * 5)] = { key: k, price: Math.max(5, Math.round(ITEMS[k].price * (0.8 + Math.random() * 0.4) / 5) * 5) }; }   // UTILITY: most shops stock one utility item in place of a gear slot
-    if (Math.random() < 0.3) { const idx = [0, 1, 2, 3, 4].filter(i => !/^[xc]:/.test(out[i].key)), k = pickCharm(), at = idx[Math.floor(Math.random() * idx.length)]; if (at !== undefined) out[at] = { key: k, price: Math.max(5, Math.round(ITEMS[k].price * (0.8 + Math.random() * 0.4) / 5) * 5) }; }   // UTIL2: some shops also stock a charm in place of another gear slot
+  function randomShop(ctx) {
+    const out = [];
+    while (out.length < 5) { const k = (Math.random() < 0.52 ? randomWeaponKey : randomArmorKey)('merchant', 0, ctx); if (!out.some(o => o.key === k)) out.push({ key: k, price: Math.max(5, Math.round(ITEMS[k].price * (0.8 + Math.random() * 0.4) / 5) * 5) }); }
+    if (Math.random() < 0.75) { const k = pickUtil('merchant', ctx); out[Math.floor(Math.random() * 5)] = { key: k, price: Math.max(5, Math.round(ITEMS[k].price * (0.8 + Math.random() * 0.4) / 5) * 5) }; }   // UTILITY: most shops stock one utility item in place of a gear slot
+    if (Math.random() < 0.3) { const idx = [0, 1, 2, 3, 4].filter(i => !/^[xc]:/.test(out[i].key)), k = pickCharm('merchant', ctx), at = idx[Math.floor(Math.random() * idx.length)]; if (at !== undefined) out[at] = { key: k, price: Math.max(5, Math.round(ITEMS[k].price * (0.8 + Math.random() * 0.4) / 5) * 5) }; }   // UTIL2: some shops also stock a charm in place of another gear slot
     return out;
   }
   // Random room layout for one match (docs/PLAN-5x5.md 1.5): the types of the 20 attached rooms 'c0'..'c19' (world.js CHEST order: side s = N E S W holds ids 5s..5s+4, positions 1..5).
@@ -307,10 +312,10 @@
   // What is inside one MYSTERY room (rolled by the server per match, or locally in the offline demo), all six equally likely:
   //   { kind: 'weapon', key: 'w:axe' } | { kind: 'armor', key: 'a:vest' } | { kind: 'enemy', enemy: 'troll'|'archer'|'speedy'|'dumb'|'regular' }
   //   | { kind: 'stations', stations: [two different of 'recycler','knowledge','workbench'] } | { kind: 'gold', amount: 50..500 } | { kind: 'plushie' }
-  function randomMystery() {
+  function randomMystery(ctx) {
     const kind = ['weapon', 'armor', 'enemy', 'stations', 'gold', 'plushie'][Math.floor(Math.random() * 6)];
-    if (kind === 'weapon') return { kind, key: foundKey(randomWeaponKey()) };
-    if (kind === 'armor') return { kind, key: foundKey(randomArmorKey()) };
+    if (kind === 'weapon') return { kind, key: foundKey(randomWeaponKey('mystery', 0, ctx)) };
+    if (kind === 'armor') return { kind, key: foundKey(randomArmorKey('mystery', 0, ctx)) };
     if (kind === 'enemy') {   // enemy goblins as relative weights (npcx.js WEIGHTS must match): troll 2, archer 8, speedy 20, dumb 30, regular 50, bomber 14, summoner 8, shield 8, thief 10
       let x = Math.random() * 150, enemy = 'regular';
       for (const [e, w] of [['troll', 2], ['archer', 8], ['speedy', 20], ['dumb', 30], ['regular', 50], ['bomber', 14], ['summoner', 8], ['shield', 8], ['thief', 10]]) { if ((x -= w) < 0) { enemy = e; break; } }
@@ -407,7 +412,8 @@
   }
   const foundKey = (key, rnd) => { const it = key && ITEMS[key]; if (!it || it.root) return key; const ids = AFF.roll(it, Math.floor((rnd || Math.random)() * 4294967296)); return ids.length ? AFF.keyOf(key, ids) : key; };   // a found weapon / armour key, possibly with affixes
   // AFFIX-END
-  root.GKITEMS = { foundKey, AFFIX: AFF, KNOW, BRANCHES, PERKS, PERK, hasPerk, perkSpent, knowPoints, knowTier, learnFail, recipeCost, recycleFor, healMult, reforgeCost, UTIL_KEYS, pickUtil, armorSpeed, MAX_ARMOR_SPEED, randomShop, START_GOLD, randomMystery, randomLayout, STATIONS, recycleEff, canCraft, benchSpec, benchCraft, partCost, addKnowledge, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, WEAPON_TUNE, START, KNOWLEDGE, SPEED, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info, armorThorns, armorScore, GOBLINS, GOB_PERKS, HIT_R, rollGoblin, goblinHp, hitRadius, goblinReach, goblinHit, goblinRegen, goblinStart, CHARM_KEYS, pickCharm, charmEff, isFlask, flaskN };
+  RARE.install(ITEMS, WEAPON_TUNE, WEAPONS, ARMOR);   // RARE: 26 rare / mythic / legendary / transcendent items (rareitems.js); chance 0, so no older pool or affix roll sees them
+  root.GKITEMS = { RARE, foundKey, AFFIX: AFF, KNOW, BRANCHES, PERKS, PERK, hasPerk, perkSpent, knowPoints, knowTier, learnFail, recipeCost, recycleFor, healMult, reforgeCost, UTIL_KEYS, pickUtil, armorSpeed, MAX_ARMOR_SPEED, randomShop, START_GOLD, randomMystery, randomLayout, STATIONS, recycleEff, canCraft, benchSpec, benchCraft, partCost, addKnowledge, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, WEAPON_TUNE, START, KNOWLEDGE, SPEED, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info, armorThorns, armorScore, GOBLINS, GOB_PERKS, HIT_R, rollGoblin, goblinHp, hitRadius, goblinReach, goblinHit, goblinRegen, goblinStart, CHARM_KEYS, pickCharm, charmEff, isFlask, flaskN };
   // BALANCE3-BEGIN (docs/reports/balance-3.md; tools/balsim.js measures every number here). The damage cap, the staff bolt and the two abilities, shared by server, client, bots and the Codex.
   // DMG_CAP: one blow never carries more than x1.75 of its weapon's damage, whatever stacks on it (Wolf Fang, Rage Brew, backstab, berserker rage, Fury, the Oak ambush, the heavy blow).
   // The defender's own reduction (thick hide) still applies after the cap.

@@ -11,7 +11,7 @@ const src = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
       ['ten new armours: unique names and families, below the Aegis, tradeoffs are real', async () => {
         for (const k of NEW) { const it = G.ITEMS[k]; assert(it && it.type === 'armor' && it.chance > 0 && it.health > 0 && it.health < G.ITEMS['a:aegis'].health, k); }
         const fams = NEW.map(k => G.ITEMS[k].family); eq(new Set(fams).size, fams.length, 'one family each');
-        const old = new Set(Object.values(G.ITEMS).filter(i => i.type === 'armor' && !i.up && !NEW.includes(i.key)).map(i => i.family)); for (const f of fams) assert(!old.has(f), f + ' is a new family');
+        const old = new Set(Object.values(G.ITEMS).filter(i => i.type === 'armor' && !i.up && !i.rare && !NEW.includes(i.key)).map(i => i.family)); for (const f of fams) assert(!old.has(f), f + ' is a new family');
         const names = Object.values(G.ITEMS).filter(i => i.type === 'armor').map(i => i.name); eq(new Set(names).size, names.length);
         assert(G.ITEMS['a:cloak'].speed > 1 && G.ITEMS['a:cloak'].health < 50 && G.ITEMS['a:cairn'].speed < 1 && G.ITEMS['a:cairn'].health > G.ITEMS['a:tower'].health);
         for (const k of NEW) { const it = G.ITEMS[k]; if (it.thorns) { assert(it.thorns <= 10, k + ' thorns small'); assert(it.speed >= 0.9 || it.thorns < 7); } assert(!it.speed || (it.speed >= 0.85 && it.speed <= 1.15), k + ' speed'); }

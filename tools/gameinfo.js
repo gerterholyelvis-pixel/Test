@@ -6,7 +6,7 @@
 const fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..');
 const rd = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
-const SOURCES = ['items.js', 'world.js', 'halls.js', 'elixir.js', 'homebase.js', 'baseact.js', 'camterm.js', 'activity.js', 'rooms5-trees.js', 'vb5.js', 'vbx5.js', 'vault5.js', 'server.js', 'tools/gameinfo.js', 'tools/gameinfo.template.html'];
+const SOURCES = ['items.js', 'rareitems.js', 'raresrv.js', 'world.js', 'halls.js', 'elixir.js', 'homebase.js', 'baseact.js', 'camterm.js', 'activity.js', 'rooms5-trees.js', 'vb5.js', 'vbx5.js', 'vault5.js', 'server.js', 'tools/gameinfo.js', 'tools/gameinfo.template.html'];
 const OUT = path.join(ROOT, 'docs', 'game-info.html');
 function srcHash() { const h = require('crypto').createHash('sha1'); for (const f of SOURCES) h.update(rd(f).replace(/\r\n?/g, '\n')); return h.digest('hex').slice(0, 8); }   // line-ending independent
 const G = require('../items.js'), WORLD = require('../world.js'), EX = require('../elixir.js'), HB = require('../homebase.js'), CT = require('../camterm.js');
@@ -83,16 +83,18 @@ function weaponStats(it) {
   if (c.bleed) extra += (extra ? '; ' : '') + 'bleed ' + c.bleed[0] + ' x ' + c.bleed[1] + ' = ' + c.bleed[0] * c.bleed[1];
   return { dmg, cd, range: kind === 'bolt' ? SV.BOLT.range : c.range, kind, extra };
 }
+// RARE: drop percentages come from the real rarity ladder (rareitems.js dropChance), not from the old chance share. Chests roll weapons only; a merchant slot is a weapon 52% / armour 48% of the time; a mystery room is a weapon 1/6, an armour 1/6; the relic is a weapon or armour half and half.
+const RP = (k, src, o) => R(100 * G.RARE.dropChance(G.ITEMS, k, src, o), 3);
 const weapons = weapons0.map(it => {
   const w = weaponStats(it), r = recOf[it.key], up = twin(it.key);
   return { id: it.key, name: link(it.name, '#weapons/' + it.key), tier: tierCell(it), family: it.family, dmg: w.dmg, reach: R(w.range), swing: w.cd, dps: R(w.dmg * 1000 / w.cd), kind: w.kind, extra: w.extra,
-    up: up ? link(up.attack, '#knowledge/reforge') : '', chest: bar(pct(it.chance, wTot), 12), shop: bar(pct(it.chance, wTot + aTot), 12), mystery: bar(R(pct(it.chance, wTot) / mysteryKinds, 3), 2), relic: it.tierN >= 3 && it.chance > 0 ? bar(pct(it.chance, relicTot), 40) : '',
+    up: up ? link(up.attack, '#knowledge/reforge') : '', chest: bar(RP(it.key, 'chest'), 12), shop: bar(R(0.52 * RP(it.key, 'merchant'), 3), 12), mystery: bar(R(RP(it.key, 'mystery') / mysteryKinds, 3), 2), relic: it.tierN >= 3 ? bar(R(0.5 * RP(it.key, 'treasure'), 3), 40) : '',
     price: it.price, craft: r ? link('tier ' + r.tier, '#recipes/' + r.id) : '', scrap: scrap(it.key), start: '' };
 });
 const armours = armours0.map(it => {
   const r = recOf[it.key], up = twin(it.key);
   return { id: it.key, name: link(it.name, '#armour/' + it.key), tier: tierCell(it), family: it.family, hp: it.health, speed: it.speed ? R((it.speed - 1) * 100, 0) : 0, thorns: it.thorns || 0, score: R(G.armorScore(it.key)), up: up ? link(up.health, '#knowledge/reforge') : '',
-    shop: bar(pct(it.chance, wTot + aTot), 12), mystery: bar(R(pct(it.chance, aTot) / mysteryKinds, 3), 2), relic: it.tierN >= 3 && it.chance > 0 ? bar(pct(it.chance, relicTot), 40) : '',
+    shop: bar(R(0.48 * RP(it.key, 'merchant'), 3), 12), mystery: bar(R(RP(it.key, 'mystery') / mysteryKinds, 3), 2), relic: it.tierN >= 3 ? bar(R(0.5 * RP(it.key, 'treasure'), 3), 40) : '',
     price: it.price, craft: r ? link('tier ' + r.tier, '#recipes/' + r.id) : '', scrap: scrap(it.key), start: '' };
 });
 // who starts in what (cross links goblin <-> gear)
@@ -424,13 +426,30 @@ S_.home.push(
   { t: 'cards', cards: [kv('Base activity rules', baseFacts)] },
 );
 S_.loot = [
-  p('Gear drops by weighted chance; the rarer it is, the stronger it is. Tiers come from drop chance. The tables below are computed from the live drop pools.'),
+  p('Gear drops by weighted chance; the rarer it is, the stronger it is. Tiers of the older gear come from drop chance. How often each tier drops at each source is the Rarity tab. The tables below are computed from the live drop pools.'),
   tbl('tierbands', 'Tier bands', '', [['tier', 'Tier'], ['band', 'Drop chance band'], ['nW', 'Weapons', 1], ['pW', 'Of weapon drops %', 1], ['nA', 'Armour', 1], ['pA', 'Of armour drops %', 1]], tierRows.map((r, i) => ({ ...r, band: ['crafted only', ...tierThresholds.map(t => t.band)][i] }))),
   { t: 'cards', cards: [kv('Where gear comes from', lootPools), kv('Price formulas', priceFormulas), kv('Pool sizes', [['Weapons in the pool', weapons0.filter(i => i.chance > 0).length], ['Armour in the pool', armours0.filter(i => i.chance > 0).length], ['Relic candidates', relicPool.length], ['Utility items in shops', G.UTIL_KEYS.length], ['Charms in shops', G.CHARM_KEYS.length]])] },
 ];
 
+// RARE: the Rarity tab (rareitems.js): the published ladder per source, what each kind's rungs become, the rare items with their drop chance per source, the rules
+const RR = G.RARE, RK = { weapon: 'weapon', armor: 'armour', charm: 'charm', consumable: 'one-use' }, TIER_CELL = t => ({ v: t, cls: 't' + G.TIER_N[t], sort: G.TIER_N[t] });
+const rareLadder = Object.entries(RR.SOURCES).map(([id, s]) => ({ id: 'src-' + id, source: s.label, ...Object.fromEntries(RR.TIERS.map((t, i) => [t, s.w ? s.w[i] : ''])), note: s.note }));
+const rareEff = RR.KINDS.map(k => ({ id: 'eff-' + k, kind: RK[k], ...Object.fromEntries(RR.TIERS.map((t, i) => [t, R(RR.effective(G.ITEMS, k, 'chest')[i], 2)])), note: k === 'charm' ? 'no common or transcendent charm exists, so the other rungs share their weight' : k === 'consumable' ? 'common is the bandage / mushroom / wax group' : 'gear has no common drop (common gear is crafted only), so uncommon carries it' }));
+const rareTree = (RR.DEFS.length && require('../rooms5-trees.js').K.elderTier[0]) | 0;
+const rareRows = RR.KEYS.map(k => { const it = G.ITEMS[k], tab = tabOfItem(it);
+  return { id: k, name: link(it.name, '#' + tab + '/' + k), tier: TIER_CELL(it.tier), kind: RK[it.type] || it.type, effect: it.desc, lore: it.lore, price: it.price, w: it.rw,
+    chest: RP(k, 'chest'), mystery: RP(k, 'mystery'), hall: RP(k, 'hall'), kill: RP(k, 'kill'), heist: RP(k, 'heist'), merchant: RP(k, 'merchant'), treasure: RP(k, 'treasure'), tree: RP(k, 'tree', { min: rareTree }),
+    keep: it.trophy ? 'trophy: cannot be banked' : 'bankable (tier ' + it.tierN + ')', scrap: it.trophy ? 'cannot be recycled' : scrap(k) }; });
+S_.rarity = [
+  p('Every loot roll picks a rung of the rarity ladder first (a percentage per source, below), then an item inside that rung weighted by its drop weight. The rungs are the game\'s six tiers: common, uncommon, rare, mythic (the purple "epic" tier), legendary and transcendent (the one-of-a-kind tier). A rung with nothing to drop for that kind is skipped and the rest renormalised. Rolls are true random: there is no pity timer and no streak protection.'),
+  tbl('rarity-ladder', 'Drop ladder per source (% of rolls, before empty rungs are skipped)', 'Treasure is the vault relic pedestal. Tree rooms set their own tier and weight every item inside it.', [['source', 'Source'], ...RR.TIERS.map(t => [t, t[0].toUpperCase() + t.slice(1), 1]), ['note', 'Notes']], rareLadder),
+  tbl('rarity-eff', 'What the ladder becomes per kind (chest odds)', '', [['kind', 'Kind'], ...RR.TIERS.map(t => [t, t[0].toUpperCase() + t.slice(1), 1]), ['note', 'Why']], rareEff),
+  { t: 'cards', cards: [kv('The rules', [['One-of-a-kind', 'At most one transcendent drop per kind (weapon, armour, charm, one-use) per match; after that the rung is closed.'], ['Trophies', 'Transcendent items cannot be recycled and cannot be banked after a win (keep.js MAX_TIER); they go home as a trophy.'], ['Lower rungs', 'Recycling a rare item returns a handful of parts at most; rare finds are for using, not for scrap.'], ['Luck', 'The Four-Leaf Clover leans live rolls (kills, hall searches, trees, vault guards) toward the rarer rungs. It never changes the one-of-a-kind rung. Chests, mystery rooms and shops are rolled when the match forms, so luck cannot touch them.'], ['Announce', 'A rare find shows a banner, a chime and a sparkle burst; every other goblin gets a faint corner line when a one-of-a-kind trophy is found (no name, no place).'], ['Chest rooms', 'Roll weapons only.'], ['Kill drops', 'Each enemy kind has a minimum tier for its gear; the rungs below it are skipped.']])] },
+  tbl('rare-items', 'The 26 rare items', 'Drop chances are the chance that one roll of the item\'s own kind at that source returns it (chest rolls are weapons only, mystery rolls weapon or armour, tree is an Elder reward of mythic or better). Weight is the item\'s share inside its tier and kind.',
+    [['name', 'Item', 0, 'name'], ['tier', 'Tier'], ['kind', 'Kind'], ['effect', 'What it does'], ['lore', 'Lore'], ['price', 'Price', 1], ['w', 'Weight', 1], ['chest', 'Chest %', 1], ['mystery', 'Mystery %', 1], ['hall', 'Hall %', 1], ['kill', 'Kill %', 1], ['heist', 'Vault guard %', 1], ['merchant', 'Merchant %', 1], ['treasure', 'Relic %', 1], ['tree', 'Tree %', 1], ['keep', 'Keep'], ['scrap', 'Recycles to']], rareRows),
+];
 const TABS = [['overview', 'Overview'], ['match', 'Match'], ['goblins', 'Goblins', goblins.length], ['weapons', 'Weapons', weapons.length], ['armour', 'Armour', armours.length], ['items', 'Items', consumables.length], ['recipes', 'Recipes', recipes.length], ['knowledge', 'Knowledge', perks.length],
-  ['rooms', 'Rooms', arena.length + attached.length], ['trees', 'Trees', trees.length], ['vault', 'Vault', vbs.length], ['home', 'Home', upgrades.length], ['loot', 'Loot']];
+  ['rooms', 'Rooms', arena.length + attached.length], ['trees', 'Trees', trees.length], ['vault', 'Vault', vbs.length], ['home', 'Home', upgrades.length], ['loot', 'Loot'], ['rarity', 'Rarity', rareRows.length]];
 const data = { stamp: 'source ' + srcHash(), tabs: TABS.map(([id, label, n]) => ({ id, label, n })), sections: S_,
   counts: { goblins: goblins.length, weapons: weapons.length, armour: armours.length, items: consumables.length, recipes: recipes.length, perks: perks.length, trees: trees.length, vbs: vbs.length, upgrades: upgrades.length, sends: sends.length, arena: arena.length, attached: attached.length } };
 

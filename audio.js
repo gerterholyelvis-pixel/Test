@@ -264,6 +264,12 @@
     glassUp(out, t) { ping(out, t, 1320, 0.22, 0.5); ping(out, t + 0.09, 1760, 0.16, 0.5); },   // panel lens
     crowbar(out, t) { tone(out, 'sawtooth', 180, t, 0.4, 0.12, { f1: 120, a: 0.06 }); noise(out, t, 0.35, 0.16, 'bandpass', 800, 400, 3, { a: 0.1 }); noise(out, t + 0.4, 0.05, 0.4, 'lowpass', 1800, 300, 0.8, { a: 0.001 }); tone(out, 'sine', 90, t + 0.4, 0.2, 0.5, { f1: 45, a: 0.003 }); },
     ward(out, t) { ping(out, t, 660, 0.2, 0.7); ping(out, t + 0.1, 880, 0.18, 0.7); ping(out, t + 0.2, 1320, 0.14, 0.9); },
+    // RARE: the chimes of a rare find, one step per tier (rare, mythic, legendary, transcendent), and the faint trophy cue other goblins hear
+    rareFind1(out, t) { ping(out, t, 784, 0.16, 0.5); ping(out, t + 0.09, 1175, 0.14, 0.6); },
+    rareFind2(out, t) { ping(out, t, 659, 0.17, 0.55); ping(out, t + 0.09, 880, 0.15, 0.55); ping(out, t + 0.18, 1319, 0.15, 0.7); },
+    rareFind3(out, t) { for (let i = 0; i < 4; i++) ping(out, t + i * 0.08, [523, 659, 784, 1047][i], 0.16, 0.7); noise(out, t + 0.3, 0.5, 0.1, 'highpass', 5000, 7000, 0.6, { a: 0.05 }); },
+    rareFind4(out, t) { tone(out, 'sine', 110, t, 0.9, 0.22, { f1: 220, a: 0.1 }); for (let i = 0; i < 6; i++) ping(out, t + 0.05 + i * 0.075, [523, 659, 784, 1047, 1319, 1568][i], 0.15, 0.9); noise(out, t + 0.45, 0.8, 0.12, 'highpass', 4000, 8000, 0.6, { a: 0.08 }); },
+    rareCue(out, t) { ping(out, t, 1568, 0.07, 1.1); ping(out, t + 0.2, 2093, 0.05, 1.2); },
     wardBreak(out, t) { ping(out, t, 1568, 0.3, 0.35); ping(out, t + 0.04, 1180, 0.2, 0.3); noise(out, t, 0.12, 0.25, 'highpass', 5000, 3000, 0.6, { a: 0.001 }); },
     jar(out, t) { tone(out, 'sine', 300, t, 0.08, 0.35, { f1: 900, a: 0.002 }); noise(out, t + 0.06, 0.25, 0.18, 'lowpass', 900, 250, 0.9, { a: 0.02 }); },
     zap(out, t) { noise(out, t, 0.25, 0.4, 'highpass', 6000, 2500, 0.6, { a: 0.001 }); tone(out, 'sine', 2400, t, 0.3, 0.2, { f1: 500, a: 0.001 }); },
