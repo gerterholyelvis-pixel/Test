@@ -33,7 +33,9 @@ A loot door is no longer an exit for an arena cell, because the loot room behind
 ## Tests
 - Rewritten: `world`.
 - Updated: `doorguard` (new loot-door test), `hud5`, `stations`, `server-basic`, `vault5`, `botgoals`, `elixir-home`, `gameinfo`.
-- `GK_TEST_JOBS=3 npm test` fails only on timing tests under load: bots tick cost, bots5-sim cost, security sprinter, netcode speed, matchmaking, rounds5, rules. All of them except the bots cost and the sprinter pass when run alone. The bots cost and the sprinter fail the same way on an untouched copy of the pre-change commit run on this loaded machine.
+- **Final run after the last merge of main:** `GK_TEST_JOBS=3 npm test` failed only `act5-crown`, `bots` (tick cost) and `bots5-sim` (cost). All three pass when run alone.
+- **Earlier loaded runs** also flaked on the security sprinter, netcode, matchmaking, rounds5 and rules. Every one of these passes alone except the security sprinter.
+- **The sprinter and the bots tick cost** fail the same way on an untouched copy of the pre-change commit run on this loaded machine.
 
 ## Browser (real server, GK_DEBUG, headless Chrome over CDP, Low)
 - Run with `tools/att20-views.js` and `Q=/ tools/r5shot.js`.
