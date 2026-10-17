@@ -107,6 +107,7 @@ function show(name) {
 let curPanel = 'main';
 $('b-settings').onclick = () => show('settings'); $('b-controls').onclick = () => show('controls');
 $('b-chars').onclick = () => show('chars'); $('b-inv').onclick = () => show('inv');
+{ const cx = $('b-codex'); if (cx) cx.onclick = () => { window.open('/codex', '_blank', 'noopener'); }; }   // CODEX: the reference page (server.js /codex), in a new tab so the menu and any queue stay put
 $('s-back').onclick = $('c-back').onclick = $('ch-back').onclick = $('inv-back').onclick = () => show('main');
 
 // ---------- characters + inventory panels ----------

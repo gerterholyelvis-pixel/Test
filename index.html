@@ -411,7 +411,9 @@ body[data-gfx=low] .lg-glint{animation:none;opacity:0}
  background:linear-gradient(90deg,rgba(14,11,9,.66),rgba(14,11,9,.2) 78%,transparent);animation:btnIn .6s cubic-bezier(.2,.8,.2,1) backwards;
  transition:transform .25s cubic-bezier(.2,.8,.2,1),color .2s,background .25s}
 #p-main .mbtn:nth-child(1){animation-delay:.45s}#p-main .mbtn:nth-child(2){animation-delay:.52s}#p-main .mbtn:nth-child(3){animation-delay:.59s}
-#p-main .mbtn:nth-child(4){animation-delay:.66s}#p-main .mbtn:nth-child(5){animation-delay:.73s}#p-main .mbtn:nth-child(6){animation-delay:.8s}
+#p-main .mbtn:nth-child(4){animation-delay:.66s}#p-main .mbtn:nth-child(5){animation-delay:.73s}#p-main .mbtn:nth-child(6){animation-delay:.8s}#p-main .mbtn:nth-child(7){animation-delay:.87s}#p-main .mbtn:nth-child(8){animation-delay:.94s}
+/* CODEX: with 7 or 8 menu buttons the column must still fit a 720 px window: slightly shorter rows and gaps */
+#p-main .btns{gap:clamp(6px,1.3vh,14px)}#p-main .btns .mbtn{--h:clamp(34px,5.6vh,60px)}
 @keyframes btnIn{from{opacity:0;transform:translateX(-22px)}to{opacity:1;transform:none}}
 #p-main .mbtn::before{content:"";position:absolute;inset:auto;left:10px;top:50%;width:9px;height:9px;margin-top:-4.5px;z-index:auto;background:linear-gradient(135deg,var(--gold2),var(--gold3));opacity:.35;transform:rotate(45deg) scale(.55);transition:transform .3s cubic-bezier(.2,.8,.2,1),opacity .25s}
 #p-main .mbtn::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:linear-gradient(90deg,rgba(245,196,81,.55),rgba(245,196,81,.1) 82%,transparent);transition:opacity .25s}
@@ -504,6 +506,7 @@ body:not(.tready) #menu h1.title,body:not(.tready) #p-main .mbtn{animation-play-
    <!-- TIPS -->
    <button class="mbtn" id="b-howto">How to play<span class="ar">&#9654;</span></button>
    <!-- /TIPS -->
+   <!-- CODEX --><button class="mbtn" id="b-codex" type="button" title="Every item, goblin, number and odds in the game (opens in a new tab)">Codex<span class="ar">&#9654;</span></button><!-- /CODEX -->
   </div></div>
 
   <div class="panel" id="p-chars">
