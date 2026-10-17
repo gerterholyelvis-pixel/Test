@@ -7564,7 +7564,9 @@ const R5 = (() => {
   function treeMap() {   // { cell: server tree type }: the server's roll (array in cell order, or { cell: type }) once all 4 are valid, else the placeholder
     const src = S('trees'); if (tmVal && src === tmSrc && (src || ph.ts === st.seed)) return tmVal;
     const out = {}; if (src) WORLD.TREE_CELLS.forEach((c, i) => { const k = WORLD.treeKind(Array.isArray(src) ? src[i] : src[c]); if (k) out[c] = k; });
-    tmSrc = src; return (tmVal = Object.keys(out).length === WORLD.TREE_CELLS.length ? out : phTrees());
+    tmSrc = src; tmVal = Object.keys(out).length === WORLD.TREE_CELLS.length ? out : phTrees();
+    if (!src) CHEST_ROOMS.trees = tmVal;   // TREE-FIX: the offline demo's placeholder trees block like their art too (a server roll sets CHEST_ROOMS.trees in onMsg)
+    return tmVal;
   }
   function vbMap(src) {   // { cell: vaultbreaker type } or null when the field is missing or partial
     const out = {}; if (src) for (const c of Object.values(VBS)) { const t = src[c]; if (VB_TYPES.includes(t)) out[c] = t; }

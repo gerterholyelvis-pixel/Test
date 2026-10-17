@@ -15,7 +15,9 @@ const AS = (c, r) => { for (let i = c.msgs.length - 1; i >= 0; i--) { const a = 
     }],
     ['client collision: game.js hands the tree types to world.js (CHEST_ROOMS.trees), so posts, vats, the Well stump and the Oak arch block as on the server', () => {
       const g = R('game.js'); assert(/CHEST_ROOMS\.trees = tr \|\| null/.test(g), 'R5.onMsg sets CHEST_ROOMS.trees from trees / matchStart.trees');
-      const types = []; types.trees = { 6: 'well', 8: 'oak', 16: 'press', 18: 'seer' };
+      assert(/if \(!src\) CHEST_ROOMS\.trees = tmVal/.test(g), 'the offline placeholder trees block too');
+      assert(/clamp01\(\(\(s\.prog \| 0\) \+ \(c \? Math\.min\(250, performance\.now\(\) - r\.tSeen\) : 0\)\) \/ need\)/.test(g), 'Elder stone gauge: prog already includes the running channel');
+      const types = []; types.trees ={ 6: 'well', 8: 'oak', 16: 'press', 18: 'seer' };
       const r6 = W.roomRect('6'), r8 = W.roomRect('8');
       assert(W.propsAt(r6.cx, r6.cz + 1.5, types).some(p => p.k === 'trunk' && p.r === 1.7), 'Well stump r 1.7');
       assert(W.propsAt(r6.cx + 4.2, r6.cz - 4.2, types).some(p => p.k === 'tprop'), 'Well wellhead');
