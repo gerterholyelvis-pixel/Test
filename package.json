@@ -6,6 +6,14 @@
   "scripts": {
     "start": "node server.js",
     "test": "node tests/run.js",
+    "test:fast": "node tests/run.js --tier fast -q",
+    "test:server": "node tests/run.js --tier server,slow -q",
+    "test:all": "node tests/run.js",
+    "test:changed": "node tests/run.js --changed -q",
+    "map": "node tools/mapgen.js",
+    "check": "node tools/merge-check.js --syntax",
+    "merge-check": "node tools/merge-check.js",
+    "wt": "node tools/wt.js",
     "gameinfo": "node tools/gameinfo.js"
   },
   "repository": {

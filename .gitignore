@@ -1,3 +1,4 @@
 node_modules
 .claude/worktrees/
 .gk-secret
+tests/.timings.json
