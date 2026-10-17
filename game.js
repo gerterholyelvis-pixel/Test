@@ -5080,7 +5080,7 @@ GK.getInv = () => JSON.parse(JSON.stringify(myInv));
 GK.openInventory = openInv; GK.closeInventory = closeInv;
 addEventListener('keydown', e => {
   if (GK.mode !== 'play') return;
-  if (shopOpen) { if (e.code === 'Escape' || e.code === 'Tab' || (e.code === 'KeyE' && !e.repeat)) { e.preventDefault(); closeShop(); } return; }
+  if (shopOpen) { if ((panelKind === 'craft' || panelKind === 'recycle') && craftPn && craftPn.wb && craftPn.wb.key(e)) return; if (e.code === 'Escape' || e.code === 'Tab' || (e.code === 'KeyE' && !e.repeat)) { e.preventDefault(); closeShop(); } return; }
   if (!invOpen && !e.repeat && window.GK_OFFLINE && (e.code === 'KeyT' || e.code === 'KeyY') && spawned) {   // demo: T = into the first merchant room, Y = back to the start room
     const i = (GK.layout || []).indexOf('merchant');
     if (e.code === 'KeyT' && i >= 0) { const C = CHEST_ROOMS[i]; P.x = C.cx - C.dx * 2.2; P.z = C.cz - C.dz * 2.2; P.yaw = Math.atan2(-C.dx, -C.dz); P.pitch = 0; }
@@ -5320,8 +5320,8 @@ let recPn = null, craftPn = null, lootPn = null;
 function openStation(kind, roomId) {
   if (shopOpen || invOpen || GK.mode !== 'play') return;
   shopOpen = true; panelKind = kind; shopRoom = roomId; keys.clear(); setHover(-1);
-  if (kind === 'recycle') { if (!recPn) buildRec(); recSel = null; paintRec(); recPn.el.style.display = 'flex'; }
-  else if (kind === 'craft') { if (!craftPn) buildCraft(); paintCraft(); craftPn.el.style.display = 'flex'; }
+  if (kind === 'recycle') { if (!recPn) buildRec(); recSel = null; KNOWUI.open('recycle'); recPn.el.style.display = 'flex'; }
+  else if (kind === 'craft') { if (!craftPn) buildCraft(); KNOWUI.open('craft'); craftPn.el.style.display = 'flex'; }
   else if (kind === 'loot') { if (!lootPn) buildLoot(); lootId = roomId; lootOpen = true; paintLoot(); lootPn.el.style.display = 'flex'; }
   try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
 }
@@ -5340,6 +5340,24 @@ const STNUI = {
   recName() { const t = this.room().type; return t === 'grand' ? 'GRAND RECYCLER' : t === 'home' ? 'HOME RECYCLER' : 'RECYCLER'; },
   eff() { if (this.recType() === 'home' && window.GKHOMEW) return GKHOMEW.recEff(); const G = itemsData(); return ((G.STATIONS && G.STATIONS.recycler[this.recType()]) || { eff: 1 }).eff; },
   yield(y) { const G = itemsData(); return y && G.recycleEff ? G.recycleEff(y, this.eff()) : y; },
+  has(kind) {   // WBUI: does this room offer a workbench ('bench') or a recycler ('recycler')? (server stationAt; unknown rooms allow both)
+    const r = this.room(), t = r.type;
+    if (t === 'mystery' && r.mystery && Array.isArray(r.mystery.stations)) { const st = r.mystery.stations; return kind === 'bench' ? st.includes('workbench') || st.includes('knowledge') : st.includes('recycler'); }
+    if (!['merchant', 'home', 'forge', 'grand'].includes(t)) return true;
+    return kind === 'bench' ? t !== 'grand' : t !== 'forge';
+  },
+  banner(kind) {   // WBUI: the station banner (key = colour theme: normal / master / homebench / recycler / homerec / grand)
+    const G = itemsData(), t = this.room().type, R = ['0', 'I', 'II', 'III', 'IV', 'V'];
+    if (kind === 'bench') {
+      const sp = G.benchSpec ? G.benchSpec(this.benchType()) : { maxTier: 5, costMul: 1, craftMs: 2500 }, chips = [{ text: 'Tiers 0-' + R[Math.min(5, sp.maxTier)], title: 'The highest recipe tier this bench can craft' },
+        sp.costMul < 1 ? { text: 'Parts ' + Math.round((1 - sp.costMul) * 100) + '% cheaper', cls: 'good' } : { text: 'Full price parts' }, { text: (sp.craftMs / 1000).toFixed(1) + ' s per craft' }];
+      if (sp.bonusTier) chips.push({ text: '+1 bonus tier', cls: 'good', title: 'Craft one tier above your knowledge, at full price' });
+      return { key: t === 'forge' ? 'master' : t === 'home' ? 'homebench' : 'normal', name: this.benchName(), chips, blurb: t === 'forge' ? 'Every tier, cheaper parts, quick work' : t === 'home' ? 'Your own bench: craft, learn perks and reforge' : 'Craft, learn perks and reforge (basic tiers only)' };
+    }
+    const eff = this.eff();
+    return { key: t === 'grand' ? 'grand' : t === 'home' ? 'homerec' : 'recycler', name: this.recName(), eff, chips: [{ text: 'Returns ' + Math.round(eff * 100) + '%', cls: eff >= 1 ? 'good' : 'warn' }, { text: eff >= 1 ? 'Every part comes back' : 'At least 1 of the main part' }],
+      blurb: eff >= 1 ? 'Breaks weapons, armour and utility items back into every part' : 'Breaks gear down, but keeps half. The Grand Recycler gives it all back' };
+  },
   benchInfo() {   // what this bench can craft: tiers, discount, speed, bonus tier
     const G = itemsData(), sp = G.benchSpec ? G.benchSpec(this.benchType()) : { maxTier: 5, costMul: 1, craftMs: 2500 }, R = ['0', 'I', 'II', 'III', 'IV', 'V'];
     return 'Crafts tiers 0-' + R[Math.min(5, sp.maxTier)] + ' - parts ' + (sp.costMul < 1 ? Math.round((1 - sp.costMul) * 100) + '% cheaper' : 'full price') + ' - ' + (sp.craftMs / 1000).toFixed(1) + ' s per craft' + (sp.bonusTier ? ' - one tier above your knowledge, at full price' : '');
@@ -5347,49 +5365,13 @@ const STNUI = {
 };
 // STATIONS-UI-END
 // ---- recycler ----
-function buildRec() {
-  recPn = mkPanel('gkRec', 'RECYCLER', 640); recPn.sub.textContent = '';
-  const main = document.createElement('div'); main.style.cssText = 'display:flex;gap:22px;flex-wrap:wrap;justify-content:center';
-  const left = document.createElement('div'); left.innerHTML = '<div class="lab">PICK A WEAPON</div>';
-  const grid = document.createElement('div'); grid.style.cssText = 'display:grid;grid-template-columns:repeat(3,54px);gap:6px';
-  for (const id of ['b0', 'b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'q0', 'q1', 'q2']) { const s = mkSlot(id, 54); s.dataset.rec = '1'; grid.appendChild(s); }
-  left.appendChild(grid);
-  recPn.prev = document.createElement('div'); recPn.prev.style.cssText = 'flex:1;min-width:200px;display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;text-align:center';
-  main.append(left, recPn.prev);
-  const mats = document.createElement('div'); mats.style.cssText = 'margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.1)'; mats.innerHTML = '<div class="lab">YOUR MATERIALS</div>'; mats.appendChild(mkPartsRow());
-  recPn.body.append(main, mats);
-  recPn.el.addEventListener('click', e => {
-    const s = e.target.closest && e.target.closest('.gks[data-rec]'); if (!s) return;
-    const id = s.dataset.id, k = invGet(myInv, id);
-    if (k == null) return;
-    if (!KNOWUI.recYield(k)) { flashBad(id); say(recPn, 'Weapons, armour and utility items can be recycled'); return; }
-    recSel = id; paintRec();
-  });
-}
-function paintRec() {
-  if (!recPn) return;
-  for (const id of ['b0', 'b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'q0', 'q1', 'q2']) for (const el of slotEls[id]) if (el.dataset.rec) {
-    const k = invGet(myInv, id), ok = k != null && !!KNOWUI.recYield(k);
-    paintSlot(el, id); el.style.opacity = k == null || ok ? 1 : 0.3; el.style.outline = recSel === id ? '2px solid ' + GOLD : 'none'; el.title = k != null && !ok ? 'cannot recycle' : '';
-  }
-  if (recSel && invGet(myInv, recSel) == null) recSel = null;
-  recPn.ttl.textContent = STNUI.recName(); recPn.sub.textContent = STNUI.eff() >= 1 ? 'RETURNS EVERY PART OF A WEAPON, ARMOUR OR UTILITY ITEM - 100%' : 'RETURNS ' + Math.round(STNUI.eff() * 100) + '% OF THE PARTS (AT LEAST 1) - THE GRAND RECYCLER GIVES 100%';
-  const k = recSel ? invGet(myInv, recSel) : null, pv = recPn.prev; pv.textContent = '';
-  let y = STNUI.yield(k && KNOWUI.recYield(k));   // 5x5: the home recycler gives 50% (server stationAt)
-  if (!k) { pv.innerHTML = '<div style="color:#8d8880;font-size:14px;line-height:1.5">Select a weapon or armour from your backpack or quick slots<br>to see which materials it yields.<br><span style="font-size:12px">(brains and worn gear cannot be recycled)</span></div>'; return; }
-  const it = infoOf(k), head = document.createElement('div'); head.style.cssText = 'display:flex;align-items:center;gap:10px'; head.appendChild(mkIcon(k, 46));
-  const t = document.createElement('div'); t.style.textAlign = 'left'; t.innerHTML = '<b style="color:' + (TIER_COL[it.tier] || '#fff') + ';font-size:16px">' + it.name + '</b><div style="font-size:12px;color:#aaa59d">' + statTxt(k) + '</div>'; head.appendChild(t);
-  const get = document.createElement('div'); get.className = 'yield'; get.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;justify-content:center;min-height:34px';
-  for (const p in y) { const c = document.createElement('div'); c.style.cssText = 'display:flex;align-items:center;gap:4px;padding:3px 9px 3px 4px;border-radius:8px;background:rgba(0,0,0,.45);border:1px solid rgba(255,215,94,.3);font-weight:800'; c.dataset.part = p; c.appendChild(partIcon(p, 26)); c.append('+' + y[p] + ' ' + partName(p)); get.appendChild(c); }
-  const bt = document.createElement('button'); bt.textContent = 'RECYCLE'; bt.id = 'recGo'; bt.style.cssText = 'width:100%;padding:14px 10px;border:0;border-radius:10px;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font:800 18px system-ui,sans-serif;letter-spacing:.12em;cursor:pointer';
-  bt.onclick = () => { net.send({ recycle: recSel }); };
-  pv.append(head, Object.assign(document.createElement('div'), { className: 'lab', textContent: 'YOU GET' }), get, bt);
-  if (window.GKHOMEW && GKHOMEW.canRefine(shopRoom)) { const rf = document.createElement('button'); rf.textContent = 'REFINE: 100% FOR 4 ELIXIR'; rf.id = 'recRefine'; rf.style.cssText = 'width:100%;padding:9px 10px;border:1px solid #7fd8ff;border-radius:10px;background:rgba(127,216,255,.12);color:#bdeaff;font:800 14px system-ui,sans-serif;letter-spacing:.08em;cursor:pointer'; rf.onclick = () => { net.send({ recycle: recSel, refine: 1 }); }; pv.append(rf); }   // ELIXIR
-}
+// WBUI: the recycler is a tab of the one workbench screen (wbui.js); buildRec / paintRec keep the old entry points
+function buildRec() { if (!craftPn) buildCraft(); recPn = craftPn; }
+function paintRec() { if (craftPn) paintCraft(); }
 function recycledFx(r) {
-  if (!recPn || panelKind !== 'recycle') return;
+  if (!recPn || !recPn.wb || (panelKind !== 'recycle' && panelKind !== 'craft') || recPn.wb.tab() !== 'recycle') return;
   say(recPn, 'Recycled ' + itemName(r.key) + ': ' + Object.keys(r.parts).map(p => '+' + r.parts[p] + ' ' + partName(p)).join(', '), true);
-  const from = recPn.prev.getBoundingClientRect(), tgt = {}; for (const c of partRows[partRows.length - 1] ? partRows[partRows.length - 1].children : []) tgt[c.dataset.part] = c.getBoundingClientRect();
+  const from = recPn.prev.getBoundingClientRect(), tgt = {}; for (const c of recPn.el.querySelectorAll('.wb-mats [data-part]')) tgt[c.dataset.part] = c.getBoundingClientRect();
   Object.keys(r.parts).forEach((p, i) => {
     const f = partIcon(p, 30); f.style.cssText += ';position:fixed;z-index:90;pointer-events:none;left:' + (from.x + from.width / 2 - 15) + 'px;top:' + (from.y + from.height / 2 - 15) + 'px';
     document.body.appendChild(f); const t = tgt[p] || from, dx = t.x + 11 - (from.x + from.width / 2), dy = t.y + 11 - (from.y + from.height / 2);
@@ -5398,7 +5380,7 @@ function recycledFx(r) {
   });
 }
 // ---- workbench + knowledge tree (KNOWLEDGE-BEGIN, docs/KNOWLEDGE.md): one screen, opened with E at a workbench or at a knowledge tree. Left: the perk tree. Right: recipes by tier (and Reforge). ----
-function buildCraft() { KNOWUI.build(); if (window.GKHOMEW) GKHOMEW.decorateCraft(craftPn); }   // ELIXIR: brew row
+function buildCraft() { KNOWUI.build(); recPn = craftPn; if (window.GKHOMEW) GKHOMEW.decorateCraft(craftPn); }   // ELIXIR: brew row
 function myKnowledge() { const mine = actors.get(me); return invStats(myInv, mine ? mine.goblin : 0, knowOv).knowledge; }
 function paintCraft() { if (craftPn) { KNOWUI.paint(); if (window.GKHOMEW) GKHOMEW.paintBrew(); } }
 const KNOWUI = (() => {
@@ -5443,90 +5425,29 @@ const KNOWUI = (() => {
     const n = craftPn.tree && craftPn.tree.querySelector('[data-perk="' + id + '"]'); if (n) n.animate([{ boxShadow: '0 0 0 0 rgba(255,215,94,.9)', transform: 'scale(1.05)' }, { boxShadow: '0 0 24px 4px rgba(255,215,94,0)', transform: 'none' }], 700);
     try { GK.workbenchFeedback && GK.workbenchFeedback(shopRoom); } catch (e) {}
   }
+  // WBUI: the screen itself lives in wbui.js (tabs Craft / Perks / Reforge / Recycle, banner, progress and materials strips). This block feeds it the game state.
+  let WBS = null;
+  const wbGlyph = (k, px) => { if (k !== 'forge' && k !== 'recycler') return null; try { const d = Math.min(window.devicePixelRatio || 1, 2), c = document.createElement('canvas'); c.width = c.height = Math.round(px * d); c.style.width = c.style.height = px + 'px'; const g = c.getContext('2d'); g.scale(d, d); g.translate(px / 2, px / 2); HUD5.paintIcon(g, k, px * 0.42); return c; } catch (e) { return null; } };
+  const wbCtx = () => ({
+    doc: document, win: window, G: D,
+    get: () => ({ inv: myInv, parts: myParts, know: myKnowledge(), brains: brains(), perks, crafting, benchType: STNUI.benchType(), hasBench: STNUI.has('bench'), hasRecycler: STNUI.has('recycler') }),
+    send: m => net.send(m), say: (t, good) => say(craftPn, t, good), close: () => closeShop(),
+    icon: mkIcon, partIcon, partName, info: infoOf, statTxt, tierCol: it => TIER_COL[it && it.tier] || '', partsRow: mkPartsRow,
+    station: k => STNUI.banner(k), yieldOf: k => STNUI.yield(U.recYield(k)), glyph: wbGlyph,
+    canRefine: () => !!(window.GKHOMEW && GKHOMEW.canRefine(shopRoom)), benchLv: () => (window.GKHOMEW && GKHOMEW.benchLv ? GKHOMEW.benchLv() : 0),
+  });
   U.build = () => {
-    craftPn = mkPanel('gkCraft', 'WORKBENCH', 980); craftPn.sub.textContent = 'KNOWLEDGE TREE AND CRAFTING - FREE FOR EVERYONE';
-    craftPn.head = div('display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;margin:0 0 12px');
-    const main = div('display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start');
-    craftPn.tree = div('flex:1 1 360px;min-width:min(300px,100%)');
-    const right = div('flex:1 1 400px;min-width:min(300px,100%)'); right.innerHTML = '<div class="lab">RECIPES</div>';
-    craftPn.list = div('display:flex;flex-direction:column;gap:6px;max-height:min(54vh,540px);overflow:auto;padding-right:4px'); right.appendChild(craftPn.list);
-    main.append(craftPn.tree, right);
-    const mats = div('margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.1)'); mats.innerHTML = '<div class="lab">YOUR MATERIALS</div>'; mats.appendChild(mkPartsRow());
-    craftPn.body.append(craftPn.head, main, mats);
-    craftPn.tree.addEventListener('click', e => {
-      const n = e.target.closest && e.target.closest('[data-perk]'); if (!n) return;
-      const why = D().learnFail(n.dataset.perk, myKnowledge(), brains(), perks);
-      if (why) { say(craftPn, learnWhy[why] || 'Cannot learn that'); n.animate([{ transform: 'translateX(-4px)' }, { transform: 'translateX(4px)' }, { transform: 'none' }], 220); } else net.send({ learn: n.dataset.perk });
-    });
+    craftPn = mkPanel('gkCraft', 'WORKBENCH', 1080); craftPn.sub.textContent = '';
+    WBS = GKWBUI.create(wbCtx()); craftPn.wb = WBS; craftPn.list = WBS.list; craftPn.tree = WBS.tree; craftPn.bar = WBS.bar; craftPn.prev = WBS.previewEl;
+    craftPn.el.classList.add('wb-screen'); craftPn.body.appendChild(WBS.el);
   };
-  const stat = (lab, val, col) => '<div style="display:flex;flex-direction:column;align-items:center;min-width:92px;padding:4px 12px;border-radius:10px;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.08)"><span style="font:700 10px system-ui;letter-spacing:.16em;color:#b9b4ae">' + lab + '</span><span style="font:800 20px system-ui;color:' + col + ';font-variant-numeric:tabular-nums">' + val + '</span></div>';
-  function paintTree() {
-    const G = D(), know = myKnowledge(), pts = U.points(), tier = G.knowTier ? G.knowTier(know) : 0;
-    craftPn.head.innerHTML = stat('KNOWLEDGE', fmtN(know), '#8ff0e0') + stat('RECIPE TIER', ROM[tier], '#ffd75e') + stat('POINTS', pts, pts ? '#8be28b' : '#8d8880')
-      + '<div style="font-size:12px;color:#9a958c;max-width:250px;line-height:1.4">1 point per ' + ((G.KNOW && G.KNOW.step) || 20) + ' knowledge and 1 per brain you eat. Perks last until you die.</div>';
-    const T = craftPn.tree; T.innerHTML = '<div class="lab">KNOWLEDGE TREE</div>';
-    const grid = div('display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px'); T.appendChild(grid);
-    for (const b of G.BRANCHES || []) {
-      const col = div('display:flex;flex-direction:column;align-items:stretch'), c = BR_COL[b.id] || '#ffd75e';
-      col.innerHTML = '<div style="text-align:center;font:800 12px system-ui;letter-spacing:.18em;color:' + c + ';margin-bottom:6px">' + b.name.toUpperCase() + '</div>';
-      const list = (G.PERKS || []).filter(p => p.branch === b.id).sort((x, y) => x.rank - y.rank);
-      list.forEach((pk, i) => {
-        if (i) { const ln = div('width:2px;height:10px;margin:0 auto;background:' + (U.has(list[i - 1].id) ? c : 'rgba(255,255,255,.15)')); col.appendChild(ln); }
-        const have = U.has(pk.id), why = have ? 'have' : G.learnFail(pk.id, know, brains(), perks), can = !why;
-        const n = div('padding:8px 9px;border-radius:10px;box-sizing:border-box;min-height:104px;display:flex;flex-direction:column;gap:3px;cursor:' + (can ? 'pointer' : 'default') + ';'
-          + (have ? 'background:linear-gradient(180deg,' + c + '33,rgba(0,0,0,.4));border:1px solid ' + c : can ? 'background:rgba(0,0,0,.35);border:1px dashed ' + c : 'background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.08);opacity:.62'));
-        n.dataset.perk = pk.id; n.title = pk.desc;
-        n.innerHTML = '<div style="display:flex;justify-content:space-between;gap:6px;align-items:baseline"><b style="font-size:13px;color:' + (have ? '#fff4d6' : '#f2efe6') + '">' + esc(pk.name) + '</b><span style="font:800 11px system-ui;color:' + c + ';white-space:nowrap">' + pk.cost + ' PT</span></div>'
-          + '<div style="font-size:11.5px;line-height:1.3;color:#b9b4a6;flex:1">' + esc(pk.desc) + '</div>'
-          + '<div style="font:800 10px system-ui;letter-spacing:.12em;color:' + (have ? c : can ? '#8be28b' : '#8d8880') + '">' + (have ? 'LEARNED' : can ? 'CLICK TO LEARN' : why === 'order' ? 'LEARN THE ONE ABOVE' : 'NEEDS ' + pk.cost + ' POINT' + (pk.cost > 1 ? 'S' : '')) + '</div>';
-        col.appendChild(n);
-      });
-      grid.appendChild(col);
-    }
-  }
-  const costChips = (cost, base) => { const w = div('display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:190px'); for (const p in cost) { const ok = (myParts[p] | 0) >= cost[p], c = div('display:flex;align-items:center;gap:2px;font:800 13px system-ui,sans-serif;color:' + (ok ? '#8be28b' : '#ff6a5a')); c.title = partName(p) + (base && base[p] > cost[p] ? ' (Thrifty Hands: ' + base[p] + ' -> ' + cost[p] + ')' : ''); c.appendChild(partIcon(p, 20)); c.append(' ' + (myParts[p] | 0) + '/' + cost[p]); w.appendChild(c); } return w; };
-  const btn = (txt, can) => { const b = document.createElement('button'); b.textContent = txt; b.disabled = !can; b.style.cssText = 'width:84px;flex:none;padding:8px 0;border-radius:8px;font:800 12px system-ui,sans-serif;letter-spacing:.1em;cursor:' + (can ? 'pointer' : 'not-allowed') + ';' + (can ? 'border:0;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405' : 'border:1px solid rgba(255,90,74,.6);background:rgba(120,20,14,.35);color:#ff8a7a'); return b; };
-  const row = (key, line, cost, base, label, can, reason, onGo, dim) => {
-    const it = infoOf(key) || { name: key }, r = div('display:flex;align-items:center;gap:10px;padding:5px 8px;border-radius:10px;background:rgba(0,0,0,.35);border:1px solid rgba(255,215,94,.18)' + (dim ? ';opacity:.5' : ''));
-    const ic = div('width:42px;height:42px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:rgba(0,0,0,.4);flex:none'); ic.appendChild(mkIcon(key, 36));
-    const tx = div('flex:1;min-width:0'); tx.innerHTML = '<div style="font-weight:700;font-size:14px;color:' + (TIER_COL[it.tier] || '#f2efe6') + '">' + esc(it.name) + '</div><div style="font-size:12px;color:#aaa59d">' + line + '</div>';
-    const b = btn(label, can); b.title = reason; b.onclick = () => { if (can) onGo(); else say(craftPn, reason); };
-    r.append(ic, tx, costChips(cost, base), b); return r;
-  };
-  const head = (txt, col, note) => { const h = div('display:flex;justify-content:space-between;align-items:baseline;margin:8px 2px 0;font:800 11px system-ui;letter-spacing:.16em;color:' + col); h.innerHTML = '<span>' + txt + '</span><span style="letter-spacing:.04em;font-weight:600;color:#8d8880">' + (note || '') + '</span>'; return h; };
-  function paintRecipes() {
-    const G = D(), list = craftPn.list, full = myInv.backpack.indexOf(null) < 0, know = myKnowledge(); list.textContent = '';
-    if (U.has('reforge') && G.reforgeCost) {   // Reforge: every carried weapon and armour that is not reforged yet
-      const ids = ['weapon', 'armor', 'b0', 'b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'q0', 'q1', 'q2'].filter(id => { const k = invGet(myInv, id); return k && G.reforgeCost(k); });
-      list.appendChild(head('REFORGE', '#ffb84a', ids.length ? '+20%, once per item' : 'no gear to reforge'));
-      for (const id of ids) {
-        const k = invGet(myInv, id), cost = G.reforgeCost(k), a = infoOf(k), b = infoOf(k + '+'), s = a.type === 'weapon' ? 'attack' : 'health', lacking = Object.keys(cost).filter(p => (myParts[p] | 0) < cost[p]);
-        const reason = lacking.length ? 'Not enough ' + lacking.map(partName).join(', ') : '';
-        list.appendChild(row(k, (s === 'attack' ? 'Attack ' : 'Health ') + a[s] + ' &rarr; <b style="color:#8be28b">' + b[s] + '</b>' + (id === 'weapon' || id === 'armor' ? ' · equipped' : ''), cost, null, 'REFORGE', !reason, reason, () => net.send({ reforge: id })));
-      }
-    }
-    if (crafting) {   // STATIONS: a craft is running - progress bar and cancel
-      const pb = div('display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;background:rgba(255,215,94,.1);border:1px solid rgba(255,215,94,.5);margin-bottom:4px');
-      if (crafting.key) { const ic = div('width:36px;height:36px;flex:none'); ic.appendChild(mkIcon(crafting.key, 34)); pb.appendChild(ic); }
-      const mid = div('flex:1;min-width:0'), track = div('height:10px;border-radius:5px;background:rgba(0,0,0,.55);overflow:hidden;margin-top:4px'); craftPn.bar = div('height:100%;width:0;background:linear-gradient(90deg,#e0a82a,#ffd75e)'); track.appendChild(craftPn.bar);
-      mid.innerHTML = '<div style="font:800 12px system-ui;letter-spacing:.14em;color:#ffd75e">CRAFTING ' + esc(crafting.key ? infoOf(crafting.key).name.toUpperCase() : '') + '</div>'; mid.appendChild(track);
-      const cb = btn('CANCEL', true); cb.onclick = () => net.send({ craftCancel: 1 }); cb.title = 'Cancel and get your parts back'; pb.append(mid, cb); list.appendChild(pb);
-    } else craftPn.bar = null;
-    const recipes = (G.RECIPES || []).slice().sort((x, y) => x.tier - y.tier); let tier = -1, bt = STNUI.benchType();
-    for (const r of recipes) {
-      const bc = G.benchCraft ? G.benchCraft({ stats: { knowledge: know } }, r, bt, perks) : { cost: U.cost(r), ms: 2500 }, locked = bc.why === 'knowledge', low = bc.why === 'bench', cost = bc.cost || U.cost(r);
-      if (r.tier !== tier) { tier = r.tier; list.appendChild(head(tier ? 'TIER ' + ROM[tier] + ' · ' + r.needs + ' KNOWLEDGE' : 'TIER 0 · BASICS', locked || low ? '#8d8880' : '#8ff0e0', locked ? '&#128274; you have ' + fmtN(know) : low ? 'needs the Master Forge' : bc.bonus ? 'bonus tier' : tier ? 'unlocked' : 'for everyone')); }
-      const lacking = Object.keys(cost).filter(p => (myParts[p] | 0) < cost[p]);
-      const reason = locked ? 'Needs ' + r.needs + ' knowledge' : low ? 'This bench is too basic: tier ' + ROM[r.tier] + ' needs the Master Forge' : crafting ? 'Already crafting' : lacking.length ? 'Not enough ' + lacking.map(partName).join(', ') : full ? 'Your backpack is full' : '';
-      const el = row(r.out, statTxt(r.out) + (bc.ms ? ' · ' + (bc.ms / 1000).toFixed(1) + ' s' : '') + (bc.bonus ? ' · <b style="color:#ffd75e">BONUS TIER</b>' : ''), cost, r.cost, locked ? 'LOCKED' : low ? 'FORGE' : 'CRAFT', !reason, reason, () => net.send({ craft: r.id }), locked || low); el.dataset.recipe = r.id; list.appendChild(el);
-    }
-    if (!recipes.length) list.innerHTML = '<div style="text-align:center;color:#8d8880;padding:20px">No recipes known.</div>';
-  }
-  U.paint = () => { const top = craftPn.list.scrollTop; craftPn.ttl.textContent = STNUI.benchName(); craftPn.sub.textContent = STNUI.benchInfo().toUpperCase(); paintTree(); paintRecipes(); craftPn.list.scrollTop = top; };
+  U.open = tab => { if (WBS) WBS.open(tab); };
+  U.screen = () => WBS;
+  U.paint = () => { craftPn.ttl.textContent = STNUI.benchName(); WBS.paint(); };
   U.crafting = () => crafting;
   function barLoop() {   // the progress bar of a running craft: one style write per frame, only while a craft runs
     if (!crafting) return;
-    if (panelKind === 'craft' && craftPn && craftPn.bar) { const f = crafting.ms > 0 ? Math.min(1, (performance.now() - crafting.at) / crafting.ms) : 1; craftPn.bar.style.width = (f * 100).toFixed(1) + '%'; }
+    if ((panelKind === 'craft' || panelKind === 'recycle') && craftPn && craftPn.bar) { const f = crafting.ms > 0 ? Math.min(1, (performance.now() - crafting.at) / crafting.ms) : 1; craftPn.bar.style.width = (f * 100).toFixed(1) + '%'; }
     requestAnimationFrame(barLoop);
   }
   // ---- Lore perks on the facility maps: drawn by drawMap (MAP block) through GK.knowMap; live intel redraws only the map of the room I stand in
@@ -5578,6 +5499,7 @@ const KNOWUI = (() => {
     if (k === lastRoom && j === lastJ && !(U.has('headcount') && t - hcAt > 2000)) return;
     lastRoom = k; lastJ = j; hcAt = t; if (k != null && WORLD.roomRect(k) && k[0] !== 'c' && k !== VK) GK.redrawMap(k);
   }, 500);
+  U.dbg = { parts: p => setParts(p), know: n => { knowOv = n; }, inv: d => setInv(d) };   // WBUI: screenshot / test hook (client display only, the server stays the authority)
   GK.know = U;   // test hook
   return U;
 })();
@@ -5650,6 +5572,7 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyK' && !e.repeat && window.GK_OFFLINE && GK.mode === 'play' && actors.get(me)) { // demo only: K = die, to see the loot drop and the death screen
     const r = netReal && netReal.demoDie && netReal.demoDie(); showDeathScreen(r || { items: invAll(myInv) });
   }
+  if (shopOpen && e.target && e.target.tagName === 'INPUT') return;   // WBUI: typing in the recipe search
   JUMP.key(e);
   keys.add(e.code); if (e.code === 'KeyV' && !e.repeat) inside = !inside; });
 document.addEventListener('visibilitychange', () => keys.clear());
@@ -8684,7 +8607,7 @@ const HOMEW = window.GKHOMEW = (() => {
   }
   return {
     onMsg, interact, shut: () => ui.close(false), decorateCraft, paintBrew, dbgSend: m => { if (GK.dbg) net.send(m); },   // GK_DEBUG servers only (screenshots, tests)
-    elixir: () => elixir, recEff: () => (hs ? K.recyclerEff({ lv: hs.lv, dead: hs.dead }) : 0.5),
+    elixir: () => elixir, benchLv: () => (hs && hs.lv && hs.lv.bench) | 0, recEff: () => (hs ? K.recyclerEff({ lv: hs.lv, dead: hs.dead }) : 0.5),
     canRefine: room => !!hs && !hs.dead && elixir >= 4 && mine(room) && inHome(room),
     bellAt: (x, z) => { if (!bells.size) return false; const k = W.roomKeyOf(x, z), t = bells.get(k); return t != null && t > performance.now(); },
     ui,
