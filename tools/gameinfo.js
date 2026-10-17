@@ -51,7 +51,7 @@ const rng = seed => { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>
 // ---------------------------------------------------------------- server numbers
 const SV = {
   ROUND_MS: srvConst('ROUND_MS'), SUDDEN_ROUND: srvConst('SUDDEN_ROUND'), MAX_ROUND: srvConst('MAX_ROUND'), PACE: srvConst('PACE'), BOLT: srvConst('BOLT'), BRIBE: srvConst('BRIBE'),
-  CAP: srvConst('CAP'), QUEUE_MS: srvConst('QUEUE_MS'), RULE_DEFAULT: srvConst('RULE_DEFAULT'), RULE_NAMES: srvConst('RULE_NAMES'), NPC: srvConst('NPC'), STATION_TYPES: srvConst('STATION_TYPES'),
+  CAP: srvConst('CAP'), QUEUE_MS: srvConst('QUEUE_MS'), RULE_DEFAULT: srvConst('RULE_DEFAULT'), RULE_NAMES: srvConst('RULE_NAMES'), NPC: { ...srvConst('NPC'), ...require('../npcx.js').KINDS }, STATION_TYPES: srvConst('STATION_TYPES'),
   DOOR_LIFE: srvConst('DOOR_LIFE'), CELL_ROUND: srvConst('CELL_ROUND'), KLAXON_MS: srvConst('KLAXON_MS'), WALK: srvConst('WALK'), SPRINT: srvConst('SPRINT'), SEE_FAR: srvConst('SEE_FAR'), SEE_NEAR: srvConst('SEE_NEAR'),
   SEE_HIT_MS: srvConst('SEE_HIT_MS'), SEE_MEM_MS: srvConst('SEE_MEM_MS'), BOT_GRACE: srvConst('BOT_GRACE'), BLEED_MS: srvConst('BLEED_MS'), USE_CD: srvConst('USE_CD'), BOMB_FUSE: srvConst('BOMB_FUSE'),
   MAX_PLACED: srvConst('MAX_PLACED'), BAIT_LIFE: srvConst('BAIT_LIFE'), LURE_MS: srvConst('LURE_MS'), LURE_RANGE: srvConst('LURE_RANGE'), GRACE_MS: srvConst('GRACE_MS'),
@@ -371,6 +371,15 @@ S_.rooms = [
   tbl('mystery', 'Inside a mystery room', 'One of six kinds, equal odds.', [['kind', 'Contents', 0, 'name'], ['what', 'What'], ['odds', 'Odds %', 1]], mystery),
   tbl('enemies', 'Mystery room enemies', 'Weights add to ' + enemyTot + ' and are relative. "Of all mystery rooms" multiplies by the 1-in-6 enemy roll.', [['name', 'Enemy', 0, 'name'], ['w', 'Share of enemy rooms %', 1], ['ownOdds', 'Of all mystery rooms %', 1], ['hp', 'HP', 1], ['dmg', 'Damage', 1], ['cd', 'Cooldown ms', 1], ['dps', 'DPS', 1], ['speed', 'Speed m/s', 1], ['loot', 'Drops']], enemies),
 ];
+// VARIETY: item affixes and match mutators (affix.js, mutators.js)
+{
+  const AX = require('../affix.js'), MX = require('../mutators.js');
+  S_.rooms.push(
+    tbl('affixes', 'Item affixes', 'Found weapons and armour (chests, mystery rooms, enemy drops) can roll 0-2 of these; shop, crafted and starter gear never does. First affix chance by tier 1-5: ' + AX.CHANCE.slice(1).map(c => Math.round(c * 100) + '%').join(', ') + '; a second follows ' + Math.round(0.35 * 100) + '% of the time. An affixed item is never worth more than ' + Math.round((AX.CAP - 1) * 100) + '% over the plain one.', [['name', 'Affix', 0, 'name'], ['on', 'On'], ['fx', 'Effect']],
+      AX.IDS.map(id => ({ id: 'affix-' + id, name: (AX.AFFIXES[id].pre || AX.AFFIXES[id].suf), on: AX.AFFIXES[id].type === 'weapon' ? 'Weapons' : 'Armour', fx: AX.AFFIXES[id].text }))),
+    tbl('mutators', 'Match mutators', Math.round(MX.CHANCE * 100) + '% of matches roll one. It is announced at GO and shown under the round timer.', [['name', 'Mutator', 0, 'name'], ['fx', 'Effect']],
+      MX.IDS.map(id => ({ id: 'mut-' + id, name: MX.MUT[id].name, fx: MX.MUT[id].text }))));
+}
 S_.trees = [
   p('Four of the ten tree types stand in the inner corner rooms each match, rolled by weight without repeats. The first bar is the weight; the second is the real chance a type shows up in a given match (' + SIM_N + ' simulated rolls). All tree knowledge shares a cap of ' + ACT.C.TREE_KNOW_ROUND + ' a round and ' + ACT.C.TREE_KNOW_MATCH + ' a match per goblin.'),
   tbl('trees', 'The 10 tree rooms', '', [['name', 'Tree', 0, 'name'], ['weight', 'Weight %', 1], ['present', 'In a match %', 1], ['what', 'What it does', 0, 'wrapc'], ['yield', 'Designer note', 0, 'wrapc'], ['npc', 'Guardians'], ['makes', 'Makes'], ['anchors', 'Props']], trees),

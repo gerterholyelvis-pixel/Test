@@ -14,7 +14,7 @@
   // Lazy fill: tank = min(cap, tank + floor((now - t) / ms)); the remainder stays in t. A full tank wastes time (no banking).
   function tick(pump, now) {
     if (pump.stopped || now < pump.t) return pump.tank;
-    const { ms, cap } = params(pump);
+    const { cap } = params(pump), ms = params(pump).ms / (pump.mul || 1);   // MUTATORS: Double Elixir sets pump.mul = 2
     if (pump.tank >= cap) { pump.t = now; return pump.tank; }
     const n = Math.floor((now - pump.t) / ms);
     if (n <= 0) return pump.tank;

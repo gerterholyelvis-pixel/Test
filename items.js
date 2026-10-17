@@ -1,5 +1,6 @@
 // Shared item data. Works in the browser (window.GKITEMS) and in Node (require('./items.js')).
 (function (root) {
+  const AFF = root.GKAFFIX || require('./affix.js'), MINTED = Object.create(null);   // AFFIX (affix.js must load first in the browser)
   // ---- 20 base weapons and 20 base armours: every one has its own drop chance (percent, each list adds up to 100)
   // and the rarer it is the stronger it is. `family` says which model/icon shape it uses, `tier` is derived from the chance.
   // Two class items are not in the drop pool: the wizard's Gnarled Staff and Starry Robe, and the king's Royal Scepter and Royal Mantle (start-only, pool: false).
@@ -38,7 +39,7 @@
   const tierOf = c => c >= 7 ? 'uncommon' : c >= 4.5 ? 'rare' : c >= 2.5 ? 'mythic' : c >= 1 ? 'legendary' : 'transcendent';
   // `tierN` (0-5) is shown next to the stats; `tier` is its name and is used for colours.
   const TIER_N = { common: 0, uncommon: 1, rare: 2, mythic: 3, legendary: 4, transcendent: 5 };
-  const WEAPONS = {}, ARMOR = {}, ITEMS = {};
+  const WEAPONS = {}, ARMOR = {}, ITEMS = new Proxy({}, { get: (t, k) => t[k] !== undefined || typeof k !== 'string' || k.indexOf('@') < 0 ? t[k] : mintAffixed(k), has: (t, k) => k in t || (typeof k === 'string' && k.indexOf('@') > 0 && !!mintAffixed(k)) });   // AFFIX: ITEMS['w:sword@keen'] is minted on first lookup (AFFIX block below); Object.keys(ITEMS) only lists the plain items
   for (const [k, name, family, chance, attack] of W) {
     WEAPONS[k] = { name, attack, family, chance, tier: tierOf(chance) };
     ITEMS['w:' + k] = { key: 'w:' + k, type: 'weapon', name, attack, family, chance, tier: tierOf(chance), tierN: TIER_N[tierOf(chance)], price: Math.round((attack * 3 + 20) / 5) * 5 };
@@ -308,11 +309,11 @@
   //   | { kind: 'stations', stations: [two different of 'recycler','knowledge','workbench'] } | { kind: 'gold', amount: 50..500 } | { kind: 'plushie' }
   function randomMystery() {
     const kind = ['weapon', 'armor', 'enemy', 'stations', 'gold', 'plushie'][Math.floor(Math.random() * 6)];
-    if (kind === 'weapon') return { kind, key: randomWeaponKey() };
-    if (kind === 'armor') return { kind, key: randomArmorKey() };
-    if (kind === 'enemy') {   // enemy goblins: troll 2, archer 8, speedy 20, dumb 30, regular 50 (these add up to 110, so they are used as relative weights)
-      let x = Math.random() * 110, enemy = 'regular';
-      for (const [e, w] of [['troll', 2], ['archer', 8], ['speedy', 20], ['dumb', 30], ['regular', 50]]) { if ((x -= w) < 0) { enemy = e; break; } }
+    if (kind === 'weapon') return { kind, key: foundKey(randomWeaponKey()) };
+    if (kind === 'armor') return { kind, key: foundKey(randomArmorKey()) };
+    if (kind === 'enemy') {   // enemy goblins as relative weights (npcx.js WEIGHTS must match): troll 2, archer 8, speedy 20, dumb 30, regular 50, bomber 14, summoner 8, shield 8, thief 10
+      let x = Math.random() * 150, enemy = 'regular';
+      for (const [e, w] of [['troll', 2], ['archer', 8], ['speedy', 20], ['dumb', 30], ['regular', 50], ['bomber', 14], ['summoner', 8], ['shield', 8], ['thief', 10]]) { if ((x -= w) < 0) { enemy = e; break; } }
       return { kind, enemy };
     }
     if (kind === 'stations') { const st = ['recycler', 'knowledge', 'workbench']; st.splice(Math.floor(Math.random() * 3), 1); return { kind, stations: st }; }
@@ -333,13 +334,13 @@
   function combat(weaponKey) {   // { dmg, range, cd } for the equipped weapon; damage is the attack stat, at least 1 (a staff with attack 0 still bonks for 1)
     const w = weaponKey && ITEMS[weaponKey], fam = w ? w.family : null, ranged = fam === 'bow' || fam === 'crossbow';
     const t = (w && (WEAPON_TUNE[weaponKey] || (w.base && WEAPON_TUNE[w.base]))) || {}, isR = t.ranged != null ? t.ranged : ranged;
-    return { dmg: w ? Math.max(1, w.attack) : COMBAT.unarmed, range: t.range || (isR ? COMBAT.ranged : COMBAT.melee), cd: t.cd || (w ? (SWING_CD[fam] || 600) : 500), ranged: isR, ...(t.bleed ? { bleed: t.bleed } : null), ...(t.bolt ? { bolt: t.bolt } : null) };
+    return { dmg: w ? Math.max(1, w.attack) : COMBAT.unarmed, range: (t.range || (isR ? COMBAT.ranged : COMBAT.melee)) * (w && w.rngMul || 1), cd: Math.round((t.cd || (w ? (SWING_CD[fam] || 600) : 500)) * (w && w.cdMul || 1)), ranged: isR, ...(t.bleed ? { bleed: t.bleed } : null), ...(t.bolt ? { bolt: t.bolt } : null), ...(w && w.bleedAff ? { bleedAff: w.bleedAff } : null), ...(w && w.leech ? { leech: w.leech } : null) };   // AFFIX: bleedAff {chance,ticks,dmg}, leech
   }
   const armorSpeed = key => { const it = key && ITEMS[key]; return (it && it.speed) || 1; };   // ARMOUR-2: movement multiplier of the worn armour
   const armorThorns = key => { const it = key && ITEMS[key]; return (it && it.thorns) || 0; };   // ARMOUR-3: damage a melee attacker takes back
   // ARMOUR-3: one number for 'which armour is better' that bots use: health, adjusted for speed (1% speed ~ 2% health) and thorns (1 point ~ 6 health).
   const armorScore = key => { const it = key && ITEMS[key]; return it && it.type === 'armor' ? it.health * (1 + 2 * ((it.speed || 1) - 1)) + (it.thorns || 0) * 6 : 0; };
-  const MAX_ARMOR_SPEED = Math.max(1, ...Object.values(ITEMS).map(i => i.speed || 1));
+  const MAX_ARMOR_SPEED = Math.max(1, ...Object.values(ITEMS).map(i => i.speed || 1)) * AFF.MAX_SPEED_MUL;   // AFFIX: Fleet / Lithe add up to 6% more
   // KNOWLEDGE-BEGIN (docs/KNOWLEDGE.md): the knowledge tree is the workbench. Knowledge (innate + brains) unlocks recipe tiers; knowledge points buy perks.
   // Points: 1 per KNOW.step knowledge, +1 per brain eaten, minus what the learned perks cost. Perks last until death (death loses them, like everything else).
   // Perks are keyed off generic item fields (type, use, tierN, family), never item ids, so new items work with them automatically.
@@ -393,7 +394,20 @@
     ['w:slayer', 5, { metal: 18, gold: 8, gem: 4, crystal: 3 }], ['a:aegis', 5, { metal: 20, gold: 8, gem: 4, crystal: 3 }]])
     if (ITEMS[key] && !RECIPES.some(r => r.out === key)) RECIPES.push({ id: 'r:' + key, out: key, tier, cost, needs: KNOWLEDGE_TIERS[tier - 1] });
   // KNOWLEDGE-END
-  root.GKITEMS = { KNOW, BRANCHES, PERKS, PERK, hasPerk, perkSpent, knowPoints, knowTier, learnFail, recipeCost, recycleFor, healMult, reforgeCost, UTIL_KEYS, pickUtil, armorSpeed, MAX_ARMOR_SPEED, randomShop, START_GOLD, randomMystery, randomLayout, STATIONS, recycleEff, canCraft, benchSpec, benchCraft, partCost, addKnowledge, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, WEAPON_TUNE, START, KNOWLEDGE, SPEED, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info, armorThorns, armorScore, GOBLINS, GOB_PERKS, HIT_R, rollGoblin, goblinHp, hitRadius, goblinReach, goblinHit, goblinRegen, goblinStart, CHARM_KEYS, pickCharm, charmEff, isFlask, flaskN };
+  // AFFIX-BEGIN (affix.js, docs/reports/variety.md): found gear can carry 0-2 affixes in its key ('w:sword@keen,heavy'). Minted lazily by the ITEMS proxy; foundKey() is what loot sources call.
+  function mintAffixed(key) {
+    if (MINTED[key] !== undefined) return MINTED[key];
+    const pk = AFF.parse(key), plain = pk && ITEMS[pk.root]; let out = null;
+    if (plain && (plain.type === 'weapon' || plain.type === 'armor') && plain.chance >= 0 && !plain.root && pk.ids.every(id => AFF.AFFIXES[id].type === plain.type)) {
+      const fx = AFF.effect(plain, pk.ids);
+      out = { ...plain, ...fx, key, name: AFF.nameOf(plain.name, pk.ids), aff: pk.ids, root: pk.root, base: plain.base || pk.root, price: Math.round(plain.price * (1 + 0.15 * pk.ids.length) / 5) * 5, desc: AFF.textOf(pk.ids).join('; ') };
+    }
+    if (Object.keys(MINTED).length < 20000) MINTED[key] = out;
+    return out;
+  }
+  const foundKey = (key, rnd) => { const it = key && ITEMS[key]; if (!it || it.root) return key; const ids = AFF.roll(it, Math.floor((rnd || Math.random)() * 4294967296)); return ids.length ? AFF.keyOf(key, ids) : key; };   // a found weapon / armour key, possibly with affixes
+  // AFFIX-END
+  root.GKITEMS = { foundKey, AFFIX: AFF, KNOW, BRANCHES, PERKS, PERK, hasPerk, perkSpent, knowPoints, knowTier, learnFail, recipeCost, recycleFor, healMult, reforgeCost, UTIL_KEYS, pickUtil, armorSpeed, MAX_ARMOR_SPEED, randomShop, START_GOLD, randomMystery, randomLayout, STATIONS, recycleEff, canCraft, benchSpec, benchCraft, partCost, addKnowledge, randomWeaponKey, randomArmorKey, WEAPONS, ARMOR, ITEMS, WEAPON_TUNE, START, KNOWLEDGE, SPEED, KNOWLEDGE_TIERS, RECIPES, CHEST_WEAPONS, SLOTS, tierOf, TIER_N, TIER_NAMES, PARTS, recycleYield, COMBAT, combat, brainKey, isBrain, brainKnowledge, brainGain, info, armorThorns, armorScore, GOBLINS, GOB_PERKS, HIT_R, rollGoblin, goblinHp, hitRadius, goblinReach, goblinHit, goblinRegen, goblinStart, CHARM_KEYS, pickCharm, charmEff, isFlask, flaskN };
   // BALANCE3-BEGIN (docs/reports/balance-3.md; tools/balsim.js measures every number here). The damage cap, the staff bolt and the two abilities, shared by server, client, bots and the Codex.
   // DMG_CAP: one blow never carries more than x1.75 of its weapon's damage, whatever stacks on it (Wolf Fang, Rage Brew, backstab, berserker rage, Fury, the Oak ambush, the heavy blow).
   // The defender's own reduction (thick hide) still applies after the cap.

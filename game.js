@@ -1859,7 +1859,7 @@ MY.WB = WB;
 const wcache = {};
 MY.weaponProto = key => {
   if (wcache[key]) return wcache[key];
-  const it = GKITEMS.ITEMS[key] || GKITEMS.ITEMS['w:sword'], k = key.slice(2), m = tierMats(it.tier);
+  const it = GKITEMS.ITEMS[key] || GKITEMS.ITEMS['w:sword'], k = key.slice(2).split('@')[0], m = tierMats(it.tier);   // AFFIX: model of the plain item
   let out = null;
   const ck = GK.chestKit && GK.chestKit.weaponModel;
   if (ck) { try { const w = ck(key); if (w) out = norm(w.clone ? w.clone(true) : w, 1.9); } catch (e) { out = null; } }
@@ -2149,7 +2149,7 @@ BUILD.weapon = (ctx, v) => {
   rarityLabel(ctx, it, 3.5, `${it.attack} dmg`);
 };
 BUILD.armor = (ctx, v) => {
-  const it = GKITEMS.ITEMS[v.key] || GKITEMS.ITEMS['a:rags'], T = TIERS[it.tier] || TIERS.common, z = -1.0, k = v.key.slice(2), m = tierMats(it.tier);
+  const it = GKITEMS.ITEMS[v.key] || GKITEMS.ITEMS['a:rags'], T = TIERS[it.tier] || TIERS.common, z = -1.0, k = v.key.slice(2).split('@')[0], m = tierMats(it.tier);
   dais(ctx, z, it.tier); spot(ctx.root, T.c, 0, z, 5.8, 0.35, 1.4, 0.18); pool(ctx.root, T.c, 2.6, 0.2, 0, z);
   const a = dyn(grp(ctx.root, 0, 0.29, z)); a.scale.setScalar(1.25); mannequin(a); try { (AB[it.family] || AB.cloth)(a, m, it, k); } catch (e) { console.error(e); }
   if (T.n >= 2) { const rg = ring(ctx.root, T.c, 1.15, 0.6, 0, z); rg.position.y = 0.4; rg.material = ctx.own(rg.material); ctx.anim.push(t => rg.material.opacity = 0.4 + 0.3 * Math.sin(t * 2.4)); }
@@ -4407,9 +4407,9 @@ const net = { send: m => netReal && !(GK.locked && (m.atk || m.claim || m.m || m
 net.stats = netStats; net.overlay = netOverlay;   // PERF4
 const actors = new Map();
 function npcLook(group, kind) {   // BOTS: hostile mystery enemy = normal goblin model with a type tint (no new geometry, no lights); materials are cloned so the shared ones stay untouched
-  const tint = { troll: 0x6a8a5a, archer: 0x7a5a3a, speedy: 0xff7a3a, dumb: 0xb89a6a, regular: 0xd05a4a, rat: 0x8a7560 }[kind] || 0xd05a4a, c = new THREE.Color(tint);
+  const tint = { troll: 0x6a8a5a, archer: 0x7a5a3a, speedy: 0xff7a3a, dumb: 0xb89a6a, regular: 0xd05a4a, rat: 0x8a7560, bomber: 0xff5a28, summoner: 0x8a5cd0, shield: 0x8a9aa8, thief: 0x4a4a58, imp: 0xb070ff }[kind] || 0xd05a4a, c = new THREE.Color(tint);   // NPCX tints
   group.traverse(o => { if (o.isMesh && o.material && o.material.color && !Array.isArray(o.material)) { o.material = o.material.clone(); o.material.color.multiply(c).multiplyScalar(1.4); } });
-  group.scale.setScalar(kind === 'troll' ? 1.8 : kind === 'speedy' ? 0.9 : kind === 'rat' ? 0.4 : 1.1);
+  group.scale.setScalar(kind === 'troll' ? 1.8 : kind === 'shield' ? 1.6 : kind === 'speedy' || kind === 'thief' ? 0.9 : kind === 'bomber' ? 0.95 : kind === 'imp' ? 0.5 : kind === 'rat' ? 0.4 : 1.1);
 }
 let me = 0, spawned = false;
 const P = { x: 0, z: 0, yaw: 0, pitch: 0, speed: 0 };
@@ -8326,7 +8326,22 @@ function mqCountdown(c) {   // {at: server ms of GO, now: server ms when sent} -
   const itemsAudioHas = n => !!(window.GKAUDIO && GKAUDIO.names ? GKAUDIO.names.includes(n) : false);
   MQ.timer = setInterval(step, 50); step();
 }
+// MUTATORS-BEGIN (mutators.js): the match's mutator is announced at GO with a banner and stays as a small line under the round timer; Fog thickens the main scene.
+let mutEl = null;
+function mutShow(u) {
+  if (!u) return;
+  if (!mutEl) { mutEl = document.createElement('div'); mutEl.id = 'gkMut'; mutEl.style.cssText = 'position:fixed;left:50%;top:58px;transform:translateX(-50%);font:600 12px system-ui,sans-serif;color:#ffd76a;letter-spacing:.06em;text-shadow:0 1px 3px #000;pointer-events:none;z-index:20;text-align:center'; document.body.appendChild(mutEl); }
+  mutEl.textContent = u.name + (u.note ? ' · ' + u.note : ''); mutEl.title = u.text || '';
+  toastMsg(u.note || (u.name + ': ' + u.text), true, u.note ? 3000 : 4500);
+  try { scene.fog = u.id === 'fog' ? new THREE.FogExp2(0x0a0910, 0.045) : null; } catch (e) {}
+}
+// MUTATORS-END
 GK.matchOnMsg = d => {   // called by handleMsg after it has processed a message
+  if (d.matchStart && mutEl) { mutEl.textContent = ''; try { scene.fog = null; } catch (e) {} }
+  if (d.mut) mutShow(d.mut);
+  if (d.npcNote) toastMsg(d.npcNote, false, 2600);   // NPCX
+  if (d.npcRing) try { GKVFX.ring(d.npcRing.x, d.npcRing.z, parseInt(d.npcRing.c.slice(1), 16), d.npcRing.r); } catch (e) {}
+  if (d.mutPaid) toastMsg('Bounty paid: +' + d.mutPaid + ' gold', true, 3000);
   if (d.unverified) toastMsg('Character could not be verified — playing as a new goblin.', false, 6000);   // SECURITY
   if (d.queue) { mqResolve(d.goblin); if (GK.menu && GK.menu.queue) GK.menu.queue(d.queue.n, d.queue.size, d.queue.since); }
   if (d.matchStart) { mqResolve(((d.matchStart.players || []).find(p => p.id === d.matchStart.you) || {}).goblin); mqBegin(false); }

@@ -40,7 +40,7 @@ function cached(key, file, type) {
   return e;
 }
 const missUntil = new Map();   // PERF4: url key -> time the remembered miss expires
-const CLIENT_JS = new Set(['game', 'menu', 'items', 'world', 'save', 'stats', 'statsui', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'wbui', 'act5ui', 'fskeep', 'keep', 'keepui', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)   // KEEP: keep, keepui
+const CLIENT_JS = new Set(['game', 'menu', 'items', 'affix', 'mutators', 'world', 'save', 'stats', 'statsui', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'wbui', 'act5ui', 'fskeep', 'keep', 'keepui', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)   // KEEP: keep, keepui
 let CSP = '';
 function buildCsp() {   // the page has two inline scripts (importmap + module): allowed by hash, so no 'unsafe-inline' for scripts
   const page = cached('/index.html', path.join(ROOT_DIR, 'index.html'), 'text/html; charset=utf-8'), hashes = [];
@@ -166,10 +166,10 @@ const tolerance = w => w <= 5 ? 1 : Math.ceil(w * 0.25);
 function newMatch() {
   const R1 = process.env.GK_DEBUG && +process.env.GK_ROUND_MS > 0 ? +process.env.GK_ROUND_MS : ROUND_MS; // GK_DEBUG only: shorter round 1 so the tests run fast
   const m = { id: nextMatch++, players: new Map(), round: 1, dur: R1, endsAt: Date.now() + R1, started: false, phase: 'queue', formedAt: Date.now(), goAt: 0, sel: {}, selBy: {}, lastSel: {}, open: [], drops: [], nextDrop: 1, dirty: false, lastRound: 0, specs: new Map(), dead: [], npcSpawned: new Set(),
-    chests: Array.from({ length: WORLD.NATT }, () => Math.floor(Math.random() * 6)), chestKeys: Array.from({ length: WORLD.NATT }, () => GKITEMS.randomWeaponKey()), layout: GKITEMS.randomLayout(),
+    chests: Array.from({ length: WORLD.NATT }, () => Math.floor(Math.random() * 6)), chestKeys: Array.from({ length: WORLD.NATT }, () => GKITEMS.foundKey(GKITEMS.randomWeaponKey())), layout: GKITEMS.randomLayout(),
     trees: null, vb: null, vbNext: null, ram: null, claimant: null, relicRestock: null };   // 5x5 hooks (docs/PLAN-5x5.md 5.2): tree rooms and vaultbreakers (task B), crown claim and relic restock (task A) fill these; null = inert
   m.shops = m.layout.map(x => x === 'merchant' ? GKITEMS.randomShop() : null);   // each merchant's 5 items with gold prices, rolled once per match
-  m.mystery = m.layout.map(x => x === 'mystery' ? GKITEMS.randomMystery() : null);   // what is inside each mystery room, rolled once per match // weapon index per chest room
+  m.mystery = m.layout.map(x => x === 'mystery' ? (DBG && process.env.GK_ENEMY && NPC[process.env.GK_ENEMY] ? { kind: 'enemy', enemy: process.env.GK_ENEMY } : GKITEMS.randomMystery()) : null);   // GK_ENEMY (GK_DEBUG only): every mystery room holds this enemy   // what is inside each mystery room, rolled once per match // weapon index per chest room
   lootInit(m);   // LOOT: vault relic, shop base prices, lures
   A5.init(m);   // ACT5: tree roll, vaultbreaker layout, the activity rooms' state (act5.js)
   matches.set(m.id, m); return m;
@@ -222,7 +222,7 @@ function tickAll() { // steps every match (scheduled by the TICK block below)
     if (!m.started) m.endsAt = now + m.dur;   // round 1 waits until someone has left the wheel and entered the rooms
     if (now >= m.endsAt) {
       const picked = [...new Set(Object.values(m.sel))], ok = vaultVotes(m) >= 2; // vault doors need 2 different rooms
-      const votes = picked.filter(d => ok || !VAULT.includes(d)), fresh = A5.doors(m, homeShut(m) ? votes : paceNoDoor(m, votes), now); m.open = useOpen(m, ruleOpen(m, fresh)); m.fizzled = ok ? [] : picked.filter(d => VAULT.includes(d) && !m.open.includes(d)); m.lastSel = { ...m.sel }; m.sel = {}; m.selBy = {}; m.bribes = {}; m.round++; m.dur = NEXT_MS; m.endsAt = now + m.dur; suddenCheck(m); paceRound(m);   /* DOORS-PERSIST: the end of round 1 has no PACE door: round 2 opens the hatches and nothing else (no panel can be reached from a home; only a GK_DEBUG teleport makes a round-1 pick) */ lootRound(m); A5.round(m, now); broadcastRound(m); m.lastRound = now; }
+      const votes = picked.filter(d => ok || !VAULT.includes(d)), fresh = A5.doors(m, homeShut(m) ? votes : paceNoDoor(m, votes), now); m.open = useOpen(m, ruleOpen(m, fresh)); m.fizzled = ok ? [] : picked.filter(d => VAULT.includes(d) && !m.open.includes(d)); m.lastSel = { ...m.sel }; m.sel = {}; m.selBy = {}; m.bribes = {}; m.round++; m.dur = Math.round(NEXT_MS * (m.round <= mutMul(m, 'earlyRounds', 0) ? mutMul(m, 'early') : 1)); m.endsAt = now + m.dur; suddenCheck(m); paceRound(m); mutRound(m);   /* DOORS-PERSIST: the end of round 1 has no PACE door: round 2 opens the hatches and nothing else (no panel can be reached from a home; only a GK_DEBUG teleport makes a round-1 pick) */ lootRound(m); A5.round(m, now); broadcastRound(m); m.lastRound = now; }
     else if (now - m.lastRound >= 1000) { m.lastRound = now; broadcastRound(m); }
     // COMBAT-BEGIN regen: 1 HP every 4 s once a player has not been hit for 6 s. SUDDEN DEATH: only inside THE VAULT (the sanctuary everyone converges on), nowhere else.
     for (const p of m.players.values()) if ((!m.sudden || p.room === VK) && p.entered && !p.dead && p.stats && p.stats.health < p.stats.maxHealth && now - (p.hurtAt || 0) >= C.regenIdle * RSCALE * G.goblinRegen(p.goblin).idle && now - (p.regenAt || 0) >= C.regenEvery * RSCALE * G.goblinRegen(p.goblin).every) { p.regenAt = now; p.stats.health = Math.min(p.stats.maxHealth, p.stats.health + C.regenAmt); m.dirty = true; }
@@ -257,6 +257,7 @@ tickDue = performance.now() + TICK_MS; setTimeout(tickLoop, TICK_MS);
 // goblin types and their odds: items.js GOBLINS (GOBTYPES)
 // Equipment decides combat stats: attack damage comes from the weapon (items.js), health from the armour.
 const G = require('./items.js'), ITEMS = G.ITEMS, C = G.COMBAT;
+const MUTS = require('./mutators.js'), mutMul = (m, k, d) => MUTS.mul(m && m.mut, k, d);   // MUTATORS: bounded multipliers of the match's mutator (1 when none)
 const info = k => (typeof k === 'string' && k.length < 40 && G.info(k)) || null; // any item key incl. goblin brains
 const isItem = k => !!info(k);
 const SLOT_IDS = new Set([...Array.from({ length: 9 }, (_, i) => 'b' + i), ...Array.from({ length: 3 }, (_, i) => 'q' + i), 'weapon', 'armor', 'charm']);
@@ -266,7 +267,8 @@ const fits = (id, key) => key == null || (id === 'weapon' ? info(key).type === '
 const allItems = inv => [inv.weapon, inv.armor, inv.charm, ...inv.backpack, ...inv.quick].filter(Boolean);
 function recalc(p) { // derived stats from the equipped items
   const w = p.inv.weapon && info(p.inv.weapon), a = p.inv.armor && info(p.inv.armor);
-  const maxHealth = p.npc ? (a ? a.health : 10) : G.goblinHp(p.goblin, a ? a.health : 10) + (p.npc ? 0 : (G.charmEff(p.inv.charm, 'hp') || 0));   // GOBTYPES: plus the type's health bonus
+  const maxHealth0 = p.npc ? (a ? a.health : 10) : G.goblinHp(p.goblin, a ? a.health : 10) + (p.npc ? 0 : (G.charmEff(p.inv.charm, 'hp') || 0));   // GOBTYPES: plus the type's health bonus
+  const maxHealth = p.npc ? maxHealth0 : Math.max(1, Math.round(maxHealth0 * mutMul(p.match, 'hp')));   // MUTATORS: Glass Cannon
   p.stats = { knowledge: p.stats ? p.stats.knowledge : G.KNOWLEDGE[p.goblin], attack: w ? w.attack : 0, health: Math.min(p.stats ? p.stats.health : maxHealth, maxHealth), maxHealth };
   p.gear = { weapon: w ? w.name : 'None', armor: a ? a.name : 'None' };
   if (p.bless) A5.blessStats(p);   // ACT5: Thorn Shrine blessing (Fury attack, Bark max HP)
@@ -386,7 +388,7 @@ function claim(m, p) { // E in a chest room or a weapon/armour/gold mystery room
   if (p.claimed.has(id)) return 'taken';
   if (key && !giveItem(p, key)) return 'space';
   p.claimed.add(id);
-  if (gold) { gold = Math.round(gold * goldMul(p)); p.gold += gold; sendGold(p); }
+  if (gold) { gold = Math.round(gold * goldMul(p) * mutMul(m, 'prize')); p.gold += gold; sendGold(p); }
   sendTo(p.ws, { claimed: { room: id, key, gold } }); m.dirty = true;
   return null;
 }
@@ -503,7 +505,7 @@ function paceNoDoor(m, fresh) {   // a round that would open nothing at all (nob
 }
 function paceRound(m) {   // right after m.round++: round income for everyone still alive, and the showdown (every door opens) once only three goblins are left
   if (m.ended || m.round < 2) return;
-  for (const q of m.players.values()) if (!q.npc && q.entered && !q.dead) { q.gold = (q.gold || 0) + Math.round(PACE.income * goldMul(q)); sendGold(q); }
+  for (const q of m.players.values()) if (!q.npc && q.entered && !q.dead) { q.gold = (q.gold || 0) + Math.round(PACE.income * goldMul(q) * mutMul(m, 'income')); sendGold(q); }
   if (!m.sudden && !m.showdown && m.round >= 3 && (m.enteredEver || 0) >= 4 && matchInfo(m).alive <= PACE.showdownAt) m.showdown = true;
   if (m.showdown && !m.sudden) { m.open = Array.from({ length: nDoors }, (_, i) => i); m.shut = []; m.openLeft = {}; m.fizzled = []; }
 }
@@ -584,6 +586,13 @@ function attack(m, ws, p, now, rt, heavy) {   // {atk:1, rt, heavy}: rate limit 
   const landed = hitTarget(m, ws, p, tws, t, Math.max(1, Math.round(cb.dmg * pb * (hm || 1) * (hg ? CLIMB_HG : 1))), now, undefined, { melee: !cb.ranged, base, hg, ...(hm ? { heavy: 1 } : null) });   // thorns and the scout's dodge only apply to melee
   if (landed && hm && !t.dead) { t.staggerUntil = now + HEAVY.staggerMs; if (t.charge) { t.charge = 0; bcast(m, { charge: t.id, off: 1 }); } }   // ABILITY: a heavy hit staggers and breaks the target's own wind-up
   if (cb.bleed && t.stats.health > 0 && t.stats.health < hp0) t.bleed = { by: p, dmg: cb.bleed[0], left: cb.bleed[1], next: now + BLEED_MS, w: p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon] ? G.ITEMS[p.inv.weapon].name : '' };   // WEAPONS3: whips and tridents leave a bleed
+  if (cb.bleedAff || cb.leech) affixHit(m, p, t, cb, hp0, now);   // AFFIX
+}
+// AFFIX-HOOK: after a landed hit, a weapon's bleed chance and life leech (items.js combat() gives bleedAff / leech; sudden death stops the leech like other healing)
+function affixHit(m, p, t, cb, hp0, now) {
+  if (!(t.stats.health < hp0) || p.dead) return;
+  if (cb.bleedAff && t.stats.health > 0 && Math.random() < cb.bleedAff.chance) t.bleed = { by: p, dmg: cb.bleedAff.dmg, left: cb.bleedAff.ticks, next: now + BLEED_MS, w: G.ITEMS[p.inv.weapon].name };
+  if (cb.leech && !m.sudden && p.stats.health < p.stats.maxHealth) { p.stats.health = Math.min(p.stats.maxHealth, p.stats.health + Math.max(1, Math.round((hp0 - t.stats.health) * cb.leech))); m.dirty = true; }
 }
 // COMBAT-END
 // WEAPONS3-BEGIN (bleed from whips and tridents, tuned magic bolts; weapon numbers live in items.js WEAPON_TUNE)
@@ -646,6 +655,7 @@ function hitTarget(m, ws, p, tws, t, dmg, now, wname, opts) {   // damage, hit b
   { const behind = (p.x - t.x) * -Math.sin(t.yaw || 0) + (p.z - t.z) * -Math.cos(t.yaw || 0) < -0.3 * Math.hypot(p.x - t.x, p.z - t.z);   // GOBTYPES: type perks (dodge, backstab, rage, thick hide)
     const r = G.goblinHit({ goblin: p.goblin, hp: p.stats ? p.stats.health : 0, max: p.stats ? p.stats.maxHealth : 0, npc: p.npc }, { goblin: t.goblin, npc: t.npc }, dmg, { melee: !!(opts && opts.melee), behind });
     if (r.dodged) { bcast(m, { dodge: { from: p.id, to: t.id } }); return; } dmg = r.dmg; if (r.backstab || r.rage) cue = r.backstab ? { bs: 1 } : { rage: 1 }; }
+  dmg = NX.hit(m, p, t, dmg);   // NPCX: the shieldbearer takes little from the front
   dmg = A5.hitMul(m, p, t, dmg, wname, opts);   // ACT5: Fury blessing, Hollow Oak ambush
   if (opts && opts.base) dmg = G.capHit(opts.base, dmg, t);   // BALANCE-3: one blow never carries more than x1.75 of its weapon damage (items.js DMG_CAP)
   let hp = Math.max(0, t.stats.health - dmg);
@@ -656,7 +666,7 @@ function hitTarget(m, ws, p, tws, t, dmg, now, wname, opts) {   // damage, hit b
   bcast(m, { hit: { from: p.id, to: t.id, dmg, hp, max: t.stats.maxHealth, dead: hp <= 0, ...(opts && opts.bleed ? { bleed: 1 } : null), ...cue, ...(opts && opts.hg ? { hg: 1 } : null), ...(opts && opts.heavy ? { heavy: 1 } : null) } });
   const th = opts && opts.melee && hp > 0 && !p.dead ? G.armorThorns(t.inv && t.inv.armor) + A5.reflect(m, t, dmg) : 0;   /* ACT5: + the Thorns blessing */   // ARMOUR-3: thorns hurt a melee attacker (never lethal, so no kill bookkeeping is needed)
   if (th && p.stats.health > 1) { const ph = Math.max(1, p.stats.health - th); p.stats.health = ph; p.hurtAt = now; bcast(m, { hit: { from: t.id, to: p.id, dmg: th, hp: ph, max: p.stats.maxHealth, dead: false, thorns: 1 } }); }
-  if (hp <= 0) { p.kills = (p.kills || 0) + 1; const bounty = paceBounty(p, t); t.killedBy = p.id; { const kw = p.npc ? null : p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; t.killer = { name: p.name || 'Goblin', npc: !!p.npc, w: wname || (kw ? kw.name : (p.npc ? '' : 'Fists')) }; } sendTo(ws, { kills: p.kills, ...(bounty ? { bounty } : null) }); sendFeed(m, p, t); die(tws, t); }
+  if (hp <= 0) { p.kills = (p.kills || 0) + 1; const bounty = paceBounty(p, t); t.killedBy = p.id; { const kw = p.npc ? null : p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; t.killer = { name: p.name || 'Goblin', npc: !!p.npc, w: wname || (kw ? kw.name : (p.npc ? '' : 'Fists')) }; } sendTo(ws, { kills: p.kills, ...(bounty ? { bounty } : null) }); mutKill(m, p, t); sendFeed(m, p, t); die(tws, t); }
   return true;   // ABILITY: the hit landed (a heavy blow staggers only then)
 }
 function boltWeapon(p) { const w = p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon]; if (w && G.combat(p.inv.weapon).bolt) return true; if (!rule('staffbolt')) return false; return !!w && (w.family === 'staff' || w.family === 'scepter'); }
@@ -723,7 +733,7 @@ function ruleTick(m, now) {   // called from the 50 ms match loop
 }
 // RULES-LOGIC-END
 function eatBrain(p, key) { // applies a brain's knowledge gain, returns the gain
-  const gain = Math.round(G.brainGain(key) * (G.charmEff(p.inv.charm, 'know') || 1) * 100) / 100;   // USE2: Scholar's Charm
+  const gain = Math.round(G.brainGain(key) * (G.charmEff(p.inv.charm, 'know') || 1) * mutMul(p.match, 'brain') * 100) / 100;   // USE2: Scholar's Charm
   p.stats.knowledge = Math.round((p.stats.knowledge + gain) * 100) / 100; p.brains = (p.brains || 0) + 1;
   const heal = G.hasPerk(p.perks, 'gourmet') && !(p.match && p.match.sudden) ? Math.min(G.KNOW.gourmet, p.stats.maxHealth - p.stats.health) : 0; if (heal > 0) p.stats.health += heal;   // KNOWLEDGE: Brain Gourmet
   sendTo(p.ws, { ate: { gain, knowledge: p.stats.knowledge, ...(heal > 0 ? { heal } : null) } }); p.match.dirty = true;
@@ -976,6 +986,7 @@ const NPC = {   // hp, dmg (per hit), cd ms, speed m/s, reaction ms [lo, hi], we
   regular: { hp: 40,  dmg: 10, cd: 700,  speed: 4.2, react: [250, 400], weapon: 'w:sword', loot: [1, 0], look: 1, name: 'Goblin' },
   rat:     { hp: 5,   dmg: 2,  cd: 900,  speed: 2.2, react: [500, 800], weapon: 'w:dagger', loot: [0, 0], look: 0, name: 'Rat' },   // ELIXIR: the Rat Swarm sendable (no loot)
 };
+const NPCX = require('./npcx.js'); Object.assign(NPC, NPCX.KINDS);   // NPCX: bomber, summoner, shield, thief, imp (npcx.js)
 function spawnNpc(m, id) {   // FUN: the enemy of mystery room c<id> appears when a goblin first walks in
   if (m.phase !== 'play' || m.npcSpawned.has(id)) return;
   {
@@ -993,7 +1004,7 @@ function npcLoot(kind) {
   if (!S.loot[0]) return out;   // ELIXIR: rats carry nothing
   for (let i = 0; i < S.loot[0]; i++) {
     let k = null; for (let t = 0; t < 40; t++) { k = (i % 2 ? G.randomArmorKey : G.randomWeaponKey)(); if (G.ITEMS[k].tierN >= S.loot[1]) break; }
-    out.push(k);
+    out.push(G.foundKey(k));   // AFFIX: found gear can carry affixes
   }
   if (Math.random() < 0.4) out.push(G.pickUtil());   // UTILITY: a mystery-room enemy sometimes carries a utility item
   if (Math.random() < 0.15) out.push(G.pickCharm());   // USE2: or a charm
@@ -1001,8 +1012,8 @@ function npcLoot(kind) {
 }
 function dieNpc(m, p) {   // loot by type, counts as a kill for the attacker (done in attack()), not as a death
   if (p.actNpc) return A5.npcDied(m, p);   // ACT5: husks, rootlings, wardens, wisps
-  p.dead = true; m.players.delete(p.key); m.dirty = true; sendBoard(m);
-  addDrop(m, p, npcLoot(p.npc));
+  p.dead = true; m.players.delete(p.key); m.dirty = true; sendBoard(m); NX.died(m, p, Date.now());   // NPCX: bomber fuse, thief gold back
+  addDrop(m, p, npcLoot(p.npc).concat(mutMul(m, 'npcBrain', 0) && NPC[p.npc].loot[0] ? [G.brainKey(20)] : []));   // MUTATORS: Brain Rain
 }
 
 // ---- the brain
@@ -1090,7 +1101,7 @@ function startJump(p, now) { const b = p.brain; if (b.jump || now < b.jumpAt) re
 function inView(p, q) {   // 2.5 m all round, or inside the 150 degree cone in front of the yaw within 12 m
   const dx = q.x - p.x, dz = q.z - p.z, d = Math.hypot(dx, dz);
   if (d > 2.5 && p.match && p.match.smokes && p.match.smokes.length && inSmoke(p.match, q, Date.now())) return false;   // UTILITY: bots cannot see into a smoke cloud
-  return d <= SEE_NEAR || (d <= SEE_FAR && (dx * -Math.sin(p.yaw) + dz * -Math.cos(p.yaw)) / d >= COS_FOV);
+  return d <= SEE_NEAR || (d <= SEE_FAR * mutMul(p.match, 'sight') && (dx * -Math.sin(p.yaw) + dz * -Math.cos(p.yaw)) / d >= COS_FOV);
 }
 function canSee(p, q, now) { return inView(p, q) || (p.hitBy === q.id && now - (p.hurtAt || 0) < SEE_HIT_MS && now >= (p.brain.blindUntil || 0)); }   // a hit from behind is only understood after the turn-around delay
 function perceive(m, p, now) {   // the goblins this bot notices right now (same room, FAIR notice delay, in view); remembers where it saw them
@@ -1184,6 +1195,7 @@ function botFight(m, p, t, now, dt) {   // melee: orbit the target at 1.2-1.8 m,
   }
 }
 function npcFight(m, p, t, now, dt) {   // mystery enemies: close in, face, swing; archers keep their distance
+  if (NX.fight(m, p, t, now, dt)) return;   // NPCX: the summoner keeps away
   const b = p.brain, cb = G.combat(p.inv.weapon), ranged = cb.ranged || boltWeapon(p), d = Math.hypot(t.x - p.x, t.z - p.z), want = ranged ? (p.npc === 'archer' ? 7 : 5) : 1.4;
   b.route = [];
   if (d > want + 0.4) { const [tx, tz] = clampIn(p.room, t.x, t.z, 0.5); stepTo(m, p, tx, tz, dt, now); }
@@ -1592,7 +1604,8 @@ function pickDest(m, p, now) {   // idle: where to go next (claimable rooms, the
   b.route = [pointIn(p.room, 1.5)]; b.cross = false; b.idleUntil = now + rnd(1200, 4200);
 }
 function botThink(m, p, now, dt) {
-  if (p.actNpc && A5.npcThink(m, p, now, dt)) return;   // ACT5: activity NPCs have their own small brain
+  if (p.actNpc && A5.npcThink(m, p, now, dt)) return;
+  if (p.npc && NX.think(m, p, now, dt)) return;   // NPCX: thief theft and escape, summoner imps   // ACT5: activity NPCs have their own small brain
   const b = p.brain, fighter = graceOver(m, now), bot = p.bot;   // bots AND mystery enemies: no attacks in round 1 or for BOT_GRACE after GO
   b.seen[p.room] = 1;
   if (bot) {   // AI: bookkeeping that bots do like players (votes, being hit, kills, rooms)
@@ -1735,7 +1748,7 @@ function useItem(m, p, slot, now) {   // returns null or a failure reason
 }
 function explode(m, b, now) {
   bcast(m, { boom: { id: b.id, x: b.x, z: b.z, r: b.r, room: b.room } });
-  const hit = [...m.players].filter(([, t]) => t !== b.by && !t.dead && t.entered && t.room === b.room && Math.hypot(t.x - b.x, t.z - b.z) <= b.r);
+  const hit = [...m.players].filter(([, t]) => t !== b.by && !t.dead && t.entered && t.room === b.room && !(b.goblinsOnly && t.npc) && Math.hypot(t.x - b.x, t.z - b.z) <= b.r);
   for (const [tws, t] of hit) if (!t.dead) hitTarget(m, b.by.ws, b.by, tws, t, Math.max(1, Math.round(b.n * (1 - 0.5 * Math.hypot(t.x - b.x, t.z - b.z) / b.r))), now, 'Powder Bomb');
 }
 function useTick(m, now) {   // from the 50 ms match loop
@@ -1760,7 +1773,7 @@ const BOT_USE_SLOTS = [...Array.from({ length: 9 }, (_, i) => 'b' + i), 'q0', 'q
 // USE2-BEGIN (docs/reports/more-items.md: Bear Trap, Signal Flare, Panel Lens, Crowbar, Ward Rune, Brain Jar, Mimic Bait, Dazzle Powder, Haggler's Tag, Rage Brew, Homing Feather, Alarm Bell; the charm slot is read through charmEff). use2() is the `default:` branch of useItem(): a failure reason (string), or the extra fields of {used}.
 const charmEff = (p, f) => (p && p.inv ? G.charmEff(p.inv.charm, f) : undefined);
 const goldMul = p => charmEff(p, 'gold') || 1;
-const dmgMul = (p, now) => Math.min(1.5, (charmEff(p, 'dmg') || 1) * (now < (p.rageUntil || 0) ? G.ITEMS['x:rage'].n : 1));   // never more than +50% from items
+const dmgMul = (p, now) => mutMul(p.match, 'dmg') * Math.min(1.5, (charmEff(p, 'dmg') || 1) * (now < (p.rageUntil || 0) ? G.ITEMS['x:rage'].n : 1));   // never more than +50% from items
 const USE2_BOT = new Set(['x:ward', 'x:rage', 'x:jar', 'x:trap', 'x:dazzle']);
 const useful2 = k => { const it = G.ITEMS[k]; return !!it && (it.type === 'charm' || USE2_BOT.has(k)); };   // what a bot picks up and uses
 const MAX_PLACED = 2, BAIT_LIFE = 90000;
@@ -1964,7 +1977,7 @@ function homesInit(m, now) {   // at GO: a home record and a pump for every gobl
   m.homes = {}; m.sends = []; m.sentRound = {};
   for (const p of m.players.values()) if (!p.npc && typeof p.home === 'string' && WORLD.CHEST[+p.home.slice(1)]) {
     p.elixir = 0; p.distills = 0; p.oils = 0; p.elxRoom = p.room;
-    m.homes[p.home] = Object.assign(HB.createHome(p.id), { key: p.home, ref: p, pump: EX.createPump(now, 1), pickSeen: {} });
+    m.homes[p.home] = Object.assign(HB.createHome(p.id), { key: p.home, ref: p, pump: Object.assign(EX.createPump(now, 1), mutMul(m, 'pump') !== 1 ? { mul: mutMul(m, 'pump') } : null), pickSeen: {} });
     sendElixir(p);
   }
 }
@@ -2220,7 +2233,7 @@ function broadcastQueue(m, except) { const msg = JSON.stringify({ queue: queueIn
 function fillWithBots(m) { fillBots(m); }   // see the BOTS block
 function startMatch(m) {   // close the queue match, give everyone their own outer room, tell them to load
   if (m.phase !== 'queue') return;
-  m.phase = 'loading'; m.loadAt = Date.now();
+  m.phase = 'loading'; m.loadAt = Date.now(); mutStart(m);
   const slots = [0, 1, 2, 3, 4, 5, 6, 7]; for (let i = slots.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [slots[i], slots[j]] = [slots[j], slots[i]]; }   // 5x5: one home per goblin
   let i = 0;
   for (const p of m.players.values()) {
@@ -2237,6 +2250,31 @@ function startMatch(m) {   // close the queue match, give everyone their own out
     sendTo(ws, { inv: p.inv }); sendGold(p); sendParts(p);
   }
 }
+// MUTATORS-BEGIN (mutators.js, docs/reports/variety.md): rolled when the match closes, announced at GO, then only read through mutMul(). GK_MUTATOR=<id|none> forces one (GK_DEBUG only).
+function mutStart(m) {
+  const f = DBG && process.env.GK_MUTATOR; m.mut = f ? (MUTS.has(f) ? f : null) : MUTS.roll();
+  if (m.mut) m.dur = Math.round(m.dur * mutMul(m, 'early'));   // Fast Doors shortens round 1 too
+}
+function mutPub(m, note) { return { ...MUTS.pub(m.mut), ...(note ? { note } : null) }; }
+function mutPickBounty(m) {
+  const c = [...m.players.values()].filter(q => !q.npc && !q.dead && q.entered && q.id !== m.bountyId); if (!c.length) { m.bountyId = 0; return; }
+  const q = c[Math.floor(Math.random() * c.length)]; m.bountyId = q.id; bcast(m, { mut: mutPub(m, (q.name || 'A goblin') + ' has a bounty on their head'), bounty: q.id });
+}
+function mutGo(m) {
+  if (!m.mut) return;
+  for (const p of m.players.values()) if (mutMul(m, 'hp') !== 1) { recalc(p); p.stats.health = p.stats.maxHealth; }
+  bcast(m, { mut: mutPub(m) }); if (m.mut === 'bounty') mutPickBounty(m);
+}
+function mutRound(m) {   // a new round: Scavenger refills every loot room for everyone
+  if (!mutMul(m, 'refill', 0) || m.ended) return;
+  for (const p of m.players.values()) { if (p.claimed) p.claimed.clear(); if (p.ws) sendTo(p.ws, { claimedReset: 1 }); }
+}
+function mutKill(m, p, t) {   // Bounty Hunt: the marked goblin's killer is paid, then the mark moves on
+  if (m.mut !== 'bounty' || t.npc || t.id !== m.bountyId) return;
+  if (!p.npc && p.id !== t.id) { const pay = Math.round(mutMul(m, 'bounty') * goldMul(p)); p.gold = (p.gold || 0) + pay; sendGold(p); sendTo(p.ws, { bounty: 0, mutPaid: pay }); }
+  m.bountyId = 0; setTimeout(() => { if (!m.ended && m.mut === 'bounty') mutPickBounty(m); }, 1500);
+}
+// MUTATORS-END
 function beginCountdown(m) {
   if (m.phase !== 'loading') return;
   m.phase = 'countdown'; m.goAt = Date.now() + COUNT_MS; bcast(m, { countdown: { at: m.goAt, now: Date.now() } });   // now: server clock, so clients can correct for clock skew
@@ -2251,7 +2289,7 @@ function matchTick(m, now) {   // returns true when the normal round/combat tick
   if (m.phase === 'countdown' && now >= m.goAt) {   // GO: everyone is in, round 1 starts now
     m.phase = 'play'; m.started = true; m.endsAt = now + m.dur;
     for (const p of m.players.values()) p.entered = true;
-    m.enteredEver = matchInfo(m).size; broadcastMatch(m); sendBoard(m); broadcastRound(m); m.dirty = true;
+    mutGo(m); m.enteredEver = matchInfo(m).size; broadcastMatch(m); sendBoard(m); broadcastRound(m); m.dirty = true;
   }
   return false;
 }
@@ -2280,7 +2318,7 @@ function socResume(ws, token) {   // the player of this token, now bound to the 
   return p;
 }
 function socWelcome(m, ws, p) {   // full resync: the welcome fields of startMatch, then the current round, players, drops, board and countdown
-  sendTo(ws, { token: p.token, resumed: 1, ...(DBG ? { dbg: 1 } : null), ...(m.trees ? { trees: m.trees } : null), you: p.id, chests: m.chests, chestKeys: m.chestKeys, layout: m.layout, mystery: m.mystery, shops: m.shops, drops: m.drops, ...roundState(m), match: matchInfo(m), players: [...m.players.values()].map(pub), fix: [p.x, p.z] });
+  sendTo(ws, { token: p.token, resumed: 1, ...(m.mut && m.phase === 'play' ? { mut: mutPub(m) } : null), ...(DBG ? { dbg: 1 } : null), ...(m.trees ? { trees: m.trees } : null), you: p.id, chests: m.chests, chestKeys: m.chestKeys, layout: m.layout, mystery: m.mystery, shops: m.shops, drops: m.drops, ...roundState(m), match: matchInfo(m), players: [...m.players.values()].map(pub), fix: [p.x, p.z] });
   sendTo(ws, { inv: p.inv }); sendGold(p); sendParts(p); sendTo(ws, { perks: p.perks || [] });   // KNOWLEDGE
   if (m.phase === 'play') sendTo(ws, { board: { left: matchInfo(m).alive, rows: boardRows(m) } });
   if (m.phase === 'countdown') sendTo(ws, { countdown: { at: m.goAt, now: Date.now() } });
@@ -2298,6 +2336,7 @@ setInterval(() => { for (const [t, p] of socTokens) if (p.dead || !p.match || !p
 // ACT5-BEGIN (the activity rooms: act5.js glue for activity.js, rooms5-trees.js, vb5.js, vault5.js; docs/reports/special-rooms-server.md)
 const A5 = require('./act5.js')({ G, DBG, rule, bcast, sendTo, sendInv, sendGold, sendParts, giveItem, recalc, place, die, addDrop, broadcastRound, sendBoard, isOpen, VAULT, eatBrain, srvT, T0, newId: () => nextId++, equip, newBrain, npcFight, stepTo, clampIn });
 // ACT5-END
+const NX = NPCX({ NPC, WORLD, equip, recalc, place, newBrain, newId: () => nextId++, bcast, sendTo, sendGold, stepTo, clampIn, face, G });   // NPCX
 // KEEP-BEGIN (what a winner keeps: keep.js rules, keepsrv.js tokens / store / POST /keep; docs/reports/keep-on-win.md)
 const KS5 = require('./keepsrv.js')({ G, sign, b64u, DBG, sendTo, recalc, isHum, statBlock, matches, originOk, ipOf, fs, path });
 // KEEP-END
