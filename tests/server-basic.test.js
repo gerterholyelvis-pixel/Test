@@ -6,7 +6,7 @@ const L = require('./lib.js'), { connect, sleep, assert, eq } = L, W = require('
     fail = await L.run('basic', [
       ['join: you message has the full shape', async () => {
         const c = await connect(srv.port, 'goblin=2'); const s = c.state;
-        assert(Number.isInteger(s.you)); eq(s.chests.length, W.NATT); eq(s.chestKeys.length, W.NATT); eq(s.layout.length, 16); eq(s.mystery.length, 16); eq(s.shops.length, 16); eq(s.drops, []);
+        assert(Number.isInteger(s.you)); eq(s.chests.length, W.NATT); eq(s.chestKeys.length, W.NATT); eq(s.layout.length, W.NATT); eq(s.mystery.length, W.NATT); eq(s.shops.length, W.NATT); eq(s.drops, []);
         assert(s.round && s.round.n === 1 && s.round.dur === 120000, 'round 1 is 2 min'); eq(s.open, []); eq(s.sel, {}); assert('vaultVotes' in s && Array.isArray(s.fizzled));
         assert(s.match && s.match.size >= 1);
         eq(s.inv.backpack.length, 9); eq(s.inv.quick.length, 3); eq([s.inv.weapon, s.inv.armor], [G.START[2].weapon, G.START[2].armor], 'big goblin start gear');
@@ -16,12 +16,12 @@ const L = require('./lib.js'), { connect, sleep, assert, eq } = L, W = require('
       ['join: goblin and wins query are respected, bad ones fall back', async () => {
         const c = await connect(srv.port, 'goblin=9&wins=abc'); assert(c.state.you > 0); await c.close();
       }],
-      ['layout: 16 attached rooms, homes on even ids, exactly one forge and one grand on opposite sides, at least one merchant (200 rolls)', async () => {
+      ['layout: 20 attached rooms, homes at positions 2 and 4 of each side, exactly one forge and one grand on opposite sides, at least one merchant (200 rolls)', async () => {
         const check = (l, who) => {
-          eq(l.length, 16, who + ' layout length');
-          l.forEach((t, id) => { assert(['home', 'chest', 'mystery', 'merchant', 'forge', 'grand'].includes(t), who + ' bad type ' + t); assert((t === 'home') === (id % 2 === 0), who + ' home flag of room ' + id); });
+          eq(l.length, W.NATT, who + ' layout length');
+          l.forEach((t, id) => { assert(['home', 'chest', 'mystery', 'merchant', 'forge', 'grand'].includes(t), who + ' bad type ' + t); assert((t === 'home') === W.CHEST[id].home, who + ' home flag of room ' + id); });
           const fi = l.indexOf('forge'), gi = l.indexOf('grand'); eq(l.filter(t => t === 'forge').length, 1, who + ' forges'); eq(l.filter(t => t === 'grand').length, 1, who + ' grand recyclers');
-          eq(Math.floor(gi / 4), (Math.floor(fi / 4) + 2) % 4, who + ': forge and grand are on opposite sides'); assert(l.includes('merchant'), who + ' has no merchant');
+          eq(Math.floor(gi / 5), (Math.floor(fi / 5) + 2) % 4, who + ': forge and grand are on opposite sides'); assert(l.includes('merchant'), who + ' has no merchant');
         };
         for (let i = 0; i < 200; i++) check(G.randomLayout(), 'items.js');
         // and the server's own layouts (each empty match is thrown away, so every join may roll a new one)
@@ -35,7 +35,7 @@ const L = require('./lib.js'), { connect, sleep, assert, eq } = L, W = require('
         const c = await connect(srv.port); c.send({ enter: 1 }); await c.until(x => x.state.round.left < 119000, 3500, 'timer to run after GO');
         await c.close();
       }],
-      ['spawn: every player starts in his own home (an even attached room), never the vault', async () => {
+      ['spawn: every player starts in his own home (an attached room at position 2 or 4), never the vault', async () => {
         const cs = []; for (let i = 0; i < 3; i++) { const c = await connect(srv.port, 'goblin=0'); await c.until(x => x.state.players && x.state.players.some(p => p.id === x.state.you), 2000, 'player list'); cs.push(c); }
         for (const c of cs) {
           const me = c.state.players.find(p => p.id === c.state.you), ck = W.CHEST[+me.home.slice(1)];

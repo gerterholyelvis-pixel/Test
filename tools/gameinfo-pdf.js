@@ -20,7 +20,7 @@ parts.push(sec('Overview', kv({
   'Round 1': 'Home phase: you stay in your own home room (workbench, recycler, pump, Elixir Screen)', 'Starting gold': G.START_GOLD,
   'Backpack / quick slots': G.SLOTS.backpack + ' / ' + G.SLOTS.quick, 'Melee reach (m)': G.COMBAT.melee, 'Ranged reach (m)': G.COMBAT.ranged, 'Unarmed damage': G.COMBAT.unarmed,
   'Regeneration': `${G.COMBAT.regenAmt} HP every ${G.COMBAT.regenEvery / 1000} s after ${G.COMBAT.regenIdle / 1000} s unhurt`, 'Tiers': G.TIER_NAMES.join(', '), 'Knowledge tier thresholds': G.KNOWLEDGE_TIERS.join(' / '),
-  'Arena': `${W.N}x${W.N} grid, ${W.NARENA} rooms, ${W.NATT} attached rooms (8 homes, 8 loot rooms)`, 'Room size (m)': `arena ${W.W} x ${W.W}, vault row/column ${W.V}, home ${W.HS}`,
+  'Arena': `${W.N}x${W.N} grid, ${W.NARENA} rooms, ${W.NATT} attached rooms, ${W.NSIDE} per side (${W.HOME_IDS.length} homes at positions ${W.HOME_POS.join(" and ")}, ${W.LOOT_IDS.length} loot rooms)`, 'Room size (m)': `arena ${W.W} x ${W.W}, vault row/column ${W.V}, home ${W.HS}`,
 }), 'Everything below is generated from the game\'s own data files.'));
 // 2 goblins
 parts.push(sec('Starting goblins', table(['#', 'Goblin', 'Odds %', 'Size x', 'Speed x', 'HP bonus', 'Reach +m', 'Perk', 'What it does'],

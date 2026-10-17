@@ -8,18 +8,19 @@ const STUCK_MS = 1500;     // how long a goblin may stand inside a prop before t
 const has = (s, v) => !!s && (typeof s === 'function' ? s(v) : s.has ? s.has(v) : s.includes(v));
 // o (optional): { vaultKey (default WORLD.VAULT_KEY), skip (Set / array / fn of rooms never trapped; default: the vault and every home), hatch (Set / array / fn of hatch door ids; default WORLD.HATCHES) }
 const opts = o => ({ vaultKey: (o && o.vaultKey) || WORLD.VAULT_KEY, skip: o && o.skip, hatch: (o && o.hatch) || WORLD.HATCHES });
-const isExit = (d, vault, o) => !has(vault, d) && !has(opts(o).hatch, d);
+// room (optional): the room the exit is for. A loot door is no way out of an arena room (the loot room behind it is a dead end); for the loot room itself it is its only door.
+const isExit = (d, vault, o, room) => !has(vault, d) && !has(opts(o).hatch, d) && !(room != null && String(room)[0] !== 'c' && WORLD.DOORS[d] && WORLD.DOORS[d].kind === 'loot');
 const homeKey = k => typeof k === 'string' && k[0] === 'c' && !!WORLD.CHEST[+k.slice(1)] && WORLD.CHEST[+k.slice(1)].home;
 // open: an array of open door ids or a function id -> bool
 function trapped(room, open, roomDoors, vault, o) {   // true when 'room' has doors but none of them is open and leads to a non-vault neighbour
   const q = opts(o);
   if (room === q.vaultKey || (q.skip ? has(q.skip, room) : homeKey(room))) return false;
   const ds = roomDoors[room]; if (!ds || !ds.length) return false;
-  return !ds.some(d => isExit(d, vault, o) && (typeof open === 'function' ? open(d) : open.includes(d)));
+  return !ds.some(d => isExit(d, vault, o, room) &&(typeof open === 'function' ? open(d) : open.includes(d)));
 }
-// which door to unlock: the one the room voted for (if usable), otherwise a random non-vault, non-hatch door of the room
+// which door to unlock: the one the room voted for (if usable), otherwise a random non-vault, non-hatch door of the room (of an arena room: never a loot door)
 function pickExit(room, sel, roomDoors, vault, rnd = Math.random, o) {
-  const ds = (roomDoors[room] || []).filter(d => isExit(d, vault, o)); if (!ds.length) return -1;
+  const ds = (roomDoors[room] || []).filter(d => isExit(d, vault, o, room)); if (!ds.length) return -1;
   const v = sel && sel[room]; if (v != null && ds.includes(v)) return v;
   return ds[Math.floor(rnd() * ds.length)];
 }
