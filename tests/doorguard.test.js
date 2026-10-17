@@ -153,6 +153,7 @@ function reach(inRoom, free, sx, sz) {
         // DOORS-PERSIST: an opened door stays open, so each try takes a loot room whose door is still shut, steps in and measures the time to an open door
         let worst = 0;
         for (let r = 0; r < 4; r++) {
+          const rn = c.state.round.n; await c.until(x => x.state.round.n > rn, 8000, 'a fresh round');   // the guard's timers restart with each round: step in at its start
           await c.until(x => x.state.open && W.LOOT_IDS.some(id => !x.state.open.includes(ROOM_DOORS['c' + id][0])), 8000, 'a loot room with its door shut');
           const id = W.LOOT_IDS.find(i => !c.state.open.includes(ROOM_DOORS['c' + i][0])), ck = W.CHEST[id], doorOf = ROOM_DOORS['c' + id][0];
           c.send({ tp: [ck.cx, ck.cz] }); const t0 = Date.now();
