@@ -5699,6 +5699,7 @@ function renderWorld(t) {
   else renderer.render(scene, cam);
   renderer.toneMapping = tm; renderer.toneMappingExposure = te;
   fxCullEnd();
+  PERF4.frameEnd();   // PERF4: GK.perfProbe (dev only; a no-op otherwise)
 }
 // keypad screens and other status displays pulse gently (found by their material signature, the builders stay untouched)
 const fxScreens = [];
@@ -6181,6 +6182,63 @@ function fxBuildBlobs() {
 fxBuildBlobs();
 layoutHooks.push(() => { fxCull.cls = new WeakMap(); try { fxBuildBlobs(); } catch (e) { console.warn('contact shadows skipped', e); } fxApplyQuality(true); });
 GK.gfx = { get fx() { return fx; }, cull: fxCull, merge: fxMergeStats, blob: fxBlob, quality: fxQ };   // test hook
+// PERF4-BEGIN matrix freeze (docs/reports/perf-4-client.md). ?perf4=0 switches the pass off, for before / after measurements.
+// three's per-frame scene.updateMatrixWorld() was about a quarter of all CPU: the Scene itself has matrixAutoUpdate on, so updateMatrix() flags it dirty every frame and that
+// forces a world-matrix multiply on every one of the ~9000 objects, and ~2700 nodes inside static rooms (door parts, kit groups, room art) recomposed their local matrix every frame.
+// Now: the Scene never moves (matrixAutoUpdate off, so no forced cascade; three still walks the tree and multiplies only what is dirty). Inside frozen top-level objects
+// (matrixAutoUpdate === false, the builders' convention for static rooms) every node that still has matrixAutoUpdate on is "watched" instead: its matrix is recomposed only on a
+// frame where its position / quaternion / scale actually changed (door leaves, wheels, bolts, rotors, kit rollers keep animating exactly as before, a frame never lags).
+// New or rebuilt rooms (lazy room art, layout interiors) are picked up by a rolling scan of a few top-level objects per frame.
+const PERF4 = { on: !/[?&]perf4=0/.test(location.search), watch: [], si: 0, pruneAt: 0, t0: 0, probe: null };
+GK.perf4 = PERF4;
+function perf4WatchNode(o) {
+  if (o._p4w) return; o._p4w = true; o.updateMatrix(); o.matrixAutoUpdate = false;
+  const p = o.position, q = o.quaternion, s = o.scale;
+  PERF4.watch.push({ o, px: p.x, py: p.y, pz: p.z, qx: q.x, qy: q.y, qz: q.z, qw: q.w, sx: s.x, sy: s.y, sz: s.z });
+}
+function perf4Scan(root) {   // a frozen top-level object: watch every node that still recomposes its matrix every frame
+  const st = [root];
+  while (st.length) { const o = st.pop(), ch = o.children; for (let i = 0; i < ch.length; i++) { const c = ch[i]; if (c.matrixAutoUpdate && !c.isCamera && !c._p4w) perf4WatchNode(c); if (c.children.length) st.push(c); } }
+}
+function perf4Tick() {   // before scene.updateMatrixWorld: recompose the watched nodes that moved; scan 8 top-level objects (a full sweep about every second); prune detached nodes every 3 s
+  const W = PERF4.watch;
+  for (let i = 0; i < W.length; i++) {
+    const e = W[i], o = e.o; if (o.matrixAutoUpdate) continue;   // switched back on by its owner: three recomposes it as usual
+    const p = o.position, q = o.quaternion, s = o.scale;
+    if (p.x !== e.px || p.y !== e.py || p.z !== e.pz || q.x !== e.qx || q.y !== e.qy || q.z !== e.qz || q.w !== e.qw || s.x !== e.sx || s.y !== e.sy || s.z !== e.sz) {
+      e.px = p.x; e.py = p.y; e.pz = p.z; e.qx = q.x; e.qy = q.y; e.qz = q.z; e.qw = q.w; e.sx = s.x; e.sy = s.y; e.sz = s.z; o.updateMatrix();
+    }
+  }
+  const ch = scene.children, n = ch.length;
+  for (let k = 0; k < 8 && n; k++) { const o = ch[PERF4.si++ % n]; if (o.matrixAutoUpdate === false && !o.isLight && !o.isCamera) perf4Scan(o); }
+  const now = performance.now();
+  if (now > PERF4.pruneAt) {
+    PERF4.pruneAt = now + 3000; let j = 0;
+    for (let i = 0; i < W.length; i++) { let r = W[i].o; while (r.parent) r = r.parent; if (r === scene) W[j++] = W[i]; else W[i].o._p4w = false; }
+    W.length = j;
+  }
+}
+if (PERF4.on) {
+  scene.updateMatrix(); scene.matrixAutoUpdate = false; scene.updateMatrixWorld(true);
+  const umw = THREE.Object3D.prototype.updateMatrixWorld;
+  scene.updateMatrixWorld = function (force) { perf4Tick(); umw.call(this, force); };   // every render path of the game scene (plain render, composer RenderPass) goes through this
+}
+// GK.perfProbe(frames): dev-only frame probe (?debug=1 or ?perf=1): draw calls and triangles summed over every renderer.render of a frame (composer passes included),
+// render passes, CPU ms of the game frame (frame() start to the end of renderWorld) and inside renderer.render, positive JS heap growth per frame.
+PERF4.frameEnd = () => {
+  const P = PERF4.probe; if (!P) return;
+  const now = performance.now(); P.cpu += now - PERF4.t0; P.frames++;
+  const h = performance.memory ? performance.memory.usedJSHeapSize : 0; if (P.heap && h > P.heap) P.grow += h - P.heap; P.heap = h;
+  if (P.frames >= P.n) { PERF4.probe = null; renderer.render = P.orig; renderer.info.autoReset = P.auto; const f = P.frames;
+    P.res({ frames: f, calls: Math.round(P.calls / f), tris: Math.round(P.tris / f), passes: +(P.passes / f).toFixed(1), cpuMs: +(P.cpu / f).toFixed(2), renderMs: +(P.rms / f).toFixed(2), heapKB: +(P.grow / Math.max(1, f - 1) / 1024).toFixed(1), programs: renderer.info.programs ? renderer.info.programs.length : 0, gfx: GK.settings.gfx }); }
+};
+if (/[?&](debug|perf)=1/.test(location.search)) GK.perfProbe = (n = 120) => new Promise(res => {
+  if (PERF4.probe) { res(null); return; }
+  const r = renderer, info = r.info, orig = r.render, P = PERF4.probe = { n, res, orig, auto: info.autoReset, frames: 0, calls: 0, tris: 0, passes: 0, cpu: 0, rms: 0, grow: 0, heap: 0 };
+  info.autoReset = false;
+  r.render = function (s, c) { const a = performance.now(), c0 = info.render.calls, t0 = info.render.triangles; orig.call(this, s, c); P.rms += performance.now() - a; P.calls += info.render.calls - c0; P.tris += info.render.triangles - t0; P.passes++; if (info.render.calls > 1e7) info.reset(); };
+});
+// PERF4-END
 // FX-END
 // ROOMART-BEGIN (room art: floor trims, skirting caps, ceiling beams, wall seams, door hazard stripes, goblin graffiti decals, scattered props, vault treasure dressing, chest/mystery/merchant mood accents.
 // Visual only, no collision, no new lights. Per room the geometry is baked into a few merged static meshes (vertex-coloured solid, gold, ceiling, alpha decals, emissive accents) so the FX room culling handles them.
@@ -7629,6 +7687,7 @@ const JUMP = (() => {
 // JUMP-END
 function frame(now) {
   const dt = clamp((now - last) / 1000, 0.001, 0.05); last = now; const t = now / 1000;
+  PERF4.t0 = performance.now();   // PERF4: frame CPU for GK.perfProbe
   if (GK.mode !== 'play' && GK.mode !== 'dead' && GK.mode !== 'win') { vmHide(); GK.menu && GK.menu.render(now, dt); requestAnimationFrame(frame); return; }
   if (GK.mode === 'win' && WINSTAGE.on) { if (GK.feel) GK.feel.tick(dt, now); winStageRender(now, dt); requestAnimationFrame(frame); return; }   // MENU2: the victory stage replaces the world view
   panelTick();
