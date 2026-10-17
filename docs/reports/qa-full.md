@@ -53,7 +53,9 @@ Console: no errors, only an ANGLE D3D shader-compiler warning, X4122. The server
   - Fix: it now waits up to 2 s for `used` / `useFail`. The bandage test takes about 7 s instead of 5 s.
 
 ## Full `npm test` (GK_TEST_JOBS=3, machine shared with other agents)
-6 files failed under load:
+The final run, after the last merge of main, passed: **all 67 files in 233 s**.
+
+An earlier run, on a busier machine, had 6 files fail under load:
 - act5-crown
 - act5-trees (`cool`)
 - bots and bots5-sim (sweep 9.8 ms / 0.88 ms against budgets of 2 / 0.5 ms)
