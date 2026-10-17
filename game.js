@@ -5702,7 +5702,7 @@ function renderWorld(t) {
   else renderer.render(scene, cam);
   renderer.toneMapping = tm; renderer.toneMappingExposure = te;
   fxCullEnd();
-  if (PERF4.on) p4mTick();   // PERF4: room interior merge (discovery, 1.5 ms of merging, rolling check)
+  if (PERF4.on) { if (P4B.on) p4bFind(); else p4mTick(); }   // PERF4: room interior merge (discovery, 1.5 ms of merging, rolling check)
   PERF4.frameEnd();   // PERF4: GK.perfProbe (dev only; a no-op otherwise)
 }
 // keypad screens and other status displays pulse gently (found by their material signature, the builders stay untouched)
@@ -6149,7 +6149,7 @@ const fxBlob = { mesh: null };
 function fxBuildBlobs() {
   const boxes = [], bb = new THREE.Box3(), ws = new Set(worldStatic), actorGroups = new Set([...actors.values()].map(a => a.group));
   for (const o of scene.children) {
-    if (ws.has(o) || actorGroups.has(o) || o === fxBlob.mesh || o.name === 'fxMerged' || o.userData.r5 || o.matrixAutoUpdate !== false) continue;   // ROOMS5ART wrappers carry their own grime
+    if (ws.has(o) || actorGroups.has(o) || o === fxBlob.mesh || o.name === 'fxMerged' || o.isBatchedMesh /* PERF4 */ || o.userData.r5 || o.matrixAutoUpdate !== false) continue;   // ROOMS5ART wrappers carry their own grime
     o.updateMatrixWorld(true);
     o.traverseVisible(c => {
       const m = c.material; if (!c.isMesh || c.isInstancedMesh || !m || Array.isArray(m) || m.transparent || !m.isMeshStandardMaterial) return;
@@ -6225,7 +6225,7 @@ function perf4Tick() {   // before scene.updateMatrixWorld: recompose the watche
 if (PERF4.on) {
   scene.updateMatrix(); scene.matrixAutoUpdate = false; scene.updateMatrixWorld(true);
   const umw = THREE.Object3D.prototype.updateMatrixWorld;
-  scene.updateMatrixWorld = function (force) { perf4Tick(); umw.call(this, force); p4mCheckDrawn(); };   // every render path of the game scene (plain render, composer RenderPass) goes through this
+  scene.updateMatrixWorld = function (force) { perf4Tick(); umw.call(this, force); if (P4B.on) p4bSync(); else p4mCheckDrawn(); };   // every render path of the game scene (plain render, composer RenderPass) goes through this
 }
 // GK.perfProbe(frames): dev-only frame probe (?debug=1 or ?perf=1): draw calls and triangles summed over every renderer.render of a frame (composer passes included),
 // render passes, CPU ms of the game frame (frame() start to the end of renderWorld) and inside renderer.render, positive JS heap growth per frame.
@@ -6329,6 +6329,7 @@ function p4dTick() {   // renderWorld, before culling
   for (let i = 0; i < P4D.doors.length; i++) {
     const d = P4D.doors[i], P = d.p4;
     const rest = d.p === P.prevP && (d.p === 0 || d.p === 1) ? d.p : -1; P.prevP = d.p;
+    if (P4B.on) { const lv = !(rest === 1 && P.pocket); if (d.leaf.visible !== lv) d.leaf.visible = lv; for (let k = 0; k < d.rots.length; k++) { const r = d.rots[k], v = d.beamM.opacity > 0.002; if (r.visible !== v) r.visible = v; } continue; }   // batched: no bake needed, only the hidden pocket leaf and the faded beams
     if (rest >= 0 && !P.bake[rest] && !P.queued[rest]) { P.queued[rest] = true; P4D.queue.push(d, rest); }
     const want = rest >= 0 && P.bake[rest] ? rest : -1;
     if (want !== P.state) p4dApply(d, want);
@@ -6425,6 +6426,114 @@ function p4mCheckDrawn() {   // inside scene.updateMatrixWorld, right after the 
   }
 }
 GK.perf4.merge = P4M;
+// Static batching (WEBGL_multi_draw: Chrome / Edge; elsewhere the door bake and the room merge above do the job). Every opaque (or additive) mesh of a built-in material
+// inside a room-tagged, frozen top-level object (room shells, kits, door parts, rivets and chains, room art) is mirrored into one BatchedMesh per material: one draw
+// call per material for the whole visible world instead of one per mesh. The original stays where it is (raycasts, logic, animation) on a layer the camera does not
+// draw. Right before each frame is drawn (scene.updateMatrixWorld, after culling) the mirror follows it: an instance is drawn only when its original would be (the room
+// culler's verdict on the top-level object, every visible flag up the chain), and an original that moved (door leaves, wheels, bolts, animated kit parts) copies its
+// world matrix into its instance. A changed material or geometry, or an original that leaves the scene, drops the mirror and the original draws itself again.
+// A new batch is compiled in the background (compileAsync) before it replaces anything, so batching never stalls a frame on a shader compile.
+const P4B = { on: false, LAYER: 30, batches: new Map(), roots: new Map(), src: new WeakMap(), cand: new Map(), boot: true, si: 0, sources: 0, ready: 0, pending: 0, dropped: 0 };
+P4B.on = PERF4.on && !/[?&]batch=0/.test(location.search) && renderer.extensions.has('WEBGL_multi_draw') && !!THREE.BatchedMesh;
+const P4B_MATS = m => m.isMeshStandardMaterial || m.isMeshBasicMaterial || m.isMeshLambertMaterial || m.isMeshPhongMaterial || m.isMeshToonMaterial || m.isMeshMatcapMaterial;
+const P4B_OBC = THREE.Material.prototype.onBeforeCompile;
+function p4bEligible(o) {
+  if (!o.isMesh || o.isSkinnedMesh || o.isBatchedMesh || Array.isArray(o.material) || o.onBeforeRender !== FX_OBR || o.layers.mask !== 1 || P4B.src.has(o)) return false;
+  if (o.isInstancedMesh && (o.instanceColor || o.morphTexture)) return false;
+  const m = o.material, g = o.geometry; if (!m || !P4B_MATS(m) || m.onBeforeCompile !== P4B_OBC || m.customProgramCacheKey !== THREE.Material.prototype.customProgramCacheKey) return false;
+  if (m.transparent && !(m.depthWrite === false && m.blending === THREE.AdditiveBlending)) return false;   // see-through parts keep three's per-object back-to-front sort
+  if (!g || !g.attributes.position || Object.keys(g.morphAttributes).length || g.drawRange.start || g.drawRange.count !== Infinity) return false;
+  for (const n in g.attributes) if (g.attributes[n].isInterleavedBufferAttribute) return false;
+  return true;
+}
+function p4bKey(o) { const g = o.geometry; return o.material.uuid + '|' + o.renderOrder + '|' + !!g.index + '|' + Object.keys(g.attributes).sort().map(n => n + g.attributes[n].itemSize + g.attributes[n].array.constructor.name + g.attributes[n].normalized).join(); }
+function p4bBatch(key, o, nv, ni) {   // one batch per material, render order and vertex layout; sized for what it holds (grown by doubling)
+  let b = P4B.batches.get(key); if (b) return b;
+  const bm = new THREE.BatchedMesh(16, Math.max(256, nv * 2), Math.max(512, ni * 2), o.material);
+  bm.name = 'perf4Batch'; bm.frustumCulled = false; bm.perObjectFrustumCulled = true; bm.sortObjects = !!o.material.transparent; bm.renderOrder = o.renderOrder; bm.matrixAutoUpdate = false; bm.visible = false;
+  b = { key, mat: o.material, bm, geo: new Map(), ready: false, srcs: new Set(), nvis: 0 }; P4B.batches.set(key, b); P4B.pending++;
+  return b;
+}
+const _p4bM = new THREE.Matrix4(), _p4bI = new THREE.Matrix4();
+function p4bGeo(b, g, flip) {   // geometry id in the batch (shared by every mesh that uses the same geometry; mirrored meshes get a re-wound copy)
+  const k = flip ? 'f' + g.uuid : g.uuid; let e = b.geo.get(k); if (e) { e.refs++; return e.id; }
+  let src = g;
+  if (flip) { src = g.clone(); if (src.index) { const ix = src.index.array; for (let i = 0; i < ix.length; i += 3) { const t = ix[i + 1]; ix[i + 1] = ix[i + 2]; ix[i + 2] = t; } } }
+  const bm = b.bm, nv = src.attributes.position.count, ni = src.index ? src.index.count : 0;
+  if (bm.unusedVertexCount < nv || (src.index && bm.unusedIndexCount < ni)) bm.setGeometrySize(Math.max(bm._maxVertexCount * 2, bm._maxVertexCount + nv * 2), Math.max(bm._maxIndexCount * 2, bm._maxIndexCount + ni * 2));
+  const id = bm.addGeometry(src); if (flip) src.dispose();
+  b.geo.set(k, e = { id, refs: 1 }); return id;
+}
+function p4bAdd(o, rec) {
+  const g = o.geometry, b = p4bBatch(p4bKey(o), o, g.attributes.position.count, g.index ? g.index.count : 0), bm = b.bm, flip = o.matrixWorld.determinant() < 0, gid = p4bGeo(b, g, flip), n = o.isInstancedMesh ? o.count : 1, ids = [];
+  for (let i = 0; i < n; i++) { if (bm._instanceInfo.length >= bm.maxInstanceCount && !bm._availableInstanceIds.length) bm.setInstanceCount(bm.maxInstanceCount * 2); const id = bm.addInstance(gid); bm.setVisibleAt(id, false); ids.push(id); }
+  const s = { o, b, rec, gk: flip ? 'f' + g.uuid : g.uuid, geo: g, ids, mw: new Float64Array(16), iv: -1, vis: false, flip, dead: false };
+  p4bPlace(s); P4B.src.set(o, s); b.srcs.add(s); rec.srcs.push(s); P4B.sources++;
+  if (b.ready) o.layers.set(P4B.LAYER);
+}
+function p4bPlace(s) {   // copy the original's world matrix (and its instance matrices) into the batch
+  const o = s.o, e = o.matrixWorld.elements; for (let i = 0; i < 16; i++) s.mw[i] = e[i];
+  if (o.isInstancedMesh) { s.iv = o.instanceMatrix.version; for (let i = 0; i < s.ids.length; i++) { o.getMatrixAt(i, _p4bI); s.b.bm.setMatrixAt(s.ids[i], _p4bM.multiplyMatrices(o.matrixWorld, _p4bI)); } }
+  else s.b.bm.setMatrixAt(s.ids[0], o.matrixWorld);
+}
+function p4bShow(s, vis) { if (vis === s.vis) return; s.vis = vis; const b = s.b; b.nvis += vis ? 1 : -1; for (let i = 0; i < s.ids.length; i++) b.bm.setVisibleAt(s.ids[i], vis); }
+function p4bRemove(s) {
+  if (s.dead) return; s.dead = true; p4bShow(s, false);
+  const b = s.b; P4B.src.delete(s.o); b.srcs.delete(s); P4B.sources--; P4B.dropped++;
+  for (const id of s.ids) b.bm.deleteInstance(id);
+  const e = b.geo.get(s.gk); if (e && --e.refs <= 0) { b.bm.deleteGeometry(e.id); b.geo.delete(s.gk); }
+  if (s.o.layers.mask === 1 << P4B.LAYER) s.o.layers.set(0);
+}
+function p4bFind() {   // rolling discovery (3 top-level objects per frame, more while starting): frozen, room-tagged objects; each is rescanned every few seconds for new parts
+  const ch = scene.children, n = ch.length, t0 = performance.now(), C = P4B.cand;
+  for (let k = 0; k < Math.min(n, 3) || (k < n && P4B.boot && performance.now() - t0 < 3); k++) {
+    const o = ch[P4B.si++ % n]; if (P4B.si >= n * 2) P4B.boot = false;
+    if (o.matrixAutoUpdate !== false || o.isLight || o.isBatchedMesh) continue;
+    const cls = fxCull.cls.get(o); if (!cls || !cls.length) continue;   // always-drawn objects stay as they are
+    let rec = P4B.roots.get(o); if (!rec) P4B.roots.set(o, rec = { root: o, srcs: [], shown: true });
+    const st = [o];
+    while (st.length) {
+      const c = st.pop(); for (let i = 0; i < c.children.length; i++) st.push(c.children[i]);
+      if ((c !== o || c.isMesh) && p4bEligible(c)) {   // a material's first mesh waits for a second one: a batch of one would only add a shader variant
+        const key = p4bKey(c), b = P4B.batches.get(key);
+        try {
+          if (b) p4bAdd(c, rec);
+          else { let l = C.get(key); if (!l) C.set(key, l = []); if (!l.some(x => x.o === c)) l.push({ o: c, rec }); if (l.length >= 2) { C.delete(key); for (const x of l) if (x.o.parent && p4bEligible(x.o)) p4bAdd(x.o, x.rec); } }
+        } catch (e) { console.warn('batch skipped', e.message); }
+      }
+    }
+  }
+  for (const b of P4B.batches.values()) if (!b.ready && !b.compiling && b.srcs.size) {   // compile in the background, then swap the originals out
+    b.compiling = true; const done = () => { if (b.ready) return; b.ready = true; P4B.pending--; P4B.ready++; scene.add(b.bm); for (const s of b.srcs) if (s.o.layers.mask === 1) s.o.layers.set(P4B.LAYER); };
+    try { if (renderer.compileAsync) renderer.compileAsync(b.bm, cam, scene).then(done, done); else done(); } catch (e) { done(); }
+  }
+}
+function p4bSync() {   // right before drawing: the mirror follows its originals (visibility, matrices, identity); an empty batch is not drawn at all
+  const L = 1 << P4B.LAYER;
+  for (const rec of P4B.roots.values()) {
+    const root = rec.root, S = rec.srcs;
+    if (root.parent !== scene) { for (let i = 0; i < S.length; i++) p4bRemove(S[i]); P4B.roots.delete(root); continue; }
+    if (!root.visible) { if (rec.shown) { rec.shown = false; for (let i = 0; i < S.length; i++) if (!S[i].dead) p4bShow(S[i], false); } continue; }
+    rec.shown = true; let dead = 0;
+    for (let i = 0; i < S.length; i++) {
+      const s = S[i]; if (s.dead) { dead++; continue; }
+      const o = s.o; let vis = o.visible, p = o;
+      while (p !== root) { p = p.parent; if (!p) break; if (!p.visible) vis = false; }
+      if (p !== root || o.material !== s.b.mat || o.geometry !== s.geo || o.layers.mask !== (s.b.ready ? L : 1) || (o.isInstancedMesh && o.count !== s.ids.length)) { p4bRemove(s); dead++; continue; }
+      if (vis) {
+        const e = o.matrixWorld.elements, m = s.mw;
+        if (e[12] !== m[12] || e[13] !== m[13] || e[14] !== m[14] || e[0] !== m[0] || e[1] !== m[1] || e[2] !== m[2] || e[4] !== m[4] || e[5] !== m[5] || e[6] !== m[6] || e[8] !== m[8] || e[9] !== m[9] || e[10] !== m[10] || (o.isInstancedMesh && o.instanceMatrix.version !== s.iv)) {
+          if ((o.matrixWorld.determinant() < 0) !== s.flip) { p4bRemove(s); dead++; continue; }   // mirrored now: re-added with a re-wound copy on the next scan
+          p4bPlace(s);
+        }
+      }
+      p4bShow(s, vis);
+    }
+    if (dead > 32 && dead > S.length / 4) rec.srcs = S.filter(s => !s.dead);
+  }
+  for (const b of P4B.batches.values()) { const v = b.ready && b.nvis > 0; if (b.bm.visible !== v) b.bm.visible = v; }
+}
+GK.perf4.batch = P4B;
 // PERF4-END
 // FX-END
 // ROOMART-BEGIN (room art: floor trims, skirting caps, ceiling beams, wall seams, door hazard stripes, goblin graffiti decals, scattered props, vault treasure dressing, chest/mystery/merchant mood accents.
