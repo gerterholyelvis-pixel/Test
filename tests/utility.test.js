@@ -5,7 +5,7 @@ const give = async (c, key, slot = 'q0') => {   // debug give, then move it into
   c.send({ give: key }); await c.until(x => x.state.inv.backpack.includes(key), 2000, 'item ' + key);
   c.send({ mv: ['b' + c.state.inv.backpack.indexOf(key), slot] }); await c.until(x => x.state.inv.quick[+slot[1]] === key, 2000, key + ' in ' + slot);
 };
-const use = async (c, slot = 'q0') => { const n = c.msgs.length; c.send({ use: slot }); await sleep(120); return c.msgs.slice(n); };
+const use = async (c, slot = 'q0') => { const n = c.msgs.length; c.send({ use: slot }); await sleep(120); for (let t = 0; t < 40 && !c.msgs.slice(n).some(m => m.used || m.useFail); t++) await sleep(50); return c.msgs.slice(n); };   // QA-FULL: wait for the answer (up to 2 s) instead of a fixed 120 ms, which a loaded machine missed ('nothing left' failed under npm test load)
 const DOORS = W.DOORS.map(d => [d.id, d.a, d.b]);   // door ids from the shared world table
 const doorsOf = r => DOORS.filter(d => d[1] === r || d[2] === r).map(d => d[0]), VAULT_DOORS = doorsOf(W.VAULT_KEY);
 const roomOnly = id => DOORS.find(d => d[0] === id);
@@ -75,17 +75,19 @@ const roomOnly = id => DOORS.find(d => d[0] === id);
   try {
     const waitRound = async (c, n) => c.until(x => x.state.round.n >= n, 8000, 'round ' + n);
     fail += await L.run('utility-doors', [
-      ['door wedge keeps an open door open for one more round, not a vault door, not far from it', async () => {
+      ['door wedge goes into a shut door (not the Vault, not an open door, not far from it): it opens for good at the round end', async () => {
         const c = await connect(srv.port, 'goblin=1'), [cx, cz] = W.rc(0), doors = doorsOf('0').filter(d => !VAULT_DOORS.includes(d));
         const east = DOORS.find(d => d[1] === '0' && d[2] === '1')[0]; assert(doors.includes(east), 'door 0|1');
-        c.send({ tp: [cx, cz] }); await sleep(80); c.send({ sel: east }); await c.until(x => x.state.round.n >= 2 && x.state.open.includes(east), 8000, 'door open in round 2');
+        await waitRound(c, 2); c.send({ tp: [cx, cz] }); await sleep(80);   // DOORS-PERSIST: round 1 (at home) opens nothing
         await give(c, 'x:wedge'); let r = await use(c); assert(r.some(m => m.useFail === 'door'), 'too far from the door'); eq(c.state.inv.quick[0], 'x:wedge');
         const hw = W.roomW(0) / 2; c.send({ tp: [cx + hw - 1.5, cz] }); await sleep(100); r = await use(c);
         assert(r.some(m => m.used && m.used.key === 'x:wedge' && m.used.door === east), 'wedged ' + JSON.stringify(r)); eq(c.state.inv.quick[0], null);
+        assert(!c.state.open.includes(east), 'a wedged door opens at the round end, not at once');
         const other = DOORS.find(d => d[1] === '0' && d[2] === '5')[0]; c.send({ sel: other });
         const n = c.state.round.n; await waitRound(c, n + 1); await sleep(80);
-        assert(c.state.open.includes(east) && c.state.open.includes(other), 'wedged door stayed open next to the new pick: ' + c.state.open);
-        c.send({ sel: other }); await waitRound(c, n + 2); await sleep(80); assert(!c.state.open.includes(east), 'only one extra round');
+        assert(c.state.open.includes(east) && c.state.open.includes(other), 'the wedged door opened next to the new pick: ' + c.state.open);
+        await waitRound(c, n + 2); await sleep(80); assert(c.state.open.includes(east) && c.state.open.includes(other), 'both stay open for good: ' + c.state.open);
+        await give(c, 'x:wedge'); r = await use(c); assert(r.some(m => m.useFail === 'door'), 'an open door takes no wedge'); eq(c.state.inv.quick[0], 'x:wedge');
         await c.close();
       }],
       ['sealing wax locks the room pick until the round ends', async () => {
@@ -100,7 +102,7 @@ const roomOnly = id => DOORS.find(d => d[0] === id);
       }],
       ['vault lockpick adds a second vote so one room can open the vault; refused without a vault pick', async () => {
         const VN = L.vaultNeighbours()[0], c = await connect(srv.port, 'goblin=1'), [cx, cz] = L.centre(VN), vd = L.doorBetween(VN, W.VAULT_KEY), plain = L.plainDoors(VN)[0];
-        c.send({ tp: [cx, cz] }); await sleep(80); await give(c, 'x:lockpick');
+        await waitRound(c, 2); c.send({ tp: [cx, cz] }); await sleep(80); await give(c, 'x:lockpick');   // DOORS-PERSIST: round 1 (at home) opens nothing
         c.send({ sel: plain }); await c.until(x => x.state.sel[VN] === plain, 2000, 'picked a plain door');
         let r = await use(c); assert(r.some(m => m.useFail === 'pick'), 'not a vault pick'); eq(c.state.inv.quick[0], 'x:lockpick');
         c.send({ sel: vd }); await c.until(x => x.state.sel[VN] === vd, 2000, 'picked the vault door'); eq(c.state.vaultVotes, 1);
