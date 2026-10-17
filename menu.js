@@ -577,7 +577,7 @@ const VMAX = 11;
 function wheelStep(now, dt) {
   if (wh.state === 'spin') {
     wh.t += dt;
-    const u = Math.min(1, wh.t / 1.2); wh.speed = VMAX * u * u * (3 - 2 * u);
+    const u = Math.min(1, Math.max(0, wh.t - (wh.lead || 0)) / 1.2); wh.speed = VMAX * u * u * (3 - 2 * u);
     wh.rot += wh.speed * dt;
     const net = wh.result == null ? 'wait' : 'ok';
     if (wh.t > 3 && net === 'wait') { $('rstat').innerHTML = 'Connecting...'; }
@@ -590,16 +590,17 @@ function wheelStep(now, dt) {
   } else if (wh.state === 'decel') {
     wh.t2 += dt; const u = Math.min(1, wh.t2 / wh.T), q = 1 - u;
     wh.rot = wh.rot0 + wh.D * (1 - q * q * q); wh.speed = 3 * wh.D / wh.T * q * q;
-    if (u >= 1) { wh.rot = wh.rot0 + wh.D; wh.speed = 0; wh.state = 'landed'; wh.land = 0; }
+    if (u >= 1) { wh.rot = wh.rot0 + wh.D; wh.speed = 0; wh.state = 'landed'; wh.land = 0; if (window.GKHOST) GKHOST.landed(wh.result, ODDS[wh.result]); }   // WHEELHOST: the host reacts by rarity
   } else if (wh.state === 'landed') {
     wh.land += dt;
     if (wh.land > 1.1 && !wh.shown) { wh.shown = true; wh.shownAt = performance.now(); showReveal(); }
   }
   // pointer tick
   const b = Math.floor(-wh.rot / A + 0.5);
-  if (b !== wh.lastB) { wh.lastB = b; wh.pw = -Math.min(0.55, 0.16 + wh.speed * 0.04); wh.pv = 0; }
+  if (b !== wh.lastB) { wh.lastB = b; if (window.GKHOST && wh.speed > 0.2) GKHOST.tick(wh.speed); wh.pw = -Math.min(0.55, 0.16 + wh.speed * 0.04); wh.pv = 0; }
   for (let n = 0, h = Math.min(dt, 0.04); n < Math.ceil(dt / 0.04) && n < 8; n++) { wh.pv += (-320 * wh.pw - 16 * wh.pv) * h; wh.pw += wh.pv * h; }
   drawWheel(now);
+  if (window.GKHOST) GKHOST.step(now, dt, wh);   // WHEELHOST
 }
 function drawWheel(now) {
   if (!staticC) return;
@@ -662,6 +663,7 @@ function startGame(opts) {
   const roll = $('roll'); roll.classList.add('show'); roll.getBoundingClientRect(); roll.classList.add('vis');
   wheelGo = true; sizeWheel(); queueStart();
   wh.state = 'spin'; wh.t = 0; wh.rot = Math.random() * TAU; wh.result = null; wh.shown = false;
+  wh.lead = window.GKHOST ? GKHOST.begin() : 0;   // WHEELHOST: the host winds up and pulls; the wheel starts to turn after wh.lead seconds
   $('rname').textContent = 'Rolling...'; $('rstat').textContent = 'Spinning the wheel of fate';
   let p; try { p = opts ? GK.start(opts) : GK.start(); } catch (e) { console.error(e); p = new Promise(() => {}); }
   Promise.resolve(p).then(g => { wh.result = (typeof g === 'number' && g >= 0 && g < NG) ? g : 0; });
