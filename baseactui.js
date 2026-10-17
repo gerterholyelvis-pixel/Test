@@ -108,7 +108,7 @@
       if (!show) { if (lastShow) { card.style.display = 'none'; lastShow = false; } return; }
       let h = '<b class="h">ROUND ' + st.r + ' GOALS</b>';
       for (const gl of st.goals) h += '<div class="r' + (gl.done ? ' d' : '') + '"><i></i><span>' + gl.text + '</span><em>' + (gl.done ? '' : gl.have + '/' + gl.need + (gl.id === 'good' ? '%' : '')) + '</em></div>';
-      h += st.claimed ? '<div class="f">Reward claimed. Trophies: ' + st.trophies + '</div>' : st.ready ? '<div class="f go">All done! Press E at the board (west wall)</div>' : '<div class="f">Reward: ' + st.gold + ' gold and a trophy. Jobs: crank wheel, anvil, scrap bin, dummy</div>';
+      h += st.claimed ? '<div class="f">Reward claimed. Trophies: ' + st.trophies + '</div>' : st.ready ? '<div class="f go">All done! Press E at the board (west wall)</div>' : '<div class="f">Reward: ' + st.gold + ' gold and a trophy</div>';
       card.innerHTML = h; card.style.display = 'block'; lastShow = true;
     }
     const boardState = () => st && { goals: st.goals, claimed: !!st.claimed, ready: !!st.ready, gold: st.gold, trophies: st.trophies };

@@ -67,6 +67,12 @@ const perfect = id => { const j = BA.JOBS[id]; return BA.cues(id, 7).map(c => [j
       assert(/again in 4 s/.test(ui.prompt()), 'cooldown shown: ' + ui.prompt()); eq(ui.key(), true); eq(sent.length, 0, 'no message while cooling down');
       me = at('board', 1.2); ui.onMsg({ ba: { r: 1, goals: BA.goalView(BA.newBa(), 1), ready: 1, claimed: 0, trophies: 0, gold: 6, look: 0, cd: {}, cap: {} } }); assert(/Claim/.test(ui.prompt())); ui.key(); eq(sent.pop(), { ba: { claim: 1 } });
     }],
+    ['layout: every prompt anchor of the home is at least 1.6 m from every other (1.2 m along the east wall, where facing tells them apart), and the room middle stays free', () => {
+      const east = new Set(['pump', 'screen', 'box', 'crank']), L = W.HOME_LAYOUT, names = ['bench', 'recycler', 'pump', 'screen', 'box', 'cam', 'crank', 'anvil', 'bin', 'dummy', 'board', 'window'];
+      for (const n of names) assert(L[n], 'anchor ' + n);
+      for (let i = 0; i < names.length; i++) for (let j = i + 1; j < names.length; j++) { const a = L[names[i]], b = L[names[j]], d = Math.hypot(a[0] - b[0], a[1] - b[1]) / W.HOME_K; assert(d >= (east.has(names[i]) && east.has(names[j]) ? 1.2 : 1.6), names[i] + ' and ' + names[j] + ' are ' + d.toFixed(2) + ' m apart'); }
+      for (const [k, x, z, hx, hz] of W.HOME_SOLIDS) assert(x + hx < -1.6 || x - hx > 1.6 || z + hz < -2.4 || z - hz > 3.0, 'footprint at ' + x + ',' + z + ' enters the room middle');
+    }],
     ['codex: the Codex lists every job and goal with the numbers of baseact.js', () => {
       const D = require('../tools/gameinfo.js').build().data, tabs = {}; for (const sec of Object.values(D.sections)) for (const b of sec) for (const x of (b.t === 'cards' ? b.cards : [b])) if (x.t === 'table') tabs[x.id] = x;
       eq(tabs.basejobs.rows.length, BA.JOB_IDS.length, 'job rows'); eq(tabs.basegoals.rows.length, BA.GOALS.length, 'goal rows');
