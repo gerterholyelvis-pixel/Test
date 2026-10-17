@@ -2404,7 +2404,7 @@ if (GK.layout && GK.CHEST_ROOMS) { /* the rooms agent calls buildMysteryContents
     row(9, (x, y) => { g.fillStyle = '#2a3442'; g.fillRect(x - 14, y - 14, 28, 28); g.strokeStyle = '#9fb4cc'; g.lineWidth = 2; g.strokeRect(x - 14, y - 14, 28, 28); }, 'THE VAULT');
     row(10, (x, y) => mysteryIcon(g, x, y, 0.95), 'Mystery room');
     row(11, (x, y) => merchantIcon(g, x, y, 0.85), 'Merchant');
-    g.fillStyle = '#7f95ad'; g.font = '22px system-ui, sans-serif'; g.fillText('All doors sealed', 722, 692); g.fillText('Random rooms each match', 722, 718);
+    g.font = '22px system-ui, sans-serif'; g.fillStyle = '#2fd46a'; g.fillRect(722, 687, 26, 10); g.fillStyle = '#7f95ad'; g.fillText('Open door', 756, 692); g.fillText('Random rooms each match', 722, 718);   // DOORS-PERSIST: open doors are drawn live on the shared map (they stay open)
   }
   drawBase();
   // 5x5 (docs/PLAN-5x5.md 4.4): ONE shared facility drawing (base + intel + lore) on one CanvasTexture, shown on a wall map in every arena room except the vault;
@@ -2414,6 +2414,13 @@ if (GK.layout && GK.CHEST_ROOMS) { /* the rooms agent calls buildMysteryContents
   const sharedCtx = shared.getContext('2d'), sharedTex = new THREE.CanvasTexture(shared); sharedTex.colorSpace = THREE.SRGBColorSpace; sharedTex.anisotropy = 8; sharedTex.generateMipmaps = true;
   function drawShared() {
     const g = sharedCtx; g.drawImage(base, 0, 0);
+    const dv = GK.doorView ? GK.doorView() : null;   // the round state (RS is declared further down, after this block first draws)
+    if (dv) for (const d of WORLD.DOORS) {   // DOORS-PERSIST: doors that are open for good show as a green opening over the lock mark; a barred vault door as amber
+      if (d.kind === 'hatch') continue; const on = dv.open.includes(d.id), sh = !on && dv.shut.includes(d.id); if (!on && !sh) continue;
+      const w = d.wall, L = (d.kind === 'vault' ? 4.9 : DW) * MS, x = mx(w.x), y = my(w.z);
+      g.fillStyle = on ? '#2fd46a' : '#e0902a'; g.strokeStyle = '#04200f'; g.lineWidth = 2;
+      if (d.axis === 'x') { g.fillRect(x - L / 2, y - 5, L, 10); g.strokeRect(x - L / 2, y - 5, L, 10); } else { g.fillRect(x - 5, y - L / 2, 10, L); g.strokeRect(x - 5, y - L / 2, 10, L); }
+    }
     if (GK.mapIntel) GK.mapIntel(g, mx, my, MS);   // UNIQUE: faint arrows for last round's door picks
     if (GK.hud5Map) GK.hud5Map(g, mx, my, MS);   // HUD5: special room icons (vaultbreakers, trees, breach)
     if (GK.knowMap) GK.knowMap(g, mx, my, null);   // KNOWLEDGE: Lore perks draw on the map
@@ -2473,15 +2480,17 @@ const doorLabel = (key, id) => {
 const fmtT = ms => { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
 
 // ----- round state (fed by applyRound; the local clock interpolates between server updates) -----
-const RS = { n: 0, endAt: 0, dur: 0, sel: {}, open: [], fizzled: [], votes: 0, selJ: '{}', openJ: '[]', flashUntil: 0, fizzUntil: 0, homeLock: false, arenaUntil: 0 };
+const RS = { n: 0, endAt: 0, dur: 0, sel: {}, open: [], shut: [], fizzled: [], votes: 0, selJ: '{}', openJ: '[]', flashUntil: 0, fizzUntil: 0, homeLock: false, arenaUntil: 0 };
 GK.homeLocked = () => RS.homeLock;   // HOME PHASE: round 1, the hatches are shut
+GK.homeReach = (kind, d) => !window.GKHOMEBASE || !GKHOMEBASE.inReach || GKHOMEBASE.inReach(kind, d);   // QA-FULL: pump / screen / lockbox prompt only within the server's reach
+GK.doorView = () => RS;   // DOORS-PERSIST: the wall maps read the open / barred doors
 const roundLeft = () => Math.max(0, RS.endAt - performance.now());
 function applyRound(d) {
   const now = performance.now();
   if (d.round && Number.isFinite(d.round.n)) {
     if (RS.n > 0 && d.round.n > RS.n) {   // a round just ended: banners depend on what actually opened / fizzled
       RS.fizzled = Array.isArray(d.fizzled) ? d.fizzled : [];
-      if (Array.isArray(d.open) && d.open.length) RS.flashUntil = now + 2200;
+      if (Array.isArray(d.open) && d.open.some(x => !RS.open.includes(x))) RS.flashUntil = now + 2200;   // DOORS-PERSIST: only when a new door opened (the old ones stay open)
       const mySel = RS.sel[roomKeyAt(P.x, P.z)];
       if (Array.isArray(d.fizzled) && d.fizzled.length && mySel !== undefined && d.fizzled.includes(mySel)) RS.fizzUntil = now + 2800;
     }
@@ -2490,7 +2499,8 @@ function applyRound(d) {
   }
   if (Number.isFinite(d.vaultVotes) && d.vaultVotes !== RS.votes) { RS.votes = d.vaultVotes; panelsDirty(); }
   if (d.sel && typeof d.sel === 'object') { const j = JSON.stringify(d.sel); if (j !== RS.selJ) { RS.selJ = j; RS.sel = d.sel; panelsDirty(); } }
-  if (Array.isArray(d.open)) { const j = JSON.stringify(d.open); if (j !== RS.openJ) { RS.openJ = j; RS.open = d.open; GK.setDoorsOpen(d.open); panelsDirty(); } }
+  if (Array.isArray(d.open)) { const j = JSON.stringify(d.open); if (j !== RS.openJ) { RS.openJ = j; RS.open = d.open; GK.setDoorsOpen(d.open); panelsDirty(); if (GK.redrawMap) GK.redrawMap(); } }
+  if (d.round) { const sh = Array.isArray(d.shut) ? d.shut : []; if (sh.join() !== RS.shut.join()) { RS.shut = sh; panelsDirty(); } }   // DOORS-PERSIST: vault doors barred this round (they reopen at the round end)
   if (GK.unique) GK.unique.round(d); if (d.selBy) panelsDirty();   // UNIQUE: who made each pick, last round's picks
 }
 
@@ -2564,8 +2574,9 @@ function cpDraw(p) {
     g.font = '700 ' + Math.min(26, b.h * 0.22) + 'px system-ui, sans-serif';
     g.fillStyle = sel ? '#7a1200' : opn ? '#6dff9f' : hov ? '#cfe8ff' : '#7fa4cc';
     const vlt = L.kind === 'vault', dy = vlt ? 4 : fs * 0.72;
-    g.fillText(sel ? 'SELECTED · OPENS AT 0:00' : opn ? ((window.GKRULES && GKRULES.openText(b.id)) || 'OPEN THIS ROUND') : 'Press E to select', tx, iy + dy);
-    if (vlt) { g.font = '800 ' + Math.min(21, b.h * 0.18) + 'px system-ui, sans-serif'; g.fillStyle = sel ? (RS.votes < 2 ? '#8a0a00' : '#1a5a10') : '#ffb347'; g.fillText('NEEDS 2 PLAYERS · THE VAULT votes: ' + RS.votes + '/2', tx, iy + dy + Math.min(27, b.h * 0.24)); }
+    const barred = !opn && RS.shut.includes(b.id);   // DOORS-PERSIST: an open door stays open for good; a barred vault door reopens when the round ends
+    g.fillText(sel ? 'SELECTED · OPENS AT 0:00' : opn ? ((window.GKRULES && GKRULES.openText(b.id)) || 'OPEN FOR GOOD') : barred ? 'BARRED · REOPENS AT 0:00' : 'Press E to select', tx, iy + dy);
+    if (vlt && !opn && !barred) { g.font = '800 ' + Math.min(21, b.h * 0.18) + 'px system-ui, sans-serif'; g.fillStyle = sel ? (RS.votes < 2 ? '#8a0a00' : '#1a5a10') : '#ffb347'; g.fillText('NEEDS 2 PLAYERS · THE VAULT votes: ' + RS.votes + '/2', tx, iy + dy + Math.min(27, b.h * 0.24)); }
     if (opn) { g.fillStyle = '#18c25e'; cpRR(g, b.x + b.w - 100, iy - 20, 84, 40, 20); g.fill(); g.fillStyle = '#04200f'; g.textAlign = 'center'; g.font = '800 24px system-ui, sans-serif'; g.fillText('OPEN', b.x + b.w - 58, iy + 1); }
   });
   if (GK.unique) GK.unique.panel(g, p);   // UNIQUE: picker badge + flash
@@ -2672,6 +2683,7 @@ function panelTick() {
 }
 function cpInteract() {   // E while aiming at a control-panel button picks that door; true if it did
   const a = cpComputeAim(); if (!a) return false;
+  { const id = a.p.buttons[a.i].id; if ((RS.open.includes(id) || RS.shut.includes(id)) && !(window.GKRULES && GKRULES.has('doorclose'))) { snd('deny'); return true; } }   // DOORS-PERSIST: open for good, nothing to vote (the server ignores it too)
   net.send({ sel: a.p.buttons[a.i].id }); return true;
 }
 GK.panelClick = (room, idx) => { const ids = ROOM_DOORS[String(room)]; if (ids && ids[idx] !== undefined) net.send({ sel: ids[idx] }); };   // test helper: same message as a click
@@ -2679,6 +2691,7 @@ GK.roundInfo = () => ({ n: RS.n, left: roundLeft(), dur: RS.dur, sel: RS.sel, op
 GK._applyRound = applyRound;   // test hook
 layoutHooks.push(() => panelsDirty());
 GK.ROOM_DOORS = ROOM_DOORS; GK.roomKeyAt = roomKeyAt;
+GK.cpAimOpen = () => { const b = cpAim && cpAim.p.buttons[cpAim.i]; return !!b && (RS.open.includes(b.id) || RS.shut.includes(b.id)) && !(window.GKRULES && GKRULES.has('doorclose')); };   // DOORS-PERSIST: the aimed door is open for good (no "Select door" prompt)
 GK.tipAim = () => { const a = cpAim, b = a && a.p.buttons[a.i]; return b ? doorLabel(a.p.key, b.id).kind : null; };   // TIPS hook: kind of the panel entry under the crosshair
 
 {
@@ -2701,8 +2714,8 @@ GK.tipAim = () => { const a = cpAim, b = a && a.p.buttons[a.i]; return b ? doorL
     const txt = 'ROUND ' + RS.n + '  ' + fmtT(left), warn = left <= 5000;
     if (txt !== lastTxt) { tEl.textContent = txt; lastTxt = txt; }
     if (warn !== lastWarn) { tEl.classList.toggle('warn', warn); lastWarn = warn; }
-    { const h = RS.homeLock ? 'Prepare in your base: the arena opens in ' + fmtT(left) : ''; if (h !== lastHome) { if (!h || !lastHome) hEl.style.display = h ? 'block' : 'none'; hEl.textContent = h; lastHome = h; } }   // HOME PHASE: round 1 line under the timer
-    if (now < RS.flashUntil) { if (shownBanner !== RS.flashUntil) { shownBanner = RS.flashUntil; bEl.textContent = now < RS.arenaUntil ? 'THE ARENA IS OPEN' : 'DOORS OPENING'; bEl.style.display = 'none'; void bEl.offsetWidth; bEl.style.display = 'block'; } }
+    { const h = RS.homeLock ? 'Prepare in your base: the arena opens in ' + fmtT(left) : RS.n === 2 && !RS.open.length ? 'Pick a door on your hall\'s panel: it opens in ' + fmtT(left) : ''; if (h !== lastHome) { if (!h || !lastHome) hEl.style.display = h ? 'block' : 'none'; hEl.textContent = h; lastHome = h; } }   // HOME PHASE: round 1 line under the timer
+    if (now < RS.flashUntil) { if (shownBanner !== RS.flashUntil) { shownBanner = RS.flashUntil; bEl.textContent = now < RS.arenaUntil ? 'YOUR HALL IS OPEN' : 'DOORS OPENING'; bEl.style.display = 'none'; void bEl.offsetWidth; bEl.style.display = 'block'; } }
     else if (shownBanner) { shownBanner = 0; bEl.style.display = 'none'; }
     if (now < RS.fizzUntil) { if (shownFizz !== RS.fizzUntil) { shownFizz = RS.fizzUntil; fEl.style.display = 'none'; void fEl.offsetWidth; fEl.style.display = 'block'; } }
     else if (shownFizz) { shownFizz = 0; fEl.style.display = 'none'; }
@@ -3941,7 +3954,7 @@ const UNIQUE = (() => {
   // ---- door intel (design s1, bullet 2): faint arrows on the facility wall map for last round's picks
   GK.mapIntel = (g, mx, my, MS) => {
     for (const k in RS.lastSel) {
-      const d = DINFO[RS.lastSel[k]]; if (!d) continue; const dir = d.a === k ? d.da : d.db;
+      const d = DINFO[RS.lastSel[k]]; if (!d || RS.open.includes(RS.lastSel[k])) continue; const dir = d.a === k ? d.da : d.db;   // DOORS-PERSIST: a pick that opened shows as an open door; the arrow stays for one that did not
       let cx, cz, w, h;
       if (k[0] === 'c') { const c = CHEST_ROOMS[+k.slice(1)]; if (!c) continue; cx = c.cx; cz = c.cz; w = h = c.size || CS; } else { const i = +k; [cx, cz] = rc(i); w = roomW(i); h = roomD(i); }
       const ux = dir === 'EAST' ? 1 : dir === 'WEST' ? -1 : 0, uz = dir === 'SOUTH' ? 1 : dir === 'NORTH' ? -1 : 0, ex = mx(cx + ux * w / 2) - ux * 13, ey = my(cz + uz * h / 2) - uz * 13;
@@ -4103,7 +4116,6 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
   const rs = { n: 1, dur: 120000, endsAt: performance.now() + 120000, sel: {}, open: [], fizzled: [] };   // 5x5: every round is 2 minutes, as on the server (offline: tree rooms and vaultbreakers are visual only, no special rules)
   const isVault = id => DINFO[id].kind === 'vault', votes = () => Object.keys(rs.sel).filter(k => isVault(rs.sel[k])).length;
   const rmsg = () => ({ round: { n: rs.n, left: Math.max(0, rs.endsAt - performance.now()), dur: rs.dur }, sel: { ...rs.sel }, open: rs.open.slice(), vaultVotes: votes(), fizzled: rs.fizzled.slice(), ...(rs.n === 1 ? { homeLock: 1 } : null) });   // HOME PHASE: round 1 is spent at home, as on the server
-  const homeExits = () => { for (const p of list) { const c = String(WORLD.CHEST[+p.home.slice(1)].parent), ds = (ROOM_DOORS[c] || []).filter(id => !isVault(id)); if (ds.length && !ds.some(id => rs.open.includes(id))) rs.open.push(ds[Math.floor(Math.random() * ds.length)]); } };   // HOME PHASE: round 2 opens one door of every home's cell (server.js homeOpen)
   const emitRound = () => net.onmessage && net.onmessage(rmsg());
   const botPlan = () => { for (const b of list) if (b.bot) b.selAt = performance.now() + 1500 + Math.random() * (rs.dur - 6000); };
   // COMBAT-BEGIN offline simulation of the server's combat: bots have health, fight back within 6 m, drop loot when killed; same rules as server.js (items.js combat())
@@ -4274,8 +4286,8 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
   setInterval(() => {
     const now = performance.now();
     if (!rs.started) { rs.endsAt = now + rs.dur; return; }   // round 1 waits for Enter, as on the server
-    if (now >= rs.endsAt) { const picked = [...new Set(Object.values(rs.sel))], ok = votes() >= 2; rs.open = picked.filter(d => ok || !isVault(d)); rs.fizzled = ok ? [] : picked.filter(isVault); rs.sel = {}; rs.n++; if (rs.n === 2) homeExits(); rs.dur = 120000; rs.endsAt = now + rs.dur; botPlan(); emitRound(); return; }
-    for (const b of list) if (b.bot && b.selAt && now >= b.selAt) { b.selAt = 0; const k = roomKeyAt(b.x, b.z), ids = ROOM_DOORS[k]; if (ids && rs.sel[k] === undefined) { const vs = ids.filter(isVault), pool = vs.length && Math.random() < 0.5 ? vs : ids; rs.sel[k] = pool[Math.floor(Math.random() * pool.length)]; emitRound(); } }
+    if (now >= rs.endsAt) { const picked = [...new Set(Object.values(rs.sel))], ok = votes() >= 2; rs.open = rs.n === 1 ? rs.open : [...new Set([...rs.open, ...picked.filter(d => ok || !isVault(d))])]; rs.fizzled = ok ? [] : picked.filter(d => isVault(d) && !rs.open.includes(d)); rs.sel = {}; rs.n++; rs.dur = 120000; rs.endsAt = now + rs.dur; botPlan(); emitRound(); return; }
+    for (const b of list) if (b.bot && b.selAt && now >= b.selAt) { b.selAt = 0; const k = roomKeyAt(b.x, b.z), ids = ROOM_DOORS[k]; if (ids && rs.sel[k] === undefined) { const shut = ids.filter(id => !rs.open.includes(id) && DINFO[id].kind !== 'hatch'), vs = shut.filter(isVault), pool = vs.length && Math.random() < 0.5 ? vs : shut; if (pool.length) rs.sel[k] = pool[Math.floor(Math.random() * pool.length)]; emitRound(); } }
   }, 200);
   setInterval(emitRound, 1000);
   setInterval(() => {
@@ -4643,14 +4655,14 @@ GK.showDeathScreen = showDeathScreen;
     dsc.length = 0; for (let i = 0; i < disc.length; i++) if (disc[i]) dsc.push('c' + CHEST_ROOMS[i].id);
     ST.me.x = P.x; ST.me.z = P.z; ST.me.yaw = P.yaw; ST.myHome = GK.myHome;
     ST.vb = H.vb; ST.vbNext = H.vbNext; ST.trees = H.trees; ST.armed = H.armed; ST.breach = H.breach; ST.crown = H.crown;
-    for (let id = 0; id < ND; id++) ST.open[id].open = dKind[id] !== 2 ? !!openF[id] : !RS.homeLock;   // HOME PHASE: the hatches show shut in round 1
+    for (let id = 0; id < ND; id++) { ST.open[id].open = dKind[id] !== 2 ? !!openF[id] : !RS.homeLock; ST.open[id].shut = RS.shut.length > 0 && RS.shut.includes(id); }   // HOME PHASE: the hatches show shut in round 1; DOORS-PERSIST: barred vault doors
     ST.actors.length = 0;
     actors.forEach((a, id) => { if (id === me || a.npc || (vis[keyIdx(a.x, a.z)] !== 1 && !(window.GKUSE2 && GKUSE2.reveal()) && !(window.GKHOMEW && GKHOMEW.bellAt(a.x, a.z)) && !(window.GKACT5 && GKACT5.pulsed(id)))) return; ST.actors.push(a); });   // GKHOMEW.bellAt: a room with a Bell send running shows its goblins
   }
-  function arrows(g, ids, ip, lw, col) {   // door-pick arrows (last round's picks, Panel Lens picks)
+  function arrows(g, ids, ip, lw, col, skipOpen) {   // door-pick arrows (last round's picks, Panel Lens picks); skipOpen: not for a door that is open now (DOORS-PERSIST)
     g.strokeStyle = col; g.fillStyle = col; g.lineWidth = lw * ip;
     for (let i = 0; i < NR; i++) {
-      const id = ids[KEYS[i]]; if (id === undefined || !DINFO[id]) continue;
+      const id = ids[KEYS[i]]; if (id === undefined || !DINFO[id] || (skipOpen && openF[id])) continue;
       const v = dirOf(DINFO[id], KEYS[i]), cx = rcx(i), cz = rcz(i), L = i < NA ? 3.2 : 1.8, hx = v[0] * L, hz = v[1] * L;
       g.beginPath(); g.moveTo(cx - hx * .4, cz - hz * .4); g.lineTo(cx + hx, cz + hz); g.stroke();
       g.beginPath(); g.moveTo(cx + hx * 1.25, cz + hz * 1.25); g.lineTo(cx + hx * .7 - v[1] * L * .45, cz + hz * .7 + v[0] * L * .45); g.lineTo(cx + hx * .7 + v[1] * L * .45, cz + hz * .7 - v[0] * L * .45); g.closePath(); g.fill();
@@ -4665,7 +4677,7 @@ GK.showDeathScreen = showDeathScreen;
     const ops = HUD5.mapOps(ST, { big }), mainOps = ops.filter(o => o.t !== 'dot' && o.t !== 'me'), topOps = ops.filter(o => o.t === 'dot' || o.t === 'me'), mo = { north: !rot, yaw: P.yaw, time: performance.now() };
     HUD5.drawMap(g, S, mainOps, mo);
     g.save(); g.translate(S / 2, S / 2); g.rotate(rot); g.scale(sc, sc);   // overlays in world metres: door intel, my pick, claimed ticks
-    arrows(g, RS.lastSel, ip, 1.6, 'rgba(120,175,255,.42)');
+    arrows(g, RS.lastSel, ip, 1.6, 'rgba(120,175,255,.42)', true);
     if (window.GKUSE2 && GKUSE2.lens()) arrows(g, RS.sel, ip, 2.2, '#ffd24a');   // ITEMS2: Panel Lens: every room's current pick
     const mySel = my < NR ? RS.sel[KEYS[my]] : undefined;
     if (mySel !== undefined && DINFO[mySel]) { g.lineWidth = 1.4 * ip; g.strokeStyle = '#bfe6ff'; g.beginPath(); g.arc(dX[mySel], dZ[mySel], 3.6, 0, 6.2832); g.stroke(); }
@@ -4676,7 +4688,7 @@ GK.showDeathScreen = showDeathScreen;
     g.restore();
     HUD5.drawMap(g, S, topOps, mo);
     const R = S / 2 - S * .04; g.font = font; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#e8c860'; g.fillText('N', S / 2 + Math.sin(rot) * R, S / 2 - Math.cos(rot) * R);
-    if (big) { g.font = fontCap; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillStyle = 'rgba(232,214,160,.85)'; g.fillText('M to close', S * .03, S * .975); g.textAlign = 'right'; g.fillText('green open  red closed  blue ring picked  faint arrows last round', S * .97, S * .975); }
+    if (big) { g.font = fontCap; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillStyle = 'rgba(232,214,160,.85)'; g.fillText('M to close', S * .03, S * .975); g.textAlign = 'right'; g.fillText('green open for good  red closed  amber barred  blue ring your pick  faint arrows last round', S * .97, S * .975); }
   }
   function discover(my) {   // an outer room is known once I stand in it or look into it through an open door
     if (my >= NR) return;
@@ -4753,6 +4765,7 @@ window.GKHUD5 = (() => {
     const k = roomKeyAt(P.x, P.z);
     if (k !== lastRoom) { lastRoom = k; const t = typeAt(k); if (t) hud.enterRoom(k, t); }
     if (S.crown && GK.minimap) GK.minimap.redraw();
+    { const cr = hud.el && hud.el.querySelector('.gk5-cr'), quiet = !S.crown && k !== WORLD.VAULT_KEY; if (cr && cr.style.visibility !== (quiet ? 'hidden' : '')) cr.style.visibility = quiet ? 'hidden' : ''; }   // QA-FULL: the crown claim list sat in the middle of the view all match after any claim; now only while someone gains, the alarm runs, or I am in the vault
   }, 200);
   // wall maps: the special room icons go onto the shared facility texture (called by drawShared)
   GK.hud5Map = (g, mx, my, MS) => {
@@ -5080,7 +5093,7 @@ GK.getInv = () => JSON.parse(JSON.stringify(myInv));
 GK.openInventory = openInv; GK.closeInventory = closeInv;
 addEventListener('keydown', e => {
   if (GK.mode !== 'play') return;
-  if (shopOpen) { if (e.code === 'Escape' || e.code === 'Tab' || (e.code === 'KeyE' && !e.repeat)) { e.preventDefault(); closeShop(); } return; }
+  if (shopOpen) { if ((panelKind === 'craft' || panelKind === 'recycle') && craftPn && craftPn.wb && craftPn.wb.key(e)) return; if (e.code === 'Escape' || e.code === 'Tab' || (e.code === 'KeyE' && !e.repeat)) { e.preventDefault(); closeShop(); } return; }
   if (!invOpen && !e.repeat && window.GK_OFFLINE && (e.code === 'KeyT' || e.code === 'KeyY') && spawned) {   // demo: T = into the first merchant room, Y = back to the start room
     const i = (GK.layout || []).indexOf('merchant');
     if (e.code === 'KeyT' && i >= 0) { const C = CHEST_ROOMS[i]; P.x = C.cx - C.dx * 2.2; P.z = C.cz - C.dz * 2.2; P.yaw = Math.atan2(-C.dx, -C.dz); P.pitch = 0; }
@@ -5250,14 +5263,16 @@ function merchantHoverTick() {
   if (PERF2_ON && !perf2HoverNear(T)) { setHover(-1); return; }   // PERF2: nothing within 20 m, so the ray cannot reach (it is 7 m long): skip the raycast over every merchant, recycler and workbench model
   cam.updateMatrixWorld(); ray.setFromCamera({ x: 0, y: 0 }, cam); ray.far = 7;
   const hit = ray.intersectObjects(T, true)[0]; let id = -1, kind = '';
-  if (hit) { for (let o = hit.object; o; o = o.parent) { const u = o.userData; if (!u || u.roomId == null) continue; id = u.roomId; kind = u.station === 'recycler' ? 'r' : u.station === 'workbench' ? 'w' : u.station === 'knowledge' ? 'k' : u.station === 'screen' ? 's' : u.station === 'pump' ? 'p' : u.station === 'box' ? 'b' : 'm'; break; } }
+  if (hit) { for (let o = hit.object; o; o = o.parent) { const u = o.userData; if (!u || u.roomId == null) continue; id = u.roomId; kind = u.station === 'recycler' ? 'r' : u.station === 'workbench' ? 'w' : u.station === 'knowledge' ? 'k' : u.station === 'screen' ? 's' : u.station === 'pump' ? 'p' : u.station === 'box' ? 'b' : 'm';
+    if ((kind === 'p' || kind === 's' || kind === 'b') && GK.homeReach && !GK.homeReach(kind, Math.hypot(P.x - o.matrixWorld.elements[12], P.z - o.matrixWorld.elements[14]))) { id = -1; kind = ''; }   // QA-FULL: the pump / screen / lockbox only answer within the server's range (2.5 / 3 / 1.5 m): no prompt that ends in "Too far"
+    break; } }
   setHover(id, kind);
 }
 GK.hover = () => ({ room: hoverRoom, kind: hoverKind });
 function stationInteract() {   // E while looking at a merchant, recycler or workbench opens it; true if it did
   if (hoverRoom < 0 || invOpen || shopOpen || GK.mode !== 'play') return false;
   if ((hoverKind === 's' || hoverKind === 'p' || hoverKind === 'b') && window.GKHOMEW) return GKHOMEW.interact(hoverKind, hoverRoom);   // ELIXIR: Elixir Screen, pump, lockbox
-  if (hoverKind === 'r') openStation('recycle', hoverRoom); else if (hoverKind === 'w' || hoverKind === 'k') openStation('craft', hoverRoom);   // KNOWLEDGE: the tree and the bench open the same screen else openShop(hoverRoom);
+  if (hoverKind === 'r') openStation('recycle', hoverRoom); else if (hoverKind === 'w' || hoverKind === 'k') openStation('craft', hoverRoom); else openShop(hoverRoom);   // KNOWLEDGE: the tree and the bench open the same screen. QA-FULL: "else openShop" had slipped into this comment, so E never opened a merchant
   return true;
 }
 // ---------- materials (parts), recycler, workbench, loot piles, eating ----------
@@ -5320,8 +5335,8 @@ let recPn = null, craftPn = null, lootPn = null;
 function openStation(kind, roomId) {
   if (shopOpen || invOpen || GK.mode !== 'play') return;
   shopOpen = true; panelKind = kind; shopRoom = roomId; keys.clear(); setHover(-1);
-  if (kind === 'recycle') { if (!recPn) buildRec(); recSel = null; paintRec(); recPn.el.style.display = 'flex'; }
-  else if (kind === 'craft') { if (!craftPn) buildCraft(); paintCraft(); craftPn.el.style.display = 'flex'; }
+  if (kind === 'recycle') { if (!recPn) buildRec(); recSel = null; KNOWUI.open('recycle'); recPn.el.style.display = 'flex'; }
+  else if (kind === 'craft') { if (!craftPn) buildCraft(); KNOWUI.open('craft'); craftPn.el.style.display = 'flex'; }
   else if (kind === 'loot') { if (!lootPn) buildLoot(); lootId = roomId; lootOpen = true; paintLoot(); lootPn.el.style.display = 'flex'; }
   try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
 }
@@ -5340,6 +5355,24 @@ const STNUI = {
   recName() { const t = this.room().type; return t === 'grand' ? 'GRAND RECYCLER' : t === 'home' ? 'HOME RECYCLER' : 'RECYCLER'; },
   eff() { if (this.recType() === 'home' && window.GKHOMEW) return GKHOMEW.recEff(); const G = itemsData(); return ((G.STATIONS && G.STATIONS.recycler[this.recType()]) || { eff: 1 }).eff; },
   yield(y) { const G = itemsData(); return y && G.recycleEff ? G.recycleEff(y, this.eff()) : y; },
+  has(kind) {   // WBUI: does this room offer a workbench ('bench') or a recycler ('recycler')? (server stationAt; unknown rooms allow both)
+    const r = this.room(), t = r.type;
+    if (t === 'mystery' && r.mystery && Array.isArray(r.mystery.stations)) { const st = r.mystery.stations; return kind === 'bench' ? st.includes('workbench') || st.includes('knowledge') : st.includes('recycler'); }
+    if (!['merchant', 'home', 'forge', 'grand'].includes(t)) return true;
+    return kind === 'bench' ? t !== 'grand' : t !== 'forge';
+  },
+  banner(kind) {   // WBUI: the station banner (key = colour theme: normal / master / homebench / recycler / homerec / grand)
+    const G = itemsData(), t = this.room().type, R = ['0', 'I', 'II', 'III', 'IV', 'V'];
+    if (kind === 'bench') {
+      const sp = G.benchSpec ? G.benchSpec(this.benchType()) : { maxTier: 5, costMul: 1, craftMs: 2500 }, chips = [{ text: 'Tiers 0-' + R[Math.min(5, sp.maxTier)], title: 'The highest recipe tier this bench can craft' },
+        sp.costMul < 1 ? { text: 'Parts ' + Math.round((1 - sp.costMul) * 100) + '% cheaper', cls: 'good' } : { text: 'Full price parts' }, { text: (sp.craftMs / 1000).toFixed(1) + ' s per craft' }];
+      if (sp.bonusTier) chips.push({ text: '+1 bonus tier', cls: 'good', title: 'Craft one tier above your knowledge, at full price' });
+      return { key: t === 'forge' ? 'master' : t === 'home' ? 'homebench' : 'normal', name: this.benchName(), chips, blurb: t === 'forge' ? 'Every tier, cheaper parts, quick work' : t === 'home' ? 'Your own bench: craft, learn perks and reforge' : 'Craft, learn perks and reforge (basic tiers only)' };
+    }
+    const eff = this.eff();
+    return { key: t === 'grand' ? 'grand' : t === 'home' ? 'homerec' : 'recycler', name: this.recName(), eff, chips: [{ text: 'Returns ' + Math.round(eff * 100) + '%', cls: eff >= 1 ? 'good' : 'warn' }, { text: eff >= 1 ? 'Every part comes back' : 'At least 1 of the main part' }],
+      blurb: eff >= 1 ? 'Breaks weapons, armour and utility items back into every part' : 'Breaks gear down, but keeps half. The Grand Recycler gives it all back' };
+  },
   benchInfo() {   // what this bench can craft: tiers, discount, speed, bonus tier
     const G = itemsData(), sp = G.benchSpec ? G.benchSpec(this.benchType()) : { maxTier: 5, costMul: 1, craftMs: 2500 }, R = ['0', 'I', 'II', 'III', 'IV', 'V'];
     return 'Crafts tiers 0-' + R[Math.min(5, sp.maxTier)] + ' - parts ' + (sp.costMul < 1 ? Math.round((1 - sp.costMul) * 100) + '% cheaper' : 'full price') + ' - ' + (sp.craftMs / 1000).toFixed(1) + ' s per craft' + (sp.bonusTier ? ' - one tier above your knowledge, at full price' : '');
@@ -5347,49 +5380,13 @@ const STNUI = {
 };
 // STATIONS-UI-END
 // ---- recycler ----
-function buildRec() {
-  recPn = mkPanel('gkRec', 'RECYCLER', 640); recPn.sub.textContent = '';
-  const main = document.createElement('div'); main.style.cssText = 'display:flex;gap:22px;flex-wrap:wrap;justify-content:center';
-  const left = document.createElement('div'); left.innerHTML = '<div class="lab">PICK A WEAPON</div>';
-  const grid = document.createElement('div'); grid.style.cssText = 'display:grid;grid-template-columns:repeat(3,54px);gap:6px';
-  for (const id of ['b0', 'b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'q0', 'q1', 'q2']) { const s = mkSlot(id, 54); s.dataset.rec = '1'; grid.appendChild(s); }
-  left.appendChild(grid);
-  recPn.prev = document.createElement('div'); recPn.prev.style.cssText = 'flex:1;min-width:200px;display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;text-align:center';
-  main.append(left, recPn.prev);
-  const mats = document.createElement('div'); mats.style.cssText = 'margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.1)'; mats.innerHTML = '<div class="lab">YOUR MATERIALS</div>'; mats.appendChild(mkPartsRow());
-  recPn.body.append(main, mats);
-  recPn.el.addEventListener('click', e => {
-    const s = e.target.closest && e.target.closest('.gks[data-rec]'); if (!s) return;
-    const id = s.dataset.id, k = invGet(myInv, id);
-    if (k == null) return;
-    if (!KNOWUI.recYield(k)) { flashBad(id); say(recPn, 'Weapons, armour and utility items can be recycled'); return; }
-    recSel = id; paintRec();
-  });
-}
-function paintRec() {
-  if (!recPn) return;
-  for (const id of ['b0', 'b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'q0', 'q1', 'q2']) for (const el of slotEls[id]) if (el.dataset.rec) {
-    const k = invGet(myInv, id), ok = k != null && !!KNOWUI.recYield(k);
-    paintSlot(el, id); el.style.opacity = k == null || ok ? 1 : 0.3; el.style.outline = recSel === id ? '2px solid ' + GOLD : 'none'; el.title = k != null && !ok ? 'cannot recycle' : '';
-  }
-  if (recSel && invGet(myInv, recSel) == null) recSel = null;
-  recPn.ttl.textContent = STNUI.recName(); recPn.sub.textContent = STNUI.eff() >= 1 ? 'RETURNS EVERY PART OF A WEAPON, ARMOUR OR UTILITY ITEM - 100%' : 'RETURNS ' + Math.round(STNUI.eff() * 100) + '% OF THE PARTS (AT LEAST 1) - THE GRAND RECYCLER GIVES 100%';
-  const k = recSel ? invGet(myInv, recSel) : null, pv = recPn.prev; pv.textContent = '';
-  let y = STNUI.yield(k && KNOWUI.recYield(k));   // 5x5: the home recycler gives 50% (server stationAt)
-  if (!k) { pv.innerHTML = '<div style="color:#8d8880;font-size:14px;line-height:1.5">Select a weapon or armour from your backpack or quick slots<br>to see which materials it yields.<br><span style="font-size:12px">(brains and worn gear cannot be recycled)</span></div>'; return; }
-  const it = infoOf(k), head = document.createElement('div'); head.style.cssText = 'display:flex;align-items:center;gap:10px'; head.appendChild(mkIcon(k, 46));
-  const t = document.createElement('div'); t.style.textAlign = 'left'; t.innerHTML = '<b style="color:' + (TIER_COL[it.tier] || '#fff') + ';font-size:16px">' + it.name + '</b><div style="font-size:12px;color:#aaa59d">' + statTxt(k) + '</div>'; head.appendChild(t);
-  const get = document.createElement('div'); get.className = 'yield'; get.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;justify-content:center;min-height:34px';
-  for (const p in y) { const c = document.createElement('div'); c.style.cssText = 'display:flex;align-items:center;gap:4px;padding:3px 9px 3px 4px;border-radius:8px;background:rgba(0,0,0,.45);border:1px solid rgba(255,215,94,.3);font-weight:800'; c.dataset.part = p; c.appendChild(partIcon(p, 26)); c.append('+' + y[p] + ' ' + partName(p)); get.appendChild(c); }
-  const bt = document.createElement('button'); bt.textContent = 'RECYCLE'; bt.id = 'recGo'; bt.style.cssText = 'width:100%;padding:14px 10px;border:0;border-radius:10px;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font:800 18px system-ui,sans-serif;letter-spacing:.12em;cursor:pointer';
-  bt.onclick = () => { net.send({ recycle: recSel }); };
-  pv.append(head, Object.assign(document.createElement('div'), { className: 'lab', textContent: 'YOU GET' }), get, bt);
-  if (window.GKHOMEW && GKHOMEW.canRefine(shopRoom)) { const rf = document.createElement('button'); rf.textContent = 'REFINE: 100% FOR 4 ELIXIR'; rf.id = 'recRefine'; rf.style.cssText = 'width:100%;padding:9px 10px;border:1px solid #7fd8ff;border-radius:10px;background:rgba(127,216,255,.12);color:#bdeaff;font:800 14px system-ui,sans-serif;letter-spacing:.08em;cursor:pointer'; rf.onclick = () => { net.send({ recycle: recSel, refine: 1 }); }; pv.append(rf); }   // ELIXIR
-}
+// WBUI: the recycler is a tab of the one workbench screen (wbui.js); buildRec / paintRec keep the old entry points
+function buildRec() { if (!craftPn) buildCraft(); recPn = craftPn; }
+function paintRec() { if (craftPn) paintCraft(); }
 function recycledFx(r) {
-  if (!recPn || panelKind !== 'recycle') return;
+  if (!recPn || !recPn.wb || (panelKind !== 'recycle' && panelKind !== 'craft') || recPn.wb.tab() !== 'recycle') return;
   say(recPn, 'Recycled ' + itemName(r.key) + ': ' + Object.keys(r.parts).map(p => '+' + r.parts[p] + ' ' + partName(p)).join(', '), true);
-  const from = recPn.prev.getBoundingClientRect(), tgt = {}; for (const c of partRows[partRows.length - 1] ? partRows[partRows.length - 1].children : []) tgt[c.dataset.part] = c.getBoundingClientRect();
+  const from = recPn.prev.getBoundingClientRect(), tgt = {}; for (const c of recPn.el.querySelectorAll('.wb-mats [data-part]')) tgt[c.dataset.part] = c.getBoundingClientRect();
   Object.keys(r.parts).forEach((p, i) => {
     const f = partIcon(p, 30); f.style.cssText += ';position:fixed;z-index:90;pointer-events:none;left:' + (from.x + from.width / 2 - 15) + 'px;top:' + (from.y + from.height / 2 - 15) + 'px';
     document.body.appendChild(f); const t = tgt[p] || from, dx = t.x + 11 - (from.x + from.width / 2), dy = t.y + 11 - (from.y + from.height / 2);
@@ -5398,7 +5395,7 @@ function recycledFx(r) {
   });
 }
 // ---- workbench + knowledge tree (KNOWLEDGE-BEGIN, docs/KNOWLEDGE.md): one screen, opened with E at a workbench or at a knowledge tree. Left: the perk tree. Right: recipes by tier (and Reforge). ----
-function buildCraft() { KNOWUI.build(); if (window.GKHOMEW) GKHOMEW.decorateCraft(craftPn); }   // ELIXIR: brew row
+function buildCraft() { KNOWUI.build(); recPn = craftPn; if (window.GKHOMEW) { GKHOMEW.decorateCraft(craftPn); const br = craftPn.body.nextSibling; if (br && br.querySelector && br.querySelector('[data-brew]')) br.classList.add('wb-brew'); } }   // ELIXIR: brew row
 function myKnowledge() { const mine = actors.get(me); return invStats(myInv, mine ? mine.goblin : 0, knowOv).knowledge; }
 function paintCraft() { if (craftPn) { KNOWUI.paint(); if (window.GKHOMEW) GKHOMEW.paintBrew(); } }
 const KNOWUI = (() => {
@@ -5443,90 +5440,29 @@ const KNOWUI = (() => {
     const n = craftPn.tree && craftPn.tree.querySelector('[data-perk="' + id + '"]'); if (n) n.animate([{ boxShadow: '0 0 0 0 rgba(255,215,94,.9)', transform: 'scale(1.05)' }, { boxShadow: '0 0 24px 4px rgba(255,215,94,0)', transform: 'none' }], 700);
     try { GK.workbenchFeedback && GK.workbenchFeedback(shopRoom); } catch (e) {}
   }
+  // WBUI: the screen itself lives in wbui.js (tabs Craft / Perks / Reforge / Recycle, banner, progress and materials strips). This block feeds it the game state.
+  let WBS = null;
+  const wbGlyph = (k, px) => { if (k !== 'forge' && k !== 'recycler') return null; try { const d = Math.min(window.devicePixelRatio || 1, 2), c = document.createElement('canvas'); c.width = c.height = Math.round(px * d); c.style.width = c.style.height = px + 'px'; const g = c.getContext('2d'); g.scale(d, d); g.translate(px / 2, px / 2); HUD5.paintIcon(g, k, px * 0.42); return c; } catch (e) { return null; } };
+  const wbCtx = () => ({
+    doc: document, win: window, G: D,
+    get: () => ({ inv: myInv, parts: myParts, know: myKnowledge(), brains: brains(), perks, crafting, benchType: STNUI.benchType(), hasBench: STNUI.has('bench'), hasRecycler: STNUI.has('recycler') }),
+    send: m => net.send(m), say: (t, good) => say(craftPn, t, good), close: () => closeShop(),
+    icon: mkIcon, partIcon, partName, info: infoOf, statTxt, tierCol: it => TIER_COL[it && it.tier] || '', partsRow: mkPartsRow,
+    station: k => STNUI.banner(k), yieldOf: k => STNUI.yield(U.recYield(k)), glyph: wbGlyph,
+    canRefine: () => !!(window.GKHOMEW && GKHOMEW.canRefine(shopRoom)), benchLv: () => (window.GKHOMEW && GKHOMEW.benchLv ? GKHOMEW.benchLv() : 0),
+  });
   U.build = () => {
-    craftPn = mkPanel('gkCraft', 'WORKBENCH', 980); craftPn.sub.textContent = 'KNOWLEDGE TREE AND CRAFTING - FREE FOR EVERYONE';
-    craftPn.head = div('display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;margin:0 0 12px');
-    const main = div('display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start');
-    craftPn.tree = div('flex:1 1 360px;min-width:min(300px,100%)');
-    const right = div('flex:1 1 400px;min-width:min(300px,100%)'); right.innerHTML = '<div class="lab">RECIPES</div>';
-    craftPn.list = div('display:flex;flex-direction:column;gap:6px;max-height:min(54vh,540px);overflow:auto;padding-right:4px'); right.appendChild(craftPn.list);
-    main.append(craftPn.tree, right);
-    const mats = div('margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.1)'); mats.innerHTML = '<div class="lab">YOUR MATERIALS</div>'; mats.appendChild(mkPartsRow());
-    craftPn.body.append(craftPn.head, main, mats);
-    craftPn.tree.addEventListener('click', e => {
-      const n = e.target.closest && e.target.closest('[data-perk]'); if (!n) return;
-      const why = D().learnFail(n.dataset.perk, myKnowledge(), brains(), perks);
-      if (why) { say(craftPn, learnWhy[why] || 'Cannot learn that'); n.animate([{ transform: 'translateX(-4px)' }, { transform: 'translateX(4px)' }, { transform: 'none' }], 220); } else net.send({ learn: n.dataset.perk });
-    });
+    craftPn = mkPanel('gkCraft', 'WORKBENCH', 1080); craftPn.sub.textContent = '';
+    WBS = GKWBUI.create(wbCtx()); craftPn.wb = WBS; craftPn.list = WBS.list; craftPn.tree = WBS.tree; craftPn.bar = WBS.bar; craftPn.prev = WBS.previewEl;
+    craftPn.el.classList.add('wb-screen'); craftPn.body.appendChild(WBS.el);
   };
-  const stat = (lab, val, col) => '<div style="display:flex;flex-direction:column;align-items:center;min-width:92px;padding:4px 12px;border-radius:10px;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.08)"><span style="font:700 10px system-ui;letter-spacing:.16em;color:#b9b4ae">' + lab + '</span><span style="font:800 20px system-ui;color:' + col + ';font-variant-numeric:tabular-nums">' + val + '</span></div>';
-  function paintTree() {
-    const G = D(), know = myKnowledge(), pts = U.points(), tier = G.knowTier ? G.knowTier(know) : 0;
-    craftPn.head.innerHTML = stat('KNOWLEDGE', fmtN(know), '#8ff0e0') + stat('RECIPE TIER', ROM[tier], '#ffd75e') + stat('POINTS', pts, pts ? '#8be28b' : '#8d8880')
-      + '<div style="font-size:12px;color:#9a958c;max-width:250px;line-height:1.4">1 point per ' + ((G.KNOW && G.KNOW.step) || 20) + ' knowledge and 1 per brain you eat. Perks last until you die.</div>';
-    const T = craftPn.tree; T.innerHTML = '<div class="lab">KNOWLEDGE TREE</div>';
-    const grid = div('display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px'); T.appendChild(grid);
-    for (const b of G.BRANCHES || []) {
-      const col = div('display:flex;flex-direction:column;align-items:stretch'), c = BR_COL[b.id] || '#ffd75e';
-      col.innerHTML = '<div style="text-align:center;font:800 12px system-ui;letter-spacing:.18em;color:' + c + ';margin-bottom:6px">' + b.name.toUpperCase() + '</div>';
-      const list = (G.PERKS || []).filter(p => p.branch === b.id).sort((x, y) => x.rank - y.rank);
-      list.forEach((pk, i) => {
-        if (i) { const ln = div('width:2px;height:10px;margin:0 auto;background:' + (U.has(list[i - 1].id) ? c : 'rgba(255,255,255,.15)')); col.appendChild(ln); }
-        const have = U.has(pk.id), why = have ? 'have' : G.learnFail(pk.id, know, brains(), perks), can = !why;
-        const n = div('padding:8px 9px;border-radius:10px;box-sizing:border-box;min-height:104px;display:flex;flex-direction:column;gap:3px;cursor:' + (can ? 'pointer' : 'default') + ';'
-          + (have ? 'background:linear-gradient(180deg,' + c + '33,rgba(0,0,0,.4));border:1px solid ' + c : can ? 'background:rgba(0,0,0,.35);border:1px dashed ' + c : 'background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.08);opacity:.62'));
-        n.dataset.perk = pk.id; n.title = pk.desc;
-        n.innerHTML = '<div style="display:flex;justify-content:space-between;gap:6px;align-items:baseline"><b style="font-size:13px;color:' + (have ? '#fff4d6' : '#f2efe6') + '">' + esc(pk.name) + '</b><span style="font:800 11px system-ui;color:' + c + ';white-space:nowrap">' + pk.cost + ' PT</span></div>'
-          + '<div style="font-size:11.5px;line-height:1.3;color:#b9b4a6;flex:1">' + esc(pk.desc) + '</div>'
-          + '<div style="font:800 10px system-ui;letter-spacing:.12em;color:' + (have ? c : can ? '#8be28b' : '#8d8880') + '">' + (have ? 'LEARNED' : can ? 'CLICK TO LEARN' : why === 'order' ? 'LEARN THE ONE ABOVE' : 'NEEDS ' + pk.cost + ' POINT' + (pk.cost > 1 ? 'S' : '')) + '</div>';
-        col.appendChild(n);
-      });
-      grid.appendChild(col);
-    }
-  }
-  const costChips = (cost, base) => { const w = div('display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:190px'); for (const p in cost) { const ok = (myParts[p] | 0) >= cost[p], c = div('display:flex;align-items:center;gap:2px;font:800 13px system-ui,sans-serif;color:' + (ok ? '#8be28b' : '#ff6a5a')); c.title = partName(p) + (base && base[p] > cost[p] ? ' (Thrifty Hands: ' + base[p] + ' -> ' + cost[p] + ')' : ''); c.appendChild(partIcon(p, 20)); c.append(' ' + (myParts[p] | 0) + '/' + cost[p]); w.appendChild(c); } return w; };
-  const btn = (txt, can) => { const b = document.createElement('button'); b.textContent = txt; b.disabled = !can; b.style.cssText = 'width:84px;flex:none;padding:8px 0;border-radius:8px;font:800 12px system-ui,sans-serif;letter-spacing:.1em;cursor:' + (can ? 'pointer' : 'not-allowed') + ';' + (can ? 'border:0;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405' : 'border:1px solid rgba(255,90,74,.6);background:rgba(120,20,14,.35);color:#ff8a7a'); return b; };
-  const row = (key, line, cost, base, label, can, reason, onGo, dim) => {
-    const it = infoOf(key) || { name: key }, r = div('display:flex;align-items:center;gap:10px;padding:5px 8px;border-radius:10px;background:rgba(0,0,0,.35);border:1px solid rgba(255,215,94,.18)' + (dim ? ';opacity:.5' : ''));
-    const ic = div('width:42px;height:42px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:rgba(0,0,0,.4);flex:none'); ic.appendChild(mkIcon(key, 36));
-    const tx = div('flex:1;min-width:0'); tx.innerHTML = '<div style="font-weight:700;font-size:14px;color:' + (TIER_COL[it.tier] || '#f2efe6') + '">' + esc(it.name) + '</div><div style="font-size:12px;color:#aaa59d">' + line + '</div>';
-    const b = btn(label, can); b.title = reason; b.onclick = () => { if (can) onGo(); else say(craftPn, reason); };
-    r.append(ic, tx, costChips(cost, base), b); return r;
-  };
-  const head = (txt, col, note) => { const h = div('display:flex;justify-content:space-between;align-items:baseline;margin:8px 2px 0;font:800 11px system-ui;letter-spacing:.16em;color:' + col); h.innerHTML = '<span>' + txt + '</span><span style="letter-spacing:.04em;font-weight:600;color:#8d8880">' + (note || '') + '</span>'; return h; };
-  function paintRecipes() {
-    const G = D(), list = craftPn.list, full = myInv.backpack.indexOf(null) < 0, know = myKnowledge(); list.textContent = '';
-    if (U.has('reforge') && G.reforgeCost) {   // Reforge: every carried weapon and armour that is not reforged yet
-      const ids = ['weapon', 'armor', 'b0', 'b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'q0', 'q1', 'q2'].filter(id => { const k = invGet(myInv, id); return k && G.reforgeCost(k); });
-      list.appendChild(head('REFORGE', '#ffb84a', ids.length ? '+20%, once per item' : 'no gear to reforge'));
-      for (const id of ids) {
-        const k = invGet(myInv, id), cost = G.reforgeCost(k), a = infoOf(k), b = infoOf(k + '+'), s = a.type === 'weapon' ? 'attack' : 'health', lacking = Object.keys(cost).filter(p => (myParts[p] | 0) < cost[p]);
-        const reason = lacking.length ? 'Not enough ' + lacking.map(partName).join(', ') : '';
-        list.appendChild(row(k, (s === 'attack' ? 'Attack ' : 'Health ') + a[s] + ' &rarr; <b style="color:#8be28b">' + b[s] + '</b>' + (id === 'weapon' || id === 'armor' ? ' · equipped' : ''), cost, null, 'REFORGE', !reason, reason, () => net.send({ reforge: id })));
-      }
-    }
-    if (crafting) {   // STATIONS: a craft is running - progress bar and cancel
-      const pb = div('display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;background:rgba(255,215,94,.1);border:1px solid rgba(255,215,94,.5);margin-bottom:4px');
-      if (crafting.key) { const ic = div('width:36px;height:36px;flex:none'); ic.appendChild(mkIcon(crafting.key, 34)); pb.appendChild(ic); }
-      const mid = div('flex:1;min-width:0'), track = div('height:10px;border-radius:5px;background:rgba(0,0,0,.55);overflow:hidden;margin-top:4px'); craftPn.bar = div('height:100%;width:0;background:linear-gradient(90deg,#e0a82a,#ffd75e)'); track.appendChild(craftPn.bar);
-      mid.innerHTML = '<div style="font:800 12px system-ui;letter-spacing:.14em;color:#ffd75e">CRAFTING ' + esc(crafting.key ? infoOf(crafting.key).name.toUpperCase() : '') + '</div>'; mid.appendChild(track);
-      const cb = btn('CANCEL', true); cb.onclick = () => net.send({ craftCancel: 1 }); cb.title = 'Cancel and get your parts back'; pb.append(mid, cb); list.appendChild(pb);
-    } else craftPn.bar = null;
-    const recipes = (G.RECIPES || []).slice().sort((x, y) => x.tier - y.tier); let tier = -1, bt = STNUI.benchType();
-    for (const r of recipes) {
-      const bc = G.benchCraft ? G.benchCraft({ stats: { knowledge: know } }, r, bt, perks) : { cost: U.cost(r), ms: 2500 }, locked = bc.why === 'knowledge', low = bc.why === 'bench', cost = bc.cost || U.cost(r);
-      if (r.tier !== tier) { tier = r.tier; list.appendChild(head(tier ? 'TIER ' + ROM[tier] + ' · ' + r.needs + ' KNOWLEDGE' : 'TIER 0 · BASICS', locked || low ? '#8d8880' : '#8ff0e0', locked ? '&#128274; you have ' + fmtN(know) : low ? 'needs the Master Forge' : bc.bonus ? 'bonus tier' : tier ? 'unlocked' : 'for everyone')); }
-      const lacking = Object.keys(cost).filter(p => (myParts[p] | 0) < cost[p]);
-      const reason = locked ? 'Needs ' + r.needs + ' knowledge' : low ? 'This bench is too basic: tier ' + ROM[r.tier] + ' needs the Master Forge' : crafting ? 'Already crafting' : lacking.length ? 'Not enough ' + lacking.map(partName).join(', ') : full ? 'Your backpack is full' : '';
-      const el = row(r.out, statTxt(r.out) + (bc.ms ? ' · ' + (bc.ms / 1000).toFixed(1) + ' s' : '') + (bc.bonus ? ' · <b style="color:#ffd75e">BONUS TIER</b>' : ''), cost, r.cost, locked ? 'LOCKED' : low ? 'FORGE' : 'CRAFT', !reason, reason, () => net.send({ craft: r.id }), locked || low); el.dataset.recipe = r.id; list.appendChild(el);
-    }
-    if (!recipes.length) list.innerHTML = '<div style="text-align:center;color:#8d8880;padding:20px">No recipes known.</div>';
-  }
-  U.paint = () => { const top = craftPn.list.scrollTop; craftPn.ttl.textContent = STNUI.benchName(); craftPn.sub.textContent = STNUI.benchInfo().toUpperCase(); paintTree(); paintRecipes(); craftPn.list.scrollTop = top; };
+  U.open = tab => { if (WBS) WBS.open(tab); };
+  U.screen = () => WBS;
+  U.paint = () => { craftPn.ttl.textContent = STNUI.benchName(); WBS.paint(); };
   U.crafting = () => crafting;
   function barLoop() {   // the progress bar of a running craft: one style write per frame, only while a craft runs
     if (!crafting) return;
-    if (panelKind === 'craft' && craftPn && craftPn.bar) { const f = crafting.ms > 0 ? Math.min(1, (performance.now() - crafting.at) / crafting.ms) : 1; craftPn.bar.style.width = (f * 100).toFixed(1) + '%'; }
+    if ((panelKind === 'craft' || panelKind === 'recycle') && craftPn && craftPn.bar) { const f = crafting.ms > 0 ? Math.min(1, (performance.now() - crafting.at) / crafting.ms) : 1; craftPn.bar.style.width = (f * 100).toFixed(1) + '%'; }
     requestAnimationFrame(barLoop);
   }
   // ---- Lore perks on the facility maps: drawn by drawMap (MAP block) through GK.knowMap; live intel redraws only the map of the room I stand in
@@ -5578,6 +5514,7 @@ const KNOWUI = (() => {
     if (k === lastRoom && j === lastJ && !(U.has('headcount') && t - hcAt > 2000)) return;
     lastRoom = k; lastJ = j; hcAt = t; if (k != null && WORLD.roomRect(k) && k[0] !== 'c' && k !== VK) GK.redrawMap(k);
   }, 500);
+  U.dbg = { parts: p => setParts(p), know: n => { knowOv = n; }, inv: d => setInv(d) };   // WBUI: screenshot / test hook (client display only, the server stays the authority)
   GK.know = U;   // test hook
   return U;
 })();
@@ -5650,6 +5587,7 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyK' && !e.repeat && window.GK_OFFLINE && GK.mode === 'play' && actors.get(me)) { // demo only: K = die, to see the loot drop and the death screen
     const r = netReal && netReal.demoDie && netReal.demoDie(); showDeathScreen(r || { items: invAll(myInv) });
   }
+  if (shopOpen && e.target && e.target.tagName === 'INPUT') return;   // WBUI: typing in the recipe search
   JUMP.key(e);
   keys.add(e.code); if (e.code === 'KeyV' && !e.repeat) inside = !inside; });
 document.addEventListener('visibilitychange', () => keys.clear());
@@ -5659,14 +5597,15 @@ const canvas = renderer.domElement;
 const lockOk = () => document.pointerLockElement === canvas;
 
 // pointer lock with raw (unaccelerated) mouse input where the browser supports it, so the view moves 1:1 with the mouse
-let lockRefused = false;
+let lockRefused = false, lockPrevRefused = false;
 const requestLock = () => {
   if (lockOk()) return;
+  lockPrevRefused = lockRefused;   // QA-FULL: remembered for the swing check below (this click resets lockRefused before the swing handler runs, so a browser that keeps refusing the lock never swung at all)
   lockRefused = false;   // every click retries the lock: one refusal (e.g. the browser's short cooldown after Esc) must not leave the cursor free for the rest of the session
   const plain =() => { try { const r = canvas.requestPointerLock(); r && r.catch && r.catch(() => { lockRefused = true; }); } catch (e) { lockRefused = true; } };
   try { const r = canvas.requestPointerLock({ unadjustedMovement: true }); if (r && r.catch) r.catch(plain); } catch (e) { plain(); }
 };
-document.addEventListener('pointerlockchange', () => { if (lockOk()) lockRefused = false; });
+document.addEventListener('pointerlockchange', () => { if (lockOk()) lockRefused = lockPrevRefused = false; });
 document.addEventListener('pointerlockerror', () => { lockRefused = true; });
 canvas.addEventListener('mousedown', requestLock);
 // FULLSCREEN-2: a key in play with no panel open takes the pointer lock back, fullscreen or not (fskeep.js install, wired by menu.js)
@@ -7552,7 +7491,7 @@ function combatSwing() {   // left click: swing animation on my own goblin now, 
   if (now - CB.last < cb.cd) return false;
   CB.last = now; CB.nextAt = now + cb.cd; /* FEEL2: cooldown end for buffer/hold */ mine.swing = 1e-4; vmSwing(mine, true); net.send({ atk: 1 }); snd('swing', { fam: mine.vmFam }); return true;
 }
-canvas.addEventListener('mousedown', e => { if (e.button === 0 && (lockOk() || lockRefused)) { /* FEEL2: hold + input buffer */ CB.held = true; if (!combatSwing() && CB.nextAt - performance.now() <= 180) CB.buf = true; } });   // the click that captures the mouse does not swing
+canvas.addEventListener('mousedown', e => { if (e.button === 0 && (lockOk() || lockRefused || lockPrevRefused)) { /* FEEL2: hold + input buffer */ CB.held = true; if (!combatSwing() && CB.nextAt - performance.now() <= 180) CB.buf = true; } });   // the click that captures the mouse does not swing
 // FEEL2-BEGIN (attack input buffer + hold-to-attack, directional damage arc, crosshair hit marker; see docs/reports/feel-2.md)
 CB.nextAt = 0; CB.held = false; CB.buf = false; CB.arc = null; CB.arcAnim = null; CB.hm = null; CB.hmAnim = null;
 addEventListener('mouseup', e => { if (e.button === 0) { CB.held = false; } });
@@ -7560,7 +7499,7 @@ addEventListener('blur', () => { CB.held = false; CB.buf = false; });
 function feel2Tick() {   // frame(): fire a buffered click or a held button as soon as the cooldown allows, through the normal combatSwing()
   if (!CB.held && !CB.buf) return;
   if (GK.mode !== 'play' || invOpen || shopOpen || !spawned || GK.locked) { CB.buf = false; return; }
-  if (CB.held && !lockOk() && !lockRefused) { CB.held = false; return; }   // lock dropped (Esc): stop auto-swinging
+  if (CB.held && !lockOk() && !lockRefused && !lockPrevRefused) { CB.held = false; return; }   // lock dropped (Esc): stop auto-swinging
   if (performance.now() < CB.nextAt) return;
   CB.buf = false; combatSwing();
 }
@@ -8494,14 +8433,14 @@ const GKUSE = window.GKUSE = (() => {
         if (it.use === 'heal') note('+' + u.hp + ' HP', '#8be28b');
         else if (it.use === 'regen') note('Regenerating', '#8be28b');
         else if (it.use === 'speed') { tonicEnd = performance.now() + (u.ms || 8000); note('Quick on your feet', '#ffd76a'); }
-        else if (it.use === 'wedge') note('Door wedged open', '#ffd76a');
+        else if (it.use === 'wedge') note('Door wedged: it opens at 0:00', '#ffd76a');
         else if (it.use === 'pick') note('Vault vote added', '#ffd76a');
       }
       if (d.sealed) { note('Panel sealed by ' + d.sealed.by, '#ffd76a'); snd('useSoft', { pitch: 0.8 }); }
       if (d.sealBlock) { toastMsg('This panel is sealed', false, 1100); snd('deny'); }
       if (d.useFail) {
         const pickMsg = lastKey === 'x:lockpick' ? 'Pick a Vault door on the panel first' : 'Pick a door on the panel first';
-        toastMsg(d.useFail === 'pick' ? pickMsg : d.useFail === 'door' && lastKey === 'x:pry' ? 'No closed door close by (not the Vault)' : FAIL[d.useFail] || 'Cannot use that', false, 1400); snd('deny');
+        toastMsg(d.useFail === 'pick' ? pickMsg : d.useFail === 'door' && (lastKey === 'x:pry' || lastKey === 'x:wedge') ? 'No closed door close by (not the Vault)' : FAIL[d.useFail] || 'Cannot use that', false, 1400); snd('deny');
       }
     },
   };
@@ -8562,7 +8501,7 @@ const GKUSE2 = window.GKUSE2 = (() => {
         try { GK.feel.itemUsed(it, 'use'); } catch (e) {}
         if (it.use === 'flare') { flareEnd = n + (u.ms || 8000); redraw(); later((u.ms || 8000) + 50, redraw); note('Flare lit: every goblin shows', '#ffb070'); }
         else if (it.use === 'lens') { lensEnd = n + (u.ms || 12000); redraw(); later((u.ms || 12000) + 50, redraw); note('Picks revealed on the map', '#bfe6ff'); }
-        else if (it.use === 'pry') note('Door pried open', '#ffd76a');
+        else if (it.use === 'pry') note('Door pried open for good', '#ffd76a');
         else if (it.use === 'ward') { wardEnd = n + (u.ms || 30000); note('Ward up', '#7fe8ff'); }
         else if (it.use === 'bait') note('Bait set', '#ffd76a');
         else if (it.use === 'haggle') note('Next purchase half price', '#ffd76a');
@@ -8684,7 +8623,7 @@ const HOMEW = window.GKHOMEW = (() => {
   }
   return {
     onMsg, interact, shut: () => ui.close(false), decorateCraft, paintBrew, dbgSend: m => { if (GK.dbg) net.send(m); },   // GK_DEBUG servers only (screenshots, tests)
-    elixir: () => elixir, recEff: () => (hs ? K.recyclerEff({ lv: hs.lv, dead: hs.dead }) : 0.5),
+    elixir: () => elixir, benchLv: () => (hs && hs.lv && hs.lv.bench) | 0, recEff: () => (hs ? K.recyclerEff({ lv: hs.lv, dead: hs.dead }) : 0.5),
     canRefine: room => !!hs && !hs.dead && elixir >= 4 && mine(room) && inHome(room),
     bellAt: (x, z) => { if (!bells.size) return false; const k = W.roomKeyOf(x, z), t = bells.get(k); return t != null && t > performance.now(); },
     ui,
@@ -8895,15 +8834,16 @@ window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw,
 
 // TIPS-BEGIN (onboarding: contextual tip card above the bottom-left HUD, How to Play overlay, Show/Reset tips settings; docs/reports/onboarding.md)
 (() => {
-  const KEY = 'gk.tips.v1', MAX = { go: 3, vaultAim: 3, outer: 2, brain: 2, lowhp: 2, vaultOpen: 2, sudden: 2 };
-  const TEXT = {
-    go: 'Each round, every room picks ONE door on its panel. It opens when the timer hits 0.',
-    vaultAim: 'Vault doors need TWO rooms to pick them, or the vote fizzles.',
-    outer: 'Behind outer doors: chests, mystery rooms (risky!) and merchants.',
+  const KEY = 'gk.tips.v1', MAX = { home: 3, go: 3, vaultAim: 3, outer: 2, brain: 2, lowhp: 2, vaultOpen: 2, sudden: 2 };
+  const TEXT = {   // QA-FULL: rewritten for the 5x5 arena and the round-1 home phase
+    home: 'Round 1: your home is locked. Collect elixir at the pump, spend it on the Elixir Screen, craft and recycle. The arena opens at round 2.',
+    go: 'The arena is open. Each room picks ONE door on its panel; it opens when the timer hits 0 and stays open for good. THE VAULT is the middle room.',
+    vaultAim: 'Vault doors need TWO rooms to pick them, or the vote fizzles. The heist rooms around the vault can add votes.',
+    outer: 'Side rooms hold chests, mystery rooms (risky!), merchants, the Master Forge and the Grand Recycler.',
     brain: 'Eat a goblin brain for 5% of its knowledge. Each brain is also a knowledge point for a perk at the workbench.',
     lowhp: 'Death loses EVERYTHING you carry. Run through a door if you must.',
-    vaultOpen: 'THE VAULT holds a relic. Everyone else wants it too.',
-    sudden: 'Sudden death: every door is open and only THE VAULT heals. Last goblin standing wins.',
+    vaultOpen: 'THE VAULT is open: scoop the coffers, grab the relic, and stand on the dais to claim the crown.',
+    sudden: 'Sudden death: the outer rooms are venting and only THE VAULT heals. Get to the vault!',
   };
   let st = { on: true, seen: {} };
   try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && typeof s === 'object') st = { on: s.on !== false, seen: s.seen && typeof s.seen === 'object' ? s.seen : {} }; } catch (e) {}
@@ -8942,6 +8882,7 @@ window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw,
   setInterval(() => {
     if (cur) place();   // UI-POLISH: follow the stat cards (they appear and grow after the tip is shown)
     if (!st.on || GK.mode !== 'play' || GK.locked) { if (cur && GK.mode !== 'play') { cur = null; clearTimeout(hideT); card.style.display = 'none'; } return; }
+    if (GK.homeLocked && GK.homeLocked()) { goAt = 0; show('home'); return; }   // QA-FULL: round 1 is the home phase; the door tips wait until the arena opens
     if (!goAt) goAt = performance.now();
     const ri = GK.roundInfo(), env = GK.tipEnv(), mine = env.mine, now = performance.now();
     const sudden = !!document.getElementById('gkSudTag');
@@ -8964,29 +8905,27 @@ window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw,
 
   // ---- How to Play overlay: five canvas drawings in the gold style ----
   const GOLDC = '#f5c451', DARK = '#120f0a', PINK = '#f08aa8';
-  const PANELS = [
-    { t: 'Pick a door', x: 'Each room votes on ONE door at its panel. When the timer hits 0, picked doors open.', d(g) {
+  const PANELS = [   // QA-FULL: rewritten for the 5x5 arena, the home phase and the vault crown (the old five described the 3x3 game)
+    { t: 'Round 1: your home', x: 'The first round you are locked in your home. Collect elixir at the pump, spend it on the Elixir Screen, craft at the bench and recycle junk. At round 2 the grille rises onto your hall.', d(g) {
+      g.strokeStyle = GOLDC; g.lineWidth = 4; g.beginPath(); g.moveTo(40, 70); g.lineTo(110, 22); g.lineTo(180, 70); g.stroke(); g.strokeRect(54, 70, 112, 74);
+      g.lineWidth = 3; for (let x = 76; x <= 144; x += 17) { g.beginPath(); g.moveTo(x, 92); g.lineTo(x, 144); g.stroke(); } g.beginPath(); g.moveTo(70, 92); g.lineTo(150, 92); g.stroke();
+      g.fillStyle = '#7fd8ff'; g.beginPath(); g.moveTo(222, 58); g.bezierCurveTo(206, 84, 204, 96, 222, 104); g.bezierCurveTo(240, 96, 238, 84, 222, 58); g.fill();
+      g.fillStyle = GOLDC; g.font = 'bold 15px system-ui'; g.fillText('2:00', 204, 136); } },
+    { t: 'Pick a door', x: 'From round 2 every room votes on ONE door at its panel. When the timer hits 0, picked doors open, and they stay open. A vault door needs TWO rooms to pick it.', d(g) {
       g.fillStyle = '#0d1b2a'; g.fillRect(14, 16, 96, 118); g.strokeStyle = '#4aa8ff'; g.strokeRect(14, 16, 96, 118);
       [0, 1, 2].forEach(i => { g.fillStyle = i === 1 ? GOLDC : '#2f5e8f'; g.fillRect(24, 28 + i * 34, 76, 24); });
       g.fillStyle = GOLDC; g.fillRect(150, 30, 70, 100); g.fillStyle = DARK; g.fillRect(158, 38, 54, 92);
       g.strokeStyle = GOLDC; g.lineWidth = 3; g.beginPath(); g.moveTo(112, 74); g.lineTo(144, 74); g.lineTo(136, 66); g.moveTo(144, 74); g.lineTo(136, 82); g.stroke();
       g.fillStyle = GOLDC; g.font = 'bold 15px system-ui'; g.fillText('0:00', 166, 24); } },
-    { t: 'The vault needs two', x: 'A vault door only opens if TWO different rooms pick it. One lonely vote fizzles.', d(g) {
-      g.strokeStyle = GOLDC; g.lineWidth = 4; g.beginPath(); g.arc(130, 78, 54, 0, 7); g.stroke(); g.lineWidth = 2; g.beginPath(); g.arc(130, 78, 38, 0, 7); g.stroke();
-      g.fillStyle = GOLDC; g.font = 'bold 44px system-ui'; g.textAlign = 'center'; g.fillText('$', 130, 94);
-      g.font = 'bold 13px system-ui'; g.fillText('ROOM A', 38, 150); g.fillText('ROOM B', 222, 150); g.textAlign = 'left';
-      g.fillRect(14, 60, 46, 5); g.fillRect(200, 60, 46, 5); } },
-    { t: 'Chests, mysteries, merchants', x: 'Outer doors lead to chest rooms, risky mystery rooms and merchants who sell for gold.', d(g) {
+    { t: 'Loot, trees, heists', x: 'Side rooms hold chests, risky mystery rooms, merchants, the Master Forge and the Grand Recycler. Tree rooms give knowledge and blessings; the heist rooms around the vault help you break in.', d(g) {
       [['▣', 30], ['?', 105], ['●', 180]].forEach(([c, x], i) => {
         g.strokeStyle = GOLDC; g.lineWidth = 3; g.strokeRect(x, 40, 60, 70); g.fillStyle = i === 1 ? '#ff7a4a' : GOLDC; g.font = 'bold 38px system-ui'; g.textAlign = 'center'; g.fillText(c, x + 30, 87);
         g.font = 'bold 11px system-ui'; g.fillStyle = '#efe9d8'; g.fillText(['CHEST', 'MYSTERY', 'MERCHANT'][i], x + 30, 128); }); g.textAlign = 'left'; } },
-    { t: 'Brains and knowledge', x: 'Eat a fallen goblin\'s brain to gain 5% of its knowledge. Knowledge unlocks recipe tiers, and every brain is a point to spend on a perk at the workbench or knowledge tree.', d(g) {
-      g.fillStyle = PINK; g.beginPath(); g.ellipse(80, 78, 42, 32, 0, 0, 7); g.fill(); g.strokeStyle = '#a83a60'; g.lineWidth = 3;
-      g.beginPath(); g.moveTo(80, 48); g.quadraticCurveTo(70, 78, 80, 108); g.moveTo(55, 70); g.quadraticCurveTo(70, 66, 80, 76); g.moveTo(105, 84); g.quadraticCurveTo(92, 82, 80, 90); g.stroke();
-      g.strokeStyle = GOLDC; g.lineWidth = 3; g.beginPath(); g.moveTo(130, 78); g.lineTo(158, 78); g.lineTo(150, 70); g.moveTo(158, 78); g.lineTo(150, 86); g.stroke();
-      g.fillStyle = '#5fae4a'; g.beginPath(); g.arc(205, 82, 28, 0, 7); g.fill(); g.beginPath(); g.moveTo(180, 80); g.lineTo(166, 62); g.lineTo(184, 70); g.fill(); g.beginPath(); g.moveTo(230, 80); g.lineTo(244, 62); g.lineTo(226, 70); g.fill();
-      g.fillStyle = DARK; g.fillRect(195, 76, 5, 5); g.fillRect(211, 76, 5, 5); g.fillStyle = GOLDC; g.font = 'bold 14px system-ui'; g.fillText('+5%', 187, 130); } },
-    { t: 'Death loses everything', x: 'If you die, you drop ALL you carry. Run through a door if the fight is lost.', d(g) {
+    { t: 'Claim the crown', x: 'THE VAULT in the middle holds gold coffers and a relic. Stand on its dais to build a crown claim. After round 5 the outer rooms vent; after round 7 the biggest claim wins, then kills, then health.', d(g) {
+      g.fillStyle = GOLDC; g.beginPath(); g.moveTo(80, 96); g.lineTo(72, 40); g.lineTo(102, 70); g.lineTo(130, 30); g.lineTo(158, 70); g.lineTo(188, 40); g.lineTo(180, 96); g.closePath(); g.fill();
+      g.fillStyle = PINK; [[102, 84], [130, 80], [158, 84]].forEach(([x, y]) => { g.beginPath(); g.arc(x, y, 6, 0, 7); g.fill(); });
+      g.strokeStyle = GOLDC; g.lineWidth = 3; g.beginPath(); g.ellipse(130, 128, 96, 18, 0, 0, 7); g.stroke(); g.lineWidth = 2; g.beginPath(); g.ellipse(130, 128, 70, 11, 0, 0, 7); g.stroke(); } },
+    { t: 'Death loses everything', x: 'Last goblin standing wins. If you die you drop ALL you carry, your brain too: eat fallen brains for knowledge and perk points.', d(g) {
       g.fillStyle = '#e9e4d6'; g.beginPath(); g.arc(130, 62, 32, 0, 7); g.fill(); g.fillRect(114, 80, 32, 22);
       g.fillStyle = DARK; g.beginPath(); g.arc(118, 62, 8, 0, 7); g.arc(142, 62, 8, 0, 7); g.fill(); g.fillRect(126, 74, 8, 8);
       g.fillStyle = GOLDC; [[30, 40], [50, 100], [210, 50], [225, 110], [70, 130]].forEach(([x, y]) => { g.beginPath(); g.arc(x, y, 8, 0, 7); g.fill(); });

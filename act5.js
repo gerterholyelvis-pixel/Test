@@ -323,9 +323,14 @@ module.exports = function create(S) {
   }
   function alarmDoors(m, on) {   // the crown alarm forces the 4 vault doors open while someone claims (and 10 s after); the doors it opened close again
     const A = m.act; if (m.sudden || m.showdown) { A.alarm = on; A.alarmAdded = []; return; }
-    if (on && !A.alarm) { for (const d of S.VAULT) if (!m.open.includes(d)) { m.open = m.open.concat(d); A.alarmAdded.push(d); } if (A.alarmAdded.length) S.broadcastRound(m); }
+    if (on && !A.alarm) { for (const d of S.VAULT) if (!m.open.includes(d)) { m.open = m.open.concat(d); A.alarmAdded.push(d); } if (m.shut) m.shut = m.shut.filter(d => !S.VAULT.includes(d)); if (!S.rule('doorclose')) A.vault.barPend = {}; if (A.alarmAdded.length) S.broadcastRound(m); }
+    else if (!on && A.alarm && A.alarmAdded.length && !S.rule('doorclose')) A.alarmAdded = [];   // DOORS-PERSIST (docs/reports/doors-persist.md): a door the alarm forced stays open for good
     else if (!on && A.alarm && A.alarmAdded.length) { const gone = A.alarmAdded; A.alarmAdded = []; m.open = m.open.filter(d => !gone.includes(d)); S.broadcastRound(m); }
     A.alarm = on;
+  }
+  function barDoors(m, alarm) {   // DOORS-PERSIST: a finished bar shuts its open vault door at once (m.shut); the round end reopens it (server ruleOpen). Not under the alarm or in sudden death, never a Broken door.
+    const A = m.act, bp = A.vault.barPend; if (m.sudden || alarm || S.rule('doorclose')) return;
+    for (const dir in bp) { const d = DOOR_OF_DIR[dir]; if (!bp[dir] || !m.open.includes(d) || (A.H.breach[d] || 0) >= VB5.K.BROKEN) continue; m.open = m.open.filter(x => x !== d); (m.shut = m.shut || []).push(d); S.broadcastRound(m); }
   }
   function tick(m, now) {
     const A = m.act; if (!A || m.phase !== 'play' || !m.started || m.ended || !m.goAt || now < m.goAt) return;
@@ -340,6 +345,7 @@ module.exports = function create(S) {
       if (VB5.quakeActive(A.H, now)) VAULT5.quake(A.vault, now, A.H.quakeUntil - now);
       const vr = VAULT5.tick(A.vault, vc, dt);
       alarmDoors(m, !!vr.alarm);
+      barDoors(m, !!vr.alarm);
       if (m.sudden) VAULT5.ventTick(A.vault, goblins(m).filter(q => !q.dc), vc);
     } catch (e) { oops('vault', e); }
     if (m.ended) return;

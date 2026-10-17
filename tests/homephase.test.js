@@ -1,5 +1,5 @@
 // HOME PHASE (docs/reports/home-phase.md): round 1 is spent at home. Every hatch is shut on the server (pathOk refuses the step, for humans and bots alike), nobody can walk
-// into a foreign home, the door guard leaves the cells alone, the dev fast-forward still works, and round 2 opens every hatch plus an exit of every occupied home's cell.
+// into a foreign home, the door guard leaves the cells alone, the dev fast-forward still works, and round 2 opens every hatch (DOORS-PERSIST: and nothing else, see tests/doors-persist.test.js).
 // {tp} (GK_DEBUG) is only used to stand a raider outside a home, which the rules make impossible in round 1; every crossing is a real walk ({m}).
 const L = require('./lib.js'), { connect, sleep, assert, eq } = L, W = require('../world.js');
 const doorSpot = (home, d) => { const c = W.CHEST[+home.slice(1)]; return W.attLocal(c, 0, W.HS / 2 + d); };   // d > 0 outside the hatch (in the arena cell), d < 0 inside the home
@@ -21,7 +21,7 @@ const bot5 = async c => { const n = c.msgs.length; c.send({ bot5: 1 }); await c.
   let fail = 1;
   try {
     fail = await L.run('homephase', [
-      ['round 1: you cannot walk out of your home, a raider cannot walk in, no vote or open door; {dbgFF} still skips; round 2 opens the hatches and an exit of the cell', async () => {
+      ['round 1: you cannot walk out of your home, a raider cannot walk in, no vote or open door; {dbgFF} still skips; round 2 opens the hatches', async () => {
         const [a, b] = await Promise.all([connect(srv.port, 'name=Ana&goblin=2&wins=0'), connect(srv.port, 'name=Bob&goblin=2&wins=0')]);
         const ha = homeOf(a), cell = L.cellOf(ha), hatch = W.ROOM_DOORS[ha][0];
         eq(lastRound(a).round.n, 1); eq(lastRound(a).homeLock, 1, 'round 1 carries homeLock'); eq(a.state.open, []);
@@ -38,7 +38,7 @@ const bot5 = async c => { const n = c.msgs.length; c.send({ bot5: 1 }); await c.
         a.send({ dbgFF: 1 }); await a.until(c => c.state.round.left <= 10500, 1500, 'skipped to 0:10');
         await a.until(c => c.state.round.n === 2, 13000, 'round 2');
         assert(!lastRound(a).homeLock, 'round 2 has no homeLock');
-        const ex = a.state.open.filter(d => W.ROOM_DOORS[cell].includes(d)); assert(ex.length >= 1 && ex.every(d => W.DOORS[d].kind === 'arena'), 'the cell got a plain exit at once: ' + JSON.stringify(a.state.open));
+        // DOORS-PERSIST: round 2 itself opens nothing but the hatches (tests/doors-persist.test.js); here the raider stood in the cell during round 1 (a debug teleport), so the guard may have given that cell a door
         assert(!a.state.open.includes(hatch), 'a hatch never sits in the open list (it opens by the round, not by a vote)');
         // now both walk freely: the owner out, the raider in (no Door Lock bought)
         a.send({ tp: doorSpot(ha, -1.2) }); await sleep(120); eq((await walk(a, through(ha, -0.8, 1.6))).length, 0, 'the owner walks out in round 2');
