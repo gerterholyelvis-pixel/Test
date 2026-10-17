@@ -4960,6 +4960,7 @@ function paintSlot(el, id) {
   if (el.dataset.lab) { const l = document.createElement('span'); l.className = 'kl'; l.textContent = el.dataset.lab; el.appendChild(l); }
   if (k != null) {
     el.appendChild(mkIcon(k, size));
+    if (invLocked(k)) { const lk = document.createElement('span'); lk.textContent = '◆'; lk.title = 'Locked'; lk.style.cssText = 'position:absolute;right:3px;top:1px;font:800 12px system-ui,sans-serif;color:#ffd75e;pointer-events:none;text-shadow:0 1px 2px #000'; el.appendChild(lk); }   // INVORG
     const tn = tierN(k); if (tn != null) { const b = document.createElement('span'); b.textContent = 'T' + tn; b.style.cssText = 'position:absolute;right:3px;bottom:2px;padding:0 4px;border-radius:4px;font:800 10px/14px system-ui,sans-serif;color:#0c0a06;pointer-events:none;background:' + (TIER_COL[(infoOf(k) || {}).tier] || '#9aa0a8'); el.appendChild(b); }
     else if (infoOf(k) && infoOf(k).family === 'brain') { const b = document.createElement('span'); b.textContent = '+' + fmtN(infoOf(k).gain); b.style.cssText = 'position:absolute;right:3px;bottom:2px;padding:0 4px;border-radius:4px;font:800 10px/14px system-ui,sans-serif;color:#0c0a06;pointer-events:none;background:#f08aa8'; el.appendChild(b); }
   } else if (id === 'weapon' || id === 'armor' || id === 'charm') { const c = mkIcon(id === 'weapon' ? 'w:sword' : id === 'charm' ? 'c:heart' : 'a:vest', size); c.className = 'sil'; el.appendChild(c); }
@@ -5021,6 +5022,7 @@ function moveInv(from, to) {
 }
 function dropSlot(id) {
   if (!id || invGet(myInv, id) == null) return;
+  if (invLocked(invGet(myInv, id))) { flashBad(id); invOrgHint('Locked: unlock it first (Lock button)'); return; }   // INVORG
   invDrop(myInv, id); net.send({ drop: id }); if (held === id) held = null; paintAll(); hideTip();
   const mine = actors.get(me); if (mine) showStats(null, mine.goblin);
 }
@@ -5054,7 +5056,7 @@ function buildInv() {
   const closeBtn = document.createElement('button'); closeBtn.textContent = 'CLOSE'; closeBtn.style.cssText = 'border:0;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font-weight:800';
   const eatBtn = document.createElement('button'); eatBtn.textContent = 'EAT / USE'; eatBtn.id = 'invEat'; eatBtn.style.cssText = 'border:1px solid #8be28b;background:rgba(40,120,50,.35);color:#b8f5b8';
   eatBtn.onclick = () => { const k = held && invGet(myInv, held); if (k && infoOf(k) && (infoOf(k).family === 'brain' || infoOf(k).use || infoOf(k).type === 'charm')) eatSlot(held); else { hintEl.style.color = '#ff8a7a'; hintEl.textContent = 'Pick up a brain or a utility item first, then press Eat / Use (or double-click it)'; setTimeout(() => { hintEl.style.color = '#8d8880'; hintEl.textContent = 'Right-click an item to drop it  ·  Tab / I / E to close'; }, 2200); } };
-  foot.append(hintEl, eatBtn, dropBtn, closeBtn);
+  foot.append(hintEl, ...invOrgButtons(), eatBtn, dropBtn, closeBtn);   // INVORG
   invEl.addEventListener('dblclick', e => { const el = e.target.closest && e.target.closest('.gks'); if (el && el.dataset.id) { held = null; eatSlot(el.dataset.id); } });
   panel.append(main, qwrap, foot); invEl.appendChild(panel);
   ghostEl = document.createElement('div'); ghostEl.style.cssText = 'position:fixed;z-index:70;display:none;pointer-events:none;filter:drop-shadow(0 4px 8px #000);transform:translate(-50%,-50%)';
@@ -5065,6 +5067,7 @@ function buildInv() {
   invEl.addEventListener('click', e => {
     const id = slotOf(e); if (e.target.closest('button')) return;
     if (!id) { if (e.target === invEl) { if (held) { held = null; paintAll(); } else closeInv(); } return; }   // FULLSCREEN-2: a click outside the bag closes it
+    if (e.shiftKey && held == null && invQuickEquip(id)) return;   // INVORG: shift-click gear = equip it
     if (held == null) { if (invGet(myInv, id) != null) { held = id; hideTip(); paintAll(); ghostAt(e); } } else moveInv(held, id);
   });
   invEl.addEventListener('contextmenu', e => { e.preventDefault(); const id = held || slotOf(e); if (id) dropSlot(id); });
@@ -5099,6 +5102,36 @@ function applyMatch(m) {
   lobbyEl.textContent = (lo === hi ? v(lo) : lo + '-' + hi + ' victories');
 }
 GK.showStats = () => { if (statsEl) statsEl.style.display = GK.mode === 'play' ? 'block' : 'none'; syncHotbar(); };
+// INVORG-BEGIN (inventory organising, docs/reports/ui-organize.md): Sort (favourites, then best tier, then kind) by swapping backpack slots with the normal mv message, Lock (client-side favourite: blocks drop, sorts first), shift-click quick-equip. uiorg.js holds the pure parts.
+const LOCKS = (() => { try { return JSON.parse(localStorage.getItem('gk.locks') || '{}') || {}; } catch (e) { return {}; } })();
+const invLocked = k => !!LOCKS[k];
+function invOrgHint(t) { if (!hintEl) return; hintEl.style.color = '#ff8a7a'; hintEl.textContent = t; setTimeout(() => { hintEl.style.color = '#8d8880'; hintEl.textContent = 'Right-click drops  ·  Shift-click equips  ·  Tab / I / E closes'; }, 2200); }
+function invQuickEquip(id) {
+  const k = invGet(myInv, id); if (k == null || id[0] === 'w' || id === 'armor' || id === 'charm') return false;
+  const it = infoOf(k), to = it && (it.type === 'weapon' ? 'weapon' : it.type === 'armor' ? 'armor' : it.type === 'charm' ? 'charm' : null);
+  if (!to) return false; moveInv(id, to); return true;
+}
+function invSortBackpack() {
+  if (!window.GKUIORG) return;
+  const ents = myInv.backpack.filter(k => k != null).map(k => { const i = infoOf(k) || {}; return { key: k, name: i.name || String(k), tier: i.tier, kind: i.type || '' }; });
+  const want = GKUIORG.sortEntries(ents, 'kind', LOCKS).map(e => e.key); while (want.length < 9) want.push(null);
+  for (let i = 0; i < 9; i++) {
+    if (myInv.backpack[i] === want[i]) continue;
+    const j = myInv.backpack.findIndex((k, x) => x > i && k === want[i]); if (j < 0) continue;
+    if (!canMove(myInv, 'b' + j, 'b' + i)) continue; invMove(myInv, 'b' + j, 'b' + i); net.send({ mv: ['b' + j, 'b' + i] });
+  }
+  held = null; paintAll();
+}
+function invToggleLock() {
+  const k = held ? invGet(myInv, held) : null; if (k == null) { invOrgHint('Pick up an item first, then press Lock'); return; }
+  if (LOCKS[k]) delete LOCKS[k]; else LOCKS[k] = 1; try { localStorage.setItem('gk.locks', JSON.stringify(LOCKS)); } catch (e) {}
+  held = null; paintAll();
+}
+function invOrgButtons() {
+  const mk = (t, fn, tip) => { const b = document.createElement('button'); b.textContent = t; b.title = tip; b.onclick = fn; b.style.cssText = 'border:1px solid rgba(255,215,94,.5);background:rgba(255,215,94,.08);color:#ffd75e'; return b; };
+  return [mk('SORT', invSortBackpack, 'Locked items first, then by kind and best tier'), mk('LOCK', invToggleLock, 'Pick up an item, then Lock: it cannot be dropped and sorts first')];
+}
+// INVORG-END
 GK.getInv = () => JSON.parse(JSON.stringify(myInv));
 GK.openInventory = openInv; GK.closeInventory = closeInv;
 addEventListener('keydown', e => {

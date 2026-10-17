@@ -76,6 +76,7 @@
     '#gkPause .pb:hover,#gkPause .pb:focus-visible{background:rgba(245,196,81,.16);outline:2px solid rgba(255,106,42,.85);outline-offset:1px}#gkPause .pb.bad{border-color:#e0503a;color:#ffb3a6}' +
     '#gkPause .sr{display:grid;grid-template-columns:1fr minmax(120px,1.1fr) 52px;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.06);font-size:16px}#gkPause .sr output{text-align:right;color:#c9c3b0}' +
     '#gkPause .kr{display:flex;gap:10px;align-items:center;padding:4px 0;font-size:16px}#gkPause .kr .ks{flex:0 0 150px}#gkPause kbd{display:inline-block;min-width:26px;margin-right:4px;padding:2px 7px;text-align:center;font:700 14px/1.3 var(--ui,system-ui);color:#f5d27a;background:#1d1810;border:1px solid #a8741a;border-radius:4px}' +
+    '#gkPause .pp.wide{width:min(960px,96vw)}#gkPause .cg{columns:2 380px;column-gap:28px}#gkPause .cgr{break-inside:avoid}#gkPause .kr{padding:2px 0;font-size:15px}#gkPause .kr .ks{flex:0 0 130px}' +
     '#gkPause .note{margin-top:10px;font-size:15px;color:#c9c3b0}#gkMenuBtn{position:fixed;right:max(10px,1vw);bottom:max(10px,1.5vh);z-index:30;display:none;padding:6px 12px;font:700 14px/1 var(--ui,system-ui);letter-spacing:.1em;text-transform:uppercase;color:#efe9d8;background:rgba(12,10,8,.84);border:1px solid rgba(245,196,81,.5);border-radius:3px;cursor:pointer;opacity:.78}' +
     '#gkMenuBtn:hover,#gkMenuBtn:focus-visible{opacity:1;outline:2px solid rgba(255,106,42,.85)}#gkMenuBtn small{margin-left:6px;color:#a39e8e;font-weight:600;letter-spacing:.04em}@media (max-width:780px){#gkMenuBtn small{display:none}}';
 
@@ -118,7 +119,8 @@
       backBtn(p);
     } else if (v === 'controls') {
       p = box('Controls');
-      for (const g of CHEAT) { p.appendChild($('h3', null, g.group)); for (const k of g.keys) { const r = $('div', 'kr'), ks = $('span', 'ks'); for (const x of k.k) ks.appendChild($('kbd', null, x.trim())); r.appendChild(ks); r.appendChild($('span', null, k.t)); p.appendChild(r); } }
+      p.classList.add('wide'); const cg = $('div', 'cg'); p.appendChild(cg);   // two columns: the whole list fits at 720p
+      for (const g of CHEAT) { const gd = $('div', 'cgr'); gd.appendChild($('h3', null, g.group)); for (const k of g.keys) { const r = $('div', 'kr'), ks = $('span', 'ks'); for (const x of k.k) ks.appendChild($('kbd', null, x.trim())); r.appendChild(ks); r.appendChild($('span', null, k.t)); gd.appendChild(r); } cg.appendChild(gd); }
       first = backBtn(p);
     } else if (v === 'stats') {
       p = box('Stats'); const holder = $('div'); p.appendChild(holder);
