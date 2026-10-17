@@ -52,7 +52,7 @@ const rng = seed => { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>
 const SV = {
   ROUND_MS: srvConst('ROUND_MS'), SUDDEN_ROUND: srvConst('SUDDEN_ROUND'), MAX_ROUND: srvConst('MAX_ROUND'), PACE: srvConst('PACE'), BOLT: srvConst('BOLT'), BRIBE: srvConst('BRIBE'),
   CAP: srvConst('CAP'), QUEUE_MS: srvConst('QUEUE_MS'), RULE_DEFAULT: srvConst('RULE_DEFAULT'), RULE_NAMES: srvConst('RULE_NAMES'), NPC: srvConst('NPC'), STATION_TYPES: srvConst('STATION_TYPES'),
-  DOOR_LIFE: srvConst('DOOR_LIFE'), KLAXON_MS: srvConst('KLAXON_MS'), WALK: srvConst('WALK'), SPRINT: srvConst('SPRINT'), SEE_FAR: srvConst('SEE_FAR'), SEE_NEAR: srvConst('SEE_NEAR'),
+  DOOR_LIFE: srvConst('DOOR_LIFE'), CELL_ROUND: srvConst('CELL_ROUND'), KLAXON_MS: srvConst('KLAXON_MS'), WALK: srvConst('WALK'), SPRINT: srvConst('SPRINT'), SEE_FAR: srvConst('SEE_FAR'), SEE_NEAR: srvConst('SEE_NEAR'),
   SEE_HIT_MS: srvConst('SEE_HIT_MS'), SEE_MEM_MS: srvConst('SEE_MEM_MS'), BOT_GRACE: srvConst('BOT_GRACE'), BLEED_MS: srvConst('BLEED_MS'), USE_CD: srvConst('USE_CD'), BOMB_FUSE: srvConst('BOMB_FUSE'),
   MAX_PLACED: srvConst('MAX_PLACED'), BAIT_LIFE: srvConst('BAIT_LIFE'), LURE_MS: srvConst('LURE_MS'), LURE_RANGE: srvConst('LURE_RANGE'), GRACE_MS: srvConst('GRACE_MS'),
   FOV: srcNum(/Math\.cos\((\d+) \* Math\.PI \/ 180\)/, null, 'the vision cone'), BOUNTY_CAP: srcNum(/Math\.min\(t\.gold \|\| 0, (\d+)\)/, null, 'the bounty gold cap'),
@@ -235,10 +235,10 @@ const vaultFacts = [
   ['Relic', 'one mythic-or-better weapon or armour on the pedestal; restocks at the start of rounds ' + VKV.RELIC_ROUNDS.join(' and ') + ' if taken'],
   ['Crown claim', 'stand alone on the dais (radius ' + VKV.DAIS_R + ' m) unhurt for ' + S(VKV.CLAIM_UNHURT_MS) + ' to gain claim; two or more goblins freeze it; claim is cumulative and lost on death'],
   ['Deciding the match', 'at the end of round ' + VKV.MAX_ROUND + ' the highest claim (at least ' + S(VKV.CLAIM_MIN) + ') wins, then kills, then health'],
-  ['Alarm', 'while anyone gains claim every vault door is forced open, and for ' + S(VKV.ALARM_AFTER_MS) + ' after'],
+  ['Alarm', 'while anyone gains claim every vault door is forced open, and for ' + S(VKV.ALARM_AFTER_MS) + ' after; a door it forced stays open for good'],
   ['Vault Wardens', 'one rises from the grate every ' + S(VKV.WARDEN_EVERY) + ' while someone gains claim, max ' + VKV.WARDEN_MAX + ' alive (hp ' + V5.NPC.warden.hp + ', damage ' + V5.NPC.warden.dmg + ' every ' + S(V5.NPC.warden.cd) + ')'],
   ['Coffers', VKV.COFFERS.length + ' coffers, ' + VKV.COFFER_HANDFULS + ' handfuls each, refilling 1 per ' + S(VKV.COFFER_REFILL) + ' (' + S(VKV.COFFER_REFILL_SUDDEN) + ' in sudden death); a scoop takes ' + S(VKV.SCOOP_MS) + ' for ' + VKV.SCOOP_GOLD + ' gold, max ' + VKV.SCOOP_PER_ROUND + ' scoops a goblin a round'],
-  ['Door bars', 'a ' + S(VKV.BAR_MS) + ' channel at an open vault door\'s rack bars it shut at the round end (each door once a round; ' + S(VKV.BAR_PERSONAL_CD) + ' personal cooldown). Useless against a Broken door, during the alarm and in sudden death'],
+  ['Door bars', 'a ' + S(VKV.BAR_MS) + ' channel at an open vault door\'s rack shuts it at once until the round ends, then it reopens (each door once a round; ' + S(VKV.BAR_PERSONAL_CD) + ' personal cooldown). Useless against a Broken door, during the alarm and in sudden death'],
   ['Sudden death', 'claim gains x' + VKV.SUDDEN_CLAIM_MUL + '; every door open; outer, home and loot rooms vent: ' + VKV.VENT_DMG + ' damage every ' + S(VKV.VENT_MS)],
   ['Yield', ACT.get('vault').yield.notes],
 ];
@@ -260,9 +260,9 @@ const homeFacts = [['Whole upgrade tree', HB.treeCost() + ' elixir'], ['Sentry',
 
 // ---------------------------------------------------------------- match, combat, stations
 const rounds = [{ id: 'rd1', phase: 'Round 1', ms: SV.ROUND_MS, rule: homePhaseDoc || homePhaseConst ? 'Home-only phase (see the note above)' : 'Full arena: this build has no home-only phase yet' }].concat(
-  Array.from({ length: SV.MAX_ROUND - 1 }, (_, i) => i + 2).map(n => ({ id: 'rd' + n, phase: 'Round ' + n, ms: SV.ROUND_MS, rule: n <= SV.SUDDEN_ROUND ? 'Normal round: doors by vote' + (n >= HB.FIRST_SEND_ROUND ? '; sends allowed' : '') + (n >= 3 ? '; showdown when ' + SV.PACE.showdownAt + ' are left' : '') : 'SUDDEN DEATH: every door open, regeneration off, claims x' + VKV.SUDDEN_CLAIM_MUL })));
+  Array.from({ length: SV.MAX_ROUND - 1 }, (_, i) => i + 2).map(n => ({ id: 'rd' + n, phase: 'Round ' + n, ms: SV.ROUND_MS, rule: n <= SV.SUDDEN_ROUND ? (n === SV.CELL_ROUND ? 'Hall round: the hatches open and nothing else; each hall votes its way out (it opens at the round end)' : 'Normal round: votes add doors, open doors stay open') + (n >= HB.FIRST_SEND_ROUND ? '; sends allowed' : '') + (n >= 3 ? '; showdown when ' + SV.PACE.showdownAt + ' are left' : '') : 'SUDDEN DEATH: every door open, regeneration off, claims x' + VKV.SUDDEN_CLAIM_MUL })));
 rounds.forEach(r => { r.length = S(r.ms); delete r.ms; });
-const matchFacts = [['Players per match', SV.CAP + ' (bots fill empty seats after ' + S(SV.QUEUE_MS) + ' of queueing)'], ['Round length', S(SV.ROUND_MS)], ['Rounds', SV.MAX_ROUND + ' at most (' + S(SV.MAX_ROUND * SV.ROUND_MS) + ')'], ['Sudden death', 'after round ' + SV.SUDDEN_ROUND],
+const matchFacts = [['Players per match', SV.CAP + ' (bots fill empty seats after ' + S(SV.QUEUE_MS) + ' of queueing)'], ['Round length', S(SV.ROUND_MS)], ['Rounds', SV.MAX_ROUND + ' at most (' + S(SV.MAX_ROUND * SV.ROUND_MS) + ')'], ['Sudden death', 'after round ' + SV.SUDDEN_ROUND], ['Doors', 'a door that opens stays open for the rest of the match (votes, heists, the alarm, Crowbar, Door Wedge, the guard); only a vault bar shuts one, until the round ends'],
   ['Match decided', 'at the end of round ' + SV.MAX_ROUND + ': highest crown claim, then kills, then health'], ['Starting gold', G.START_GOLD], ['Round income', SV.PACE.income + ' gold to every living goblin at each new round'],
   ['Kill bounty', 'half the victim\'s gold (counted up to ' + SV.BOUNTY_CAP + ') plus ' + SV.PACE.bountyKill + ' per kill the victim had, rounded to 5; mystery enemies pay nothing'], ['Showdown', 'from round 3, when ' + SV.PACE.showdownAt + ' or fewer goblins are alive, door locks stop working'],
   ['Shop prices', '+' + pc(SV.PRICE_STEP) + ' per round after round ' + SV.PRICE_FROM + ', rounded to 5'], ['Bot grace', 'bots do not attack in round 1 or in the first ' + S(SV.BOT_GRACE) + ' after GO'], ['Reconnect grace', S(SV.GRACE_MS)], ['Rule defaults', 'on: ' + SV.RULE_DEFAULT.join(', ') + '; off: ' + SV.RULE_NAMES.filter(r => !SV.RULE_DEFAULT.includes(r)).join(', ') + ' (GK_RULES changes them)'],
