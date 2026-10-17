@@ -30,7 +30,7 @@
     },
     spring(a, st, me, env) {
       if (a !== 'NE' && a !== 'SE' && a !== 'SW') return [];
-      if (!st.basins || !(st.basins[a] >= 1)) return [];
+      if (env.sudden || !st.basins || !(st.basins[a] >= 1)) return [];   // the spring is dry in sudden death (the server refuses)
       return list(act('E', 'Bottle spring water', 'use', a, null, true), (env.elixir | 0) >= 6 && act('R', 'Bottle blessed water (6 elixir)', 'buy', a, null, true));
     },
     seer(a) { return a === 'NE' || a === 'NW' || a === 'SE' ? [act('E', 'Turn the ring', 'use', a)] : []; },

@@ -4657,7 +4657,7 @@ GK.showDeathScreen = showDeathScreen;
     ST.vb = H.vb; ST.vbNext = H.vbNext; ST.trees = H.trees; ST.armed = H.armed; ST.breach = H.breach; ST.crown = H.crown;
     for (let id = 0; id < ND; id++) { ST.open[id].open = dKind[id] !== 2 ? !!openF[id] : !RS.homeLock; ST.open[id].shut = RS.shut.length > 0 && RS.shut.includes(id); }   // HOME PHASE: the hatches show shut in round 1; DOORS-PERSIST: barred vault doors
     ST.actors.length = 0;
-    actors.forEach((a, id) => { if (id === me || a.npc || (vis[keyIdx(a.x, a.z)] !== 1 && !(window.GKUSE2 && GKUSE2.reveal()) && !(window.GKHOMEW && GKHOMEW.bellAt(a.x, a.z)) && !(window.GKACT5 && GKACT5.pulsed(id)))) return; ST.actors.push(a); });   // GKHOMEW.bellAt: a room with a Bell send running shows its goblins
+    actors.forEach((a, id) => { if (id === me || a.npc || (window.GKACT5 && GKACT5.hiddenAt(a.x, a.z)) || (vis[keyIdx(a.x, a.z)] !== 1 && !(window.GKUSE2 && GKUSE2.reveal()) && !(window.GKHOMEW && GKHOMEW.bellAt(a.x, a.z)) && !(window.GKACT5 && GKACT5.pulsed(id)))) return; ST.actors.push(a); });   // GKHOMEW.bellAt: a room with a Bell send running shows its goblins
   }
   function arrows(g, ids, ip, lw, col, skipOpen) {   // door-pick arrows (last round's picks, Panel Lens picks); skipOpen: not for a door that is open now (DOORS-PERSIST)
     g.strokeStyle = col; g.fillStyle = col; g.lineWidth = lw * ip;
@@ -8654,13 +8654,14 @@ window.GKACT5 = (() => {
       const b = {}; for (const k of Object.keys(d.breach)) { const s = sideOfDoor[k] || (SIDES.includes(k) ? k : null); if (s) b[s] = d.breach[k]; }
       d.breach = b; A.breach = b;
     }
-    if (d.actMe && d.actMe.chan && !d.actMe.chan.label) d.actMe.chan.label = LABEL[d.actMe.chan.n] || '';
+    if (d.actMe && d.actMe.chan && !d.actMe.chan.label) d.actMe.chan.label = LABEL[d.actMe.chan.n] || (/^stone\d/.test(d.actMe.chan.n) ? 'Waking the root-stone' : '');   // TREE-FIX: the Elder stones run channels named stone0..2
     if (d.actMe && d.actMe.timing && !d.actMe.timing.label) d.actMe.timing.label = 'Press E in the green';
   }
   let flashes = {};   // memory lanterns lit by a touch: key:a -> until (ms of performance.now)
   function onMsg(d) {
-    if (d.matchStart) { for (const k in rooms) delete rooms[k]; A.me = {}; A.crown = null; A.sudden = false; A.breach = {}; A.pulse = null; flashes = {}; GK.carryHeavy = false; }
-    if (d.round) A.sudden = !!d.sudden || A.sudden;
+    if (d.matchStart) { for (const k in rooms) delete rooms[k]; A.me = {}; A.crown = null; A.sudden = false; A.breach = {}; A.pulse = null; A.hidden = []; flashes = {}; GK.carryHeavy = false; }
+    if (d.round) A.sudden = !!d.sudden || A.sudden;   // TREE-FIX: a held Hollow Oak is hidden from every map (roundState.hidden lists the cells)
+    if (d.round) A.hidden = (d.hidden || []).map(String);
     if (d.actS && d.actS.r != null) rooms[d.actS.r] = { type: d.actS.type, st: d.actS.st || {}, e: d.actS.e || 0, tSeen: performance.now(), prev: rooms[d.actS.r] && rooms[d.actS.r].st };
     if (d.actMe !== undefined) { A.me = d.actMe || {}; GK.carryHeavy = !!(A.me.carry && A.me.carry.heavy); }
     if (d.crown !== undefined) A.crown = d.crown;
@@ -8820,7 +8821,7 @@ window.GKACT5 = (() => {
       if (e.kind === 'tree') { if (r.type === e.type) driveTree(e, r); } else if (e.kind === 'vb') driveVb(e, r);
     } catch (x) { if (!apply.warned) { apply.warned = 1; console.warn('act5 art', x); } }
   }
-  return { pre, onMsg, key: e => press(e.code), prompt: () => cur && !cur.busy ? cur.acts[0].label + (cur.acts[0].hold ? ' (hold)' : '') : '', apply, rooms, A, pulsed: id => !!(A.pulse && A.pulse.until > performance.now() && A.pulse.ids.has(id)), recompute, cur: () => cur };
+  return { pre, onMsg, key: e => press(e.code), prompt: () => cur && !cur.busy ? cur.acts[0].label + (cur.acts[0].hold ? ' (hold)' : '') : '', apply, rooms, A, hiddenAt: (x, z) => { if (!A.hidden || !A.hidden.length) return false; const k = W.roomKeyOf(x, z); return A.hidden.includes(k) && roomKeyAt(P.x, P.z) !== k; }, pulsed: id => !!(A.pulse && A.pulse.until > performance.now() && A.pulse.ids.has(id)), recompute, cur: () => cur };
 })();
 // ACT5UI-END
 if (window.GKART) requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => GKART.bake(renderer, { priority: () => { const v = myInv || {}; return [v.weapon, v.armor].concat(v.quick || [], v.backpack || [], (window.GKITEMS && GKITEMS.START || []).flatMap(g => [g.weapon, g.armor])).filter(k => typeof k === 'string'); } }), 600)));   // ITEMART: bake the inventory icons in small batches once the first frame is up

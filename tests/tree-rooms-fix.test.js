@@ -22,6 +22,15 @@ const AS = (c, r) => { for (let i = c.msgs.length - 1; i >= 0; i--) { const a = 
       assert(W.propsAt(r8.cx + 1.15, r8.cz + 1.9, types).some(p => p.k === 'tprop' && p.r === 0.4), 'Oak arch wall');
       const bare = []; assert(!W.propsAt(r6.cx + 4.2, r6.cz - 4.2, bare).some(p => p.k === 'tprop'), 'without the types only the trunk blocks (the old client)');
     }],
+    ['a held Hollow Oak is hidden from every map: roundState.hidden reaches the minimap filter; the Elder stone channel has a label; the dry spring offers nothing in sudden death', () => {
+      const g = R('game.js');
+      assert(/if \(d\.round\) A\.hidden = \(d\.hidden \|\| \[\]\)/.test(g), 'GKACT5.onMsg keeps roundState.hidden');
+      assert(/GKACT5\.hiddenAt\(a\.x, a\.z\)\) \|\| \(vis\[keyIdx/.test(g), 'the minimap actor filter drops goblins of a hidden room');
+      assert(/hiddenAt: \(x, z\) =>[^}]*A\.hidden\.includes\(k\) && roomKeyAt\(P\.x, P\.z\) !== k/.test(g), 'except for the room I stand in');
+      assert(/\/\^stone\\d\/\.test\(d\.actMe\.chan\.n\)/.test(g), 'stone0..2 channels are labelled');
+      const ui = require('../act5ui.js'), st = { basins: { NE: 1, SE: 1, SW: 1 } };
+      eq(ui.options('tree', 'spring', 'NE', st, {}, { elixir: 0 }).length, 1); eq(ui.options('tree', 'spring', 'NE', st, {}, { sudden: true }).length, 0);
+    }],
   ]);
   const srv = await L.startServer({ GK_ROUND_MS: '90000', GK_GRACE_MS: '8000' });
   try {
