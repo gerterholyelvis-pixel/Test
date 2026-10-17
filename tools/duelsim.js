@@ -41,7 +41,7 @@ async function duel(port, root, scen, swings, wins) {
     sendA({ atk: 1, rt, sq: i + 1 });
     let looks = false;   // B on A's screen during the blow (contact frame to the end of the active window, the frames the blade cuts)
     for (let q = tm.contact; q <= tm.end && !looks; q += 15) { const [bx, bz] = pathB((tClick + q - owA - DELAY - owB - T0) / 1000); looks = C4.melee(pr, R, ax, 0, az, yaw, bx, 0, bz, r, h, null); }
-    await sleep(cb.cd + 40 + scen.a);
+    await sleep(Math.round(cb.cd * (1 + (G.COMBAT5 ? G.COMBAT5.COMBO.whiff : 0))) + 40 + scen.a);   // COMBAT5: a client obeys the whiff recovery too
     const hit = a.msgs.slice(n0).some(m => m.hit && m.hit.from === me && m.hit.to === other);
     b.send({ hp: 999 });   // full health again (GK_DEBUG hook), so the duel never ends
     res.n++; if (looks) { res.looks++; if (hit) res.reg++; } else { res.missLooks++; if (hit) res.phantom++; }
