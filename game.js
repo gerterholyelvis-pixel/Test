@@ -2690,6 +2690,7 @@ GK.roundInfo = () => ({ n: RS.n, left: roundLeft(), dur: RS.dur, sel: RS.sel, op
 GK._applyRound = applyRound;   // test hook
 layoutHooks.push(() => panelsDirty());
 GK.ROOM_DOORS = ROOM_DOORS; GK.roomKeyAt = roomKeyAt;
+GK.cpAimOpen = () => { const b = cpAim && cpAim.p.buttons[cpAim.i]; return !!b && (RS.open.includes(b.id) || RS.shut.includes(b.id)) && !(window.GKRULES && GKRULES.has('doorclose')); };   // DOORS-PERSIST: the aimed door is open for good (no "Select door" prompt)
 GK.tipAim = () => { const a = cpAim, b = a && a.p.buttons[a.i]; return b ? doorLabel(a.p.key, b.id).kind : null; };   // TIPS hook: kind of the panel entry under the crosshair
 
 {
@@ -3952,7 +3953,7 @@ const UNIQUE = (() => {
   // ---- door intel (design s1, bullet 2): faint arrows on the facility wall map for last round's picks
   GK.mapIntel = (g, mx, my, MS) => {
     for (const k in RS.lastSel) {
-      const d = DINFO[RS.lastSel[k]]; if (!d) continue; const dir = d.a === k ? d.da : d.db;
+      const d = DINFO[RS.lastSel[k]]; if (!d || RS.open.includes(RS.lastSel[k])) continue; const dir = d.a === k ? d.da : d.db;   // DOORS-PERSIST: a pick that opened shows as an open door; the arrow stays for one that did not
       let cx, cz, w, h;
       if (k[0] === 'c') { const c = CHEST_ROOMS[+k.slice(1)]; if (!c) continue; cx = c.cx; cz = c.cz; w = h = c.size || CS; } else { const i = +k; [cx, cz] = rc(i); w = roomW(i); h = roomD(i); }
       const ux = dir === 'EAST' ? 1 : dir === 'WEST' ? -1 : 0, uz = dir === 'SOUTH' ? 1 : dir === 'NORTH' ? -1 : 0, ex = mx(cx + ux * w / 2) - ux * 13, ey = my(cz + uz * h / 2) - uz * 13;
@@ -4657,10 +4658,10 @@ GK.showDeathScreen = showDeathScreen;
     ST.actors.length = 0;
     actors.forEach((a, id) => { if (id === me || a.npc || (vis[keyIdx(a.x, a.z)] !== 1 && !(window.GKUSE2 && GKUSE2.reveal()) && !(window.GKHOMEW && GKHOMEW.bellAt(a.x, a.z)) && !(window.GKACT5 && GKACT5.pulsed(id)))) return; ST.actors.push(a); });   // GKHOMEW.bellAt: a room with a Bell send running shows its goblins
   }
-  function arrows(g, ids, ip, lw, col) {   // door-pick arrows (last round's picks, Panel Lens picks)
+  function arrows(g, ids, ip, lw, col, skipOpen) {   // door-pick arrows (last round's picks, Panel Lens picks); skipOpen: not for a door that is open now (DOORS-PERSIST)
     g.strokeStyle = col; g.fillStyle = col; g.lineWidth = lw * ip;
     for (let i = 0; i < NR; i++) {
-      const id = ids[KEYS[i]]; if (id === undefined || !DINFO[id]) continue;
+      const id = ids[KEYS[i]]; if (id === undefined || !DINFO[id] || (skipOpen && openF[id])) continue;
       const v = dirOf(DINFO[id], KEYS[i]), cx = rcx(i), cz = rcz(i), L = i < NA ? 3.2 : 1.8, hx = v[0] * L, hz = v[1] * L;
       g.beginPath(); g.moveTo(cx - hx * .4, cz - hz * .4); g.lineTo(cx + hx, cz + hz); g.stroke();
       g.beginPath(); g.moveTo(cx + hx * 1.25, cz + hz * 1.25); g.lineTo(cx + hx * .7 - v[1] * L * .45, cz + hz * .7 + v[0] * L * .45); g.lineTo(cx + hx * .7 + v[1] * L * .45, cz + hz * .7 - v[0] * L * .45); g.closePath(); g.fill();
@@ -4675,7 +4676,7 @@ GK.showDeathScreen = showDeathScreen;
     const ops = HUD5.mapOps(ST, { big }), mainOps = ops.filter(o => o.t !== 'dot' && o.t !== 'me'), topOps = ops.filter(o => o.t === 'dot' || o.t === 'me'), mo = { north: !rot, yaw: P.yaw, time: performance.now() };
     HUD5.drawMap(g, S, mainOps, mo);
     g.save(); g.translate(S / 2, S / 2); g.rotate(rot); g.scale(sc, sc);   // overlays in world metres: door intel, my pick, claimed ticks
-    arrows(g, RS.lastSel, ip, 1.6, 'rgba(120,175,255,.42)');
+    arrows(g, RS.lastSel, ip, 1.6, 'rgba(120,175,255,.42)', true);
     if (window.GKUSE2 && GKUSE2.lens()) arrows(g, RS.sel, ip, 2.2, '#ffd24a');   // ITEMS2: Panel Lens: every room's current pick
     const mySel = my < NR ? RS.sel[KEYS[my]] : undefined;
     if (mySel !== undefined && DINFO[mySel]) { g.lineWidth = 1.4 * ip; g.strokeStyle = '#bfe6ff'; g.beginPath(); g.arc(dX[mySel], dZ[mySel], 3.6, 0, 6.2832); g.stroke(); }
