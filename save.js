@@ -12,6 +12,15 @@
   const NAMES = [['Nib', 'Snik', 'Grub', 'Wort', 'Pip'], ['Gruk', 'Brask', 'Mog', 'Skarn', 'Dreg'], ['Thok', 'Gorbash', 'Ugrak', 'Brug', 'Zog'], ['Mizzle', 'Zarn', 'Quill', 'Ombra', 'Vexil'], ['Krag the King', 'Morgul', 'Grimble', 'Ozzar', 'Velkor'],
     ['Flit', 'Skeet', 'Ranz', 'Tikka', 'Quik'], ['Shiv', 'Murk', 'Sliss', 'Nox', 'Wisp'], ['Durk', 'Grubnik', 'Pebble', 'Clank', 'Rusk'], ['Ooga', 'Hexa', 'Bonesy', 'Mumbo', 'Vetch'],   // GOBTYPES: scout, sneak, miner, shaman
     ['Rakka', 'Gorm', 'Skull', 'Brakk', 'Rend'], ['Glub', 'Murla', 'Sloog', 'Bogwin', 'Reedle'], ['Kazgar', 'Vorn', 'Ruskar', 'Toreth', 'Ashka']];   // berserker, bog goblin, hobgoblin
+  // STATS-BEGIN: lifetime statistics live under their own key (versioned inside, see stats.js), so the stash and characters above are never touched by them
+  const SKEY = 'gk.stats.v1'; let smem = null;
+  const sNorm = r => (window.GKSTATS ? GKSTATS.normalize(r) : r);
+  function statsLoad() {
+    try { const raw = localStorage.getItem(SKEY); if (raw) return sNorm(JSON.parse(raw)); } catch (e) {}
+    return smem || sNorm(null);
+  }
+  function statsStore(s) { smem = s; try { localStorage.setItem(SKEY, JSON.stringify(s)); } catch (e) {} }
+  // STATS-END
   window.GKSAVE = {
     load,
     stash: () => load().stash,
@@ -36,6 +45,7 @@
       store(s); return c;
     },
     clearAll() { store(blank()); },
+    stats: statsLoad, saveStats: statsStore, clearStats() { smem = null; try { localStorage.removeItem(SKEY); } catch (e) {} },   // STATS
   };
 })();
 // SOCIAL: a reload during a match (token stored < 15 s ago, see game.js SOCIAL block) resumes it: keep the title hidden from the first paint
