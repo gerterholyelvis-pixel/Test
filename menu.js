@@ -3,7 +3,7 @@
 const GK = window.GK, THREE = window.THREE;
 const $ = id => document.getElementById(id);
 const TAU = Math.PI * 2;
-const DEFAULTS = { sens: 1, fov: 75, scale: 1, invertY: false, tags: true, fx: true, fsStart: false, gfx: 'high', minimap: true, mmNorth: true, dynres: true };   // MINIMAP: show / hide, north-up
+const DEFAULTS = { sens: 1, fov: 75, scale: 1, invertY: false, tags: true, fx: true, fsStart: false, gfx: 'high', minimap: true, mmNorth: true, dynres: true, ambfx: true };   // MINIMAP: show / hide, north-up
 Object.assign(DEFAULTS, GK.feelDefaults || {}, { mute: false });   // UIORG: mute-all (uiorg.js, audio.js)   // FEEL: vol, sfx, amb, bob (feel.js)
 const SKIN = ['#9bd45a', '#6dbb44', '#3f8a36', '#4cb8a6', '#a9cc34', '#9ccf52', '#5e7a4c', '#7f9a4a', '#8a9c6a', '#8c9a3c', '#4f8f72', '#b4733a'];
 const GOBS = (window.GKITEMS && GKITEMS.GOBLINS) || [], NG = GOBS.length || 5;   // GOBTYPES: the twelve starting goblins (items.js)

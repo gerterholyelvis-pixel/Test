@@ -372,7 +372,8 @@ function dfxUpdate(dt) {
 }
 try { GKVFX.init(THREE, scene, cam, renderer, () => GK.settings.gfx); } catch (e) { console.error('vfx init failed', e); } // VFX (vfx.js: pooled particles, see its header for the API)
 function doorBurst(d) {
-  const big = d.kind === 'vault', nd = big ? 90 : 34, ns = big ? 60 : 22, hw = d.dw / 2, R1 = Math.random;
+  const big = d.kind === 'vault'; if (big) GK.vaultKick = performance.now();   // ARENAFX: the vault's gold glows brighter for 1.6 s when one of its doors opens
+  const nd = big ? 90 : 34, ns = big ? 60 : 22, hw = d.dw / 2, R1 = Math.random;
   const wx = (lx, lz) => d.gx + d.ax[0] * lx + d.az[0] * lz, wz = (lx, lz) => d.gz + d.ax[1] * lx + d.az[1] * lz;
   for (let k = 0; k < nd; k++) {
     const lx = (R1() * 2 - 1) * hw, s = R1() < 0.5 ? -1 : 1, lz = s * (0.3 + R1() * 0.5), vx = (R1() - 0.5) * 0.6, vz = s * (0.5 + R1() * 1.3);
@@ -7731,7 +7732,7 @@ const ROOMART = (() => {
     const k0 = nearKey || WORLD.VAULT_KEY; nearKey = null; near(k0);   // a new layout: the rooms around the camera now, the rest in idle time
     if (typeof fxCull !== 'undefined') fxCull.cls = new WeakMap();
   }
-  const flick = t => { emberM.emissiveIntensity = 2.6 * (0.78 + 0.2 * Math.sin(t * 9.1) + 0.12 * Math.sin(t * 23.7 + 1.3)); goldVM.emissiveIntensity = 0.6 * (0.86 + 0.14 * Math.sin(t * 1.4)); };   // ARENAFX: cold-fire embers flicker, gold glows slowly (two uniforms, no cost)
+  const flick = t => { emberM.emissiveIntensity = 2.6 * (0.78 + 0.2 * Math.sin(t * 9.1) + 0.12 * Math.sin(t * 23.7 + 1.3)); goldVM.emissiveIntensity = 0.6 * (0.86 + 0.14 * Math.sin(t * 1.4)) + (GK.vaultKick && GK.settings.ambfx !== false ? 1.6 * Math.max(0, 1 - (performance.now() - GK.vaultKick) / 1600) : 0); };   // ARENAFX: cold-fire embers flicker, gold glows slowly (two uniforms, no cost)
   return { story, flick, init() { try { build(); layoutHooks.push(() => { try { build(); } catch (e) { console.warn('roomart layout skipped', e); } }); } catch (e) { console.warn('roomart skipped', e); } }, built, glints, near, pending: () => ALL.filter(stale).length,
     step(from) { const h = hopsFrom(from || anchor), k = ALL.filter(stale).sort((a, b) => (h[a] === undefined ? 99 : h[a]) - (h[b] === undefined ? 99 : h[b]))[0]; if (!k) return false; runOne(k); return true; } };   // PERF5: the loading step builds every room before GO
 })();
