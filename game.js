@@ -8656,7 +8656,7 @@ window.GKACT5 = (() => {
       const b = {}; for (const k of Object.keys(d.breach)) { const s = sideOfDoor[k] || (SIDES.includes(k) ? k : null); if (s) b[s] = d.breach[k]; }
       d.breach = b; A.breach = b;
     }
-    if (d.actMe && d.actMe.chan && !d.actMe.chan.label) d.actMe.chan.label = LABEL[d.actMe.chan.n] || '';
+    if (d.actMe && d.actMe.chan && !d.actMe.chan.label) d.actMe.chan.label = LABEL[d.actMe.chan.n] || (U.LABELX && U.LABELX[d.actMe.chan.n]) || '';   // VBX: station channels
     if (d.actMe && d.actMe.timing && !d.actMe.timing.label) d.actMe.timing.label = 'Press E in the green';
   }
   let flashes = {};   // memory lanterns lit by a touch: key:a -> until (ms of performance.now)
@@ -8682,6 +8682,10 @@ window.GKACT5 = (() => {
     }
     if (f.k === 'pulse') { A.pulse = { until: performance.now() + (f.ms || 8000), ids: new Set((f.gob || []).map(g => g[0])) }; try { GK.minimap && GK.minimap.redraw(); } catch (x) {} }
     else if (f.k === 'vbNext' && f.vbNext && window.GKHUD5) { GKHUD5.S.vbNext = f.vbNext; try { GK.minimap && GK.minimap.redraw(); } catch (x) {} }
+    if (U.sound && window.GKAUDIO) { const s = U.sound(f), rr = f.r != null && W.roomRect(String(f.r)); if (s) try { GKAUDIO.play(s.name, Object.assign(rr ? { x: rr.cx, z: rr.cz } : {}, s.o)); } catch (x) {} }   // VBX: station and timing sounds
+    if (f.k === 'ledger' && f.lines) { toastMsg(f.lines.join('\n'), true, 7000); try { toastEl.style.whiteSpace = 'pre-line'; toastEl.style.textAlign = 'center'; } catch (x) {} return; }   // VBX: the Counting House ledger (private)
+    if (f.k === 'click') { toastMsg('A soft click: dial ' + ((f.d | 0) + 1) + ' sits right', true, 1300); return; }
+    if (U.TOASTX && U.TOASTX[f.k] && !(f.k === 'attuned' && f.by !== me)) toastMsg(U.TOASTX[f.k], true, 1900);
     if (f.id != null && f.id !== me && f.k !== 'gain') return;
     if (f.k === 'gain' || f.k === 'treasury') {
       const t = []; if (f.know) t.push('+' + f.know + ' knowledge'); if (f.gold) t.push('+' + f.gold + ' gold'); if (f.item) t.push(itemName(f.item)); if (f.tok) t.push(itemName(f.tok));
@@ -8712,6 +8716,7 @@ window.GKACT5 = (() => {
         let r2 = null; if (myInv) myInv.backpack.forEach((k, i) => { if (!r2 && twin(k)) r2 = { slot: i, name: infoOf(k).name }; }); return r2;
       },
       doorOpen: dir => { const d = doors[doorOfSide[dir]]; return !!d && (d.open || d.p > 0.5); },
+      slotOf: k => { if (!myInv) return null; let i = myInv.backpack.indexOf(k); if (i >= 0) return i; i = myInv.quick.indexOf(k); return i >= 0 ? 9 + i : null; },   // VBX: the offering bowl
     };
   }
   function recompute() {
@@ -8805,6 +8810,7 @@ window.GKACT5 = (() => {
         call(sk, 'setArmed', !!st.armed); call(sk, 'setResonance', st.res | 0); call(sk, 'setAltar', st.armed ? 1 : 0); break;
       }
     }
+    if (st.x && U.driveX) U.driveX(sk, e.type, st.x, now + (r.e || 0));   // VBX: the extra stations' props (absolute times in st.x are epoch ms)
   }
   function driveVault(e) {
     const d = e.api, r = rooms[W.VAULT_KEY], c = A.crown || (r && r.st) || {}, claims = c.claims || [], g = c.gaining, top = claims.find(x => x.id === g);

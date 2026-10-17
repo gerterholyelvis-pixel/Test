@@ -1,0 +1,18 @@
+# Vaultbreaker depth: four more stations per heist room
+
+Owner request: more to do inside the vaultbreaker rooms. Every room type now has four extra stations beside its main heist, plus a room event. Pure logic in the new `vbx5.js` (activity.js primitives, no new primitive); vb5.js routes the anchors `S1..S4` / `G1..G4` to it through small `VBX-HOOK` lines.
+
+| room | S1 | S2 | S3 | S4 | event |
+|---|---|---|---|---|---|
+| Ram | Smithy: forge a ram head (3 metal, +20% next strike, max 2); repair the winch (strikes wear it, window -0.04 each) | Siege tower: 3 s climb, every goblin on your map 6 s, a vault report; the vault is told | Workshop: saw planks (2 wood); a plank sets a barricade free (lane `buy x2`) or adds +30 HP (max 90); smash the stock | War drum: timing, chant +5% per hit (max 5, miss -2); full chant announced. Head + chant cap +50% | supply crate (wood + metal) |
+| Locksmith | Key bench: 3 precise cuts turn a Key Blank into a Skeleton Key (shares the 1/round limit) | Practice board: 5 in a row = Steady Hands (pin windows x1.35 this round) | Felt table: 1 cloth halves room noise 40 s; anyone can strip it | Master safe: 3 dials of 6, private click per correct dial; 30 gold + 2 knowledge + a blank, 1/goblin, 2/round | shift change: noise x2, safe gold x2 |
+| Counting House | Coin belt: timing, 4 gold per 5 coins, 40/round | Auction block: consign an item, bids held in escrow, anti-snipe, 10% to the strongbox | Ledger (5 gold): bribes by payer and room, writs, IOUs, who read it | IOUs: borrow 40 from the strongbox, 50 collected at the end of the next round (+20% roll); buy house notes for 40 | rush: belt pays double |
+| Keystone | Carving altar: 4 strokes (1 metal 1 bone) = Rune Charge, 1/round | Ritual circle: order shows 3 s, step G1..G4 in order: Attuned (light 1.2 s, feed 0.6 s); wrong / other goblin = 5 backlash | Offering bowl: gear for knowledge by tier, Rune Charge / Gold Leaf for a vision of the next re-key | Ley node: hold alone (afk guard), every 8 s lit stones +6 s, resonance -5, knowledge | ley surge: node x2 |
+
+**Persistence:** machines reset at the re-key (heads, wear, planks, chant, felt, safe, rite, carving progress, belt count; auctions resolve); pockets keep (items, IOUs follow the goblin). Steady Hands / Attuned last one round.
+**Caps / econ:** all station knowledge shares 12 per round per goblin. Measured (tests): belt 40 gold/min, safe 30/round, Keystone stations <= 15 knowledge/min; solo Ram breach/min 144 -> 117 with extras (they pay off for a pair, not solo).
+**Client:** prompts in `act5ui.js` (VX), sounds (`drumBeat`, `gavel` new in audio.js, existing cues mapped), event toasts, ledger toast, `driveX` art setters. Art: `rooms5art-vault.js` VBX-EXTRAS, statics merged, 21-27 meshes per skin beyond the shell (<= 30). Footprints: world.js `VB_SOLIDS` (kind `vbx`), anchors `ACT_LOCAL.vb`. Bots: `VB5.botHint` lets vbx5 take over with station actions. Codex: a "Vaultbreaker stations" table (tools/gameinfo.js).
+
+**Tests:** `vbx5.test.js` (21 pure cases incl. econ, bot hints, fuzz), `vbx5-art.test.js` (headless build, setters, budget), `act5-vbx.test.js` (real server: forge -> breach 21, tower, Steady Hands, Skeleton Key, Rune Charge, belt, loan, ledger, IOU collected). `npm test`: all 70 files pass.
+
+**Merger notes:** server.js only: `A5.bribe(m, cost, p)`. actDbg gained `hit`, `parts`, `gold`, `box` (GK_DEBUG). Browser: prompts and state verified live on a real match (Forge prompt at S1, `st.x` flowing); the shared pane was hidden, so no screenshots. Not done: per-station art polish pass in a visible browser.

@@ -142,14 +142,16 @@
   // ROOMS5ART vaultbreaker rooms (rooms5art-vault.js, 22.5 x 15 local frame, the vault door in the local north wall z = -7.5): the B / L / R / FL / FR station footprints, the same for all 4 skins; [x, z, r]
   // The art room is 22.5 x 15 with its walls at the cell boundary; the real interior is T smaller, so game.js scales the art group by VB_SCALE (local x, z) and the circles are scaled the same way.
   const VB_SCALE = [(V - T) / V, (W - T) / W];
-  const VB_SOLIDS = [[3.9, 7, 0.58], [4.7, 7, 0.58], [5.5, 7, 0.58], [-10.65, 3.9, 0.72], [10.65, -3.9, 0.72], [-3, -5.5, 0.6], [3, -5.5, 0.6]];
+  const VB_SOLIDS = [[3.9, 7, 0.58], [4.7, 7, 0.58], [5.5, 7, 0.58], [-10.65, 3.9, 0.72], [10.65, -3.9, 0.72], [-3, -5.5, 0.6], [3, -5.5, 0.6],
+    [-6.4, -4.8, 0.65], [6.4, -4.8, 0.65], [-6.4, 3.8, 0.65], [6.8, 3.4, 0.65]];   // VBX: the four extra stations S1..S4 (vbx5.js, rooms5art-vault.js EXTRAS), the same footprint for every skin
   // the four vault coffers (two circles each, turned toward the dais), vault-centred; the art dressing is built with half = V / 2 - T / 2 (the real wall faces)
   const COFFERS = [[-8.162, -7.738], [-7.738, -8.162], [7.738, -8.162], [8.162, -7.738], [8.162, 7.738], [7.738, 8.162], [-7.738, 8.162], [-8.162, 7.738]];
   // ACT ANCHORS (shared by act5.js on the server and the activity prompts in game.js): the interaction points of the tree rooms, vaultbreakers and the vault as { id: [x, z, r] } in the room-local frame
   // (x east, z south, from the room centre; rooms5art-trees-a/b.js, rooms5art-vault.js). The B / L / R stations stand beside their doors (rooms5art-vault.js LAYOUT: +4.7 / +3.9 / -3.9 along the wall, the same as VB_SOLIDS). A vaultbreaker is turned so its local -z (the vault door) faces the vault. The server accepts an act within r + 1.4 m.
   const ACT_LOCAL = {
     tree: { C: [0, 0, 1.1], NE: [P4, -P4, 0.7], NW: [-P4, -P4, 0.7], SE: [P4, P4, 0.7], SW: [-P4, P4, 0.7], ring: [0, 0, 3.0], nook: [0, 1.95, 0.9] },
-    vb: { B: [4.7, 7.0, 1.2], L: [-10.65, 3.9, 0.8], R: [10.65, -3.9, 0.8], FL: [-3, -5.5, 0.6], FR: [3, -5.5, 0.6], F: [0, -5.0, 1.0] },
+    vb: { B: [4.7, 7.0, 1.2], L: [-10.65, 3.9, 0.8], R: [10.65, -3.9, 0.8], FL: [-3, -5.5, 0.6], FR: [3, -5.5, 0.6], F: [0, -5.0, 1.0],
+      S1: [-6.4, -4.8, 0.8], S2: [6.4, -4.8, 0.8], S3: [-6.4, 3.8, 0.8], S4: [6.8, 3.4, 0.8], G1: [6.4, -6.5, 0.4], G2: [8.1, -4.8, 0.4], G3: [6.4, -3.1, 0.4], G4: [4.7, -4.8, 0.4] },   // VBX: the extra stations; G1..G4 are the Keystone's ritual plates around S2 (floor, not solid)
     vault: { dais: [0, 0, 2.2], K1: [-8.25, -8.25, 0.9], K2: [8.25, -8.25, 0.9], K3: [8.25, 8.25, 0.9], K4: [-8.25, 8.25, 0.9], D_N: [5.7, -10.85, 0.8], D_E: [10.85, 5.7, 0.8], D_S: [-5.7, 10.85, 0.8], D_W: [-10.85, -5.7, 0.8], grate: [0, 7.25, 1.4] },
   };
   const vbRot = cell => { const [cx, cz] = rc(+cell), [vx, vz] = rc(VAULT); return Math.atan2(-Math.sign(vx - cx), -Math.sign(vz - cz)); };
@@ -202,7 +204,7 @@
         for (const q of [-1, 1]) cornerStack(key, i, q, loc, 'b' + q, uz ? -uz : -ux, !uz);
         for (const p of loc) p.art = false;   // these corners can meet the north wall's map / control panel: keep-clear zones apply (game.js still draws every listed crate)
         const ry = Math.atan2(-Math.sign(vx - cx), -Math.sign(vz - cz)), c = Math.cos(ry), s = Math.sin(ry);   // ROOMS5ART: the art's local north (the vault door wall) turned to face the vault
-        for (const [x, z, r] of VB_SOLIDS) loc.push({ k: 'vbprop', x: (x * VB_SCALE[0]) * c + (z * VB_SCALE[1]) * s, z: -(x * VB_SCALE[0]) * s + (z * VB_SCALE[1]) * c, r, art: true });
+        VB_SOLIDS.forEach(([x, z, r], j) => loc.push({ k: j < 7 ? 'vbprop' : 'vbx', x: (x * VB_SCALE[0]) * c + (z * VB_SCALE[1]) * s, z: -(x * VB_SCALE[0]) * s + (z * VB_SCALE[1]) * c, r, art: true }));
       } else if (kd === 'tree') {   // no story corner; the trunk and the type's props (TREE_SOLIDS) once the type is known, else only a trunk
         cornerStack(key, i, hashStr('solid:' + key) & 1 ? 1 : -1, loc, '');
         for (const [x, z, r] of TREE_SOLIDS[type] || [[0, 0, 1.1]]) loc.push({ k: x === 0 && z === 0 ? 'trunk' : 'tprop', x, z, r, art: true });
