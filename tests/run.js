@@ -4,15 +4,15 @@
 //                            a comma list works (--tier server,slow); default all
 //   --changed[=REF]          only the files affected by what changed since REF (default: merge-base with main) plus uncommitted edits;
 //                            --dry prints the picked files without running them
-//   --jobs N                 parallel files (also GK_TEST_JOBS); default: half the cores (3/4 of that when the CPU is >85% busy).
-//                            At most 3 @timing files run at once (2 when the CPU is busy; GK_TEST_TIMING_JOBS overrides)
+//   --jobs N                 parallel files (also GK_TEST_JOBS); default: half the cores, up to 3/4 (max 12) when the CPU is idle.
+//                            GK_TEST_TIMING_JOBS=N caps how many @timing files run at once (default: no cap)
 //   -q / --quiet             print only failures, flaky retries and the summary (also GK_TEST_QUIET=1)
 //   --no-retry               do not retry @timing files (also GK_TEST_RETRY=0); --retry-all retries every failed file once
 //   --list                   print each file's tier / tags / last time and exit
 //   NAME ...                 only files whose name contains NAME (e.g. `node tests/run.js bots vault`)
 // Tags, in the first 5 lines of a test file (or in TAGS below for files owned by busy agents):
 //   // @tier fast|server|slow   override the inferred tier (a file that calls startServer( or spawn( is `server`)
-//   // @timing             asserts wall-clock timing / load-sensitive behaviour: retried once, sequentially, if it fails
+//   // @timing             asserts wall-clock timing / load-sensitive behaviour: retried once (in the next free slot) if it fails
 //   // @timeout 120        per-file timeout in seconds (default 60, or GK_TEST_TIMEOUT)
 const { spawn, execFileSync } = require('child_process'), fs = require('fs'), path = require('path'), os = require('os');
 const ROOT = path.join(__dirname, '..'), TIMES = path.join(__dirname, '.timings.json');
@@ -72,18 +72,23 @@ const runOne = (m, attempt) => new Promise(res => {
   p.stdout.on('data', d => out += d); p.stderr.on('data', d => out += d);
   p.on('exit', code => { clearTimeout(kill); res({ ...m, code: code === 0 ? 0 : 1, out, ms: Date.now() - t0 }); });
 });
-// At most `jobs` files at once, of which at most `tcap` are @timing files (they measure wall-clock time, so they suffer most from
-// neighbours). Most server tests wait on game timers rather than burn CPU, so the other slots stay full even on a busy machine.
-function pool(list, jobs, attempt, tcap = jobs) {
-  const todo = list.slice(), rs = []; let run = 0, trun = 0;
+// At most `jobs` files at once (optionally at most `tcap` @timing files at once). A failed @timing file is retried once, straight away
+// in a free slot, so the retry overlaps the tail of the run instead of adding to it.
+function pool(list, jobs, tcap, canRetry) {
+  const todo = list.map(m => [m, 1]), rs = [], firstFail = {}; let run = 0, trun = 0;
   return new Promise(done => {
     const pump = () => {
       while (run < jobs && todo.length) {
-        const i = todo.findIndex(m => !m.timing || trun < tcap); if (i < 0) break;
-        const m = todo.splice(i, 1)[0]; run++; if (m.timing) trun++;
-        runOne(m, attempt).then(r => { rs.push(r); run--; if (m.timing) trun--; pump(); });
+        const i = todo.findIndex(([m]) => !m.timing || trun < tcap); if (i < 0) break;
+        const [m, attempt] = todo.splice(i, 1)[0]; run++; if (m.timing) trun++;
+        runOne(m, attempt).then(r => {
+          run--; if (m.timing) trun--;
+          if (r.code && attempt === 1 && canRetry(m)) { firstFail[m.f] = r; todo.unshift([m, 2]); if (!quiet) console.log('  retry ' + m.f + ' (failed after ' + (r.ms / 1000).toFixed(1) + ' s)'); }
+          else rs.push(r);
+          pump();
+        });
       }
-      if (!run && !todo.length) done(rs);
+      if (!run && !todo.length) done({ rs, firstFail });
     };
     pump();
   });
@@ -92,22 +97,22 @@ const failLines = out => out.split('\n').filter(l => /^\s*FAIL\b/.test(l) || /^\
 
 (async () => {
   const t0 = Date.now(), cores = os.cpus().length, dflt = Math.max(2, Math.floor(cores / 2));
+  // Load-aware: most server tests wait on game timers, so fewer slots only stretch the run (measured: 6 slots + a 2-file @timing cap
+  // took 212 s on a 100%-busy machine where 8 plain slots took 114 s). On an idle machine use more slots; on a busy one keep the default.
   const busy = await cpuBusy(400);
   let jobs = +val('--jobs', 0) || +process.env.GK_TEST_JOBS || 0;
-  if (!jobs) jobs = busy > 0.85 ? Math.max(4, Math.floor(dflt * 0.75)) : dflt;
-  const tcap = Math.min(jobs, +process.env.GK_TEST_TIMING_JOBS || (busy > 0.5 ? 2 : 3));
-  console.log('running ' + files.length + ' test files, ' + jobs + ' in parallel, at most ' + tcap + ' @timing at once (CPU ' + Math.round(busy * 100) + '% busy before start)');
+  if (!jobs) jobs = busy < 0.3 ? Math.max(dflt, Math.min(12, Math.floor(cores * 0.75))) : dflt;
+  const tcap = Math.min(jobs, +process.env.GK_TEST_TIMING_JOBS || jobs);
+  console.log('running ' + files.length + ' test files, ' + jobs + ' in parallel' + (tcap < jobs ? ', at most ' + tcap + ' @timing at once' : '') + ' (CPU ' + Math.round(busy * 100) + '% busy before start)');
   // longest first (times from the last run), so one slow file does not start last and set the wall time
   const order = files.slice().sort((a, b) => (last[b.f] || (b.tier === 'server' ? 5000 : 500)) - (last[a.f] || (a.tier === 'server' ? 5000 : 500)));
-  const first = await pool(order, jobs, 1, tcap), byF = {};
-  for (const r of first) byF[r.f] = r;
-  const retry = first.filter(r => r.code && (retryMode === 'all' || retryMode === 'timing' && r.timing)), flaky = [];
-  if (retry.length) { if (!quiet) console.log('retrying ' + retry.length + ' load-sensitive file(s) one at a time: ' + retry.map(r => r.f).join(', ')); for (const r of await pool(retry, 1, 2)) { if (!r.code) flaky.push({ f: r.f, first: byF[r.f] }); byF[r.f] = r; } }
-  const rs = Object.values(byF).sort((a, b) => a.f < b.f ? -1 : 1);
+  const { rs: all, firstFail } = await pool(order, jobs, tcap, m => retryMode === 'all' || retryMode === 'timing' && m.timing);
+  const rs = all.sort((a, b) => a.f < b.f ? -1 : 1), flaky = rs.filter(r => !r.code && firstFail[r.f]);
   for (const r of rs) if (!quiet || r.code) process.stdout.write(r.out);
-  for (const fl of flaky) console.log('\n  FLAKY ' + fl.f + ': failed on the first run (' + (fl.first.ms / 1000).toFixed(1) + ' s, under load), passed on the sequential retry. First failure:\n' + failLines(fl.first.out));
-  try { const t = { ...last }; for (const r of first) t[r.f] = r.ms; fs.writeFileSync(TIMES, JSON.stringify(t, null, 0)); } catch (e) {}
-  const slow = first.slice().sort((a, b) => b.ms - a.ms).slice(0, 8).map(r => r.f.replace('.test.js', '') + ' ' + (r.ms / 1000).toFixed(1));
+  for (const r of rs) if (r.code && firstFail[r.f]) console.log('  (' + r.f + ' failed twice: a real failure, or the machine is far too busy for its timing budget)');
+  for (const fl of flaky) console.log('\n  FLAKY ' + fl.f + ': failed on the first run (' + (firstFail[fl.f].ms / 1000).toFixed(1) + ' s), passed on the retry. First failure:\n' + failLines(firstFail[fl.f].out));
+  try { const t = { ...last }; for (const r of rs) t[r.f] = (firstFail[r.f] || r).ms; fs.writeFileSync(TIMES, JSON.stringify(t, null, 0)); } catch (e) {}
+  const slow = rs.slice().sort((a, b) => b.ms - a.ms).slice(0, 8).map(r => r.f.replace('.test.js', '') + ' ' + (r.ms / 1000).toFixed(1));
   const bad = rs.filter(r => r.code);
   console.log('\nslowest (s): ' + slow.join(', '));
   console.log((bad.length ? 'FAILED: ' + bad.map(r => r.f).join(', ') : 'all ' + rs.length + ' test files passed') + (flaky.length ? ' (' + flaky.length + ' flaky, passed on retry: ' + flaky.map(x => x.f).join(', ') + ')' : '') + ' in ' + ((Date.now() - t0) / 1000).toFixed(1) + ' s');
