@@ -116,11 +116,13 @@
   // The art authored its home walls at +-4.98 m; the real wall faces are at HS / 2 - T / 2 = 4.7, so the art group is scaled by HOME_K in x and z (game.js) and every art number below is multiplied by it here.
   const HOME_K = (HS - T) / (HS - 0.04);
   const HOME_LAYOUT = { bench: [-2.6 * HOME_K, -4.3 * HOME_K, 0], recycler: [0.95 * HOME_K, -4.0 * HOME_K, 0], crate: [-3.85 * HOME_K, 3.0 * HOME_K],
-    pump: [4.25 * HOME_K, -1.9 * HOME_K], screen: [4.8 * HOME_K, 0.6 * HOME_K], box: [4.2 * HOME_K, 3.5 * HOME_K], sentry: [-0.7 * HOME_K, -4.75 * HOME_K] };   // ELIXIR: pump, Elixir Screen, lockbox and sentry mount = the art props of rooms5art-home.js (PX/PZ, SX/SZ, LBX/LBZ, SENX/SENZ) times HOME_K; tests/rooms5art-wiring.test.js keeps them in step
+    pump: [4.25 * HOME_K, -1.9 * HOME_K], screen: [4.8 * HOME_K, 0.6 * HOME_K], box: [4.2 * HOME_K, 3.5 * HOME_K], sentry: [-0.7 * HOME_K, -4.75 * HOME_K],
+    crank: [4.45 * HOME_K, -0.65 * HOME_K], anvil: [-3.5 * HOME_K, -2.6 * HOME_K], bin: [2.65 * HOME_K, -4.3 * HOME_K], dummy: [-2.7 * HOME_K, -0.2 * HOME_K], board: [-4.6 * HOME_K, 3.0 * HOME_K], window: [-3.8 * HOME_K, 4.6 * HOME_K] };   // BASEACT: the base-job props (rooms5art-home.js BASEACT block; baseact.js)   // ELIXIR: pump, Elixir Screen, lockbox and sentry mount = the art props of rooms5art-home.js (PX/PZ, SX/SZ, LBX/LBZ, SENX/SENZ) times HOME_K; tests/rooms5art-wiring.test.js keeps them in step
   // ROOMS5ART: the footprints of rooms5art-home.js (rects: kind, x, z, hx, hz in the home's local frame, +z toward the doorway) turned into inscribed circles by rectCircles.
   // tests/rooms5art-wiring.test.js keeps these tables in step with the art modules.
   const HOME_SOLIDS = [['bench', -2.6, -4.3, 1.3, 0.6], ['recycler', 0.95, -4.0, 0.85, 0.75], ['hprop', 4.25, -1.9, 0.55, 0.7], ['hprop', 4.8, 0.6, 0.3, 0.65], ['hprop', 4.2, 3.5, 0.45, 0.55],
-    ['hprop', -4.65, -1.2, 0.3, 1.65], ['hcrate', -3.85, 3.0, 0.55, 1.05], ['hprop', 3.65, 4.3, 0.7, 0.4], ['hprop', -4.25, -4.25, 0.55, 0.55]];
+    ['hprop', -4.65, -1.2, 0.3, 1.65], ['hcrate', -3.85, 3.0, 0.55, 1.05], ['hprop', 3.65, 4.3, 0.7, 0.4], ['hprop', -4.25, -4.25, 0.55, 0.55],
+    ['hprop', 4.45, -0.65, 0.4, 0.4], ['hprop', -3.5, -2.6, 0.35, 0.3], ['hprop', 2.65, -4.3, 0.45, 0.4], ['hprop', -2.7, -0.2, 0.35, 0.35]];   // BASEACT: crank wheel, anvil, scrap bin, training dummy
   const rectCircles = (k, x, z, hx, hz) => {   // the circles that fit inside a footprint rect, spaced along its long axis so they overlap
     const s = Math.min(hx, hz), L = Math.max(hx, hz), n = L - s < 1e-6 ? 1 : Math.ceil((L - s) / (s * 0.9)) + 1, out = [];
     for (let i = 0; i < n; i++) { const t = n === 1 ? 0 : -(L - s) + 2 * (L - s) * i / (n - 1); out.push(hx >= hz ? { k, x: x + t, z, r: s } : { k, x, z: z + t, r: s }); }

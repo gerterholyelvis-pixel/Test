@@ -6,10 +6,11 @@
 const fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..');
 const rd = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
-const SOURCES = ['items.js', 'world.js', 'halls.js', 'elixir.js', 'homebase.js', 'activity.js', 'rooms5-trees.js', 'vb5.js', 'vbx5.js', 'vault5.js', 'server.js', 'tools/gameinfo.js', 'tools/gameinfo.template.html'];
+const SOURCES = ['items.js', 'world.js', 'halls.js', 'elixir.js', 'homebase.js', 'baseact.js', 'activity.js', 'rooms5-trees.js', 'vb5.js', 'vbx5.js', 'vault5.js', 'server.js', 'tools/gameinfo.js', 'tools/gameinfo.template.html'];
 const OUT = path.join(ROOT, 'docs', 'game-info.html');
 function srcHash() { const h = require('crypto').createHash('sha1'); for (const f of SOURCES) h.update(rd(f).replace(/\r\n?/g, '\n')); return h.digest('hex').slice(0, 8); }   // line-ending independent
 const G = require('../items.js'), WORLD = require('../world.js'), EX = require('../elixir.js'), HB = require('../homebase.js');
+const BASEACT = require('../baseact.js');
 const HALLS = require('../halls.js'), ACT = require('../activity.js'), T5 = require('../rooms5-trees.js'), VB = require('../vb5.js'), V5 = require('../vault5.js'), VBX = require('../vbx5.js');
 const SRC = { server: rd('server.js'), items: rd('items.js') };
 
@@ -259,6 +260,16 @@ const homeFacts = [['Whole upgrade tree', HB.treeCost() + ' elixir'], ['Sentry',
   ['Home bench', 'tier ' + HB_BASE.maxTier + ' at ' + S(HB_BASE.craftMs) + '; Bench II tier ' + HB_II.maxTier + ' at ' + S(HB_II.craftMs)], ['Sends', 'telegraph ' + S(HB.TELEGRAPH_MS) + ', at most ' + HB.MAX_ACTIVE_PER_ROOM + ' live per room, from round ' + HB.FIRST_SEND_ROUND + ', one per goblin per round'],
   ['Elixir over a match', 'a level-1 pump makes ' + HB.baseIncomeMatch(SV.MAX_ROUND, SV.ROUND_MS) + ' over ' + SV.MAX_ROUND + ' rounds']];
 
+// BASEACT: the base jobs, the round goals board and the lookout window (baseact.js; the numbers below are read from it)
+const BAC = BASEACT.CAPS, BAK = BASEACT.CFG;
+const PAYTXT = { crank: id => 'up to +4 elixir in the pump tank (cap ' + BAC.elx + ' a round)', tune: () => '1-2 metal (parts cap ' + BAC.parts + ' a round, shared with the scrap bin)', sort: () => '1-2 leather (parts cap ' + BAC.parts + ' a round)',
+  dummy: () => 'up to +3 gold (cap ' + BAC.gold + ' a round), and +1 knowledge for 85% or better (' + BAC.kn + ' a round, ' + BAC.knMatch + ' a match)' };
+const baseJobs = BASEACT.JOB_IDS.map(id => { const j = BASEACT.JOBS[id]; return { id: 'job-' + id, name: j.name, prop: { crank: 'crank wheel beside the pump', anvil: 'anvil stump', bin: 'scrap bin by the recycler', dummy: 'training dummy' }[j.anchor], play: j.hint, len: S(BASEACT.dur(id, 1)), cd: S(j.cd), pay: PAYTXT[id]() }; });
+const baseGoals = BASEACT.GOALS.map(g => ({ id: 'goal-' + g.id, text: g.text }));
+const baseFacts = [['Where', 'only inside your own home, within ' + BAK.REACH + ' m of the prop'], ['Goals', 'three per round, rotating through ' + BASEACT.GOALS.length + ' goals; all three done = ' + BAK.CLAIM_GOLD + ' gold and a trophy on the shelf (at most ' + BAK.TROPHY_MAX + ')'],
+  ['Lookout window', 'counts the goblins in the room outside your hatch and how many neighbouring homes are lit; once every ' + S(BAK.LOOK_CD)], ['Caps per round', BAC.elx + ' bonus elixir, ' + BAC.parts + ' parts, ' + BAC.gold + ' gold, ' + BAC.kn + ' knowledge (' + BAC.knMatch + ' a match)'],
+  ['Checked by the server', 'it rebuilds the cues from its own seed and scores your key times; finishing early, from far away or during a cooldown pays nothing'], ['Bots', 'ignore all of it']];
+
 // ---------------------------------------------------------------- match, combat, stations
 const rounds = [{ id: 'rd1', phase: 'Round 1', ms: SV.ROUND_MS, rule: homePhaseDoc || homePhaseConst ? 'Home-only phase (see the note above)' : 'Full arena: this build has no home-only phase yet' }].concat(
   Array.from({ length: SV.MAX_ROUND - 1 }, (_, i) => i + 2).map(n => ({ id: 'rd' + n, phase: 'Round ' + n, ms: SV.ROUND_MS, rule: n <= SV.SUDDEN_ROUND ? (n === SV.CELL_ROUND ? 'Hall round: the hatches open and nothing else; each hall votes its way out (it opens at the round end)' : 'Normal round: votes add doors, open doors stay open') + (n >= HB.FIRST_SEND_ROUND ? '; sends allowed' : '') + (n >= 3 ? '; showdown when ' + SV.PACE.showdownAt + ' are left' : '') : 'SUDDEN DEATH: every door open, regeneration off, claims x' + VKV.SUDDEN_CLAIM_MUL })));
@@ -405,6 +416,12 @@ S_.home = [
   tbl('upgrades', 'The base upgrade tree', 'Cost is in elixir. Total is the running cost of buying each upgrade in order.', [['tab', 'Tab'], ['name', 'Upgrade', 0, 'name'], ['level', 'Level', 1], ['cost', 'Cost', 1], ['total', 'Running total', 1], ['fx', 'Effect', 0, 'wrapc']], upgrades),
   tbl('sends', 'The 6 sendables', 'Sent from your Elixir Screen at another room or home; the target gets a ' + S(HB.TELEGRAPH_MS) + ' warning first.', [['name', 'Send', 0, 'name'], ['cost', 'Cost', 1], ['ms', 'Lasts'], ['target', 'Target'], ['fx', 'Effect', 0, 'wrapc'], ['counter', 'Counter', 0, 'wrapc']], sends),
 ];
+S_.home.push(
+  p('While the pump fills there is always something to do at home: four timed jobs at the props, three goals on the board by the bedroll, and a window to scout from. Every reward is small and capped per round.'),
+  tbl('basejobs', 'Base jobs', 'Press E at the prop. Time your keys to the marks; the server re-scores them.', [['name', 'Job', 0, 'name'], ['prop', 'Where'], ['play', 'How', 0, 'wrapc'], ['len', 'Length'], ['cd', 'Cooldown'], ['pay', 'Pays', 0, 'wrapc']], baseJobs),
+  tbl('basegoals', 'Round goals', 'The board shows three of these each round (round 1: pump, jobs, good score).', [['text', 'Goal', 0, 'name']], baseGoals),
+  { t: 'cards', cards: [kv('Base activity rules', baseFacts)] },
+);
 S_.loot = [
   p('Gear drops by weighted chance; the rarer it is, the stronger it is. Tiers come from drop chance. The tables below are computed from the live drop pools.'),
   tbl('tierbands', 'Tier bands', '', [['tier', 'Tier'], ['band', 'Drop chance band'], ['nW', 'Weapons', 1], ['pW', 'Of weapon drops %', 1], ['nA', 'Armour', 1], ['pA', 'Of armour drops %', 1]], tierRows.map((r, i) => ({ ...r, band: ['crafted only', ...tierThresholds.map(t => t.band)][i] }))),

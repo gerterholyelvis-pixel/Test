@@ -40,7 +40,7 @@ function cached(key, file, type) {
   return e;
 }
 const missUntil = new Map();   // PERF4: url key -> time the remembered miss expires
-const CLIENT_JS = new Set(['game', 'menu', 'items', 'combat4', 'affix', 'mutators', 'world', 'save', 'stats', 'statsui', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'wbui', 'act5ui', 'halls', 'fskeep', 'keep', 'keepui', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)   // KEEP: keep, keepui
+const CLIENT_JS = new Set(['game', 'menu', 'items', 'combat4', 'affix', 'mutators', 'world', 'save', 'stats', 'statsui', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'baseact', 'baseactui', 'wbui', 'act5ui', 'halls', 'fskeep', 'keep', 'keepui', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)   // KEEP: keep, keepui
 let CSP = '';
 function buildCsp() {   // the page has two inline scripts (importmap + module): allowed by hash, so no 'unsafe-inline' for scripts
   const page = cached('/index.html', path.join(ROOT_DIR, 'index.html'), 'text/html; charset=utf-8'), hashes = [];
@@ -2399,7 +2399,7 @@ function pumpUse(m, p, now) {
   const own = h.owner === p.id, r = EX.collect(h.pump, p.elixir | 0, now, own);
   p.elixir = r.carried;
   if (r.moved <= 0) return homeRes(p, false, (p.elixir | 0) >= EX.CARRY_CAP ? 'You carry all you can' : 'The tank is empty');
-  statElx(p, r.moved); sendElixir(p); homeRes(p, true, null, '+' + r.moved + ' elixir');   // STATS
+  statElx(p, r.moved); if (own) baNote(m, p, 'pump', r.moved); sendElixir(p);   // BASEACT: the pump goal counts what the owner takes homeRes(p, true, null, '+' + r.moved + ' elixir');   // STATS
   if (r.raid && !h.dead && h.ref && !h.ref.dead) { homeToast(h.ref, 'raid', p.name + ' is draining your pump!'); sendTo(h.ref.ws, { pumpGlow: EX.RAID_GLOW_MS }); }
   pushHome(m, h, now);
 }
@@ -2463,6 +2463,7 @@ function homeMsg(m, ws, p, d, now) {   // the one entry for the home messages (v
   if (d.pump === 1) pumpUse(m, p, now);
   else if (d.base !== undefined) baseMsg(m, p, d.base, now);
   else if (d.lockbox !== undefined) lockboxMsg(m, p, d.lockbox, now);
+  else if (d.ba !== undefined) baMsg(m, ws, p, d.ba, now);   // BASEACT
   else if (d.brew !== undefined) { const why = brewAt(m, p, d.brew); if (why) sendTo(ws, { brewFail: why }); }
 }
 
@@ -2632,6 +2633,88 @@ function elixirDbg(m, p, o) {   // GK_DEBUG test hook: {dbgElixir:{n, tank, lv:{
 }
 // ELIXIR-END
 
+// BASEACT-BEGIN (home jobs at the crank wheel, anvil, scrap bin and training dummy; the round goals board with its trophy shelf; the lookout window. docs/reports/base-activities.md)
+// Rules, caps and the cue generator are baseact.js (shared with baseactui.js). State is h.ba on the home record (made lazily, reset by the round number). Messages: {ba:{start:job}} {ba:{done:job, hits:[[ms,key]..]}}
+// {ba:{cancel:1}} {ba:{look:1}} {ba:{claim:1}} {ba:{sync:1}}. The server rebuilds the cues from its own seed and re-scores the inputs, so a client can only claim what the caps allow anyway.
+const BA = require('./baseact.js');
+const baAnchor = (key, kind) => { const c = WORLD.CHEST[+key.slice(1)], a = WORLD.HOME_LAYOUT[kind]; return WORLD.attLocal(c, a[0], a[1]); };
+function baGate(m, p, kind) {   // my own living home, inside it, within reach of the prop -> { h } or { why }
+  const h = homeAt(m, p.home);
+  if (!h || h.dead || h.owner !== p.id) return { why: 'No home' };
+  if (p.room !== p.home) return { why: 'Go home first' };
+  const a = baAnchor(p.home, kind);
+  if (Math.hypot(p.x - a[0], p.z - a[1]) > BA.CFG.REACH) return { why: 'Too far away' };
+  return { h };
+}
+const baOf = (m, h) => BA.roll(h.ba || (h.ba = BA.newBa()), m.round);
+function baView(m, h, now) {
+  const ba = baOf(m, h), cd = {}, cap = {};
+  for (const id of BA.JOB_IDS) { cd[id] = Math.ceil(BA.cooldownLeft(ba, id, now)); cap[id] = BA.capLeft(id, ba); }
+  const gv = BA.goalView(ba, m.round);
+  return { r: m.round, goals: gv, ready: !ba.claimed && gv.every(g => g.done) ? 1 : 0, claimed: ba.claimed ? 1 : 0, trophies: ba.trophies, gold: BA.CFG.CLAIM_GOLD, cd, cap, look: Math.ceil(Math.max(0, ba.lookAt + BA.CFG.LOOK_CD - now)) };
+}
+const pushBa = (m, h, p, now) => { if (p.ws && !p.dead) sendTo(p.ws, { ba: baView(m, h, now) }); };
+const baRes = (p, ok, text, extra) => { if (p.ws) sendTo(p.ws, { baRes: { ok: ok ? 1 : 0, text, ...extra } }); };
+function baNote(m, p, what, n) {   // a goal counter (pumpUse calls this with the elixir the owner took)
+  const h = homeAt(m, p.home); if (!h || h.dead || h.owner !== p.id) return;
+  BA.note(baOf(m, h), what, n);
+}
+function baLook(m, p, h) {   // the lookout window: what is going on outside my hatch (counts only, no names, no positions inside other rooms)
+  const c = WORLD.CHEST[+p.home.slice(1)], out = String(c.parent);
+  let outside = 0; for (const q of m.players.values()) if (!q.dead && q.entered && q.room === out) outside++;
+  let near = 0, home = 0; for (const o of Object.values(m.homes)) if (o !== h && WORLD.CHEST[+o.key.slice(1)].parent === c.parent) { near++; if (o.ref && o.ref.entered && !o.ref.dead && o.ref.room === o.key) home++; }
+  return { outside, near, home, shut: homeShut(m) ? Math.max(0, m.endsAt - Date.now()) : 0, round: m.round };
+}
+function baMsg(m, ws, p, b, now) {   // called from homeMsg (alive, entered, rate limited, m.homes exists)
+  if (!b || typeof b !== 'object' || Array.isArray(b)) return;
+  const h = homeAt(m, p.home); if (!h || h.dead || h.owner !== p.id) return;
+  const ba = baOf(m, h);
+  if (b.sync === 1) return pushBa(m, h, p, now);
+  if (b.cancel === 1) { ba.sess = null; return; }
+  if (typeof b.start === 'string') {
+    const j = BA.JOBS[b.start]; if (!j) return;
+    const g = baGate(m, p, j.anchor); if (g.why) return baRes(p, false, g.why);
+    if (ba.sess && now < ba.sess.until) return baRes(p, false, 'Finish the job you are on');
+    const cd = BA.cooldownLeft(ba, b.start, now); if (cd > 0) return baRes(p, false, j.short + ' again in ' + Math.ceil(cd / 1000) + ' s');
+    if (BA.capLeft(b.start, ba) <= 0) return baRes(p, false, 'Nothing more to gain from that this round');
+    const seed = (Math.floor(Math.random() * 0x7ffffffe) + 1) | 0, dur = BA.dur(b.start, seed);
+    ba.sess = { job: b.start, seed, t0: now, dur, until: now + dur + 12000 };
+    return sendTo(ws, { baStart: { job: b.start, seed, dur } });
+  }
+  if (typeof b.done === 'string') {
+    const s = ba.sess; ba.sess = null;
+    if (!s || s.job !== b.done) return baRes(p, false, 'No job to finish');
+    const g = baGate(m, p, BA.JOBS[s.job].anchor); if (g.why) return baRes(p, false, g.why);
+    const el = now - s.t0;
+    if (el < s.dur - BA.CFG.EARLY_MS) return baRes(p, false, 'Too early');
+    if (now > s.until) return baRes(p, false, 'Too slow');
+    const sc = BA.score(s.job, BA.cues(s.job, s.seed), BA.cleanInputs(b.hits, s.job, s.seed, el)), rw = BA.reward(s.job, sc.score, ba), j = BA.JOBS[s.job];
+    if (rw.elx > 0) { const cap = EX.params(h.pump).cap, before = EX.tick(h.pump, now); h.pump.tank = Math.min(cap, before + rw.elx); rw.elx = h.pump.tank - before; }   // the bonus goes into the tank (and wastes if it is full)
+    BA.apply(ba, s.job, rw); ba.cd[s.job] = now + j.cd;
+    BA.note(ba, 'jobs'); BA.note(ba, 'best', Math.round(100 * sc.score / sc.max)); if (s.job === 'sort') BA.note(ba, 'sort'); if (s.job === 'dummy') BA.note(ba, 'drill');
+    for (const k in rw.parts) p.parts[k] = (p.parts[k] || 0) + rw.parts[k];
+    if (Object.keys(rw.parts).length) sendParts(p);
+    if (rw.gold) { p.gold += rw.gold; sendGold(p); }
+    if (rw.kn) G.addKnowledge(p, rw.kn);
+    if (Object.keys(rw.parts).length || rw.kn) m.dirty = true;
+    baRes(p, true, BA.rewardText(rw), { job: s.job, score: sc.score, max: sc.max, hit: sc.hit });
+    pushHome(m, h, now); return pushBa(m, h, p, now);
+  }
+  if (b.look === 1) {
+    const g = baGate(m, p, 'window'); if (g.why) return baRes(p, false, g.why);
+    const wait = ba.lookAt + BA.CFG.LOOK_CD - now; if (wait > 0) return baRes(p, false, 'The glass needs ' + Math.ceil(wait / 1000) + ' s to clear');
+    ba.lookAt = now; BA.note(ba, 'scout'); sendTo(ws, { baLook: baLook(m, p, h) }); return pushBa(m, h, p, now);
+  }
+  if (b.claim === 1) {
+    const g = baGate(m, p, 'board'); if (g.why) return baRes(p, false, g.why);
+    if (ba.claimed) return baRes(p, false, 'Already claimed this round');
+    if (!BA.goalsDone(ba, m.round)) return baRes(p, false, 'Finish all three goals first');
+    ba.claimed = true; ba.trophies = Math.min(BA.CFG.TROPHY_MAX, ba.trophies + 1); p.gold += BA.CFG.CLAIM_GOLD; sendGold(p);
+    baRes(p, true, '+' + BA.CFG.CLAIM_GOLD + ' gold and a trophy for the shelf', { trophy: ba.trophies }); return pushBa(m, h, p, now);
+  }
+}
+// BASEACT-END
+
 /* MATCH-BEGIN */
 const queueInfo = m => ({ n: m.players.size, size: CAP, since: Date.now() - m.formedAt });
 function broadcastQueue(m, except) { const msg = JSON.stringify({ queue: queueInfo(m) }); for (const ws of m.players.keys()) if (ws !== except && ws.readyState === 1) ws.send(msg); }
@@ -2798,7 +2881,7 @@ wss.on('connection', (ws, req) => {
     } else if (d.act !== undefined) { A5.act(m, p, d.act, now);   // ACT5: an activity verb {act:{r,a,v,x?}}
     } else if (typeof d.lat === 'number' && Number.isFinite(d.lat)) { p.lat = Math.max(0, Math.min(1000, d.lat));   // ACT5: smoothed latency for the timing presses
     } else if (dbg && d.actDbg) { A5.debug(m, p, d.actDbg);   // ACT5 test hook
-    } else if (d.pump === 1 || d.base !== undefined || d.lockbox !== undefined || d.brew !== undefined) { homeMsg(m, ws, p, d, now);   // ELIXIR
+    } else if (d.pump === 1 || d.base !== undefined || d.lockbox !== undefined || d.brew !== undefined || d.ba !== undefined) { homeMsg(m, ws, p, d, now);   // ELIXIR (BASEACT: d.ba)
     } else if (dbg && d.dbgElixir) { elixirDbg(m, p, d.dbgElixir);
     } else if (typeof d.recycle === 'string' && homeAt(m, p.room)) { const why = homeRecycle(m, p, d.recycle, d.refine === 1); if (why) sendTo(ws, { recycleFail: why });   // ELIXIR: the home recycler is owner-only and follows its upgrade
     } else if (typeof d.craft === 'string' && homeAt(m, p.room) && !HB.canUseStation(homeAt(m, p.room), p.id)) { sendTo(ws, { craftFail: 'owner' });

@@ -425,6 +425,19 @@
   });
   Object.assign(GAP, { drumBeat: 0.12, gavel: 0.3 });
   // VBX-END
+  // BASEACT-BEGIN: the base-job sounds (baseactui.js; docs/reports/base-activities.md)
+  Object.assign(SND, {
+    baStrike(out, t, o) { const p = num(o.pitch, 1); noise(out, t, 0.05, 0.35, 'bandpass', 1800 * p, 900, 3, { a: 0.001 }); tone(out, 'triangle', 180 * p, t, 0.11, 0.3, { f1: 110, a: 0.001 }); },
+    baPerfect(out, t) { ping(out, t, 1318.5, 0.22, 0.5); ping(out, t + 0.07, 1760, 0.2, 0.6); },
+    baMiss(out, t) { tone(out, 'sawtooth', 150, t, 0.18, 0.12, { f1: 90, a: 0.004 }); },
+    baAnvil(out, t, o) { const p = num(o.pitch, 1); ping(out, t, 2200 * p, 0.35, 0.5); ping(out, t, 3300 * p, 0.2, 0.35); noise(out, t, 0.04, 0.4, 'bandpass', 3000, 2000, 4, { a: 0.001 }); tone(out, 'sine', 420 * p, t, 0.2, 0.2, { f1: 380, a: 0.001 }); },
+    baSort(out, t, o) { const f = num(o.pitch, 1) * rnd(0.95, 1.05); tone(out, 'triangle', 240 * f, t, 0.08, 0.3, { f1: 150 * f, a: 0.002 }); noise(out, t, 0.05, 0.25, 'bandpass', 900, 700, 2, { a: 0.001 }); },
+    baDone(out, t) { for (const [f, d] of [[523.3, 0], [659.3, 0.1], [784, 0.2]]) { tone(out, 'triangle', f, t + d, 0.3, 0.2, { a: 0.01 }); ping(out, t + d, f * 2, 0.2, 0.3); } },
+    baTrophy(out, t) { for (const [f, d] of [[392, 0], [523.3, 0.12], [659.3, 0.24], [784, 0.36]]) { tone(out, 'sawtooth', f, t + d, 0.4, 0.14, { a: 0.02 }); tone(out, 'triangle', f * 2, t + d, 0.4, 0.06, { a: 0.02 }); } ping(out, t + 0.5, 1568, 0.3, 1.2); },
+    baLook(out, t) { noise(out, t, 0.7, 0.12, 'bandpass', 500, 1500, 1.2, { a: 0.2 }); tone(out, 'sine', 330, t + 0.1, 0.4, 0.05, { f1: 300, a: 0.1 }); },
+  });
+  Object.assign(GAP, { baStrike: 0.05, baPerfect: 0.07, baMiss: 0.1, baAnvil: 0.08, baSort: 0.06, baDone: 0.5, baTrophy: 1, baLook: 1 });
+  // BASEACT-END
   Object.assign(GAP, { pumpTick: 0.18, sentryShot: 0.09, lockpickClick: 0.05, coinCount: 0.04, captureTick: 0.1, timingHit: 0.08, timingMiss: 0.1, riskWarn: 0.25, raidAlarm: 1, vaultAlarm: 1, roundHorn: 2, doorBar: 0.15, doorLock: 0.15, wardenRoar: 1.5, rewardChime: 0.4, runeChime: 0.08, winchCreak: 0.3, coinPile: 0.4 });
   Object.assign(PRIORITY_LOW, { pumpTick: 1, captureTick: 1, lockpickClick: 1, coinCount: 1, riskWarn: 1 });
 
