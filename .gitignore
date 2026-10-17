@@ -4,3 +4,18 @@ node_modules
 .gk-keep.json
 .gk-keep.json.tmp
 tests/.timings.json
+
+# RELEASE: build output and local noise (docs/RELEASE.md)
+/dist/
+*.log
+npm-debug.log*
+.env
+.env.*
+*.cpuprofile
+*.heapprofile
+*.heapsnapshot
+.DS_Store
+Thumbs.db
+desktop.ini
+/tmp/
+/.cache/

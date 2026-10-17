@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Privacy and terms - Goblin King</title><link rel="icon" href="/favicon.svg">
+<style>
+:root{--gold:#f5c451;--txt:#efe9d8;--mut:#a9a493}
+body{margin:0;background:#0b0b0e;color:var(--txt);font:17px/1.6 Georgia,'Times New Roman',serif}
+main{max-width:720px;margin:0 auto;padding:48px 20px 64px}
+h1{margin:0 0 4px;color:var(--gold);font-size:34px;letter-spacing:.04em}
+h2{margin:32px 0 6px;color:var(--gold);font-size:21px;letter-spacing:.03em}
+p,li{color:#d8d2bf}ul{padding-left:22px}
+code{font-size:.9em;color:var(--gold)}
+.mut{color:var(--mut);font-size:15px}
+a{color:var(--gold)}
+</style></head>
+<body><main>
+<h1>Privacy and terms</h1>
+<p class="mut">Goblin King. Last updated 2026-10-16. <!-- OWNER: review this page, add your contact address and the operator's name before a public launch (docs/RELEASE.md). --></p>
+
+<h2>The short version</h2>
+<p>Goblin King has no accounts, no cookies, no ads and no analytics. You do not give us a name, an email address or a password.</p>
+
+<h2>What your browser keeps</h2>
+<p>The game stores a few things in your own browser so it works the next time you visit. They never leave your computer except where noted.</p>
+<ul>
+<li><b>Settings</b> (graphics, volume, controls, tips): <code>localStorage</code>.</li>
+<li><b>Your goblins and stash</b>, including a signed token that proves your victories to the server: <code>localStorage</code>. The token is sent to the game server when you play.</li>
+<li><b>Your match statistics</b>: <code>localStorage</code>.</li>
+<li><b>A reconnect ticket</b> so a page reload puts you back into your match: <code>sessionStorage</code>, gone when you close the tab.</li>
+<li><b>Baked item icons</b>, a cache only: IndexedDB.</li>
+</ul>
+<p>To delete all of it, clear this site's data in your browser settings. Your goblins are then gone for good: there is no copy on the server.</p>
+
+<h2>What the server sees</h2>
+<ul>
+<li>Your IP address, while you are connected, to limit connections per address and stop abuse. It is kept in memory only and not written to disk by the game.</li>
+<li>What you do in a match (moves, picks, trades). It lives in memory for the length of the match.</li>
+<li>The goblin name you type. Names are filtered and shown to the other players in your match.</li>
+</ul>
+<p>The hosting provider may keep its own access logs. <!-- OWNER: name the host (e.g. Render) and link its privacy policy. --></p>
+
+<h2>Third parties</h2>
+<p>The page loads its fonts from Google Fonts, so Google sees your IP address and browser when the page opens. <!-- OWNER: self-host the fonts to remove this (docs/RELEASE.md). --></p>
+
+<h2>Future telemetry</h2>
+<p>If we ever add gameplay statistics, they will be anonymous, described here first, and you will be able to switch them off in Settings.</p>
+
+<h2>Terms of play</h2>
+<ul>
+<li>Goblin King is free to play and offered as is, with no warranty. Matches, goblins and stashes can be lost or reset at any time.</li>
+<li>Be decent. Offensive goblin names are replaced automatically. Cheating, flooding the server or attacking it gets you disconnected.</li>
+<li>You must be old enough to use online games in your country, or play with a parent's permission.</li>
+</ul>
+<p class="mut">Questions: <!-- OWNER: contact address --> see the project page.</p>
+<p><a href="/">Back to the game</a></p>
+</main></body></html>
