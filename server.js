@@ -40,7 +40,7 @@ function cached(key, file, type) {
   return e;
 }
 const missUntil = new Map();   // PERF4: url key -> time the remembered miss expires
-const CLIENT_JS = new Set(['game', 'menu', 'items', 'world', 'save', 'stats', 'statsui', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'wbui', 'act5ui', 'fskeep', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)
+const CLIENT_JS = new Set(['game', 'menu', 'items', 'affix', 'mutators', 'world', 'save', 'stats', 'statsui', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'wbui', 'act5ui', 'fskeep', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)
 let CSP = '';
 function buildCsp() {   // the page has two inline scripts (importmap + module): allowed by hash, so no 'unsafe-inline' for scripts
   const page = cached('/index.html', path.join(ROOT_DIR, 'index.html'), 'text/html; charset=utf-8'), hashes = [];
@@ -164,7 +164,7 @@ const tolerance = w => w <= 5 ? 1 : Math.ceil(w * 0.25);
 function newMatch() {
   const R1 = process.env.GK_DEBUG && +process.env.GK_ROUND_MS > 0 ? +process.env.GK_ROUND_MS : ROUND_MS; // GK_DEBUG only: shorter round 1 so the tests run fast
   const m = { id: nextMatch++, players: new Map(), round: 1, dur: R1, endsAt: Date.now() + R1, started: false, phase: 'queue', formedAt: Date.now(), goAt: 0, sel: {}, selBy: {}, lastSel: {}, open: [], drops: [], nextDrop: 1, dirty: false, lastRound: 0, specs: new Map(), dead: [], npcSpawned: new Set(),
-    chests: Array.from({ length: WORLD.NATT }, () => Math.floor(Math.random() * 6)), chestKeys: Array.from({ length: WORLD.NATT }, () => GKITEMS.randomWeaponKey()), layout: GKITEMS.randomLayout(),
+    chests: Array.from({ length: WORLD.NATT }, () => Math.floor(Math.random() * 6)), chestKeys: Array.from({ length: WORLD.NATT }, () => GKITEMS.foundKey(GKITEMS.randomWeaponKey())), layout: GKITEMS.randomLayout(),
     trees: null, vb: null, vbNext: null, ram: null, claimant: null, relicRestock: null };   // 5x5 hooks (docs/PLAN-5x5.md 5.2): tree rooms and vaultbreakers (task B), crown claim and relic restock (task A) fill these; null = inert
   m.shops = m.layout.map(x => x === 'merchant' ? GKITEMS.randomShop() : null);   // each merchant's 5 items with gold prices, rolled once per match
   m.mystery = m.layout.map(x => x === 'mystery' ? GKITEMS.randomMystery() : null);   // what is inside each mystery room, rolled once per match // weapon index per chest room
@@ -223,7 +223,19 @@ function tickAll() { // steps every match (scheduled by the TICK block below)
     else if (now - m.lastRound >= 1000) { m.lastRound = now; broadcastRound(m); }
     // COMBAT-BEGIN regen: 1 HP every 4 s once a player has not been hit for 6 s. SUDDEN DEATH: only inside THE VAULT (the sanctuary everyone converges on), nowhere else.
     for (const p of m.players.values()) if ((!m.sudden || p.room === VK) && p.entered && !p.dead && p.stats && p.stats.health < p.stats.maxHealth && now - (p.hurtAt || 0) >= C.regenIdle * RSCALE * G.goblinRegen(p.goblin).idle && now - (p.regenAt || 0) >= C.regenEvery * RSCALE * G.goblinRegen(p.goblin).every) { p.regenAt = now; p.stats.health = Math.min(p.stats.maxHealth, p.stats.health + C.regenAmt); m.dirty = true; }
-    // COMBAT-END
+    // AFFIX-HOOK: after a landed hit, a weapon's bleed chance and life leech (items.js combat() gives bleedAff / leech; sudden death stops the leech like other healing)
+function affixHit(m, p, t, cb, hp0, now) {
+  if (!(t.stats.health < hp0) || p.dead) return;
+  if (cb.bleedAff && t.stats.health > 0 && Math.random() < cb.bleedAff.chance) t.bleed = { by: p, dmg: cb.bleedAff.dmg, left: cb.bleedAff.ticks, next: now + BLEED_MS, w: G.ITEMS[p.inv.weapon].name };
+  if (cb.leech && !m.sudden && p.stats.health < p.stats.maxHealth) { p.stats.health = Math.min(p.stats.maxHealth, p.stats.health + Math.max(1, Math.round((hp0 - t.stats.health) * cb.leech))); m.dirty = true; }
+}
+// AFFIX-HOOK: after a landed hit, a weapon's bleed chance and life leech (items.js combat() gives bleedAff / leech; sudden death stops the leech like other healing)
+function affixHit(m, p, t, cb, hp0, now) {
+  if (!(t.stats.health < hp0) || p.dead) return;
+  if (cb.bleedAff && t.stats.health > 0 && Math.random() < cb.bleedAff.chance) t.bleed = { by: p, dmg: cb.bleedAff.dmg, left: cb.bleedAff.ticks, next: now + BLEED_MS, w: G.ITEMS[p.inv.weapon].name };
+  if (cb.leech && !m.sudden && p.stats.health < p.stats.maxHealth) { p.stats.health = Math.min(p.stats.maxHealth, p.stats.health + Math.max(1, Math.round((hp0 - t.stats.health) * cb.leech))); m.dirty = true; }
+}
+// COMBAT-END
     if (m.dirty) { m.dirty = false; bcast(m, { players: [...m.players.values()].map(pub) }); } // slow state: only when something other than movement changed
     snapshots(m); // NETCODE: positions of players who moved go out at 20 Hz as compact snapshots
     m.errs = 0;
@@ -574,6 +586,8 @@ function attack(m, ws, p, now, rt) {   // {atk:1, rt}: rate limit by weapon, nea
   if (!best) return;
   const [tws, t] = best, hp0 = t.stats.health; hitTarget(m, ws, p, tws, t, cb.dmg, now, undefined, { melee: !cb.ranged });   // thorns and the scout's dodge only apply to melee
   if (cb.bleed && t.stats.health > 0 && t.stats.health < hp0) t.bleed = { by: p, dmg: cb.bleed[0], left: cb.bleed[1], next: now + BLEED_MS, w: p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon] ? G.ITEMS[p.inv.weapon].name : '' };   // WEAPONS3: whips and tridents leave a bleed
+  if (cb.bleedAff || cb.leech) affixHit(m, p, t, cb, hp0, now);   // AFFIX
+  if (cb.bleedAff || cb.leech) affixHit(m, p, t, cb, hp0, now);   // AFFIX
 }
 // COMBAT-END
 // WEAPONS3-BEGIN (bleed from whips and tridents, tuned magic bolts; weapon numbers live in items.js WEAPON_TUNE)
@@ -923,7 +937,7 @@ function npcLoot(kind) {
   if (!S.loot[0]) return out;   // ELIXIR: rats carry nothing
   for (let i = 0; i < S.loot[0]; i++) {
     let k = null; for (let t = 0; t < 40; t++) { k = (i % 2 ? G.randomArmorKey : G.randomWeaponKey)(); if (G.ITEMS[k].tierN >= S.loot[1]) break; }
-    out.push(k);
+    out.push(G.foundKey(k));   // AFFIX: found gear can carry affixes
   }
   if (Math.random() < 0.4) out.push(G.pickUtil());   // UTILITY: a mystery-room enemy sometimes carries a utility item
   if (Math.random() < 0.15) out.push(G.pickCharm());   // USE2: or a charm

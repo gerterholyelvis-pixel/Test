@@ -1859,7 +1859,7 @@ MY.WB = WB;
 const wcache = {};
 MY.weaponProto = key => {
   if (wcache[key]) return wcache[key];
-  const it = GKITEMS.ITEMS[key] || GKITEMS.ITEMS['w:sword'], k = key.slice(2), m = tierMats(it.tier);
+  const it = GKITEMS.ITEMS[key] || GKITEMS.ITEMS['w:sword'], k = key.slice(2).split('@')[0], m = tierMats(it.tier);   // AFFIX: model of the plain item
   let out = null;
   const ck = GK.chestKit && GK.chestKit.weaponModel;
   if (ck) { try { const w = ck(key); if (w) out = norm(w.clone ? w.clone(true) : w, 1.9); } catch (e) { out = null; } }
@@ -2149,7 +2149,7 @@ BUILD.weapon = (ctx, v) => {
   rarityLabel(ctx, it, 3.5, `${it.attack} dmg`);
 };
 BUILD.armor = (ctx, v) => {
-  const it = GKITEMS.ITEMS[v.key] || GKITEMS.ITEMS['a:rags'], T = TIERS[it.tier] || TIERS.common, z = -1.0, k = v.key.slice(2), m = tierMats(it.tier);
+  const it = GKITEMS.ITEMS[v.key] || GKITEMS.ITEMS['a:rags'], T = TIERS[it.tier] || TIERS.common, z = -1.0, k = v.key.slice(2).split('@')[0], m = tierMats(it.tier);
   dais(ctx, z, it.tier); spot(ctx.root, T.c, 0, z, 5.8, 0.35, 1.4, 0.18); pool(ctx.root, T.c, 2.6, 0.2, 0, z);
   const a = dyn(grp(ctx.root, 0, 0.29, z)); a.scale.setScalar(1.25); mannequin(a); try { (AB[it.family] || AB.cloth)(a, m, it, k); } catch (e) { console.error(e); }
   if (T.n >= 2) { const rg = ring(ctx.root, T.c, 1.15, 0.6, 0, z); rg.position.y = 0.4; rg.material = ctx.own(rg.material); ctx.anim.push(t => rg.material.opacity = 0.4 + 0.3 * Math.sin(t * 2.4)); }
