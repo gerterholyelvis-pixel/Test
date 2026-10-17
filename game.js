@@ -4895,11 +4895,11 @@ function buildInv() {
   const qwrap = document.createElement('div'); qwrap.style.cssText = 'margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.1)'; qwrap.innerHTML = '<div class="lab">QUICK ACCESS (KEYS 1 2 3)</div>'; qwrap.appendChild(quick);
   const pw = document.createElement('div'); pw.style.cssText = 'margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.1)'; pw.innerHTML = '<div class="lab">MATERIALS</div>'; pw.appendChild(mkPartsRow()); qwrap.appendChild(pw);
   const foot = document.createElement('div'); foot.style.cssText = 'display:flex;gap:12px;align-items:center;margin-top:14px';
-  hintEl = document.createElement('div'); hintEl.style.cssText = 'flex:1;font-size:12px;color:#8d8880;letter-spacing:.04em'; hintEl.textContent = 'Right-click an item to drop it  ·  Tab / I / Esc to close';
+  hintEl = document.createElement('div'); hintEl.style.cssText = 'flex:1;font-size:12px;color:#8d8880;letter-spacing:.04em'; hintEl.textContent = 'Right-click an item to drop it  ·  Tab / I / E to close';
   dropBtn = document.createElement('button'); dropBtn.textContent = 'DROP'; dropBtn.style.cssText = 'border:1px solid rgba(255,90,74,.6);background:rgba(120,20,14,.35);color:#ff8a7a';
   const closeBtn = document.createElement('button'); closeBtn.textContent = 'CLOSE'; closeBtn.style.cssText = 'border:0;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font-weight:800';
   const eatBtn = document.createElement('button'); eatBtn.textContent = 'EAT / USE'; eatBtn.id = 'invEat'; eatBtn.style.cssText = 'border:1px solid #8be28b;background:rgba(40,120,50,.35);color:#b8f5b8';
-  eatBtn.onclick = () => { const k = held && invGet(myInv, held); if (k && infoOf(k) && (infoOf(k).family === 'brain' || infoOf(k).use || infoOf(k).type === 'charm')) eatSlot(held); else { hintEl.style.color = '#ff8a7a'; hintEl.textContent = 'Pick up a brain or a utility item first, then press Eat / Use (or double-click it)'; setTimeout(() => { hintEl.style.color = '#8d8880'; hintEl.textContent = 'Right-click an item to drop it  ·  Tab / I / Esc to close'; }, 2200); } };
+  eatBtn.onclick = () => { const k = held && invGet(myInv, held); if (k && infoOf(k) && (infoOf(k).family === 'brain' || infoOf(k).use || infoOf(k).type === 'charm')) eatSlot(held); else { hintEl.style.color = '#ff8a7a'; hintEl.textContent = 'Pick up a brain or a utility item first, then press Eat / Use (or double-click it)'; setTimeout(() => { hintEl.style.color = '#8d8880'; hintEl.textContent = 'Right-click an item to drop it  ·  Tab / I / E to close'; }, 2200); } };
   foot.append(hintEl, eatBtn, dropBtn, closeBtn);
   invEl.addEventListener('dblclick', e => { const el = e.target.closest && e.target.closest('.gks'); if (el && el.dataset.id) { held = null; eatSlot(el.dataset.id); } });
   panel.append(main, qwrap, foot); invEl.appendChild(panel);
@@ -4910,7 +4910,7 @@ function buildInv() {
   const slotOf = e => { const el = e.target.closest && e.target.closest('.gks'); return el && invEl.contains(el) ? el.dataset.id : null; };
   invEl.addEventListener('click', e => {
     const id = slotOf(e); if (e.target.closest('button')) return;
-    if (!id) { if (held && e.target === invEl) { held = null; paintAll(); } return; }
+    if (!id) { if (e.target === invEl) { if (held) { held = null; paintAll(); } else closeInv(); } return; }   // FULLSCREEN-2: a click outside the bag closes it
     if (held == null) { if (invGet(myInv, id) != null) { held = id; hideTip(); paintAll(); ghostAt(e); } } else moveInv(held, id);
   });
   invEl.addEventListener('contextmenu', e => { e.preventDefault(); const id = held || slotOf(e); if (id) dropSlot(id); });
@@ -4921,7 +4921,7 @@ function buildInv() {
     tipEl.innerHTML = tipFor(k).replace(/<span/, '<br><span'); tipEl.style.display = 'block';
     tipEl.style.left = Math.max(4, Math.min(e.clientX + 16, innerWidth - tipEl.offsetWidth - 8)) + 'px'; tipEl.style.top = Math.max(4, Math.min(e.clientY + 14, innerHeight - tipEl.offsetHeight - 8)) + 'px';
   });
-  dropBtn.onclick = () => { if (held) dropSlot(held); else { hintEl.style.color = '#ff8a7a'; hintEl.textContent = 'Pick up an item first, then press Drop (or right-click it)'; setTimeout(() => { hintEl.style.color = '#8d8880'; hintEl.textContent = 'Right-click an item to drop it  ·  Tab / I / Esc to close'; }, 2200); } };
+  dropBtn.onclick = () => { if (held) dropSlot(held); else { hintEl.style.color = '#ff8a7a'; hintEl.textContent = 'Pick up an item first, then press Drop (or right-click it)'; setTimeout(() => { hintEl.style.color = '#8d8880'; hintEl.textContent = 'Right-click an item to drop it  ·  Tab / I / E to close'; }, 2200); } };
   closeBtn.onclick = () => closeInv();
   paintAll();
 }
@@ -4957,6 +4957,7 @@ addEventListener('keydown', e => {
     return;
   }
   if (e.code === 'Tab' || e.code === 'KeyI') { e.preventDefault(); if (!e.repeat) { if (invOpen) closeInv(); else openInv(); } return; }
+  if (e.code === 'KeyE' && invOpen && !e.repeat) { closeInv(); return; }   // FULLSCREEN-2: E closes the bag too, so Esc is never needed
   if (e.code === 'Escape' && invOpen) { if (held) { held = null; paintAll(); } else closeInv(); return; }
   if (e.repeat) return;
   if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') {
@@ -5063,7 +5064,7 @@ function buildShop() {
     + '<div id="shopTitle" style="text-align:center;color:' + GOLD + ';font-weight:800;font-size:clamp(22px,3.6vw,30px);letter-spacing:.1em;text-shadow:0 0 22px rgba(255,200,60,.4)"></div>'
     + '<div style="display:flex;justify-content:space-between;align-items:center;margin:4px 0 10px;font-size:12px;letter-spacing:.14em;color:#b9b4ae"><span>MERCHANT</span><span id="shopGold" style="font-size:16px;letter-spacing:.04em;color:' + GOLD + ';font-weight:700"></span></div>'
     + '<div id="shopRows" style="display:flex;flex-direction:column;gap:7px"></div>'
-    + '<div style="display:flex;align-items:center;gap:12px;margin-top:12px"><div id="shopMsg" style="flex:1;font-size:13px;color:#ff8a7a;opacity:0;transition:opacity .25s"></div><button id="shopClose" style="cursor:pointer;border:0;border-radius:8px;padding:9px 18px;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font:800 13px system-ui,sans-serif;letter-spacing:.1em">CLOSE (ESC)</button></div></div>';
+    + '<div style="display:flex;align-items:center;gap:12px;margin-top:12px"><div id="shopMsg" style="flex:1;font-size:13px;color:#ff8a7a;opacity:0;transition:opacity .25s"></div><button id="shopClose" style="cursor:pointer;border:0;border-radius:8px;padding:9px 18px;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font:800 13px system-ui,sans-serif;letter-spacing:.1em">CLOSE (E)</button></div></div>';
   document.body.appendChild(shopEl); shopMsg = shopEl.querySelector('#shopMsg');
   shopEl.querySelector('#shopClose').onclick = () => closeShop();
   shopEl.addEventListener('click', e => { if (e.target === shopEl) closeShop(); });
@@ -5176,7 +5177,7 @@ function mkPanel(id, title, w) {
   el.innerHTML = '<div style="width:min(' + w + 'px,94vw);max-height:94vh;overflow:auto;box-sizing:border-box;padding:16px 24px 16px;border-radius:16px;background:rgba(14,12,9,.88);border:1px solid rgba(255,215,94,.45);box-shadow:0 10px 60px rgba(0,0,0,.7)">'
     + '<div class="ttl" style="text-align:center;color:' + GOLD + ';font-weight:800;font-size:clamp(22px,3.6vw,30px);letter-spacing:.1em;text-shadow:0 0 22px rgba(255,200,60,.4)">' + title + '</div>'
     + '<div class="sub" style="text-align:center;margin:2px 0 10px;font-size:12px;letter-spacing:.14em;color:#b9b4ae"></div><div class="body"></div>'
-    + '<div style="display:flex;align-items:center;gap:12px;margin-top:12px"><div class="msg" style="flex:1;font-size:13px;color:#ff8a7a;min-height:1.3em"></div><button class="close" style="cursor:pointer;border:0;border-radius:8px;padding:9px 18px;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font:800 13px system-ui,sans-serif;letter-spacing:.1em">CLOSE (ESC)</button></div></div>';
+    + '<div style="display:flex;align-items:center;gap:12px;margin-top:12px"><div class="msg" style="flex:1;font-size:13px;color:#ff8a7a;min-height:1.3em"></div><button class="close" style="cursor:pointer;border:0;border-radius:8px;padding:9px 18px;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font:800 13px system-ui,sans-serif;letter-spacing:.1em">CLOSE (E)</button></div></div>';
   document.body.appendChild(el); el.querySelector('.close').onclick = () => closeShop();
   el.addEventListener('click', e => { if (e.target === el) closeShop(); });
   return { el, body: el.querySelector('.body'), sub: el.querySelector('.sub'), msg: el.querySelector('.msg'), ttl: el.querySelector('.ttl') };
@@ -5536,7 +5537,7 @@ const requestLock = () => {
 document.addEventListener('pointerlockchange', () => { if (lockOk()) lockRefused = false; });
 document.addEventListener('pointerlockerror', () => { lockRefused = true; });
 canvas.addEventListener('mousedown', requestLock);
-addEventListener('keydown', e => { if (e.code !== 'Escape' && GK.mode === 'play' && !invOpen && !shopOpen && !lockOk() && !lockRefused && !e.repeat && document.fullscreenElement) requestLock(); });   // panel closed by key while fullscreen: take the pointer lock back (keys count as a gesture)
+// FULLSCREEN-2: a key in play with no panel open takes the pointer lock back, fullscreen or not (fskeep.js install, wired by menu.js)
 // look follows the mouse, no button held: raw deltas while the pointer is locked; only if the browser refuses the lock
 // (embedded views, some browsers) does plain cursor movement turn, with the left/right screen edge to keep turning
 let mouseX = -1, edgeT = 0;
@@ -7742,6 +7743,7 @@ requestAnimationFrame(frame);
 const lockNow = requestLock;
 // FULLSCREEN-BEGIN
 GK.requestLock = requestLock; GK.lockOk = lockOk;   // menu.js fullscreen block: re-take the pointer lock after entering fullscreen
+GK.panelOpen = () => invOpen || shopOpen; GK.closePanels = () => { closeInv(true); closeShop(true); };   // FULLSCREEN-2 (fskeep.js)
 // FULLSCREEN-END
 GK.net = net; GK.cam = cam; GK.P = P; GK.actors = actors; GK.renderer = renderer; GK.scene = scene; GK.build = t => buildGoblin(t, true); GK.NAMES = NAMES; GK.SCALE = SCALE; GK.glowTex = glowTex; GK.textTex = textTex;
 // MATCH-BEGIN (matchmaking: the wheel screen is the queue, the match start moves everyone into the rooms, a 3-2-1-GO countdown locks movement/attacks/interaction; see docs/reports/matchmaking.md)

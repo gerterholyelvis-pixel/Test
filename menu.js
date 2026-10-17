@@ -60,34 +60,26 @@ function fsSync() {
   if (b) { b.classList.toggle('on', on); b.title = b.dataset.tip = on ? 'Exit fullscreen' : 'Fullscreen'; b.setAttribute('aria-label', b.dataset.tip); b.setAttribute('aria-pressed', on); }
 }
 function fsChanged() {
-  fsSync(); GK.applySettings();   // resize renderer, composer and camera to the new window size
-  if (GK.mode === 'play' && fsOn() && GK.requestLock && !GK.lockOk() && navigator.userActivation && navigator.userActivation.isActive) GK.requestLock();   // entering by click/key: end up locked. Leaving (Esc) is left to the browser; the game shows 'Click to resume'
+  fsSync(); GK.applySettings();   // resize renderer, composer and camera to the new window size (re-locking the pointer: fskeep.js)
 }
 document.addEventListener('fullscreenchange', fsChanged); document.addEventListener('webkitfullscreenchange', fsChanged);
 $('s-fs').onchange = e => fsSet(e.target.checked);
 $('s-fsstart').onchange = e => { GK.settings.fsStart = e.target.checked; save(); };
 $('fsbtn').onclick = e => { fsSet(!fsOn()); e.currentTarget.blur(); };
 addEventListener('keydown', e => {   // F in play (no other handler in game.js / menu.js uses it)
-  if (e.code === 'KeyF' && !e.repeat && !e.ctrlKey && !e.altKey && !e.metaKey && GK.mode === 'play') { e.preventDefault(); fsSet(!fsOn()); }
+  if (e.code !== 'KeyF') return;
+  const a = window.GKFS ? GKFS.fKey({ code: e.code, repeat: e.repeat, mods: e.ctrlKey || e.altKey || e.metaKey, mode: GK.mode, panel: !!(GK.panelOpen && GK.panelOpen()), fsOn: fsOn(), inField: GKFS.inFieldOf(e.target) }) : null;   // FULLSCREEN-2: never leaves while a panel is open
+  if (a) { e.preventDefault(); fsSet(a === 'enter'); }
 });
 GK.fullscreen = { on: fsOn, set: fsSet };
 // Sticky fullscreen: remember the wish and take it back on the next gesture when the browser dropped it unprompted
 // (page reloads between screens, Esc leaving pointer lock + fullscreen together, focus loss). Always the document element.
 const fsWishGet = () => { try { return localStorage.getItem('gk.fsWish') === '1'; } catch (e) { return false; } };
 const fsWishSet = v => { try { localStorage.setItem('gk.fsWish', v ? '1' : '0'); } catch (e) {} };
-let fsHeldEsc = 0, fsTry = 0;
 const fsSetOrig = fsSet;
 fsSet = function (on) { fsWishSet(on); fsSetOrig(on); }; GK.fullscreen.set = fsSet;   // explicit user toggles (F, button, checkbox, Start) update the wish
-function fsKeyLock() { try { if (fsOn() && navigator.keyboard && navigator.keyboard.lock) navigator.keyboard.lock(['Escape']).catch(() => {}); else if (!fsOn() && navigator.keyboard && navigator.keyboard.unlock) navigator.keyboard.unlock(); } catch (e) {} }   // Esc stays with the game (closes panels, keeps fullscreen); holding it still leaves
-document.addEventListener('fullscreenchange', fsKeyLock); document.addEventListener('webkitfullscreenchange', fsKeyLock);
-addEventListener('keydown', e => { if (e.code === 'Escape' && e.repeat) fsHeldEsc = performance.now(); }, true);
-document.addEventListener('fullscreenchange', () => { if (!fsOn() && performance.now() - fsHeldEsc < 2500) fsWishSet(false); });   // deliberate exit (held Esc) is respected
-function fsRetake(e) {
-  if (fsOn() || !fsWishGet() || e.isTrusted === false || e.code === 'Escape') return;
-  const t = performance.now(); if (t - fsTry < 800) return; fsTry = t;
-  fsSetOrig(true);
-}
-addEventListener('pointerdown', fsRetake, true); addEventListener('keydown', fsRetake, true);
+// FULLSCREEN-2: retake on the next trusted click / key (also W, E, Tab: any key but Esc), pointer lock back on any key once no panel is open, keyboard lock on Esc, held Esc gives up the wish (fskeep.js)
+if (window.GKFS) GKFS.install({ GK, fsOn, request: () => fsSetOrig(true), wishGet: fsWishGet, wishSet: fsWishSet });
 if (GK.settings.fsStart && !fsWishGet()) fsWishSet(true);
 // FULLSCREEN-END
 $('s-gfx').onchange = e => { try { localStorage.setItem('gk.gfxAuto', 'user'); } catch (er) {} GK.settings.gfx = e.target.value; GK.settings.fx = e.target.value !== 'low'; syncUI(); GK.applySettings(); save(); };   // the preset also switches post effects (Low = none)
