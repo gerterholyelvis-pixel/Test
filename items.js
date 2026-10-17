@@ -87,7 +87,7 @@
     ['tonic', 'Speed Tonic', 'tonic', 'uncommon', 35, 'speed', { n: 1.25, ms: 8000 }, '25% faster for 8 s.', 3, { bone: 1 }, [1, { bone: 1, string: 1, crystal: 1 }]],
     ['smoke', 'Smoke Bomb', 'smoke', 'uncommon', 30, 'smoke', { r: 3, ms: 6000 }, 'Thrown. For 6 s nobody can see or shoot into the cloud from beyond 2.5 m.', 3, { cloth: 1, bone: 1 }, [1, { cloth: 2, bone: 1 }]],
     ['bomb', 'Powder Bomb', 'bomb', 'rare', 55, 'bomb', { n: 22, r: 2.5 }, 'Thrown. Blows up after 1 s: 22 damage close, half at the edge of 2.5 m. Spares the thrower.', 2, { metal: 1, bone: 1 }, [2, { metal: 2, bone: 1, string: 1 }]],
-    ['wedge', 'Door Wedge', 'wedge', 'uncommon', 30, 'wedge', { r: 4 }, 'Use beside an open door (not the Vault): it stays open one more round.', 3, { wood: 2 }, [1, { wood: 3, metal: 1 }]],
+    ['wedge', 'Door Wedge', 'wedge', 'uncommon', 30, 'wedge', { r: 4 }, 'Use beside a closed door (not the Vault): it opens for good when the round ends.', 3, { wood: 2 }, [1, { wood: 3, metal: 1 }]],
     ['wax', 'Sealing Wax', 'wax', 'common', 20, 'seal', {}, "Use at your room's panel: its pick is sealed for the rest of the round.", 3, { string: 1 }, [0, { string: 1, bone: 1 }]],
     ['lockpick', 'Vault Lockpick', 'lockpick', 'mythic', 90, 'pick', {}, 'Use in a room whose pick is a Vault door: it counts as a second vote this round.', 1, { metal: 2, gem: 1 }, [3, { metal: 3, gem: 2, string: 1 }]],
   ];
@@ -102,7 +102,7 @@
     ['trap', 'Bear Trap', 'trap', 'uncommon', 40, 'trap', { n: 14, ms: 2500, arm: 1500, life: 90000 }, 'Set it down. After 1.5 s the first other goblin to step on it takes 14 damage and is slowed for 2.5 s. Two at a time.', 3, { metal: 2 }, [1, { metal: 2, wood: 1, string: 1 }]],
     ['flare', 'Signal Flare', 'flare', 'uncommon', 30, 'flare', { ms: 8000 }, 'Burns for 8 s. Every goblin in the match shows on your minimap while it does.', 3, { cloth: 1, crystal: 1 }, [1, { cloth: 1, crystal: 1, bone: 1 }]],
     ['lens', 'Panel Lens', 'lens', 'rare', 50, 'lens', { ms: 12000 }, 'For 12 s your minimap shows the door every room has picked right now.', 2, { crystal: 1, metal: 1 }, [2, { crystal: 2, metal: 1, string: 1 }]],
-    ['pry', 'Crowbar', 'pry', 'rare', 55, 'pry', { r: 4, ms: 10000 }, 'Use beside a closed door (not the Vault): it is pried open for 10 s.', 2, { metal: 2 }, [2, { metal: 3, wood: 1 }]],
+    ['pry', 'Crowbar', 'pry', 'rare', 55, 'pry', { r: 4, ms: 10000 }, 'Use beside a closed door (not the Vault): it is pried open for good, at once.', 2, { metal: 2 }, [2, { metal: 3, wood: 1 }]],
     ['ward', 'Ward Rune', 'ward', 'rare', 60, 'ward', { ms: 30000 }, 'Soaks up the next hit you take, whatever it is. Fades after 30 s.', 2, { gem: 1, bone: 1 }, [2, { gem: 1, bone: 2, string: 1 }]],
     ['jar', 'Brain Jar', 'jar', 'rare', 80, 'know', { n: 4 }, 'A pickled brain. Eat it for +4 knowledge.', 1, { bone: 1, gem: 1 }, [3, { bone: 2, gem: 1, crystal: 1 }]],
     ['bait', 'Mimic Bait', 'bait', 'uncommon', 35, 'bait', { n: 16 }, 'Leaves a fake loot pile at your feet. The first other goblin to take from it is bitten for 16 damage.', 2, { leather: 1, bone: 1 }, [1, { leather: 2, bone: 1 }]],

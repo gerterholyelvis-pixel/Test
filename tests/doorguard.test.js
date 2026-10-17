@@ -123,15 +123,16 @@ function reach(inRoom, free, sx, sz) {
   let bad = 1;
   try {
     bad = await L.run('doorguard', [
-      ['live: home phase: in round 1 the guard leaves a goblin at home alone (no hint, no door, his hatch is shut); round 2 opens a plain door of his cell at once, and the default 5 s guard holds again from round 2', async () => {
+      ['live: home phase: in round 1 the guard leaves a goblin at home alone (no hint, no door, his hatch is shut); round 2 (the hall round) opens his hatch and nothing else, and the guard leaves home + hall alone for that round', async () => {
         const c = await connect(srv5.port, 'name=Homebody&goblin=2&wins=0'); const home = c.state.matchStart.spawn.home, cell = L.cellOf(home);
         eq(c.state.open, [], 'no door open at GO'); eq(c.state.homeLock, 1, 'round 1 says the homes are shut');
         await sleep(6500);
         eq(c.state.open, [], 'the guard opened nothing in the home phase'); assert(!c.msgs.some(m => m.exitHint || m.exitOpen != null), 'no exit hint in the home phase');
         await c.until(x => x.state.round.n === 2, 6000, 'round 2');
         assert(!c.msgs.slice().reverse().find(m => m.round).homeLock, 'round 2 has no home lock');
-        const ex = c.state.open.filter(d => W.ROOM_DOORS[cell].includes(d));
-        assert(ex.length >= 1 && ex.every(d => W.DOORS[d].kind === 'arena'), 'round 2 opened a plain door of cell ' + cell + ': ' + JSON.stringify(c.state.open));
+        eq(c.state.open, [], 'DOORS-PERSIST: round 2 opens no door of cell ' + cell + ' (only the hatch)');
+        const n0 = c.msgs.length; await sleep(6500);   // longer than the default 5 s grace
+        eq(c.state.open, [], 'the guard opened nothing in the hall round'); assert(!c.msgs.slice(n0).some(m => m.exitHint || m.exitOpen != null), 'no exit hint in the hall round');
         await c.close();
       }],
       ['live: occupied rooms (loot rooms, homes and arena rooms) always regain an exit within the grace time, with a hint first', async () => {
@@ -149,11 +150,12 @@ function reach(inRoom, free, sx, sz) {
       }],
       ['live: after the grace time the teleported human stands in a loot room with an open door', async () => {
         const c = await connect(srv.port, 'name=Locked2&goblin=2&wins=0'); c.send({ enter: 1 });
-        const ck = W.CHEST[W.LOOT_IDS[1]], doorOf = ROOM_DOORS['c' + ck.id][0];
-        // wait for a round where the loot room's door is closed, then step in and measure the time to an open door
+        // DOORS-PERSIST: an opened door stays open, so each try takes a loot room whose door is still shut, steps in and measures the time to an open door
         let worst = 0;
         for (let r = 0; r < 4; r++) {
-          await c.until(x => x.state.open && !x.state.open.includes(doorOf), 8000, 'a round with the loot room door shut');
+          const rn = c.state.round.n; await c.until(x => x.state.round.n > rn, 8000, 'a fresh round');   // the guard's timers restart with each round: step in at its start
+          await c.until(x => x.state.open && W.LOOT_IDS.some(id => !x.state.open.includes(ROOM_DOORS['c' + id][0])), 8000, 'a loot room with its door shut');
+          const id = W.LOOT_IDS.find(i => !c.state.open.includes(ROOM_DOORS['c' + i][0])), ck = W.CHEST[id], doorOf = ROOM_DOORS['c' + id][0];
           c.send({ tp: [ck.cx, ck.cz] }); const t0 = Date.now();
           await c.until(x => x.state.open.includes(doorOf), TRAP + 2500, 'the trapped loot room gets an exit');
           worst = Math.max(worst, Date.now() - t0);

@@ -11,7 +11,7 @@ Screenshots live in `docs/screens/`. Agent reports live in `docs/reports/`.
   Start: Small 60 knowledge / Dagger 10 / Ragged Tunic 40 HP; Medium 40 / Nailed Club 15 / Studded Vest 50;
   Big 30 / Spiked Mace 20 / Warlord Harness 80; Wizard 80 / Gnarled Staff 0 / Starry Robe 60; King 40 / Royal Scepter 20 / Royal Mantle 100.
 - **Map**: 3x3 grid of white rooms (12 m), the middle room is **the vault** (to be made bigger than the others). Players spawn in one of the 8 outer rooms, never the vault.
-- **Rounds**: first round 30 s, later rounds 45 s. Every room has a control panel where you click a door; when the timer hits 0 that door opens (stays open for the next round).
+- **Rounds**: first round 30 s, later rounds 45 s. Every room has a control panel where you click a door; when the timer hits 0 that door opens and **stays open for the rest of the match** (docs/reports/doors-persist.md: votes only add doors; round 1 is spent at home, round 2 opens only each home's hall; a vault bar shuts a vault door until the round ends).
   A vault door only opens if at least 2 different rooms picked a vault door that round; with 1 pick nothing opens and the turn is wasted.
 - **Doors**: doors to the vault are super secure vault doors; doors between player rooms have a skull; doors to chest rooms have yellow bars and a money bag; mystery room doors have a question mark; merchant room doors have the merchant logo.
 - **Rooms behind the outer doors (12)**: randomly generated per match as chest, mystery or merchant. Edge rooms (one outer room) can never be merchant; corner rooms (two outer rooms) can be anything.
