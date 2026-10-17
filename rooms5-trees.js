@@ -56,10 +56,10 @@
   function rollItem(items, rng, o) {
     const c = []; let tot = 0;
     for (const k of Object.keys(items)) {
-      const it = items[k]; if (!it || it.up || !(it.chance > 0)) continue;
+      const it = items[k]; if (!it || it.up || !(it.chance > 0 || (it.rare && it.rw > 0))) continue;   // RARE: the rare items (chance 0) weigh their rw
       if (o.type && it.type !== o.type) continue;
       const t = it.tierN | 0; if (o.tier != null ? t !== o.tier : t < (o.min || 0)) continue;
-      c.push([k, it.chance]); tot += it.chance;
+      const w = it.chance > 0 ? it.chance : it.rw; c.push([k, w]); tot += w;
     }
     if (!c.length) return null;
     let r = rng() * tot; for (const e of c) { r -= e[1]; if (r < 0) return e[0]; }

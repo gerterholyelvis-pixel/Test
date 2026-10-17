@@ -83,7 +83,7 @@ module.exports = function create(S) {
     const why = check(m, p, sp, now); if (why) return fail(p, why);
     if (sp.role === 'cont') {
       p.hall = H.ledger(p.hall, m.round);
-      const loot = H.applyCaps(p.hall, m.round, H.rollLoot(sp.kind, Math.random, G));
+      const loot = H.applyCaps(p.hall, m.round, H.rollLoot(sp.kind, Math.random, G, { rare: m.rare, luck: G.RARE.luckOf(G.ITEMS, p.inv && p.inv.charm) }));
       if (sp.kind === 'cache') s.took.add(p.id); else s.readyAt = now + C.RESTOCK_MS;
       grant(m, p, loot);
       if (p.ws) S.sendTo(p.ws, { hallFx: { k: 'loot', id: sp.id, kind: sp.kind, gold: loot.gold, parts: loot.parts, items: loot.items } });

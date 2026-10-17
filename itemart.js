@@ -1083,6 +1083,25 @@ registerWeapons4();
 // ---------- WEAPONS 4 END ----------
 
 registerArmour3();   // ARMOUR3: needs REP above
+// RARE-ART-BEGIN (docs/reports/rare-items.md): the 13 rare weapons and armours reuse the family builders with their own parameters and colours (every key has an entry; the tier gives the accents)
+Object.assign(WS, {
+  'w:echodirk': ['sword', { len: 0.34, w: 0.055, tip: 0.3, curve: 0.07, guard: 'wing', gw: 0.08, grip: 0.12, gr: 0.015, rings: 4, pr: 0.024, ridge: 0.8, gth: 0.011, hooks: 1 }, { steel: 0xbcd4f0, handle: ['leather', 0x1f3a5a], trim: 'dark' }, 0.95],
+  'w:gravespade': ['axe', { haft: 1.1, size: 0.62 }, { iron: 1, steel: 0x59605a, rough: 0.8, handle: ['wood', 0x4a3622] }, 1.55],
+  'w:hungerblade': ['sword', { len: 0.88, w: 0.105, serr: 1, guard: 'wing', gw: 0.18, grip: 0.26, pommel: 'spike', pr: 0.035, ridge: 0.8 }, { steel: 0x6c1822, keepTone: 1, handle: ['leather', 0x240c10], trim: 'dark' }, 1.6],
+  'w:leechfang': ['sword', { len: 0.38, w: 0.058, tip: 0.3, curve: 0.13, hooks: 2, guard: 'wing', gw: 0.07, grip: 0.12, gr: 0.015, pommel: 'spike', pr: 0.022, gth: 0.011 }, { steel: 0x8cc06a, keepTone: 1, handle: ['leather', 0x2c2a1a], trim: 'dark' }, 0.95],
+  'w:wardbreaker': ['hammer', { len: 1.35, head: 0.46 }, { steel: 0x7d848e, gold: 1, emissive: 0x40c8ff, ei: 0.25, handle: ['wood', 0x3a2818] }, 1.85],
+  'w:stormtongue': ['whip', { len: 1.45, waves: 2.6, amp: 0.13 }, { handle: ['leather', 0x2a2030], trim: LEA(0x4a3a6a), steel: 0xffe066 }, 1.7],
+  'w:kingsbane': ['sword', { len: 1.25, w: 0.12, guard: 'swept', gw: 0.28, grip: 0.4, pommel: 'disc', pr: 0.05, ridge: 0.9, serr: 1 }, { steel: 0xeaf4ff, handle: ['leather', 0x2a1030] }, 1.95],
+});
+Object.assign(AS, {
+  'a:stonebark': ['timber', {}, { main: ['wood', 0x6a5a40], trim: 'steel', steel: 0x7a8a6a }],
+  'a:mossback': ['fur', {}, { main: ['hide', 0x4a5a30], trim: { kind: 'hide', col: 0x86a64a } }],
+  'a:mirrorscale': ['mail', { sleeve: 0.3, shoulder: 1 }, { main: ['mail', 0xeaf6ff], trim: LEA(0x2a3a4a) }],
+  'a:bloodplate': ['plate', { pauld: 1.1, layers: 2, rivets: 1, skirt: 1 }, { main: ['iron', 0x6a1822, { rough: 0.4 }], goldCol: 0xb04a36 }],
+  'a:phasecloak': ['cloak', {}, { main: ['cloth', 0x7a9ae0], trim: LEA(0x24305a) }],
+  'a:lastbastion': ['plate', { pauld: 1.4, layers: 3, rivets: 1, bands: 2, skirt: 2 }, { main: ['steel', 0xc4dcec, { rough: 0.22 }], goldCol: 0xffd24a, metal: 1 }],
+});
+// RARE-ART-END
 // ---------- brain, gold, parts ----------
 function brainModel() {
   const b = new Build('m:brain'), m = M('flesh', 0xf6a2bb);
@@ -1153,6 +1172,20 @@ const UTILB = (() => {
     scholar(b) { b.add(CL(0xe8d8a8), CYL(0.05, 0.05, 0.22, 14), 0.11, 0, 0, 0, 0, PI / 2); b.add(WD(0x6a4a28), CYL(0.058, 0.058, 0.025, 14), 0.135, 0, 0, 0, 0, PI / 2); b.add(WD(0x6a4a28), CYL(0.058, 0.058, 0.025, 14), -0.11, 0, 0, 0, 0, PI / 2); b.add(P(0x2a3a8a), TOR(0.052, 0.01, 5, 14), 0, 0, 0, 0, PI / 2, 0); b.add(GM(0x7a5aff, 1.0), SP(0.018, 8, 6), 0.0, 0.0, 0.058); b.add(GD(), TOR(0.026, 0.008, 5, 12), 0, 0.072, 0); for (const sg of [-1, 1]) b.add(GD(), sweep([[0, 0.085, 0], [sg * 0.06, 0.14, 0], [sg * 0.12, 0.26, 0]], 0.0055, 5, 12)); return b.finish(0.3, 'rare'); },
     tongue(b) { b.add(ST(0xdfe6ee), SP(0.06, 14, 10), 0, 0.05, 0, 0, 0, 0, 0.9, 2.0, 0.28); b.add(P(0x8a9098, { metal: 0.8, rough: 0.35 }), BOXG(0.008, 0.16, 0.02), 0, 0.05, 0.02); chain(b, 0.17, ST(0xdfe6ee)); return b.finish(0.36, 'rare'); },
     fang(b) { b.add(P(0xf0e8d0, { rough: 0.5 }), sweep([[0, 0, 0], [0.025, 0.1, 0], [0.085, 0.19, 0]], t => 0.04 * (1 - t) + 0.004, 8, 14)); b.add(GD(), CYL(0.044, 0.04, 0.035, 10), 0, -0.01, 0); b.add(GD(), TOR(0.026, 0.007, 5, 12), -0.005, -0.04, 0); chain(b, -0.05, GD()); return b.finish(0.3, 'uncommon'); },
+    // RARE-ART: charms and consumables of rareitems.js (the key name is the builder name)
+    bloodstone(b) { b.add(GD(), TOR(0.055, 0.012, 6, 16), 0, 0.07, 0, 0, 0, 0); b.add(GM(0xb0172a, 1.2), SP(0.06, 12, 8), 0, 0.07, 0, 0, 0, 0, 0.85, 1.25, 0.85); b.add(GM(0xff8090, 0.9), SP(0.014, 8, 6), -0.02, 0.1, 0.045); chain(b, 0.15); return b.finish(0.34, 'rare'); },
+    ironknot(b) { const s = IR(0x6a7078); for (const r of [0, 1, 2]) b.add(s, TOR(0.07, 0.017, 6, 20), 0, 0.1, 0, PI / 2 - r * 0.5, r * 0.9, 0); b.add(LE(0x4a3020), TOR(0.026, 0.008, 5, 12), 0, 0.2, 0); chain(b, 0.2, LE(0x4a3020)); return b.finish(0.34, 'rare'); },
+    grudge(b) { b.add(P(0x55505a, { rough: 0.9 }), SP(0.1, 12, 9), 0, 0.1, 0, 0, 0, 0, 1, 0.8, 0.9); b.add(GM(0xff3a2a, 1.4), BOXG(0.022, 0.08, 0.014), 0, 0.105, 0.085); b.add(GM(0xff3a2a, 1.4), BOXG(0.07, 0.02, 0.014), 0, 0.11, 0.086); b.add(GD(), TOR(0.026, 0.008, 5, 12), 0, 0.2, 0); chain(b, 0.2); return b.finish(0.32, 'mythic'); },
+    clover(b) { const lf = P(0x3fbf4a, { rough: 0.5, emissive: 0x1f7a2a, ei: 0.35 }); for (let i = 0; i < 4; i++) { const a = i * PI / 2 + PI / 4; b.add(lf, SP(0.065, 12, 8), Math.cos(a) * 0.07, 0.13, Math.sin(a) * 0.07, 0, 0, 0, 1, 0.3, 1); } b.add(GD(), SP(0.018, 8, 6), 0, 0.14, 0); b.add(P(0x2f7a3a), sweep([[0, 0.12, 0], [0.01, 0.05, 0], [0.05, 0, 0]], 0.008, 5, 8)); return b.finish(0.3, 'mythic'); },
+    lantern(b) { b.add(GD(), CYL(0.07, 0.075, 0.02, 14), 0, 0.02, 0); b.add(glass(0xfff0c0), CYL(0.058, 0.058, 0.15, 14), 0, 0.105, 0); b.add(GM(0xffd24a, 1.9), SP(0.034, 10, 8), 0, 0.105, 0); b.add(GD(), CYL(0.07, 0.06, 0.02, 14), 0, 0.185, 0); b.add(GD(), CONE(0.065, 0.05, 14), 0, 0.215, 0); b.add(GD(), TOR(0.028, 0.007, 5, 12), 0, 0.265, 0); b.glowCol = 0xffd24a; return b.finish(0.34, 'mythic'); },
+    thunderfang(b) { b.add(P(0xf4f6ff, { rough: 0.4, emissive: 0x6fb8ff, ei: 0.35 }), sweep([[0, 0, 0], [0.025, 0.1, 0], [0.085, 0.19, 0]], t => 0.04 * (1 - t) + 0.004, 8, 14)); b.add(GD(), CYL(0.044, 0.04, 0.035, 10), 0, -0.01, 0); b.add(GM(0x7fe0ff, 1.8), SP(0.016, 8, 6), 0.06, 0.17, 0.02); chain(b, 0.1, GD()); return b.finish(0.34, 'legendary'); },
+    phoenix(b) { b.add(GM(0xff6a1a, 1.8), new THREE.OctahedronGeometry(0.075, 0), 0, 0.1, 0, 0, 0.4, 0, 0.9, 1.5, 0.9); for (const s of [-1, 1]) b.add(GD(), SP(0.07, 10, 8), s * 0.085, 0.13, -0.005, 0, 0, s * 0.7, 0.35, 1.5, 0.15); b.add(GM(0xffe27a, 1.6), SP(0.02, 8, 6), 0, 0.2, 0); chain(b, 0.2); b.glowCol = 0xff8a2a; return b.finish(0.34, 'legendary'); },
+    stoneskin(b) { bottle(b, 0xc8c8c0, 0.032, 0.2, true, 0x8a8a86, 0.85); b.add(P(0x6a6a66, { rough: 0.9 }), SP(0.02, 6, 5), 0.08, 0.06, 0.06); return b.finish(0.3, 'rare'); },
+    bloodlust(b) { bottle(b, 0xff7a80, 0.035, 0.2, true, 0xa0101c, 0.88); b.add(P(0xe9dfc2), SP(0.028, 8, 6), 0, 0.09, 0.098); b.add(P(0x2a1a14), BOXG(0.04, 0.012, 0.01), 0, 0.085, 0.103); return b.finish(0.3, 'mythic'); },
+    stormflask(b) { bottle(b, 0xaee8ff, 0.03, 0.2, true, 0x6fb8ff, 0.75); b.add(GM(0xfff6a0, 1.8), BOXG(0.014, 0.07, 0.012), 0, 0.1, 0.1, 0, 0, 0.5); b.glowCol = 0x7fe0ff; return b.finish(0.3, 'mythic'); },
+    hourglass(b) { b.add(WD(0x6a4a28), CYL(0.085, 0.085, 0.02, 14), 0, 0, 0); b.add(WD(0x6a4a28), CYL(0.085, 0.085, 0.02, 14), 0, 0.26, 0); for (const a of [0, 1, 2]) { const t = a * TAU / 3; b.add(WD(0x6a4a28), CYL(0.012, 0.012, 0.26, 6), Math.cos(t) * 0.07, 0.13, Math.sin(t) * 0.07); } b.add(glass(0xbfe4ff), lathe([0, 0.02, 0.07, 0.03, 0.07, 0.1, 0.012, 0.13, 0.07, 0.16, 0.07, 0.23, 0, 0.25], 16)); b.add(GD(), lathe([0, 0.03, 0.05, 0.03, 0.045, 0.06, 0, 0.1], 14)); b.add(GD(), CONE(0.045, 0.08, 12), 0, 0.17, 0, PI, 0, 0); return b.finish(0.32, 'legendary'); },
+    phoenixtear(b) { b.add(GM(0xffb23a, 1.8), lathe([0, 0, 0.05, 0.01, 0.075, 0.06, 0.06, 0.11, 0.03, 0.17, 0, 0.23], 16)); b.add(GM(0xfff2c0, 1.4), SP(0.014, 8, 6), -0.03, 0.08, 0.05); b.glowCol = 0xff9a2a; return b.finish(0.28, 'legendary'); },
+    feast(b) { b.add(GD(), lathe([0, 0, 0.15, 0, 0.17, 0.02, 0.16, 0.035, 0, 0.035], 24)); b.add(P(0x8a4a22, { rough: 0.6 }), blob(0.1, 0.03, 4, 1.25, 0.8, 1, 4, 22, 16), 0, 0.1, 0); b.add(P(0xb8662e, { rough: 0.5 }), SP(0.05, 10, 8), 0.1, 0.075, 0.03, 0, 0, 0, 1, 0.7, 1); b.add(GD(), TOR(0.07, 0.012, 5, 18), 0, 0.2, 0, PI / 2, 0, 0); for (let i = 0; i < 5; i++) { const a = i / 5 * TAU; b.add(GM(0xff5a5a, 1.2), SP(0.012, 6, 5), Math.cos(a) * 0.07, 0.22, Math.sin(a) * 0.07); } b.glowCol = 0x7ff4ff; return b.finish(0.34, 'transcendent'); },
     // ICONFRAME: models for the items that only had flat icons (plushie, elixir bottles, the 5x5 tree and heist items)
     plushie(b) { const pk = P(0xff9fc4, { rough: 0.9 }), dk = P(0x2a1018, { rough: 0.5 }); b.add(pk, blob(0.12, 0.03, 4, 1, 1.05, 0.9, 3, 20, 14), 0, 0.1, 0); b.add(pk, blob(0.1, 0.03, 6, 1, 0.95, 0.95, 3, 20, 14), 0, 0.27, 0.01); for (const s of [-1, 1]) { b.add(pk, SP(0.045, 10, 8), s * 0.07, 0.35, 0, 0, 0, 0, 0.9, 1.3, 0.5); b.add(pk, SP(0.04, 10, 8), s * 0.14, 0.12, 0.03, 0, 0, s * 0.5, 1, 1.5, 1); b.add(pk, SP(0.045, 10, 8), s * 0.07, -0.02, 0.04, 0, 0, 0, 1, 1.3, 1.1); b.add(dk, SP(0.012, 6, 5), s * 0.035, 0.29, 0.092); } b.add(dk, SP(0.015, 6, 5), 0, 0.26, 0.1, 0, 0, 0, 1.4, 0.8, 1); b.add(P(0xc8527f), TOR(0.03, 0.004, 4, 10), 0, 0.2, 0.01, PI / 2, 0, 0); return b.finish(0.3, 'common'); },
     draught(b) { bottle(b, 0xffa0a8, 0.032, 0.2, true, 0xe0283e, 0.7); return b.finish(0.3, 'uncommon'); },
@@ -1168,7 +1201,7 @@ const UTILB = (() => {
     huskbrain(b) { b.add(M('flesh', 0xcdbba8), blob(0.11, 0.07, 9, 1.2, 0.85, 1, 6, 24, 16, true), 0, 0.1, 0); b.add(P(0x6a5a4a, { rough: 0.9 }), sweep([[0, 0.02, 0.01], [0.02, 0.1, 0.1], [0, 0.16, 0.05]], 0.008, 5, 8)); return b.finish(0.22, 'common'); },
     scion(b) { const w = P(0x7a5a3a, { rough: 0.9 }), lf = P(0x7fc43a, { rough: 0.6 }); b.add(w, sweep([[0, 0, 0], [0.01, 0.12, 0], [-0.01, 0.24, 0]], t => 0.016 - 0.006 * t, 6, 10)); b.add(w, sweep([[0, 0.14, 0], [0.07, 0.2, 0], [0.12, 0.3, 0]], 0.008, 5, 8)); b.add(w, sweep([[0, 0.18, 0], [-0.06, 0.25, 0.02], [-0.1, 0.33, 0]], 0.007, 5, 8)); for (const [x, y, z, r] of [[0.12, 0.31, 0, -0.5], [-0.1, 0.34, 0, 0.5], [0, 0.27, 0.03, 0], [0.07, 0.24, -0.02, -0.9]]) b.add(lf, SP(0.035, 10, 8), x, y, z, 0, 0, r, 1, 1.7, 0.35); b.add(CL(0xe9ddc2), TOR(0.02, 0.008, 4, 10), 0, 0.05, 0, PI / 2, 0, 0); return b.finish(0.36, 'uncommon'); },
   };
-  return new Proxy(U, { get: (t, k) => t[k] ? () => { const b = new Build((k in { heart: 1, swift: 1, magnet: 1, scholar: 1, tongue: 1, fang: 1 } ? 'c:' : 'x:') + k); return t[k](b); } : undefined });
+  return new Proxy(U, { get: (t, k) => t[k] ? () => { const b = new Build((k in { heart: 1, swift: 1, magnet: 1, scholar: 1, tongue: 1, fang: 1, bloodstone: 1, ironknot: 1, grudge: 1, clover: 1, lantern: 1, thunderfang: 1, phoenix: 1 } ? 'c:' : 'x:') + k); return t[k](b); } : undefined });
 })();
 // ITEMS2-MODELS-END
 function canon(key) {

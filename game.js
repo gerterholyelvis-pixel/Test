@@ -4439,6 +4439,9 @@ const handleMsg0 = d => {
   if (d.buyFail) shopFail(d.buyFail);
   if (d.claimed) try { GKVFX.glint({ x: P.x, y: 1.0, z: P.z }, d.claimed.key ? 0xb8e8ff : 0xffd75e, 14); } catch (e) {} /* VFX */
   if (d.claimed) toastMsg(d.claimed.key ? 'Took ' + ((infoOf(d.claimed.key) || {}).name || d.claimed.key) : '+' + d.claimed.gold + ' gold', true);
+  if (d.rareFind && window.GKRAREUI) GKRAREUI.find(d.rareFind, RAREENV);   // RARE-HOOK: the pickup announcement (rareui.js)
+  if (d.rareCue && window.GKRAREUI) GKRAREUI.cue(d.rareCue, RAREENV);
+  if (d.rare && window.GKRAREUI) GKRAREUI.fx(d.rare, RAREENV);
   if (d.claimFail && d.claimFail !== 'room') toastMsg({ taken: 'Already taken', space: 'Your backpack is full' }[d.claimFail] || 'Nothing to take', false);
   if (d.parts) setParts(d.parts);
   if (d.recycled) recycledFx(d.recycled);
@@ -4667,7 +4670,7 @@ GK.showDeathScreen = showDeathScreen;
     ST.vb = H.vb; ST.vbNext = H.vbNext; ST.trees = H.trees; ST.armed = H.armed; ST.breach = H.breach; ST.crown = H.crown;
     for (let id = 0; id < ND; id++) { ST.open[id].open = dKind[id] !== 2 ? !!openF[id] : !RS.homeLock; ST.open[id].shut = RS.shut.length > 0 && RS.shut.includes(id); }   // HOME PHASE: the hatches show shut in round 1; DOORS-PERSIST: barred vault doors
     ST.actors.length = 0;
-    actors.forEach((a, id) => { if (id === me || a.npc || (window.GKACT5 && GKACT5.hiddenAt(a.x, a.z)) || (vis[keyIdx(a.x, a.z)] !== 1 && !(window.GKUSE2 && GKUSE2.reveal()) && !(window.GKHOMEW && GKHOMEW.bellAt(a.x, a.z)) && !(window.GKACT5 && GKACT5.pulsed(id)))) return; ST.actors.push(a); });   // GKHOMEW.bellAt: a room with a Bell send running shows its goblins
+    actors.forEach((a, id) => { if (id === me || a.npc || (window.GKACT5 && GKACT5.hiddenAt(a.x, a.z)) || (vis[keyIdx(a.x, a.z)] !== 1 && !(window.GKUSE2 && GKUSE2.reveal()) && !(window.GKHOMEW && GKHOMEW.bellAt(a.x, a.z)) && !(window.GKACT5 && GKACT5.pulsed(id)) && !(window.GKRAREUI && GKRAREUI.lanternAt(a.x, a.z, RAREENV)))) return; ST.actors.push(a); });   // GKHOMEW.bellAt: a room with a Bell send running shows its goblins
   }
   function arrows(g, ids, ip, lw, col, skipOpen) {   // door-pick arrows (last round's picks, Panel Lens picks); skipOpen: not for a door that is open now (DOORS-PERSIST)
     g.strokeStyle = col; g.fillStyle = col; g.lineWidth = lw * ip;
@@ -5005,7 +5008,7 @@ function cmpTxt(k) {   // UI-POLISH: "+4 attack vs Dagger" against whatever is e
 function tipFor(k) {
   const it = infoOf(k); if (!it) return '<b>' + String(k).replace(/</g, '&lt;') + '</b>';
   const kind = it.type === 'weapon' ? 'Weapon' : it.type === 'armor' ? 'Armour' : it.type ? it.type[0].toUpperCase() + it.type.slice(1) : 'Item', cm = cmpTxt(k);
-  return '<b style="color:' + (TIER_COL[it.tier] || GOLD) + '">' + it.name + '</b><span style="color:#b9b4a6">' + kind + ' · ' + statTxt(k) + (cm ? '<br>' + cm : '') + (it.family === 'brain' ? '<br>Eat it for +' + fmtN(it.gain) + ' knowledge' : it.desc ? '<br><i>' + String(it.desc).replace(/</g, '&lt;') + '</i>' : '') + '</span>';
+  return '<b style="color:' + (TIER_COL[it.tier] || GOLD) + '">' + it.name + '</b><span style="color:#b9b4a6">' + kind + ' · ' + statTxt(k) + (cm ? '<br>' + cm : '') + (it.family === 'brain' ? '<br>Eat it for +' + fmtN(it.gain) + ' knowledge' : it.desc ? '<br><i>' + String(it.desc).replace(/</g, '&lt;') + '</i>' : '') + (it.lore ? '<br><span style="color:#8a8678">"' + String(it.lore).replace(/</g, '&lt;') + '"</span>' : '') + '</span>';   // RARE: the lore line
 }
 function paintGhost() {
   if (!ghostEl) return; ghostEl.textContent = '';
@@ -5568,6 +5571,7 @@ function paintLoot() {
   list.appendChild(all);
 }
 let toastEl = null;
+const RAREENV = { pos: () => P, snd: (n, o) => snd(n, o), glint: (p, h, n) => { try { GKVFX.glint(p, h, n); } catch (e) {} }, me: () => me, charm: () => myInv && myInv.charm, roomOf: (x, z) => roomKeyAt(x, z) };   // RARE: what rareui.js needs from this file
 function toastMsg(text, good, ms) {   // short message in the middle of the screen
   if (!toastEl) { toastEl = document.createElement('div'); toastEl.style.cssText = 'position:fixed;left:50%;top:38%;transform:translateX(-50%);padding:8px 16px;border-radius:8px;background:rgba(10,10,14,.75);font:600 16px system-ui,sans-serif;pointer-events:none;transition:opacity .4s;z-index:50'; document.body.appendChild(toastEl); }
   toastEl.textContent = text; toastEl.style.color = good ? '#ffd76a' : '#ff8a7a'; toastEl.style.opacity = '1';

@@ -25,15 +25,16 @@
   const profileOf = kind => CONT_PROFILE[kind] || 'general';
   function tierPick(G, rnd, fn, tierMin) { let k = null; for (let t = 0; t < 40; t++) { k = fn(); if (k && G.ITEMS[k] && (G.ITEMS[k].tierN | 0) >= tierMin) return k; } return k; }
   // one search: { gold, parts: {key: n}, items: [keys] }. G: GKITEMS (pickUtil, randomWeaponKey, randomArmorKey, ITEMS)
-  function rollLoot(kind, rnd, G) {
+  function rollLoot(kind, rnd, G, rc) {   // RARE: rc = { rare (the match's transcendent record), luck } for the 'hall' ladder
     const table = PROFILES[profileOf(kind)] || PROFILES.general; let x = rnd() * table.reduce((a, o) => a + o.w, 0), o = table[table.length - 1];
     for (const e of table) { if ((x -= e.w) < 0) { o = e; break; } }
     const out = { gold: o.gold ? rangeOf(rnd, o.gold) : 0, parts: {}, items: [] };
     if (o.parts) { const n = rangeOf(rnd, o.parts); for (let i = 0; i < n; i++) { const k = BASIC[Math.floor(rnd() * BASIC.length)]; out.parts[k] = (out.parts[k] || 0) + 1; } }
     if (G) {
-      if (o.util) for (let i = 0; i < o.util; i++) out.items.push(G.pickUtil());
-      if (o.weapon) out.items.push(tierPick(G, rnd, G.randomWeaponKey, o.weapon));
-      if (o.armor) out.items.push(tierPick(G, rnd, G.randomArmorKey, o.armor));
+      const lk = rc && rc.luck || 0, ctx = rc && rc.rare;
+      if (o.util) for (let i = 0; i < o.util; i++) out.items.push(G.pickUtil('hall', ctx, { rnd, luck: lk }));
+      if (o.weapon) out.items.push(G.randomWeaponKey('hall', o.weapon, ctx, lk, rnd));
+      if (o.armor) out.items.push(G.randomArmorKey('hall', o.armor, ctx, lk, rnd));
     }
     out.items = out.items.filter(Boolean);
     return out;
