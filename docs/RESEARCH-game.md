@@ -156,7 +156,7 @@ This area is busy (arena visual polish). I only recommend:
 | # | Recommendation | Impact | Cost | Status |
 |---|---|---|---|---|
 | 9.1 | Connection pip says "High ping 212 ms" in words, not only in colour | L | S | **done here** (with 3.1) |
-| 9.2 | Reduce shake and flashes toggle | M | S | recommend (busy: pause menu owns Settings) |
+| 9.2 | Reduce shake and flashes toggle | M | S | landed meanwhile on main (client/access.js: Calm mode, Less flashing) |
 | 9.3 | Remap and hold/toggle (PLAN-fun #10) | H | M | recommend |
 
 ## 10. Menu UX
@@ -197,7 +197,7 @@ goblin and requeue in one click (Fall Guys and Apex both requeue from the result
 
 | # | Recommendation | Impact | Cost | Status |
 |---|---|---|---|---|
-| 13.1 | Parley wheel (Truce?, Vote this door!, Traitor!) | H | M | recommend (needs W1-E truce hook in bots, busy) |
+| 13.1 | Parley wheel (Truce?, Vote this door!, Traitor!) | H | M | partly landed on main (client/live.js quick chat, 8 fixed phrases); bot truce still open |
 | 13.2 | Highlights on the summary card (most damage, assists, best streak) so players talk about the match | M | S | **done here** |
 
 ## 14. Live ops without monetisation
