@@ -7446,6 +7446,7 @@ const R5 = (() => {
   }
   function reset() { for (const k of [...entries.keys()]) drop(k); failed.clear(); nearKey = null; hops = {}; order = ALL.slice(); lastT = -1; tmVal = null; }
   function onMsg(d) {
+    { const tr = d.trees || (d.matchStart && d.matchStart.trees); if (tr || d.matchStart) CHEST_ROOMS.trees = tr || null; }   // TREE-FIX: collision (WORLD.slide / inProp get CHEST_ROOMS as `types`) needs the tree type of each tree cell, else only the trunk r 1.1 blocked and the server pushed the walker out of posts, vats, the Well stump and the Oak arch
     if (d.matchStart || d.resumed) {
       const m = d.matchStart || d, ps = m.players || d.players || []; if (d.matchStart) reset(); ended = false; started = true;
       st.seed = ps.map(p => p.id + ':' + (p.name || '')).join('|') || 'match'; for (const k of ['breach', 'treasury', 'crown', 'alarm', 'bars']) st[k] = null;

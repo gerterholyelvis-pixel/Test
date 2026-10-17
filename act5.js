@@ -278,7 +278,7 @@ module.exports = function create(S) {
 
   function viewOf(m, key, now) {
     const A = m.act, kd = kindOfKey(key);
-    if (kd === 'tree') { const t = A.trees[key], v = ACT.view(t.st, t.type), lv = pl => Math.floor(ACT.pool.level(pl, now) + 1e-9); if (t.type === 'well') v.water = lv(t.st.pool); else if (t.type === 'spring') for (const b of Object.keys(v.basins)) v.basins[b] = lv(t.st.basins[b]); else if (t.type === 'graft') v.branches = t.st.br.map(lv); return { type: t.type, st: v }; }   // pools refill lazily: the public view carries the level at this moment
+    if (kd === 'tree') { const t = A.trees[key], v = ACT.view(t.st, t.type, now), lv = pl => Math.floor(ACT.pool.level(pl, now) + 1e-9); if (t.type === 'well') v.water = lv(t.st.pool); else if (t.type === 'spring') for (const b of Object.keys(v.basins)) v.basins[b] = lv(t.st.basins[b]); else if (t.type === 'graft') v.branches = t.st.br.map(lv); return { type: t.type, st: v }; }   // pools refill lazily: the public view carries the level at this moment
     if (kd === 'vb') return VB5.view(A.H, key, now);
     return { type: 'vault', st: VAULT5.view(A.vault, { now }) };
   }
