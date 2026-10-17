@@ -8658,7 +8658,7 @@ function frame(now) {
   const mine = actors.get(me);
   feel2Tick();   // FEEL2: buffered / held attack
   // my movement
-  if (mine && spawned && GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked) {
+  if (mine && spawned && GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked && !GK.pauseOpen) {   // UIORG: menu open = no movement
     const f = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
     const s = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
     const sp = (GK.carryHeavy ? 4.6 * 0.7 : keys.has('ShiftLeft') || keys.has('ShiftRight') ? 7.5 : 4.6) * ((itemsData().SPEED || [])[mine.goblin] || (0.85 + 0.15 * SCALE[mine.goblin])) * (invReady && itemsData().armorSpeed ? itemsData().armorSpeed(myInv.armor) : 1) * (window.GKUSE ? GKUSE.speedMul() : 1);   // ARMOUR-2: worn armour speed   // BALANCE: class speed table (items.js SPEED, shared with the server): small fastest, big slowest

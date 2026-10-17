@@ -20,7 +20,7 @@
   const rnd = (a, b) => a + Math.random() * (b - a);
   const num = (v, d) => (typeof v === 'number' && isFinite(v) ? v : d);
   const set = () => (window.GK && window.GK.settings) || {};
-  const level = k => clamp(num(set()[k], k === 'vol' ? 0.8 : k === 'sfx' ? 0.9 : 0.5), 0, 1);
+  const level = k => set().mute ? 0 : clamp(num(set()[k], k === 'vol' ? 0.8 : k === 'sfx' ? 0.9 : 0.5), 0, 1);
 
   function ensure() {
     if (ctx) return ctx;
