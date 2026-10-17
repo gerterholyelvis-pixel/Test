@@ -223,7 +223,7 @@
     let act = null, raf = 0, flashT = 0;
     const timers = {};
     const later = (k, fn, ms) => { clearTimeout(timers[k]); if (cfg.hold && (k === 'bn' || k === 'rm')) return; timers[k] = setTimeout(fn, ms); };   // cfg.hold: banners stay up (preview only)
-    const tri = x => { x = x - Math.floor(x); return x < .5 ? x * 2 : 2 - x * 2; };   // 0..1..0 ping-pong
+    const saw = x => x - Math.floor(x), tri = x => { x = x - Math.floor(x); return x < .5 ? x * 2 : 2 - x * 2; };   // saw: 0..1 then back to 0 (activity.js timing.phase and the server judge: ONE-way sweep); tri: ping-pong, only when a message asks for curve 'tri'
     function arcFrame() {
       raf = 0; if (!act) return;
       const now = clock();
@@ -232,7 +232,7 @@
         bar.style.strokeDasharray = (f * 100) + ' 100';
         if (act.ticks) { /* ticks are static; highlight passed ones */ const n = tks.children; for (let i = 0; i < n.length; i++) n[i].style.stroke = f >= act.ticks[i] ? '#ffe39a' : ''; }
       } else {
-        const pos = tri((now - act.t0) / act.per), p = at(pos);
+        const pos = (act.curve === 'tri' ? tri : saw)((now - act.t0) / act.per), p = at(pos);
         ndl.setAttribute('cx', p.x.toFixed(1)); ndl.setAttribute('cy', p.y.toFixed(1));
       }
       raf = requestAnimationFrame(arcFrame);
@@ -246,8 +246,8 @@
         ndl.style.display = 'none'; win.style.strokeDasharray = '0 100'; bar.style.strokeDasharray = '0 100'; bar.style.display = '';
         if (a.ticks) for (const f of a.ticks) { const p = at(f); tks.insertAdjacentHTML('beforeend', '<line class="tk" x1="' + p.x.toFixed(1) + '" y1="' + (p.y - 6) + '" x2="' + p.x.toFixed(1) + '" y2="' + (p.y + 6) + '"/>'); }
       } else {
-        bar.style.display = 'none'; ndl.style.display = ''; const wa = Math.max(0, a.wa), wb = Math.min(1, a.wb);
-        win.style.strokeDasharray = '0 ' + (wa * 100) + ' ' + ((wb - wa) * 100) + ' 100';
+        bar.style.display = 'none'; ndl.style.display = ''; const wa = ((a.wa % 1) + 1) % 1, w = (((a.wb - a.wa) % 1) + 1) % 1 || (a.wb > a.wa ? 1 : 0), wb = wa + w;   // the server window wraps past 1 (timing.judge): then it is two pieces, the end of the track and the start
+        win.style.strokeDasharray = wb <= 1 ? '0 ' + (wa * 100) + ' ' + (w * 100) + ' 100' : ((wb - 1) * 100) + ' ' + ((wa - (wb - 1)) * 100) + ' ' + ((1 - wa) * 100) + ' 0';
       }
       if (!raf) raf = requestAnimationFrame(arcFrame);
     }
@@ -329,7 +329,7 @@
       // actMe: server `actMe` message (own state). Starts/stops the arc.
       me(m) {
         const ch = m && m.chan, tm = m && m.timing;
-        if (tm) { const key = 't' + tm.a + ':' + tm.t0; if (!act || act.key !== key) arcShow({ kind: 'timing', key, t0: tm.t0, per: tm.per, wa: tm.wa, wb: tm.wb, label: tm.label || '' }); }
+        if (tm) { const key = 't' + tm.a + ':' + tm.t0; if (!act || act.key !== key) arcShow({ kind: 'timing', key, t0: tm.t0, per: tm.per, wa: tm.wa, wb: tm.wb, label: tm.label || '', curve: tm.curve }); }
         else if (ch) { const key = 'c' + ch.a + ':' + ch.t0; if (!act || act.key !== key) arcShow({ kind: 'channel', key, t0: ch.t0, ms: ch.ms, label: ch.label || '', ticks: ch.ticks }); }
         else if (act) arcHide(0);
       },

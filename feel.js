@@ -64,7 +64,8 @@
   function promptFor(A) {
     if (A.cpAim) return 'Select door';
     const h = A.hover();
-    if (h && h.room >= 0) return h.kind === 'r' ? 'Use recycler' : h.kind === 'w' ? 'Use crafting bench' : h.kind === 'k' ? 'Study the knowledge tree' : h.kind === 's' ? 'Open the Elixir Screen' : h.kind === 'p' ? 'Collect elixir from the pump' : h.kind === 'b' ? 'Crack the lockbox' : 'Trade with merchant';
+    if (h && h.room >= 0) return h.kind === 'r' ? 'Use recycler' : h.kind === 'w' ? 'Use crafting bench' : h.kind === 'k' ? 'Study the knowledge tree' : h.kind === 's' ? 'Open the Elixir Screen' : h.kind === 'p' ? 'Collect elixir from the pump' : h.kind === 'b' ? (GK.myHome === 'c' + h.room ? 'Your lockbox' : 'Crack the lockbox') : 'Trade with merchant';
+    { const ap = window.GKACT5 && GKACT5.prompt(); if (ap) return ap; }   // ACT5UI: the anchor of a tree room / vaultbreaker / the vault in reach
     if (A.nearestPile()) return 'Loot bag';
     const key = A.roomKeyAt(A.P.x, A.P.z);
     if (key && key[0] === 'c') {
