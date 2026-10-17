@@ -25,14 +25,14 @@ const perf2Lod = { meshes: new WeakMap(), hi: new Map(), geo: new Map(), queue: 
 // PERF2-END
 const CS = WORLD.CS;                      // chest room size
 const WEAPONS = ['Rusty Sword', 'Battle Axe', 'War Spear', 'Spiked Mace', 'Short Bow', 'Dagger'];
-// 16 attached rooms behind the perimeter cells (world.js CHEST, clockwise from the NW corner): even ids are HOMES (10x10), odd ids are loot rooms (8x8).
+// 20 attached rooms behind the 20 outward wall segments (world.js CHEST, 5 per side, positions 1..5): positions 2 and 4 are HOMES (10x10, WORLD.HOME_IDS), 1, 3, 5 loot rooms (8x8, WORLD.LOOT_IDS).
 // Loot room types (the server sends the layout): 'chest' (a chest with a random weapon), 'mystery' (question mark, contents decided later), 'merchant' (merchant goblin behind glass,
 // knowledge tree, workbench, recycler), 'forge' (Master Forge: a workbench) and 'grand' (Grand Recycler). Until the layout arrives homes show as homes and loot rooms as chest rooms.
 const LAYOUT_TYPES = ['home', 'forge', 'grand', 'chest', 'mystery', 'merchant'];
 const CHEST_ROOMS = [];
 const layoutHooks = [];   // functions called with the type array when the match's random room layout is known (room interiors, door emblems, maps and panels are built/updated from it)
 for (const c of WORLD.CHEST) CHEST_ROOMS.push({ ...c, type: c.home ? 'home' : 'chest' });   // geometry (cx, cz, wallX, wallZ, dx, dz, size, home) comes from world.js
-function applyLayout(types, mystery) {   // types: 16 strings in CHEST_ROOMS order; mystery: 16 entries, null or the contents of that mystery room (GKITEMS.randomMystery)
+function applyLayout(types, mystery) {   // types: WORLD.NATT (20) strings in CHEST_ROOMS order; mystery: 20 entries, null or the contents of that mystery room (GKITEMS.randomMystery)
   if (!Array.isArray(types) || types.length !== CHEST_ROOMS.length || !types.every(t => LAYOUT_TYPES.includes(t))) return;
   types.forEach((t, i) => { CHEST_ROOMS[i].type = t; CHEST_ROOMS[i].mystery = t === 'mystery' && mystery && mystery[i] ? mystery[i] : null; });
   GK.layout = types.slice(); GK.mystery = CHEST_ROOMS.map(c => c.mystery); for (const f of layoutHooks) { try { f(GK.layout, GK.mystery); } catch (e) { console.error(e); } }
@@ -440,7 +440,7 @@ function statusLights(g, d, y) {
     glowSprite(g, d.halo, 1.3, 0, y, s * (T / 2 + 0.3));
   }
 }
-let hatchWoodM = null;
+let hatchWoodM = null, hatchIronM = null;
 function wall(px, pz, rot, kind, len) {   // len: length of the room boundary this wall closes (the wall is T longer so it overlaps the corners)
   const g = new THREE.Group(); g.position.set(px, 0, pz); g.rotation.y = rot; scene.add(g);
   const L = len + T, dw = kind === 'vault' ? VW : DW, dh = kind === 'vault' ? VH : DHT;
@@ -455,6 +455,12 @@ function wall(px, pz, rot, kind, len) {   // len: length of the room boundary th
     for (const s of [-1, 1]) bx(g, 0.3, dh + 0.1, T + 0.2, s * (dw / 2 + 0.15), (dh + 0.1) / 2, 0, wood, 1);
     bx(g, dw + 0.9, 0.34, T + 0.26, 0, dh + 0.12, 0, wood, 1);
     const d = { id: doors.length, open: true, hatch: true, kind, slide: false, p: 1, gx: px, gz: pz, dw, dh, ax: [Math.cos(rot), -Math.sin(rot)], az: [Math.sin(rot), Math.cos(rot)], flash: 0, leaf: new THREE.Group(), wheels: [], rings: [], bolts: [], rots: [], dyn: [], scan: [], lasers: [], blocker: null };
+    // HOME PHASE (docs/reports/home-phase.md): in round 1 an iron grille closes the archway (d.locked); it rises into the lintel when the arena opens. Open = d.p 1 (the grille is hidden, the blocker is off).
+    const iron = hatchIronM || (hatchIronM = M(0x2a2a2e, { roughness: 0.45, metalness: 0.85 })), bars = new THREE.Group(), nb = 7;
+    for (let i = 0; i < nb; i++) bx(bars, 0.07, dh - 0.04, 0.07, -dw / 2 + 0.12 + i * (dw - 0.24) / (nb - 1), (dh - 0.04) / 2, 0, iron, 1);
+    for (const y of [0.55, dh * 0.62]) bx(bars, dw - 0.08, 0.1, 0.11, 0, y, 0, iron, 1);
+    bars.position.y = dh + 0.05; bars.visible = false; d.leaf.add(bars); d.bars = bars; d.locked = false;
+    d.blocker = { door: d }; addRect(px, pz, rot, -dw / 2, dw / 2, -T / 2, T / 2); Object.assign(d.blocker, rects.pop()); rects.push(d.blocker);
     g.add(d.leaf); doors.push(d); return;
   }
   const light = new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0xff1a1a, emissiveIntensity: 2 }); statusMats.push(light);
@@ -465,6 +471,7 @@ function wall(px, pz, rot, kind, len) {   // len: length of the room boundary th
   d.beamM = new THREE.MeshBasicMaterial({ map: beamTex, color: 0xffa020, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false, toneMapped: false });
   d.domeM = new THREE.MeshStandardMaterial({ color: 0x331100, emissive: 0xff2010, emissiveIntensity: 0.6 });
   d.ledM = new THREE.MeshBasicMaterial({ color: 0xff2a1a, toneMapped: false });
+  d.wallL = L;   // PERF4: wall length (the door rest bake hides a fully open sliding leaf only when the wall pocket hides it)
   d.blocker = { door: d }; addRect(px, pz, rot, -dw / 2, dw / 2, -T / 2, T / 2); Object.assign(d.blocker, rects.pop());
   rects.push(d.blocker);
 
@@ -675,7 +682,7 @@ GK.lamps = LAMPS;   // test hook
 // LAMPS-END
 scene.add(new THREE.HemisphereLight(0xffffff, 0xeeebe4, 2.1));
 // walls and doors from WORLD.WALLS (doors in WORLD.DOORS id order, so doors[i].id === i matches the server): arena 'skull' doors, vault doors, loot doors (retyped from the layout), home hatches;
-// then the 4 bare outer corner walls. The attached rooms' own walls are part of their shell (CHEST block); here they only get collision boxes (the client used to rely on server corrections there).
+// then any bare outer wall (none with 20 attached rooms). The attached rooms' own walls are part of their shell (CHEST block); here they only get collision boxes (the client used to rely on server corrections there).
 for (const w of WORLD.WALLS) {
   if (w.att !== undefined) { addRect(w.x, w.z, w.rot, -w.len / 2, w.len / 2, -T / 2, T / 2); continue; }
   wall(w.x, w.z, w.rot, w.door == null ? null : w.kind === 'arena' ? 'skull' : w.kind === 'loot' ? 'chest' : w.kind, w.len);
@@ -2447,7 +2454,7 @@ if (GK.layout && GK.CHEST_ROOMS) { /* the rooms agent calls buildMysteryContents
 }
 // MAP-END
 // PANEL-BEGIN (door control panels and round logic on the client: owned by the rounds agent)
-// Door graph: WORLD.DOORS (one canonical id order shared with server.js), room keys: '0'..'24' arena rooms, 'c0'..'c15' attached rooms.
+// Door graph: WORLD.DOORS (one canonical id order shared with server.js), room keys: '0'..'24' arena rooms, 'c0'..'c19' attached rooms.
 // ROOM_DOORS (client) lists the votable doors of each room, sorted N, E, S, W: a home's hatch is always open and never on a panel.
 const PDIRS = ['NORTH', 'EAST', 'SOUTH', 'WEST'];
 const ROOM_DOORS = {}, DINFO = WORLD.DOORS.map(d => ({ id: d.id, a: d.a, b: d.b, da: d.da, db: d.db, kind: d.kind === 'arena' ? 'skull' : d.kind === 'loot' ? 'chest' : d.kind }));
@@ -2466,7 +2473,8 @@ const doorLabel = (key, id) => {
 const fmtT = ms => { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
 
 // ----- round state (fed by applyRound; the local clock interpolates between server updates) -----
-const RS = { n: 0, endAt: 0, dur: 0, sel: {}, open: [], fizzled: [], votes: 0, selJ: '{}', openJ: '[]', flashUntil: 0, fizzUntil: 0 };
+const RS = { n: 0, endAt: 0, dur: 0, sel: {}, open: [], fizzled: [], votes: 0, selJ: '{}', openJ: '[]', flashUntil: 0, fizzUntil: 0, homeLock: false, arenaUntil: 0 };
+GK.homeLocked = () => RS.homeLock;   // HOME PHASE: round 1, the hatches are shut
 const roundLeft = () => Math.max(0, RS.endAt - performance.now());
 function applyRound(d) {
   const now = performance.now();
@@ -2477,6 +2485,7 @@ function applyRound(d) {
       const mySel = RS.sel[roomKeyAt(P.x, P.z)];
       if (Array.isArray(d.fizzled) && d.fizzled.length && mySel !== undefined && d.fizzled.includes(mySel)) RS.fizzUntil = now + 2800;
     }
+    { const hl = !!d.homeLock; if (hl !== RS.homeLock) { if (RS.homeLock && !hl) { RS.arenaUntil = now + 3200; RS.flashUntil = now + 3200; } RS.homeLock = hl; if (GK.setHomeLock) GK.setHomeLock(hl, RS.n === 0); } }   // HOME PHASE: the server's round state says whether the hatches are shut (round 1)
     RS.n = d.round.n; RS.endAt = now + (+d.round.left || 0); RS.dur = +d.round.dur || 0;
   }
   if (Number.isFinite(d.vaultVotes) && d.vaultVotes !== RS.votes) { RS.votes = d.vaultVotes; panelsDirty(); }
@@ -2679,18 +2688,21 @@ GK.tipAim = () => { const a = cpAim, b = a && a.p.buttons[a.i]; return b ? doorL
     '#roundHud .t.warn{color:#ff4343;border-color:#ff4343;background:rgba(40,6,6,.78);animation:rhPulse .5s ease-in-out infinite alternate}' +
     '#roundHud .b{margin-top:10px;font-weight:900;font-size:clamp(28px,5.5vw,60px);letter-spacing:.14em;color:#ffd24a;text-shadow:0 0 18px #ff9a00,0 3px 10px #000;animation:rhBanner 2.2s ease-out forwards;display:none}' +
     '#roundHud .b.f{color:#ff4a3a;font-size:clamp(20px,3.6vw,38px);text-shadow:0 0 16px #a00,0 3px 10px #000}' +
+    '#roundHud .h{display:none;margin:8px auto 0;padding:5px 16px 6px;border-radius:10px;background:rgba(14,10,4,.74);border:1px solid rgba(255,200,90,.55);color:#ffd98a;font-weight:800;font-size:clamp(14px,2vw,20px);letter-spacing:.04em;font-variant-numeric:tabular-nums;text-shadow:0 2px 6px #000;width:max-content;max-width:92vw;animation:rhIn .6s ease-out}' +
+    '@keyframes rhIn{0%{opacity:0;transform:translateY(-6px) scale(.9)}100%{opacity:1;transform:none}}' +
     '@keyframes rhPulse{from{transform:scale(1)}to{transform:scale(1.14)}}@keyframes rhBanner{0%{opacity:0;transform:scale(.7)}12%{opacity:1;transform:scale(1.08)}20%{transform:scale(1)}80%{opacity:1}100%{opacity:0}}';
   document.head.appendChild(css);
-  const hud = document.createElement('div'); hud.id = 'roundHud'; hud.innerHTML = '<div class="t"></div><div class="b">DOORS OPENING</div><div class="b f">THE VAULT NEEDS 2 PLAYERS - TURN WASTED</div>';
+  const hud = document.createElement('div'); hud.id = 'roundHud'; hud.innerHTML = '<div class="t"></div><div class="h"></div><div class="b">DOORS OPENING</div><div class="b f">THE VAULT NEEDS 2 PLAYERS - TURN WASTED</div>';
   document.body.appendChild(hud);
-  const tEl = hud.children[0], bEl = hud.children[1], fEl = hud.children[2]; let shownBanner = 0, shownFizz = 0, lastTxt = '', lastWarn = null;
+  const tEl = hud.children[0], hEl = hud.children[1], bEl = hud.children[2], fEl = hud.children[3]; let shownBanner = 0, shownFizz = 0, lastTxt = '', lastWarn = null, lastHome = '';
   setInterval(() => {
     const show = GK.mode === 'play' && RS.n > 0; hud.style.display = show ? 'block' : 'none'; if (!show) return;
     const left = roundLeft(), now = performance.now();
     const txt = 'ROUND ' + RS.n + '  ' + fmtT(left), warn = left <= 5000;
     if (txt !== lastTxt) { tEl.textContent = txt; lastTxt = txt; }
     if (warn !== lastWarn) { tEl.classList.toggle('warn', warn); lastWarn = warn; }
-    if (now < RS.flashUntil) { if (shownBanner !== RS.flashUntil) { shownBanner = RS.flashUntil; bEl.style.display = 'none'; void bEl.offsetWidth; bEl.style.display = 'block'; } }
+    { const h = RS.homeLock ? 'Prepare in your base: the arena opens in ' + fmtT(left) : ''; if (h !== lastHome) { if (!h || !lastHome) hEl.style.display = h ? 'block' : 'none'; hEl.textContent = h; lastHome = h; } }   // HOME PHASE: round 1 line under the timer
+    if (now < RS.flashUntil) { if (shownBanner !== RS.flashUntil) { shownBanner = RS.flashUntil; bEl.textContent = now < RS.arenaUntil ? 'THE ARENA IS OPEN' : 'DOORS OPENING'; bEl.style.display = 'none'; void bEl.offsetWidth; bEl.style.display = 'block'; } }
     else if (shownBanner) { shownBanner = 0; bEl.style.display = 'none'; }
     if (now < RS.fizzUntil) { if (shownFizz !== RS.fizzUntil) { shownFizz = RS.fizzUntil; fEl.style.display = 'none'; void fEl.offsetWidth; fEl.style.display = 'block'; } }
     else if (shownFizz) { shownFizz = 0; fEl.style.display = 'none'; }
@@ -2915,14 +2927,18 @@ const GA = (() => {
   }
   // T10 skin look: skin vertices are flagged by roughness 0.55 (the SK preset). A warm fresnel rim (colour set per room by GA.tick: warm in rooms, gold in the vault)
   // plus a fake subsurface scatter (the albedo bleeds red-orange at grazing angles, strongest where the surface is thin: the ears' emissive inner side).
-  A.U = { rim: { value: 1 }, rimCol: { value: new Col(0xffa86a) }, hull: true, vk: 0 };
+  A.U = { rim: { value: 1 }, rimCol: { value: new Col(0xffa86a) }, hull: true, vk: 0, sss: { value: new V3(1.9, 0.55, 0.3) }, rimK: { value: 1 } };
+  // GOBART12: per-type skin tuning, read by the one shared program through per-material uniforms: sss = the colour the albedo bleeds to at grazing angles, rimK = rim strength, wet = how glossy the
+  // skin is (bog goblin: wet sheen). Types not listed use the defaults.
+  A.TUNE = { 3: { sss: [0.55, 1.5, 1.45], rimK: 1.1 }, 4: { sss: [2.0, 1.25, 0.4], rimK: 1.15 }, 6: { sss: [0.9, 0.85, 0.7], rimK: 0.5 }, 7: { sss: [1.7, 0.8, 0.35], rimK: 0.8 }, 8: { sss: [2.3, 1.35, 0.3], rimK: 0.95 }, 9: { sss: [2.3, 0.4, 0.2], rimK: 1.0 },
+    10: { sss: [0.5, 1.5, 0.95], rimK: 1.25, wet: 0.9 }, 11: { sss: [1.55, 0.62, 0.3], rimK: 0.55 } };
   const SKIN_FRAG = `
     float skinF = (1.0 - smoothstep(0.0, 0.012, abs(vMat.x - 0.55))) * (1.0 - vMat.w) * uRim;
     if (skinF > 0.0) {
       float ndv = clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0);
       float fr = pow(1.0 - ndv, 2.4);
-      vec3 sss = diffuseColor.rgb * vec3(1.9, 0.55, 0.3) * (pow(1.0 - ndv, 1.4) * 0.22 + vMat.z * 0.5);
-      outgoingLight += skinF * (uRimCol * fr * 0.34 + sss * (0.35 + 0.65 * fr));
+      vec3 sss = diffuseColor.rgb * uSss * (pow(1.0 - ndv, 1.4) * 0.22 + vMat.z * 0.5);
+      outgoingLight += skinF * (uRimCol * fr * 0.34 * uRimK + sss * (0.35 + 0.65 * fr * uRimK));
     }
 `;
   // ---- the one material per type: vertex colours + per-vertex roughness / metalness / emissive / cloth mix, so a whole limb is one draw call
@@ -2930,15 +2946,17 @@ const GA = (() => {
     if (A.mats[type]) return A.mats[type];
     const m = new THREE.MeshPhysicalMaterial({ color: 0xffffff, vertexColors: true, map: clothTex(type), bumpMap: A.bump, bumpScale: 2.2, roughness: 1, metalness: 0, side: THREE.DoubleSide, envMapIntensity: 0.9, sheen: 0.3, sheenRoughness: 0.45, sheenColor: new Col(CFG[type].skin).lerp(new Col(0xfff2c0), 0.2) });
     m.customProgramCacheKey = () => 'goblin-uber';
+    const tune = A.TUNE[type] || {}; m.userData.uFlash = { value: 0 };   // GOBART12: hit flash (0..1), per material
     m.onBeforeCompile = sh => {
+      sh.uniforms.uSss = { value: new V3(...(tune.sss || [1.9, 0.55, 0.3])) }; sh.uniforms.uRimK = { value: tune.rimK ?? 1 }; sh.uniforms.uWet = { value: tune.wet || 0 }; sh.uniforms.uFlash = m.userData.uFlash;
       sh.vertexShader = sh.vertexShader.replace('void main() {', 'attribute vec4 aMat;\nvarying vec4 vMat;\nvoid main() {').replace('#include <color_vertex>', '#include <color_vertex>\n\tvMat = aMat;');
       sh.uniforms.uRimCol = A.U.rimCol; sh.uniforms.uRim = A.U.rim;   // T10: shared by every goblin material (one program); Low sets uRim to 0
-      sh.fragmentShader = sh.fragmentShader.replace('void main() {', 'varying vec4 vMat;\nuniform vec3 uRimCol;\nuniform float uRim;\nvoid main() {')
+      sh.fragmentShader = sh.fragmentShader.replace('void main() {', 'varying vec4 vMat;\nuniform vec3 uRimCol, uSss;\nuniform float uRim, uRimK, uWet, uFlash;\nvoid main() {')
         .replace('#include <opaque_fragment>', SKIN_FRAG + '#include <opaque_fragment>')
         .replace('#include <map_fragment>', '#ifdef USE_MAP\n\tdiffuseColor.rgb *= mix(vec3(1.0), texture2D(map, vMapUv).rgb, vMat.w);\n#endif')
-        .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = vMat.x;')
+        .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(vMat.x, 0.15, uWet * uRim * (1.0 - smoothstep(0.0, 0.012, abs(vMat.x - 0.55))) * (1.0 - vMat.w));')
         .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = vMat.y;')
-        .replace('#include <emissivemap_fragment>', 'totalEmissiveRadiance = diffuseColor.rgb * vMat.z;')
+        .replace('#include <emissivemap_fragment>', 'totalEmissiveRadiance = diffuseColor.rgb * vMat.z + vec3(1.0, 0.5, 0.38) * uFlash;')
         .replace('#include <normal_fragment_maps>', THREE.ShaderChunk.normal_fragment_maps.replace('dHdxy_fwd()', 'dHdxy_fwd() * (1.0 - vMat.w * 0.75) * (1.0 - vMat.y)'));
     };
     return A.mats[type] = m;
@@ -2948,13 +2966,13 @@ const GA = (() => {
   A.skinPatch = (m, key) => {
     const frag = SKIN_FRAG.replace(/float skinF = .*;/, 'float skinF = uRim;').replace(/vMat\.z/g, '0.0');
     m.customProgramCacheKey = () => key;
-    m.onBeforeCompile = sh => { sh.uniforms.uRimCol = A.U.rimCol; sh.uniforms.uRim = A.U.rim; sh.fragmentShader = sh.fragmentShader.replace('void main() {', 'uniform vec3 uRimCol;\nuniform float uRim;\nvoid main() {').replace('#include <opaque_fragment>', frag + '#include <opaque_fragment>'); };
+    m.onBeforeCompile = sh => { sh.uniforms.uRimCol = A.U.rimCol; sh.uniforms.uRim = A.U.rim; sh.uniforms.uSss = A.U.sss; sh.uniforms.uRimK = A.U.rimK; sh.fragmentShader = sh.fragmentShader.replace('void main() {', 'uniform vec3 uRimCol, uSss;\nuniform float uRim, uRimK;\nvoid main() {').replace('#include <opaque_fragment>', frag + '#include <opaque_fragment>'); };
     return m;
   };
   // per-goblin variation: a clone of the type's material with a slight colour multiplier (same shader program, same geometry), so no two goblins of a type are the same shade
   function uberVar(type) {
     const base = uber(type), m = base.clone(), k = type >= 3 ? 0.5 : 1, r = () => Math.random() - 0.5;
-    m.onBeforeCompile = base.onBeforeCompile; m.customProgramCacheKey = base.customProgramCacheKey;
+    m.userData = { uFlash: { value: 0 } }; m.onBeforeCompile = function (sh, r) { base.onBeforeCompile.call(this, sh, r); sh.uniforms.uFlash = m.userData.uFlash; }; m.customProgramCacheKey = base.customProgramCacheKey;   // GOBART12: own flash uniform per goblin
     const v = 0.95 + r() * 0.14 * k, warm = r() * 0.3 * k;   // brightness and a warm (yellow-olive) to cool (blue-green) swing
     m.color.setRGB(v * (1 + warm * 0.55), v * (1 + warm * 0.1), v * (1 - warm * 0.8)); return m;
   }
@@ -3065,8 +3083,8 @@ function gaBody(B, type, b, SC, SB) {   // nude torso: hunched back, pot belly, 
     B.es(s * 0.2 * b, 0.34, 0.265 * b, 0.016, 0.016, 0.01, 0x2a1410, DK);                  // belly freckle
   }
 }
-function gaHand(B, s, b, SC, claw, L) {   // big three-fingered hand curled round the weapon axis (origin = wrist, weapon passes through (0,-0.03,0.05))
-  B.push([0, -0.28, 0], [0, 0, 0], [s, 1, 1]);
+function gaHand(B, s, b, SC, claw, L, hs = 1) {   // big three-fingered hand curled round the weapon axis (origin = wrist, weapon passes through (0,-0.03,0.05)); hs scales it about that grip point (GOBART12)
+  B.push([0, -0.31 + 0.03 * hs, 0.05 - 0.05 * hs], [0, 0, 0], [s * hs, hs, hs]);
   B.e(0, 0.03, 0.045, 0.085 * b * L, 0.06, 0.08, SC, SK);                                // palm
   B.e(0.0, 0.07, 0.0, 0.05, 0.04, 0.045, SC, SK);                                       // wrist cuff
   const R = 0.056, cy = -0.03;
@@ -3105,7 +3123,7 @@ function gaHead(B, type, b) {
   if (type !== 4) B.k(0, -0.0, 0.23, 0.03, 0.09, 2.4, 0, SC, SK);                              // chin spike
   // tusks (underbite): two curved tapered tubes
   for (const s of [-1, 1]) {
-    const tl = type === 2 ? 1.35 : type === 0 ? 0.8 : 1;
+    const tl = GX_TUSK[type] ?? (type === 2 ? 1.35 : type === 0 ? 0.8 : 1);
     B.tube([[s * 0.085, 0.085, 0.255], [s * 0.095, 0.125, 0.29], [s * 0.088, 0.175 * tl, 0.285], [s * 0.075, 0.2 + 0.05 * tl, 0.265]], 0.03, 0.002, type === 3 ? 0xd8c8a0 : 0xe8dcb4, BN, { rad: 7, segs: 12 });
     B.k(s * 0.155, 0.125, 0.225, 0.016, 0.055, -0.15, s * 0.5, 0xe4d8b0, BN);               // small side fang
     B.e(s * 0.17, 0.165, 0.2, 0.075, 0.05, 0.06, face, SK);                                  // cheek bone
@@ -3523,6 +3541,10 @@ const A_EARS = {};
   const GX_EAR = { 5: { x: 0.25, ry: 0.2, rz: 0.85 }, 6: { x: 0.27, ry: 0.95, rz: -0.05 }, 8: { x: 0.27, ry: 0.35, rz: -0.25 }, 10: { x: 0.3, ry: 0.25, rz: 0.3 }, 11: { x: 0.26, ry: 0.55, rz: 0.2 } };
   const GX_EYE = { 5: [0xfff27a, 0x3ad06a], 6: [0xe4ff9a, 0x8aff2a], 7: [0xffe9a0, 0xffa020], 8: [0xd8f6ff, 0x5ac8ff], 9: [0xffa080, 0xff2a10], 10: [0xffc45a, 0xff7a00], 11: [0xfff4c0, 0xff5a00] };
   const gxEye = (type, i, def) => GX_EYE[type] ? GX_EYE[type][i] : def;
+  // GOBART12: palette identity (art bible: greens, a teal wizard, a pale-gold king, one rust goblin). Shaman = dusty ochre, berserker = darker flushed olive (not the miner's colour), miner = grey soot olive, hobgoblin = a
+  // deeper brick (the old orange read as plastic). Face tables: the scout's eyes go wide and bright, the shaman's heavy-lidded. Hands are bigger on the brutes.
+  Object.assign(CFG[8], { skin: 0xa3a05a }); Object.assign(CFG[9], { skin: 0x76903a }); Object.assign(CFG[7], { skin: 0x6f8c58 }); Object.assign(CFG[11], { skin: 0xa05c38 });
+  Object.assign(GAT[5], { drop: 0.2, tilt: 0.0 }); Object.assign(GAT[9], { hand: 1.22 }); Object.assign(GAT[11], { hand: 1.1 }); Object.assign(GAT[2], { hand: 1.12 }); GOB_TAGY[10] = 2.3;   // (taller reeds on the bog goblin: tag above them)
   const feather = (B, x, y, z, rx, rz, len, col) => { B.add(A.g.sph, { p: [x, y, z], s: [0.032, len, 0.008], r: [rx, 0, rz], c: col, m: HR }); B.tube([[x, y - len, z], [x, y + len * 0.9, z]].map(([px, py, pz]) => { const dy = py - y; return [px - Math.sin(rz) * dy, y + Math.cos(rx) * Math.cos(rz) * dy, pz + Math.sin(rx) * Math.cos(rz) * dy]; }), 0.007, 0.003, 0xe8e0c8, BN, { rad: 4 }); };
   function gxFeet(B, type, b, SC, toes) {   // true when this type has its own feet (otherwise boots)
     if (type === 5 || type === 6 || type === 8) {   // bare, wrapped feet (scout and sneak) or bare with a bead anklet (shaman)
@@ -3597,11 +3619,31 @@ const A_EARS = {};
       B.add(new THREE.LatheGeometry([new THREE.Vector2(0.395 * b, -0.33), new THREE.Vector2(0.385 * b, -0.27)], 40), { p: [0, 0, 0.02], s: [1, 1, 0.95], c: 0x9a1a1a, m: CL });
       bandAt(B, 0.14, 0.33 * b, 0.04, 0x9a1a1a, CL); B.box(-0.12 * b, -0.02, 0.3 * b, 0.06, 0.26, 0.015, 0x9a1a1a, CL, { r: [0.12, -0.3, 0.05] });
       B.box(0, 0.36, 0.31 * b, 0.025, 0.36, 0.02, 0x9a1a1a, CL);
-      for (const s of [-1, 1]) { const px = s * 0.41 * b;   // layered lacquered shoulder guards
-        for (let r = 0; r < 3; r++) { B.add(new THREE.SphereGeometry(1, 18, 8, 0, TAU, 0, Math.PI * 0.45), { p: [px + s * r * 0.03, 0.58 - r * 0.06, 0], r: [0, 0, -s * (0.35 + r * 0.15)], s: [0.17, 0.11, 0.17], c: r % 2 ? 0x4a1a1a : 0x6a2222, m: LT }); B.tor(px + s * r * 0.03, 0.58 - r * 0.06, 0, 0.17, 0.008, Math.PI / 2, 0, -s * (0.35 + r * 0.15), 0xc9a24a, MT); } }
+      for (const s of [-1, 1]) { const px = s * 0.37 * b;   // layered lacquered shoulder guards (GOBART12: tucked in and steeper so they hug the shoulder instead of sticking out as a bar, also under armour)
+        for (let r = 0; r < 3; r++) { B.add(new THREE.SphereGeometry(1, 18, 8, 0, TAU, 0, Math.PI * 0.45), { p: [px + s * r * 0.022, 0.57 - r * 0.055, 0], r: [0, 0, -s * (0.45 + r * 0.17)], s: [0.145, 0.1, 0.145], c: r % 2 ? 0x4a1a1a : 0x6a2222, m: LT }); B.tor(px + s * r * 0.022, 0.57 - r * 0.055, 0, 0.145, 0.008, Math.PI / 2, 0, -s * (0.45 + r * 0.17), 0xc9a24a, MT); } }
     }
   }
+  // GOBART12 faces: the shared head had no readable mouth (the nose hid it), so every type got a mouth line and eyebrows with its own expression. Helpers: fz = skin surface z on the front of the head at (x, y).
+  const fz = (x, y, w = 0.3) => 0.29 * Math.sqrt(Math.max(0.02, 1 - (x / w) ** 2 - ((y - 0.22) / 0.275) ** 2)) + 0.012;
+  const mouthZ = (x, y, w = 0.3) => Math.max(0.115 + 0.19 * Math.sqrt(Math.max(0, 1 - (x / (0.205 * w / 0.3)) ** 2 - ((y - 0.075) / 0.1) ** 2)), Math.sqrt(Math.max(0, 1 - (x / 0.115) ** 2)) * 0.318, fz(x, y, w) * 0.99) + 0.006;
+  const GX_MOUTH = { 0: { sm: 0.03, w: 0.15 }, 1: { sm: -0.004, w: 0.14 }, 2: { sm: -0.03, w: 0.18 }, 4: { sm: 0.028, w: 0.15, smug: 1 }, 5: { sm: 0.04, w: 0.15 }, 7: { sm: -0.014, w: 0.14 }, 8: { sm: 0.022, w: 0.11 },
+    9: { sm: -0.03, w: 0.175, open: 0.05 }, 10: { sm: 0.038, w: 0.22 }, 11: { sm: -0.032, w: 0.16 } };
+  const GX_BROW = { 1: [0x1c1a10, 0.016], 2: [0x1a140c, 0.03], 3: [0xeeeae0, 0.03], 4: [0xe8e4d8, 0.034], 5: [0x6a4a26, 0.016], 7: [0xb9b4a6, 0.036], 9: [0x2a1410, 0.03], 11: [0x14100e, 0.02] };
+  const GX_TUSK = { 5: 0.85, 7: 1.05, 8: 1.0, 9: 1.35, 10: 0.7, 11: 1.2 };   // tusk length by type (default 1; the big goblin 1.35, the small one 0.8)
+  function gxFace(B, type) {
+    const P = GAT[type], w = type === 2 ? 0.34 : 0.3, M = GX_MOUTH[type];
+    if (M) {
+      const y0 = 0.116, dark = type === 9 ? 0x1a0508 : 0x2a1010, n = 11, line = (yy, sm, rr) => { const pts = []; for (let i = 0; i < n; i++) { const u = i / (n - 1) * 2 - 1, x = u * M.w, y = yy + sm * (u * u - 0.25) + (M.smug ? u * 0.012 : 0); pts.push([x, y, mouthZ(x, y, w) + 0.002]); } B.tube(pts, rr, rr * 0.8, dark, DK, { rad: 5, segs: 16 }); };
+      line(y0 + (M.open || 0) / 2, M.sm, 0.0085); if (M.open) { line(y0 - M.open / 2, M.sm * 0.6, 0.0085); B.e(0, y0 - 0.004, mouthZ(0.09, y0, w) - 0.012, M.w * 0.8, M.open * 0.5, 0.012, 0x14040a, DK);
+        for (const s of [-1, 1]) for (let i = 0; i < 4; i++) { const x = s * (0.06 + i * 0.03); B.k(x, y0 + M.open / 2 - 0.002, mouthZ(x, y0, w) - 0.004, 0.008, -0.026, 0, 0, 0xe4d8b0, BN); B.k(x * 0.96, y0 - M.open / 2 + 0.002, mouthZ(x, y0, w) - 0.004, 0.008, 0.022, 0, 0, 0xd8ccA0, BN); } }
+    }
+    if (type === 5) for (let i = 0; i < 6; i++) { const x = (i - 2.5) * 0.04, y = 0.2 + (i % 2) * 0.022; B.es(x, y, fz(x, y) * 0.99 + 0.012, 0.007, 0.007, 0.004, 0x4a6a24, DK); }   // scout: freckles across the nose
+    if (type === 8) for (const s of [-1, 1]) for (let i = 0; i < 4; i++) { const x = s * (0.12 + i * 0.014), y = 0.175 - i * 0.025; B.es(x, y, fz(x, y) + 0.003, 0.012, 0.012, 0.005, i % 2 ? 0xd9a021 : 0x9a4a1a, DK); }   // shaman: ochre and rust dots under the eyes
+    const hb = GX_BROW[type];
+    if (hb) for (const s of [-1, 1]) { const a = P.tilt * 0.9, pts = [[s * 0.035, 0.335 - a * 0.1, 0.27], [s * 0.1, 0.34 + a * 0.02, 0.265], [s * 0.19, 0.325 + a * 0.12, 0.2]].map(([x, y, z]) => [x * 1.02, y + 0.022, z + 0.032]); B.tube(pts, hb[1], hb[1] * 0.55, hb[0], HR, { rad: 6, segs: 10 }); }
+  }
   function gxHeadGear(B, type, b) {   // head space: centre (0, 0.22, 0), top ~0.5, face front z ~0.29, eyes at y 0.25
+    gxFace(B, type);
     const top = z => 0.22 + 0.27 * Math.sqrt(Math.max(0, 1 - (z / 0.3) * (z / 0.3)));
     if (type === 5) {   // scout: leather headband, two tall feathers, a bone toggle
       B.add(new THREE.TorusGeometry(0.27, 0.026, 8, 30), { p: [0, 0.36, -0.01], r: [Math.PI / 2 + 0.2, 0, 0], c: 0x6a4626, m: LT });
@@ -3631,17 +3673,19 @@ const A_EARS = {};
       B.add(A.g.box, { p: [0, 0.36, 0.26], r: [-0.4, 0, 0], s: [0.12, 0.022, 0.008], c: 0xf0ead8, m: DK });
     }
     if (type === 9) {   // berserker: tall red mohawk, red paint across the brow, a nose ring
-      for (let i = 0; i < 11; i++) { const z = 0.2 - i * 0.05; B.k(0, top(z) - 0.03, z, 0.04, 0.26 - Math.abs(i - 4) * 0.018, -(i - 4) * 0.08, 0, i % 2 ? 0xc0201a : 0xe0401a, HR); }
+      for (let i = 0; i < 12; i++) { const z = 0.22 - i * 0.045, h = 0.36 - Math.abs(i - 4.5) * 0.026 + (i % 3) * 0.02; B.k(0, top(z) - 0.03, z, 0.052, h, -(i - 4.5) * 0.09, 0, i % 2 ? 0xc0201a : 0xe0401a, HR); }   // GOBART12: taller, fatter mohawk: reads from the front at 20 m
+      for (const s of [-1, 1]) for (let i = 0; i < 3; i++) { const x = s * (0.1 + i * 0.03), y = 0.19 - i * 0.035; B.es(x, y, fz(x, y) + 0.004, 0.012, 0.034, 0.007, 0xb3122b, DK, { r: [0.1, -s * Math.atan2(x, fz(x, y)) * 0.9, s * 0.15] }); }   // war paint dripping down the cheeks
+      B.tube([[-0.2, 0.4, fz(-0.2, 0.4) - 0.01], [-0.15, 0.345, fz(-0.15, 0.345) + 0.004], [-0.1, 0.305, fz(-0.1, 0.305) + 0.004]], 0.009, 0.007, 0xd9a0a0, SK, { rad: 5 });   // a brow scar
       B.add(A.g.box, { p: [0, 0.34, 0.25], r: [-0.35, 0, 0], s: [0.34, 0.05, 0.008], c: 0xb3122b, m: DK });
       for (const s of [-1, 1]) for (let i = 0; i < 2; i++) B.add(A.g.box, { p: [s * (0.2 + i * 0.015), 0.12 + i * 0.04, 0.2], r: [0, -s * 0.7, s * 0.35], s: [0.08, 0.016, 0.008], c: 0xb3122b, m: DK });
       B.tor(0.0, 0.06, 0.375, 0.032, 0.008, 0, 0, 0, 0xc9c9c9, MT);
     }
     if (type === 10) {   // bog goblin: frog brow bumps over the eyes, lily-pad hat, reeds, moss
       for (const s of [-1, 1]) B.e(s * 0.13, 0.31, 0.15, 0.09, 0.07, 0.08, skinFn(CFG[type].skin, { tint: 0x1a4030 }), SK);
-      B.add(new THREE.CylinderGeometry(0.3, 0.3, 0.018, 22, 1, false, 0.35, TAU - 0.7), { p: [0.03, top(0) + 0.0, -0.02], r: [-0.12, 0.4, 0.12], c: 0x5a9a3a, m: CL, uv: 1 });
+      B.add(new THREE.CylinderGeometry(0.37, 0.37, 0.02, 24, 1, false, 0.35, TAU - 0.7), { p: [0.03, top(0) + 0.0, -0.02], r: [-0.12, 0.4, 0.12], c: 0x5a9a3a, m: CL, uv: 1 });
       B.tube([[0.03, top(0) + 0.01, -0.02], [0.16, top(0) + 0.0, 0.08], [0.25, top(0) - 0.02, 0.15]], 0.006, 0.004, 0x3a6a2a, CL, { rad: 4 });
-      for (const [x, z, h, rz] of [[-0.1, -0.1, 0.26, 0.25], [-0.04, -0.14, 0.32, 0.1], [0.06, -0.12, 0.22, -0.2]]) { B.k(x, top(z) - 0.02, z, 0.012, h, -0.2, rz, 0x6a8a3a, HR); }
-      B.es(-0.05, top(-0.14) + 0.28, -0.18, 0.02, 0.06, 0.02, 0x6a4a2a, HR);   // cattail head
+      for (const [x, z, h, rz] of [[-0.1, -0.1, 0.34, 0.25], [-0.04, -0.14, 0.44, 0.1], [0.06, -0.12, 0.3, -0.2], [0.14, -0.06, 0.26, -0.45]]) { B.k(x, top(z) - 0.02, z, 0.014, h, -0.2, rz, 0x6a8a3a, HR); }
+      B.es(-0.05, top(-0.14) + 0.4, -0.18, 0.024, 0.075, 0.024, 0x6a4a2a, HR);   // cattail head
       for (const [x, y, z] of [[0.2, 0.4, -0.1], [-0.22, 0.38, -0.08], [0.0, 0.42, -0.2]]) B.es(x, y, z, 0.06, 0.035, 0.06, mossC[(x * 10 | 0) & 3], HR);
     }
     if (type === 11) {   // hobgoblin: swept-back horns, a black topknot with a gold ring, heavy brows
@@ -3649,7 +3693,11 @@ const A_EARS = {};
         B.tube([[s * 0.04, 0.35, 0.27], [s * 0.12, 0.37, 0.25], [s * 0.21, 0.34, 0.17]], 0.035, 0.015, 0x1a1414, HR, { rad: 6 }); }
       B.tube([[0, top(-0.12) - 0.02, -0.12], [0, top(-0.12) + 0.12, -0.14], [0, top(-0.12) + 0.14, -0.22], [0, 0.42, -0.36], [0, 0.18, -0.4]], 0.07, 0.02, 0x1a1414, HR, { rad: 8, segs: 24 });
       B.tor(0, top(-0.12) + 0.08, -0.14, 0.05, 0.014, Math.PI / 2, 0, 0, 0xffc933, GD);
+      for (const s of [-1, 1]) B.tube([[s * 0.03, 0.15, 0.335], [s * 0.1, 0.135, 0.3], [s * 0.17, 0.08, 0.26], [s * 0.2, -0.04, 0.22], [s * 0.2, -0.17, 0.2]], 0.017, 0.004, 0x1a1414, HR, { rad: 5, segs: 14 });   // GOBART12: a long drooping moustache
+      B.tube([[0, 0.03, 0.22], [0, -0.05, 0.25], [0, -0.16, 0.22]], 0.026, 0.005, 0x1a1414, HR, { rad: 5 });   // and a thin goatee
+      B.tube([[0.15, 0.37, 0.15], [0.17, 0.3, 0.17], [0.18, 0.2, 0.17]].map(([x, y]) => [x, y, fz(x, y) + 0.003]), 0.008, 0.006, 0xd0907a, SK, { rad: 5 });   // an old duelling scar
     }
+    if (type === 10) B.e(0, -0.03, 0.17, 0.12, 0.085, 0.1, skinFn(CFG[10].skin, { belly: true }), SK);   // GOBART12 bog goblin: a pale throat sac under the chin
   }
   function gxArm(B, type, s, b, part) {   // arm gear: 'sh' upper arm (origin shoulder), 'el' forearm + hand (origin elbow)
     if (part !== 'el') { if (type === 11) B.tube([[0, 0.0, 0], [0, -0.15, 0.01], [0, -0.3, 0]], 0.085 * b, 0.07 * b, 0x2e2238, CL, { rad: 10 }); if (type === 7) B.tor(0, -0.27, 0, 0.068 * b, 0.022, Math.PI / 2, 0, 0, 0x8a6a4a, CL); return; }
@@ -3659,6 +3707,49 @@ const A_EARS = {};
     if (type === 11) { B.lathe([[0.06, -0.08], [0.078, -0.1], [0.08, -0.22], [0.064, -0.24]].map(([x, y]) => [x * b, y]), 16, 0x6a2a2a, LT); B.tor(0, -0.1, 0, 0.078 * b, 0.01, Math.PI / 2, 0, 0, 0xc9a24a, MT); }
     if (type === 10) B.es(0, -0.1, -0.05, 0.05, 0.03, 0.04, mossC[1], HR);
   }
+  // GOBART12: per-type motion. A.anim does the shared base pose, A.gxAnim (called at its end) adds each type's own weight and habits on top, so every goblin idles, walks, runs, swings and dies differently.
+  // bob = hip bounce, sway = roll, twist = torso twist, arm = arm swing, lean = constant forward lean (rad), crouch = body lowered (rig units * scale), ant / lun = swing wind-up / lunge strength.
+  const GXM = {
+    0: { bob: 1.25, sway: 1.15, twist: 1.1, arm: 1.15, ant: 0.8, lun: 1.1, fidget: 0.04 }, 1: {}, 2: { bob: 0.85, sway: 1.3, twist: 0.8, arm: 0.85, lean: 0.03, ant: 1.5, lun: 1.3, breath: 1.2 },
+    3: { bob: 0.35, sway: 0.55, twist: 0.5, arm: 0.45, ant: 0.5, lun: 0.6, lean: -0.03, rock: 0.04 }, 4: { bob: 0.65, sway: 0.6, twist: 0.6, arm: 0.65, ant: 1.2, lun: 0.9, lean: -0.05, chest: 0.07 },
+    5: { bob: 1.4, sway: 0.7, twist: 0.9, arm: 1.25, lean: 0.04, ant: 0.7, lun: 1.3, scan: 0.38, spring: 0.014 }, 6: { bob: 0.55, sway: 0.5, twist: 0.6, arm: 0.5, lean: 0.1, crouch: 0.07, ant: 0.6, lun: 1.4, scan: 0.12 },
+    7: { bob: 1.0, sway: 1.4, twist: 0.9, arm: 0.9, lean: 0.02, ant: 1.2, lun: 1.2, tap: 0.28 }, 8: { bob: 0.55, sway: 0.8, twist: 0.8, arm: 0.55, ant: 1.0, lun: 0.8, rock: 0.05, nod: 0.1 },
+    9: { bob: 1.1, sway: 1.35, twist: 1.5, arm: 1.4, lean: 0.07, ant: 1.6, lun: 1.6, heave: 0.035, jitter: 0.03 }, 10: { bob: 1.7, sway: 1.5, twist: 0.7, arm: 0.7, crouch: 0.03, ant: 0.5, lun: 1.2, puff: 0.05 },
+    11: { bob: 0.4, sway: 0.35, twist: 0.5, arm: 0.5, lean: -0.03, ant: 0.9, lun: 0.9, stiff: 1 },
+  };
+  A.gxAnim = (a, u, t, walk, id, ant, lun, f) => {
+    const m = GXM[u.type]; if (!m) return;
+    const ph = a.phase, S = Math.sin(ph), S2 = Math.abs(S), sc = SCALE[u.type], idle = 1 - walk, rig = u.rig, hd = u.head, A0 = u.arms[0], A1 = u.arms[1], k = (x, d) => x === undefined ? d : x;
+    rig.position.y += -0.115 * sc * S2 * S2 * walk * (k(m.bob, 1) - 1) - (m.crouch || 0) * sc - 0.05 * sc * ant * (k(m.ant, 1) - 1) + (m.spring ? Math.abs(Math.sin(t * 3.2 + id)) * m.spring * sc * idle : 0);
+    rig.rotation.z += S * 0.075 * walk * (k(m.sway, 1) - 1) + (m.rock ? Math.sin(t * 0.9 + id) * m.rock * idle : 0) - (m.stiff ? Math.sin(t * 0.7 + id * 2.1) * 0.012 * idle : 0);
+    rig.rotation.x += (m.lean || 0) * (0.5 + 0.5 * walk) + lun * 0.16 * (k(m.lun, 1) - 1) - ant * 0.1 * (k(m.ant, 1) - 1);
+    u.torso.rotation.y += S * 0.14 * walk * (k(m.twist, 1) - 1);
+    if (m.chest) u.torso.rotation.x -= m.chest;
+    const b = u.torso.scale; if (m.heave) { b.y *= 1 + m.heave * Math.sin(t * 5.2 + id) * idle; b.x *= 1 + m.heave * 0.5 * Math.sin(t * 5.2 + id) * idle; } if (m.puff) { const p = Math.sin(t * 2.6 + id); b.y *= 1 + m.puff * p; b.x *= 1 - m.puff * 0.6 * p; b.z *= 1 - m.puff * 0.6 * p; } if (m.breath) { b.y *= 1 + 0.012 * m.breath * Math.sin(t * 1.5 + id); }
+    A0.rotation.x += -S * 0.6 * walk * (k(m.arm, 1) - 1); if (u.type < 3) A1.rotation.x += S * 0.3 * walk * (k(m.arm, 1) - 1);
+    if (m.jitter) { A0.rotation.z += Math.sin(t * 7.3 + id) * m.jitter * idle; hd.rotation.z += Math.sin(t * 9.1 + id) * m.jitter * 0.5; }
+    if (m.scan) hd.rotation.y += Math.sin(t * 1.9 + id) * m.scan * idle * Math.sin(t * 0.5 + id * 3);   // the scout looks about in bursts
+    if (m.nod) hd.rotation.x += Math.sin(t * 0.9 + id) * m.nod * idle;
+    if (m.stiff) hd.rotation.y -= Math.sin(t * 0.8 + id) * 0.15 * idle;
+    if (m.tap) u.legs[1].rotation.x += Math.max(0, Math.sin(t * 4.5 + id)) * m.tap * idle * Math.sin(t * 0.4 + id * 2) ** 2;   // the miner taps a foot when kept waiting
+    if (m.fidget) hd.rotation.z += Math.sin(t * 5.3 + id) * m.fidget * idle;
+    if (lun > 0.05 && m.lun) { const d = (m.lun - 1) * 0.3 * lun; u.legs[0].rotation.x += d; u.legs[1].rotation.x -= d; }
+  };
+  // death variants (called from A.tick for each corpse after the shared slump): each type falls its own way
+  A.gxDeath = (c, u, g, t, k1, k2, fade) => {
+    if (u.mat) u.mat.userData.uFlash.value = 0.95 * (1 - sstep(0, 0.3, t));   // the killing blow flashes white-hot
+    const ty = u.type, lat = c.side;
+    if (ty === 2) { g.rotation.z = lat * 1.55 * Math.pow(sstep(0.5, 1.4, t), 2); g.position.y = 0.12 * sstep(0.5, 1.4, t); }   // the brute goes down late and heavy
+    else if (ty === 3) { u.rig.scale.y *= 1 - 0.3 * k1; g.rotation.z *= 0.7; }   // the wizard's robe puddles
+    else if (ty === 4) { u.legs[0].rotation.x = -1.4 * k1; u.legs[1].rotation.x = -1.3 * k1; g.rotation.z = 0; g.rotation.x = 0.95 * k2 * k2; g.position.y = 0.1 * k2; }   // the king kneels, then topples forward
+    else if (ty === 5) { g.rotation.y += lat * 2.6 * k1 * (1 - k2 * 0.5); }   // the scout spins as it falls
+    else if (ty === 6) { u.torso.rotation.x = u.hunch + 1.25 * k1; u.legs[0].rotation.x = -1.6 * k1; u.legs[1].rotation.x = -1.5 * k1; u.rig.position.y = -0.4 * k1; }   // the sneak crumples into a crouch
+    else if (ty === 7) { g.rotation.z = 0; g.rotation.x = -1.3 * k2 * k2; u.torso.rotation.x = u.hunch - 0.3 * k1; u.head.rotation.x = -0.4 * k1; }   // the miner drops onto his back (and the pick)
+    else if (ty === 8) { g.rotation.z = 0; g.rotation.x = -1.25 * k2 * k2; u.arms[0].rotation.z = -(0.6 + 0.8 * k2); u.arms[1].rotation.z = 0.6 + 0.8 * k2; u.torso.rotation.x = u.hunch - 0.25 * k1; }   // the shaman arches back, arms flung wide
+    else if (ty === 9) { g.rotation.z = 0; g.rotation.x = 1.45 * Math.pow(sstep(0.45, 1.2, t), 2); g.position.y = 0.1 * sstep(0.45, 1.2, t); }   // the berserker face-plants late
+    else if (ty === 10) { u.rig.scale.y *= 1 - 0.28 * k2; u.rig.scale.x *= 1 + 0.2 * k2; u.rig.scale.z *= 1 + 0.2 * k2; g.rotation.z = lat * 1.55 * k2 * k2; }   // the bog goblin flops flat
+    else if (ty === 11) { u.legs[0].rotation.x = -0.1 * k1; u.legs[1].rotation.x = -0.05 * k1; u.torso.rotation.x = u.hunch + 0.1 * k1; g.rotation.z = 0; g.rotation.x = 1.5 * Math.pow(sstep(0.3, 1.1, t), 2); }   // stiff as a plank
+  };
   // GOBTYPES-END
   // ---- assemble one goblin
   function buildGoblin(type, demo) {
@@ -3676,7 +3767,7 @@ const A_EARS = {};
       const sh = new THREE.Group(); sh.position.set(s * 0.35 * b, 1.0, 0); sh.name = s < 0 ? 'armL' : 'armR'; rig.add(sh); u.arms.push(sh);
       bake(sh, type, 'sh' + s, B => { B.push([0, 0, 0], [0, 0, 0], [s, 1, 1]); B.e(0, 0, 0, 0.1 * b * L, 0.09, 0.1 * b * L, SC, SK); B.tube([[0, 0.02, 0], [0, -0.15, 0.012], [0, -0.3, 0]], 0.072 * b * L, 0.056 * b * L, SC, SK, { rad: 9, bulge: 0.12 }); gaArmGear(B, type, s, b, 'sh'); gxArm(B, type, s, b, 'sh'); B.pop(); });
       const el = new THREE.Group(); el.position.set(0, -0.3, 0); sh.add(el); sh.userData.el = el;
-      bake(el, type, 'el' + s, B => { B.push([0, 0, 0], [0, 0, 0], [s, 1, 1]); B.e(0, 0, -0.005, 0.062 * L * b, 0.056, 0.06 * L * b, SC, SK); B.tube([[0, 0, 0], [0, -0.14, 0.012], [0, -0.28, 0]], 0.058 * b * L, 0.044, SC, SK, { rad: 8, bulge: 0.1 }); gaArmGear(B, type, s, b, 'el'); gxArm(B, type, s, b, 'el'); gaHand(B, 1, b, SC, claw, L); if (type === 4 && s > 0) { B.tor(0.0, -0.325, 0.05, 0.034, 0.009, Math.PI / 2, 0, 0, 0xffc933, GD); B.es(0.0, -0.325, 0.088, 0.014, 0.014, 0.01, 0xff3355, GEM); } B.pop(); });
+      bake(el, type, 'el' + s, B => { B.push([0, 0, 0], [0, 0, 0], [s, 1, 1]); B.e(0, 0, -0.005, 0.062 * L * b, 0.056, 0.06 * L * b, SC, SK); B.tube([[0, 0, 0], [0, -0.14, 0.012], [0, -0.28, 0]], 0.058 * b * L, 0.044, SC, SK, { rad: 8, bulge: 0.1 }); gaArmGear(B, type, s, b, 'el'); gxArm(B, type, s, b, 'el'); gaHand(B, 1, b, SC, claw, L, P.hand || 1); if (type === 4 && s > 0) { B.tor(0.0, -0.325, 0.05, 0.034, 0.009, Math.PI / 2, 0, 0, 0xffc933, GD); B.es(0.0, -0.325, 0.088, 0.014, 0.014, 0.01, 0xff3355, GEM); } B.pop(); });
       const hand = new THREE.Group(); hand.name = 'hand'; hand.position.set(0, -0.28, 0); el.add(hand); el.userData.hand = hand; if (s > 0) u.hand = hand;
     }
     u.armL = u.arms[0]; u.armR = u.arms[1]; u.legL = u.legs[0]; u.legR = u.legs[1];
@@ -3787,6 +3878,8 @@ const A_EARS = {};
     if (u.halo) u.halo.material.rotation = t * 0.18;
     u.spin.forEach((m, i) => m.rotation.y = t * (1 + i * 0.2));
     u.glows.forEach((s, i) => s.material.opacity = (s.userData.op ?? 0.75) * (0.85 + 0.15 * Math.sin(t * 3 + i)));
+    A.gxAnim(a, u, t, walk, id, ant, lun, f);   // GOBART12: per-type weight and habits
+    if (u.mat) u.mat.userData.uFlash.value = a.hitT > 0 ? 0.85 * Math.pow(Math.min(1, a.hitT / CB.HIT), 1.6) : 0;   // GOBART12: hit flash
   };
   // ---- death slump: a killed goblin buckles at the knees, folds forward, topples and fades (the actor itself is already gone)
   A.die = a => {
@@ -3806,6 +3899,7 @@ const A_EARS = {};
       for (const s of [-1, 1]) { const ear = s < 0 ? u.earL : u.earR; ear.rotation.z = ear.userData.base.z - s * 0.55 * k1; ear.rotation.x = 0; }
       g.rotation.z = c.side * 1.5 * k2 * k2; g.position.y = 0.12 * k2;
       if (u.cape) u.cape.rotation.x = 0.05 + 0.5 * k1;
+      A.gxDeath(c, u, g, t, k1, k2, fade);   // GOBART12: each type falls its own way
       for (const s of u.glows) s.material.opacity *= 1 - fade; if (u.sparks) u.sparks.material.opacity *= 1 - fade; if (u.halo) u.halo.material.opacity = 0;
       if (t > 2.3) { dropGoblin(g); A.corpses.splice(i, 1); }
     }
@@ -3972,7 +4066,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     }, onmessage: null };
     const ping = () => ws.readyState === 1 && ws.send(JSON.stringify({ ping: performance.now() }));
     setInterval(ping, 2000);   // NET: RTT and clock offset
-    const wire = w => { w.onopen = ping; w.onmessage = e => { let d; try { d = JSON.parse(e.data); } catch (err) { return; } if (d.busy) { busyRetry = true; toastMsg('Servers are full — retrying…', false, 3500); setTimeout(() => { busyRetry = false; lastM = ''; ws = new WebSocket(joinUrl()); wire(ws); }, 4000); return; } net.onmessage && net.onmessage(d); }; w.onclose = () => { if (w !== ws || busyRetry) return; onClose(); }; };   // SECURITY: {busy:1} = match cap reached, try again
+    const wire = w => { w.onopen = ping; w.onmessage = e => { NETC.rxB += e.data.length; NETC.rxM++; let d; try { d = JSON.parse(e.data); } catch (err) { return; } if (d.busy) { busyRetry = true; toastMsg('Servers are full — retrying…', false, 3500); setTimeout(() => { busyRetry = false; lastM = ''; ws = new WebSocket(joinUrl()); wire(ws); }, 4000); return; } net.onmessage && net.onmessage(d); }; w.onclose = () => { if (w !== ws || busyRetry) return; onClose(); }; };   // SECURITY: {busy:1} = match cap reached, try again
     GK.social.attach({ state: () => ws.readyState, drop: () => ws.close(), reopen: tk => { lastM = ''; ws = new WebSocket(tokUrl(tk)); wire(ws); } });   // SOCIAL: reconnect with the token
     const onClose = () => { if (GK.social.onClose()) return; const m = document.getElementById('me'); if (m) m.textContent = 'Disconnected - reload to rejoin'; /* FEEL-BEGIN */ if (GK.feel) GK.feel.onClose(); /* FEEL-END */ };
     wire(ws);
@@ -3983,7 +4077,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
   const myWins = Math.max(0, (opts && opts.wins) | 0);
   const simSlots = [0, 1, 2, 3, 4, 5, 6, 7].sort(() => Math.random() - 0.5);   // 5x5: every goblin starts in a home of its own (offline: the free homes in random order)
   const mk = bot => {
-    const slot = simSlots.length ? simSlots.pop() : Math.floor(Math.random() * 8), home = WORLD.homeOf(slot), hc = WORLD.CHEST[2 * slot], box = hc.parent, [cx, cz] = rc(box);
+    const slot = simSlots.length ? simSlots.pop() : Math.floor(Math.random() * 8), home = WORLD.homeOf(slot), hc = WORLD.CHEST[+home.slice(1)], box = hc.parent, [cx, cz] = rc(box);
     const [x, z] = WORLD.randomPoint(home);
     const goblin = !bot && opts && opts.goblin != null ? opts.goblin | 0 : roll();
     return { id: nid++, goblin, box, home, x, z, yaw: Math.atan2(-(hc.wallX - x), -(hc.wallZ - z)), bot, tx: cx, tz: cz, wait: Math.random() * 2, seq, inv: startInv(goblin), know: (itemsData().KNOWLEDGE || [])[goblin] != null ? itemsData().KNOWLEDGE[goblin] : STATS[goblin].knowledge, parts: Object.fromEntries((itemsData().PARTS || []).map(p => [p.key, 0])), gold: itemsData().START_GOLD != null ? itemsData().START_GOLD : 100, wins: bot ? Math.max(0, myWins + Math.floor(Math.random() * 3) - 1) : myWins };
@@ -4008,7 +4102,8 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
   // same round machine as server.js, run locally: 30 s first round, 45 s after; bots pick a door in their room each round
   const rs = { n: 1, dur: 120000, endsAt: performance.now() + 120000, sel: {}, open: [], fizzled: [] };   // 5x5: every round is 2 minutes, as on the server (offline: tree rooms and vaultbreakers are visual only, no special rules)
   const isVault = id => DINFO[id].kind === 'vault', votes = () => Object.keys(rs.sel).filter(k => isVault(rs.sel[k])).length;
-  const rmsg = () => ({ round: { n: rs.n, left: Math.max(0, rs.endsAt - performance.now()), dur: rs.dur }, sel: { ...rs.sel }, open: rs.open.slice(), vaultVotes: votes(), fizzled: rs.fizzled.slice() });
+  const rmsg = () => ({ round: { n: rs.n, left: Math.max(0, rs.endsAt - performance.now()), dur: rs.dur }, sel: { ...rs.sel }, open: rs.open.slice(), vaultVotes: votes(), fizzled: rs.fizzled.slice(), ...(rs.n === 1 ? { homeLock: 1 } : null) });   // HOME PHASE: round 1 is spent at home, as on the server
+  const homeExits = () => { for (const p of list) { const c = String(WORLD.CHEST[+p.home.slice(1)].parent), ds = (ROOM_DOORS[c] || []).filter(id => !isVault(id)); if (ds.length && !ds.some(id => rs.open.includes(id))) rs.open.push(ds[Math.floor(Math.random() * ds.length)]); } };   // HOME PHASE: round 2 opens one door of every home's cell (server.js homeOpen)
   const emitRound = () => net.onmessage && net.onmessage(rmsg());
   const botPlan = () => { for (const b of list) if (b.bot) b.selAt = performance.now() + 1500 + Math.random() * (rs.dur - 6000); };
   // COMBAT-BEGIN offline simulation of the server's combat: bots have health, fight back within 6 m, drop loot when killed; same rules as server.js (items.js combat())
@@ -4179,13 +4274,15 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
   setInterval(() => {
     const now = performance.now();
     if (!rs.started) { rs.endsAt = now + rs.dur; return; }   // round 1 waits for Enter, as on the server
-    if (now >= rs.endsAt) { const picked = [...new Set(Object.values(rs.sel))], ok = votes() >= 2; rs.open = picked.filter(d => ok || !isVault(d)); rs.fizzled = ok ? [] : picked.filter(isVault); rs.sel = {}; rs.n++; rs.dur = 120000; rs.endsAt = now + rs.dur; botPlan(); emitRound(); return; }
+    if (now >= rs.endsAt) { const picked = [...new Set(Object.values(rs.sel))], ok = votes() >= 2; rs.open = picked.filter(d => ok || !isVault(d)); rs.fizzled = ok ? [] : picked.filter(isVault); rs.sel = {}; rs.n++; if (rs.n === 2) homeExits(); rs.dur = 120000; rs.endsAt = now + rs.dur; botPlan(); emitRound(); return; }
     for (const b of list) if (b.bot && b.selAt && now >= b.selAt) { b.selAt = 0; const k = roomKeyAt(b.x, b.z), ids = ROOM_DOORS[k]; if (ids && rs.sel[k] === undefined) { const vs = ids.filter(isVault), pool = vs.length && Math.random() < 0.5 ? vs : ids; rs.sel[k] = pool[Math.floor(Math.random() * pool.length)]; emitRound(); } }
   }, 200);
   setInterval(emitRound, 1000);
   setInterval(() => {
     for (const b of list) {
       if (!b.bot || b.chase) continue;
+      if (rs.n === 1 && roomKeyAt(b.tx, b.tz) !== b.home) { [b.tx, b.tz] = WORLD.randomPoint(b.home); b.homeHold = true; }   // HOME PHASE: offline bots potter about at home in round 1
+      else if (rs.n > 1 && b.homeHold) { b.homeHold = false; const hc = WORLD.CHEST[+b.home.slice(1)]; [b.tx, b.tz] = rc(hc.parent); }   // the arena is open: walk out into the cell
       const dx = b.tx - b.x, dz = b.tz - b.z, d = Math.hypot(dx, dz);
       if (d < 0.3) {
         b.wait -= 0.05;
@@ -4209,11 +4306,12 @@ function dropGoblin(g) { // free GPU memory of a removed goblin (shared geometry
   g.traverse(o => { if (o.geometry) o.geometry.dispose(); [].concat(o.material || []).forEach(m => m.dispose()); });
 }
 // NET-BEGIN (client side of the netcode: snapshot interpolation with an adaptive delay, clock sync, ping readout, server corrections; see docs/reports/netcode.md)
-const NETC = { off: null, offPong: false, rtt: 0, delay: 100, jit: 0, lastArr: 0, lastT: 0, rt: 0, fix: null, el: null, txt: '' };
+const NETC = { off: null, offPong: false, rtt: 0, delay: 100, jit: 0, lastArr: 0, lastT: 0, rt: 0, fix: null, el: null, txt: '', lags: new Float64Array(96), lagTmp: new Float64Array(96), lagN: 0, target: 0, fixN: 0, fixT: [], hud: null, win: null, snapN: 0, rxB: 0, rxM: 0 };   // PERF4: lags = ring of how old each snapshot entry was on arrival, target = adaptive interpolation delay, the rest feeds GK.net.stats()
 const NS = { x: 0, z: 0, yaw: 0, y: 0 };   // scratch result of netSample (no per-frame allocation)
 const srvNow = () => performance.now() + (NETC.off || 0);   // estimate of the server clock in ms
 function netRenderT(dt) {   // the server time that remote goblins are drawn at: now minus the interpolation delay (never runs backwards)
-  NETC.delay += (clamp(66 + 2 * NETC.jit, 70, 150) - NETC.delay) * Math.min(1, dt * 2);
+  const tg = NETC.target || clamp(66 + 2 * NETC.jit, 70, 150);   // PERF4: the delay follows how late snapshots really are (90th percentile of their age on arrival), up fast, down slowly
+  NETC.delay += (tg - NETC.delay) * Math.min(1, dt * (tg > NETC.delay ? 6 : 1.5));
   const r = srvNow() - NETC.delay; NETC.rt = r > NETC.rt || NETC.rt - r > 500 ? r : NETC.rt; return NETC.rt;
 }
 function netPong(d) {   // {pong: my ping time, t: server time}
@@ -4224,17 +4322,29 @@ function netPong(d) {   // {pong: my ping time, t: server time}
 }
 function netHud() {   // small ping readout, bottom right: green below 80 ms, yellow below 150, red above (hidden offline and outside play mode)
   if (!NETC.el) { NETC.el = document.createElement('div'); NETC.el.style.cssText = 'position:fixed;right:10px;bottom:8px;z-index:5;padding:3px 7px;border-radius:6px;background:rgba(10,10,16,.55);font:600 11px/1 system-ui,sans-serif;pointer-events:none;text-shadow:0 1px 3px #000;display:none'; document.body.appendChild(NETC.el); }
-  const show = !window.GK_OFFLINE && NETC.offPong && GK.mode === 'play', r = Math.round(NETC.rtt), txt = 'Ping ' + r + ' ms';
+  const mode = NETC.hud == null ? (GK.dbg || /[?&](debug|net)=1/.test(location.search) || GK.settings.ping ? 1 : 0) : NETC.hud;   // PERF4: the ping readout is a debug / settings thing now (?debug=1, ?net=1, a GK_DEBUG server, GK.settings.ping, or GK.net.overlay(1|2)); 2 = the full overlay
+  const show = mode > 0 && !window.GK_OFFLINE && NETC.offPong && GK.mode === 'play', r = Math.round(NETC.rtt), txt = mode > 1 ? netLine() : 'Ping ' + r + ' ms';
   if (show !== (NETC.el.style.display === 'block')) NETC.el.style.display = show ? 'block' : 'none';
   if (txt !== NETC.txt) { NETC.txt = txt; NETC.el.textContent = txt; NETC.el.style.color = r < 80 ? '#7be08a' : r < 150 ? '#ffd75e' : '#ff6a5a'; }
 }
 setInterval(netHud, 500);
+// PERF4: GK.net.stats() = the numbers behind the picture of the other goblins; GK.net.overlay(0|1|2) hides the readout, shows the ping, or shows the full line (rtt, jitter, render delay, snapshots / s, KB/s, corrections in the last minute)
+function netStats() {
+  const now = performance.now(), W = NETC.win || (NETC.win = { t: now, b: 0, m: 0, s: 0, kbps: 0, mps: 0, sps: 0 });
+  if (now - W.t >= 1000) { const d = (now - W.t) / 1000; W.kbps = (NETC.rxB - W.b) / 1024 / d; W.mps = (NETC.rxM - W.m) / d; W.sps = (NETC.snapN - W.s) / d; W.t = now; W.b = NETC.rxB; W.m = NETC.rxM; W.s = NETC.snapN; }
+  while (NETC.fixT.length && now - NETC.fixT[0] > 60000) NETC.fixT.shift();
+  return { rtt: +NETC.rtt.toFixed(1), jitter: +NETC.jit.toFixed(1), delay: +NETC.delay.toFixed(0), target: +NETC.target.toFixed(0), clockOffset: NETC.off == null ? null : +NETC.off.toFixed(1), synced: NETC.offPong, kbps: +W.kbps.toFixed(2), msgsPerSec: +W.mps.toFixed(1), snapsPerSec: +W.sps.toFixed(1), fixes: NETC.fixN, fixesLastMin: NETC.fixT.length };
+}
+const netLine = () => { const s = netStats(); return 'ping ' + Math.round(s.rtt) + '  jit ' + Math.round(s.jitter) + '  dly ' + s.delay + '  ' + s.snapsPerSec + ' snap/s  ' + s.kbps + ' KB/s  fix ' + s.fixesLastMin; };
+function netOverlay(mode) { NETC.hud = mode == null ? ((NETC.hud || 0) + 1) % 3 : +mode; NETC.txt = ''; netHud(); return NETC.hud; }
 function netSnap(s) {   // {s:[t, id,x,z,yaw,speed,age, ...]}: buffer one entry per moved goblin, stamped with the server time its position was received
   const now = performance.now(), t = s[0];
   if (NETC.off == null) NETC.off = t - now;
   if (NETC.lastArr) NETC.jit += (Math.min(Math.abs(now - NETC.lastArr - (t - NETC.lastT)), 300) - NETC.jit) * 0.1;   // arrival jitter (RFC 3550 style)
   NETC.lastArr = now; NETC.lastT = t;
+  let minAge = 1e9;
   for (let i = 1; i + 5 < s.length; i += 6) {
+    if (s[i + 5] < minAge) minAge = s[i + 5];
     const a = actors.get(s[i]); if (!a || s[i] === me) continue;
     const et = t - s[i + 5], b = a.buf || (a.buf = []), l = b[b.length - 1];
     if (l && et <= l.t) continue;
@@ -4242,8 +4352,26 @@ function netSnap(s) {   // {s:[t, id,x,z,yaw,speed,age, ...]}: buffer one entry 
     b.push({ t: et, x: s[i + 1], z: s[i + 2], yaw: s[i + 3], v: s[i + 4] % 100, y: Math.floor(s[i + 4] / 100) / 100 });   // JUMP: the speed slot also carries the jump height in cm (v + 100 * cm)
     while (b.length > 3 && b[1].t < et - 1500) b.shift();
   }
+  NETC.snapN++;   // PERF4: one lag sample per message = how old its freshest entry was on arrival (a far-rooms entry rides along up to 150 ms late; a message with nothing fresh in it says nothing about the line)
+  if (NETC.offPong && minAge <= 90) { NETC.lags[NETC.lagN++ % 96] = now + NETC.off - (t - minAge); if (NETC.lagN >= 24) lagTarget(); }
 }
-function netSample(a, rt) {   // position of a remote goblin at server time rt: interpolate between the two snapshots around it, extrapolate at most 100 ms past the newest
+function lagTarget() {   // PERF4: render delay = 90th percentile of the recent entry ages, so the newest snapshot is nearly always already here (less extrapolation than 66 + 2 x jitter), and no longer than needed
+  const n = Math.min(96, NETC.lagN), t = NETC.lagTmp.subarray(0, n); t.set(NETC.lags.subarray(0, n)); t.sort();
+  NETC.target = clamp(t[Math.floor(n * 0.9)] + 16, 50, 220);
+}
+function netSample(a, rt) {   // PERF4: netSample0 plus a decaying offset: when the sampled position jumps (a stall ended, a burst of snapshots arrived) the picture keeps its place and slides over to the new one in ~0.3 s instead of popping; far jumps (teleports) still snap
+  const s = netSample0(a, rt); if (!s) return s;
+  const dtm = a.nlr != null ? Math.max(0, rt - a.nlr) : 16; a.nlr = rt;
+  if (a.nlx != null) {
+    const ox = a.nox || 0, oz = a.noz || 0, jx = s.x + ox - a.nlx, jz = s.z + oz - a.nlz, lim = 0.014 * dtm + 0.12;   // 14 m/s is faster than anyone runs
+    if (jx * jx + jz * jz > lim * lim && jx * jx + jz * jz < 36) { a.nox = a.nlx - s.x; a.noz = a.nlz - s.z; }   // keep the last drawn spot as the new offset
+    else if (jx * jx + jz * jz >= 36) { a.nox = 0; a.noz = 0; }
+    const k = Math.exp(-dtm * 0.0065), px = (a.nox || 0) * k, pz = (a.noz || 0) * k;   // decay: 6.5 per second
+    if (px * px + pz * pz < 1e-4) { a.nox = 0; a.noz = 0; } else { a.nox = px; a.noz = pz; s.x += px; s.z += pz; }
+  }
+  a.nlx = s.x; a.nlz = s.z; return s;
+}
+function netSample0(a, rt) {   // position of a remote goblin at server time rt: interpolate between the two snapshots around it, extrapolate at most 100 ms past the newest
   const b = a.buf, n = b ? b.length : 0; if (!n) return null;
   const L = b[n - 1];
   if (rt >= L.t) {
@@ -4264,6 +4392,7 @@ function netFixStep(a, dt) {   // the server refused a move ({fix:[x,z]}): blend
 // NET-END
 let netReal = null;
 const net = { send: m => netReal && !(GK.locked && (m.atk || m.claim || m.m || m.sel !== undefined)) && netReal.send(m) };   // MATCH: those are locked until GO
+net.stats = netStats; net.overlay = netOverlay;   // PERF4
 const actors = new Map();
 function npcLook(group, kind) {   // BOTS: hostile mystery enemy = normal goblin model with a type tint (no new geometry, no lights); materials are cloned so the shared ones stay untouched
   const tint = { troll: 0x6a8a5a, archer: 0x7a5a3a, speedy: 0xff7a3a, dumb: 0xb89a6a, regular: 0xd05a4a, rat: 0x8a7560 }[kind] || 0xd05a4a, c = new THREE.Color(tint);
@@ -4277,7 +4406,7 @@ const handleMsg0 = d => {
   if (d.s) return netSnap(d.s);   // NET: fast position snapshots (hot path)
   if (d.pong != null) return netPong(d);
   if (d.emote || d.token || d.resumed || d.resumeFail) SOC.onMsg(d);   // SOCIAL
-  if (d.fix) { NETC.fix = d.fix; JUMP.fix(d.fix); }   // CLIMB: a third element is my corrected feet height
+  if (d.fix) { NETC.fix = d.fix; NETC.fixN++; NETC.fixT.push(performance.now()); JUMP.fix(d.fix); }   // PERF4: counted for GK.net.stats(); CLIMB: a third element is my corrected feet height
   /* FEEL-BEGIN */ if (GK.feel) GK.feel.onMsg(d); /* FEEL-END */
   if (window.GKACT5) GKACT5.pre(d);   // ACT5UI: breach by door -> by side, arc labels
   if (GK.r5) GK.r5.onMsg(d);   // ROOMS5ART: trees / vb / treasury / crown / breach fields and the match start / end
@@ -4301,6 +4430,7 @@ const handleMsg0 = d => {
   KNOWUI.onMsg(d);   // KNOWLEDGE: perks, learning, reforging, map intel
   if (d.lootFail) lootFailFx(d.lootFail);
   if (GK.fun) GK.fun.onMsg(d);   // FUN: kill feed, board, match summary
+  if (window.GKSTATSUI) GKSTATSUI.onMsg(d);   // STATS: lifetime stats recorder (statsui.js)
   if (window.GKLOOT) GKLOOT.onMsg(d);   // LOOT: vault relic, thrown plushie
   if (window.GKHOMEW) GKHOMEW.onMsg(d);   // ELIXIR: counter, Elixir Screen state, toasts, send effects
   if (window.GKUSE) GKUSE.onMsg(d);   // UTILITY: used items, thrown bombs, smoke
@@ -4396,6 +4526,7 @@ function applyDrops(list) {
     const neck = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.25, 10), sack.material); neck.position.y = 0.58; g.add(neck);
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffd24a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.8 })); glow.scale.set(1.6, 1.6, 1); glow.position.y = 0.5; g.add(glow);
     const lab = new THREE.Sprite(new THREE.SpriteMaterial({ map: textTex(d.items.map(itemName).join(' · '), '#ffd75e', 'rgba(10,10,16,.6)', 640, 96, 'bold 40px system-ui'), transparent: true, depthWrite: false })); lab.scale.set(2.4, 0.36, 1); lab.position.y = 1.1; g.add(lab);
+    try { window.GKART && GKART.dropLook && GKART.dropLook(g, d.items, glow, lab); } catch (e) {}   // ICONFRAME: tier beam + the best item floating over the bag
     scene.add(g); lootMeshes.set(d.id, g);
   }
   if (typeof lootOpen !== 'undefined' && lootOpen) paintLoot();
@@ -4456,7 +4587,7 @@ function showDeathScreen(info) {
 GK.showDeathScreen = showDeathScreen;
 // MINIMAP-BEGIN (HUD minimap top right + M overlay; see docs/reports/minimap.md). Reads RS, DINFO, actors, P, CHEST_ROOMS. No lights, no per-frame allocation: redraws at most 10 Hz and only when the signature changes.
 (() => {
-  const WD = window.GKWORLD, LIM = WD.LIM, NA = WD.NARENA, NR = NA + CHEST_ROOMS.length;   // 5x5: room index = arena 0..24, then attached rooms 25..40 (NR = outside)
+  const WD = window.GKWORLD, LIM = WD.LIM, NA = WD.NARENA, NR = NA + CHEST_ROOMS.length;   // 5x5: room index = arena 0..24, then attached rooms 25..44 (NR = outside)
   const st = document.createElement('style');
   st.textContent = '#gkMM{position:fixed;top:84px;right:12px;z-index:29;pointer-events:none;display:none;line-height:0;border:2px solid #c9a13a;border-radius:10px;box-shadow:inset 0 0 0 1px #5a4513,0 0 0 1px #2a1e08,0 4px 16px rgba(0,0,0,.65);overflow:hidden}'
     + '#gkMMBig{position:fixed;inset:0;z-index:60;pointer-events:none;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.5)}'
@@ -4502,7 +4633,7 @@ GK.showDeathScreen = showDeathScreen;
   function arrowPx(g, r, fill, line) { g.beginPath(); g.moveTo(0, -r * 1.35); g.lineTo(r * .95, r * .95); g.lineTo(0, r * .5); g.lineTo(-r * .95, r * .95); g.closePath(); g.fillStyle = fill; g.fill(); g.lineWidth = 1.5; g.strokeStyle = line; g.stroke(); }
   function tickMark(g, r) { g.lineWidth = 2.2; g.strokeStyle = '#5dff8a'; g.lineCap = 'round'; g.beginPath(); g.moveTo(-r * .6, 0); g.lineTo(-r * .1, r * .55); g.lineTo(r * .7, -r * .5); g.stroke(); g.lineCap = 'butt'; }
   const actorSig = (a, id) => { if (id === me || a.npc) return; sigH = (sigH * 31 + Math.round(a.x * 2)) | 0; sigH = (sigH * 31 + Math.round(a.z * 2)) | 0; };
-  // HUD5: the map is drawn from HUD5.mapOps (25 arena cells, 16 attached rooms, special room icons, breach bars). Fog of war stays: loot rooms show once discovered, goblins only where I can see.
+  // HUD5: the map is drawn from HUD5.mapOps (25 arena cells, 20 attached rooms, special room icons, breach bars). Fog of war stays: loot rooms show once discovered, goblins only where I can see.
   const ST = { me: { x: 0, z: 0, yaw: 0 }, discovered: [], open: WD.DOORS.map(d => ({ x: d.wall.x, z: d.wall.z, h: d.axis === 'x' ? 1 : 0, open: d.kind === 'hatch', vault: d.kind === 'vault' })), actors: [], layout: {}, homes: {}, crown: null };
   function hud5State() {
     const H = window.GKHUD5 ? GKHUD5.S : {}, lay = ST.layout, homes = ST.homes, dsc = ST.discovered;
@@ -4512,7 +4643,7 @@ GK.showDeathScreen = showDeathScreen;
     dsc.length = 0; for (let i = 0; i < disc.length; i++) if (disc[i]) dsc.push('c' + CHEST_ROOMS[i].id);
     ST.me.x = P.x; ST.me.z = P.z; ST.me.yaw = P.yaw; ST.myHome = GK.myHome;
     ST.vb = H.vb; ST.vbNext = H.vbNext; ST.trees = H.trees; ST.armed = H.armed; ST.breach = H.breach; ST.crown = H.crown;
-    for (let id = 0; id < ND; id++) if (dKind[id] !== 2) ST.open[id].open = !!openF[id];
+    for (let id = 0; id < ND; id++) ST.open[id].open = dKind[id] !== 2 ? !!openF[id] : !RS.homeLock;   // HOME PHASE: the hatches show shut in round 1
     ST.actors.length = 0;
     actors.forEach((a, id) => { if (id === me || a.npc || (vis[keyIdx(a.x, a.z)] !== 1 && !(window.GKUSE2 && GKUSE2.reveal()) && !(window.GKHOMEW && GKHOMEW.bellAt(a.x, a.z)) && !(window.GKACT5 && GKACT5.pulsed(id)))) return; ST.actors.push(a); });   // GKHOMEW.bellAt: a room with a Bell send running shows its goblins
   }
@@ -4895,11 +5026,11 @@ function buildInv() {
   const qwrap = document.createElement('div'); qwrap.style.cssText = 'margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.1)'; qwrap.innerHTML = '<div class="lab">QUICK ACCESS (KEYS 1 2 3)</div>'; qwrap.appendChild(quick);
   const pw = document.createElement('div'); pw.style.cssText = 'margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.1)'; pw.innerHTML = '<div class="lab">MATERIALS</div>'; pw.appendChild(mkPartsRow()); qwrap.appendChild(pw);
   const foot = document.createElement('div'); foot.style.cssText = 'display:flex;gap:12px;align-items:center;margin-top:14px';
-  hintEl = document.createElement('div'); hintEl.style.cssText = 'flex:1;font-size:12px;color:#8d8880;letter-spacing:.04em'; hintEl.textContent = 'Right-click an item to drop it  ·  Tab / I / Esc to close';
+  hintEl = document.createElement('div'); hintEl.style.cssText = 'flex:1;font-size:12px;color:#8d8880;letter-spacing:.04em'; hintEl.textContent = 'Right-click an item to drop it  ·  Tab / I / E to close';
   dropBtn = document.createElement('button'); dropBtn.textContent = 'DROP'; dropBtn.style.cssText = 'border:1px solid rgba(255,90,74,.6);background:rgba(120,20,14,.35);color:#ff8a7a';
   const closeBtn = document.createElement('button'); closeBtn.textContent = 'CLOSE'; closeBtn.style.cssText = 'border:0;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font-weight:800';
   const eatBtn = document.createElement('button'); eatBtn.textContent = 'EAT / USE'; eatBtn.id = 'invEat'; eatBtn.style.cssText = 'border:1px solid #8be28b;background:rgba(40,120,50,.35);color:#b8f5b8';
-  eatBtn.onclick = () => { const k = held && invGet(myInv, held); if (k && infoOf(k) && (infoOf(k).family === 'brain' || infoOf(k).use || infoOf(k).type === 'charm')) eatSlot(held); else { hintEl.style.color = '#ff8a7a'; hintEl.textContent = 'Pick up a brain or a utility item first, then press Eat / Use (or double-click it)'; setTimeout(() => { hintEl.style.color = '#8d8880'; hintEl.textContent = 'Right-click an item to drop it  ·  Tab / I / Esc to close'; }, 2200); } };
+  eatBtn.onclick = () => { const k = held && invGet(myInv, held); if (k && infoOf(k) && (infoOf(k).family === 'brain' || infoOf(k).use || infoOf(k).type === 'charm')) eatSlot(held); else { hintEl.style.color = '#ff8a7a'; hintEl.textContent = 'Pick up a brain or a utility item first, then press Eat / Use (or double-click it)'; setTimeout(() => { hintEl.style.color = '#8d8880'; hintEl.textContent = 'Right-click an item to drop it  ·  Tab / I / E to close'; }, 2200); } };
   foot.append(hintEl, eatBtn, dropBtn, closeBtn);
   invEl.addEventListener('dblclick', e => { const el = e.target.closest && e.target.closest('.gks'); if (el && el.dataset.id) { held = null; eatSlot(el.dataset.id); } });
   panel.append(main, qwrap, foot); invEl.appendChild(panel);
@@ -4910,7 +5041,7 @@ function buildInv() {
   const slotOf = e => { const el = e.target.closest && e.target.closest('.gks'); return el && invEl.contains(el) ? el.dataset.id : null; };
   invEl.addEventListener('click', e => {
     const id = slotOf(e); if (e.target.closest('button')) return;
-    if (!id) { if (held && e.target === invEl) { held = null; paintAll(); } return; }
+    if (!id) { if (e.target === invEl) { if (held) { held = null; paintAll(); } else closeInv(); } return; }   // FULLSCREEN-2: a click outside the bag closes it
     if (held == null) { if (invGet(myInv, id) != null) { held = id; hideTip(); paintAll(); ghostAt(e); } } else moveInv(held, id);
   });
   invEl.addEventListener('contextmenu', e => { e.preventDefault(); const id = held || slotOf(e); if (id) dropSlot(id); });
@@ -4921,7 +5052,7 @@ function buildInv() {
     tipEl.innerHTML = tipFor(k).replace(/<span/, '<br><span'); tipEl.style.display = 'block';
     tipEl.style.left = Math.max(4, Math.min(e.clientX + 16, innerWidth - tipEl.offsetWidth - 8)) + 'px'; tipEl.style.top = Math.max(4, Math.min(e.clientY + 14, innerHeight - tipEl.offsetHeight - 8)) + 'px';
   });
-  dropBtn.onclick = () => { if (held) dropSlot(held); else { hintEl.style.color = '#ff8a7a'; hintEl.textContent = 'Pick up an item first, then press Drop (or right-click it)'; setTimeout(() => { hintEl.style.color = '#8d8880'; hintEl.textContent = 'Right-click an item to drop it  ·  Tab / I / Esc to close'; }, 2200); } };
+  dropBtn.onclick = () => { if (held) dropSlot(held); else { hintEl.style.color = '#ff8a7a'; hintEl.textContent = 'Pick up an item first, then press Drop (or right-click it)'; setTimeout(() => { hintEl.style.color = '#8d8880'; hintEl.textContent = 'Right-click an item to drop it  ·  Tab / I / E to close'; }, 2200); } };
   closeBtn.onclick = () => closeInv();
   paintAll();
 }
@@ -4957,6 +5088,7 @@ addEventListener('keydown', e => {
     return;
   }
   if (e.code === 'Tab' || e.code === 'KeyI') { e.preventDefault(); if (!e.repeat) { if (invOpen) closeInv(); else openInv(); } return; }
+  if (e.code === 'KeyE' && invOpen && !e.repeat) { closeInv(); return; }   // FULLSCREEN-2: E closes the bag too, so Esc is never needed
   if (e.code === 'Escape' && invOpen) { if (held) { held = null; paintAll(); } else closeInv(); return; }
   if (e.repeat) return;
   if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') {
@@ -5063,7 +5195,7 @@ function buildShop() {
     + '<div id="shopTitle" style="text-align:center;color:' + GOLD + ';font-weight:800;font-size:clamp(22px,3.6vw,30px);letter-spacing:.1em;text-shadow:0 0 22px rgba(255,200,60,.4)"></div>'
     + '<div style="display:flex;justify-content:space-between;align-items:center;margin:4px 0 10px;font-size:12px;letter-spacing:.14em;color:#b9b4ae"><span>MERCHANT</span><span id="shopGold" style="font-size:16px;letter-spacing:.04em;color:' + GOLD + ';font-weight:700"></span></div>'
     + '<div id="shopRows" style="display:flex;flex-direction:column;gap:7px"></div>'
-    + '<div style="display:flex;align-items:center;gap:12px;margin-top:12px"><div id="shopMsg" style="flex:1;font-size:13px;color:#ff8a7a;opacity:0;transition:opacity .25s"></div><button id="shopClose" style="cursor:pointer;border:0;border-radius:8px;padding:9px 18px;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font:800 13px system-ui,sans-serif;letter-spacing:.1em">CLOSE (ESC)</button></div></div>';
+    + '<div style="display:flex;align-items:center;gap:12px;margin-top:12px"><div id="shopMsg" style="flex:1;font-size:13px;color:#ff8a7a;opacity:0;transition:opacity .25s"></div><button id="shopClose" style="cursor:pointer;border:0;border-radius:8px;padding:9px 18px;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font:800 13px system-ui,sans-serif;letter-spacing:.1em">CLOSE (E)</button></div></div>';
   document.body.appendChild(shopEl); shopMsg = shopEl.querySelector('#shopMsg');
   shopEl.querySelector('#shopClose').onclick = () => closeShop();
   shopEl.addEventListener('click', e => { if (e.target === shopEl) closeShop(); });
@@ -5103,6 +5235,7 @@ function closeShop(noLock) {
 GK.openShop = openShop; GK.closeShop = closeShop;
 // hover: ray from the screen centre against GK.merchantTargets (pushed by the rooms code, userData.roomId = CHEST_ROOMS id)
 const ray = new THREE.Raycaster();
+ray.layers.enableAll();   // PERF4: merged room interiors keep their original meshes on a hidden layer; hover targets must still hit them
 let hoverKind = '';
 function setHover(id, kind) {
   if (id === hoverRoom && (kind || '') === hoverKind) return; hoverRoom = id; hoverKind = kind || '';
@@ -5176,7 +5309,7 @@ function mkPanel(id, title, w) {
   el.innerHTML = '<div style="width:min(' + w + 'px,94vw);max-height:94vh;overflow:auto;box-sizing:border-box;padding:16px 24px 16px;border-radius:16px;background:rgba(14,12,9,.88);border:1px solid rgba(255,215,94,.45);box-shadow:0 10px 60px rgba(0,0,0,.7)">'
     + '<div class="ttl" style="text-align:center;color:' + GOLD + ';font-weight:800;font-size:clamp(22px,3.6vw,30px);letter-spacing:.1em;text-shadow:0 0 22px rgba(255,200,60,.4)">' + title + '</div>'
     + '<div class="sub" style="text-align:center;margin:2px 0 10px;font-size:12px;letter-spacing:.14em;color:#b9b4ae"></div><div class="body"></div>'
-    + '<div style="display:flex;align-items:center;gap:12px;margin-top:12px"><div class="msg" style="flex:1;font-size:13px;color:#ff8a7a;min-height:1.3em"></div><button class="close" style="cursor:pointer;border:0;border-radius:8px;padding:9px 18px;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font:800 13px system-ui,sans-serif;letter-spacing:.1em">CLOSE (ESC)</button></div></div>';
+    + '<div style="display:flex;align-items:center;gap:12px;margin-top:12px"><div class="msg" style="flex:1;font-size:13px;color:#ff8a7a;min-height:1.3em"></div><button class="close" style="cursor:pointer;border:0;border-radius:8px;padding:9px 18px;background:linear-gradient(180deg,#ffd75e,#e0a82a);color:#1a1405;font:800 13px system-ui,sans-serif;letter-spacing:.1em">CLOSE (E)</button></div></div>';
   document.body.appendChild(el); el.querySelector('.close').onclick = () => closeShop();
   el.addEventListener('click', e => { if (e.target === el) closeShop(); });
   return { el, body: el.querySelector('.body'), sub: el.querySelector('.sub'), msg: el.querySelector('.msg'), ttl: el.querySelector('.ttl') };
@@ -5536,7 +5669,7 @@ const requestLock = () => {
 document.addEventListener('pointerlockchange', () => { if (lockOk()) lockRefused = false; });
 document.addEventListener('pointerlockerror', () => { lockRefused = true; });
 canvas.addEventListener('mousedown', requestLock);
-addEventListener('keydown', e => { if (e.code !== 'Escape' && GK.mode === 'play' && !invOpen && !shopOpen && !lockOk() && !lockRefused && !e.repeat && document.fullscreenElement) requestLock(); });   // panel closed by key while fullscreen: take the pointer lock back (keys count as a gesture)
+// FULLSCREEN-2: a key in play with no panel open takes the pointer lock back, fullscreen or not (fskeep.js install, wired by menu.js)
 // look follows the mouse, no button held: raw deltas while the pointer is locked; only if the browser refuses the lock
 // (embedded views, some browsers) does plain cursor movement turn, with the left/right screen edge to keep turning
 let mouseX = -1, edgeT = 0;
@@ -5691,6 +5824,7 @@ function renderWorld(t) {
   fxPrepActors();
   LAMPS.tick(t);   // 5x5: the 9 pooled lamps follow the camera
   if (cam.position.y < H) ROOMART.near(WORLD.roomKeyOf(cam.position.x, cam.position.z));   // 5x5: lazy room dressing, the camera's room and its neighbours first
+  if (PERF4.on) p4dTick();   // PERF4: doors at rest draw their baked meshes
   fxCullBegin();
   R5.tick(t);   // ROOMS5ART: lazy room art queue + update() of the visible art rooms (needs the cull set of this frame)
   const tm = renderer.toneMapping, te = renderer.toneMappingExposure;
@@ -5699,6 +5833,8 @@ function renderWorld(t) {
   else renderer.render(scene, cam);
   renderer.toneMapping = tm; renderer.toneMappingExposure = te;
   fxCullEnd();
+  if (PERF4.on) { if (P4B.on) p4bFind(); else p4mTick(); }   // PERF4: room interior merge (discovery, 1.5 ms of merging, rolling check)
+  PERF4.frameEnd();   // PERF4: GK.perfProbe (dev only; a no-op otherwise)
 }
 // keypad screens and other status displays pulse gently (found by their material signature, the builders stay untouched)
 const fxScreens = [];
@@ -6144,7 +6280,7 @@ const fxBlob = { mesh: null };
 function fxBuildBlobs() {
   const boxes = [], bb = new THREE.Box3(), ws = new Set(worldStatic), actorGroups = new Set([...actors.values()].map(a => a.group));
   for (const o of scene.children) {
-    if (ws.has(o) || actorGroups.has(o) || o === fxBlob.mesh || o.name === 'fxMerged' || o.userData.r5 || o.matrixAutoUpdate !== false) continue;   // ROOMS5ART wrappers carry their own grime
+    if (ws.has(o) || actorGroups.has(o) || o === fxBlob.mesh || o.name === 'fxMerged' || o.isBatchedMesh /* PERF4 */ || o.userData.r5 || o.matrixAutoUpdate !== false) continue;   // ROOMS5ART wrappers carry their own grime
     o.updateMatrixWorld(true);
     o.traverseVisible(c => {
       const m = c.material; if (!c.isMesh || c.isInstancedMesh || !m || Array.isArray(m) || m.transparent || !m.isMeshStandardMaterial) return;
@@ -6181,6 +6317,355 @@ function fxBuildBlobs() {
 fxBuildBlobs();
 layoutHooks.push(() => { fxCull.cls = new WeakMap(); try { fxBuildBlobs(); } catch (e) { console.warn('contact shadows skipped', e); } fxApplyQuality(true); });
 GK.gfx = { get fx() { return fx; }, cull: fxCull, merge: fxMergeStats, blob: fxBlob, quality: fxQ };   // test hook
+// PERF4-BEGIN matrix freeze (docs/reports/perf-4-client.md). ?perf4=0 switches the pass off, for before / after measurements.
+// three's per-frame scene.updateMatrixWorld() was about a quarter of all CPU: the Scene itself has matrixAutoUpdate on, so updateMatrix() flags it dirty every frame and that
+// forces a world-matrix multiply on every one of the ~9000 objects, and ~2700 nodes inside static rooms (door parts, kit groups, room art) recomposed their local matrix every frame.
+// Now: the Scene never moves (matrixAutoUpdate off, so no forced cascade; three still walks the tree and multiplies only what is dirty). Inside frozen top-level objects
+// (matrixAutoUpdate === false, the builders' convention for static rooms) every node that still has matrixAutoUpdate on is "watched" instead: its matrix is recomposed only on a
+// frame where its position / quaternion / scale actually changed (door leaves, wheels, bolts, rotors, kit rollers keep animating exactly as before, a frame never lags).
+// New or rebuilt rooms (lazy room art, layout interiors) are picked up by a rolling scan of a few top-level objects per frame.
+const PERF4 = { on: !/[?&]perf4=0/.test(location.search), watch: [], si: 0, pruneAt: 0, t0: 0, probe: null };
+GK.perf4 = PERF4;
+function perf4WatchNode(o) {
+  if (o._p4w) return; o._p4w = true; o.updateMatrix(); o.matrixAutoUpdate = false;
+  const p = o.position, q = o.quaternion, s = o.scale;
+  PERF4.watch.push({ o, px: p.x, py: p.y, pz: p.z, qx: q.x, qy: q.y, qz: q.z, qw: q.w, sx: s.x, sy: s.y, sz: s.z });
+}
+function perf4Scan(root) {   // a frozen top-level object: watch every node that still recomposes its matrix every frame
+  const st = [root];
+  while (st.length) { const o = st.pop(), ch = o.children; for (let i = 0; i < ch.length; i++) { const c = ch[i]; if (c.matrixAutoUpdate && !c.isCamera && !c._p4w) perf4WatchNode(c); if (c.children.length) st.push(c); } }
+}
+function perf4Tick() {   // before scene.updateMatrixWorld: recompose the watched nodes that moved; scan 8 top-level objects (a full sweep about every second); prune detached nodes every 3 s
+  const W = PERF4.watch;
+  for (let i = 0; i < W.length; i++) {
+    const e = W[i], o = e.o; if (o.matrixAutoUpdate) continue;   // switched back on by its owner: three recomposes it as usual
+    const p = o.position, q = o.quaternion, s = o.scale;
+    if (p.x !== e.px || p.y !== e.py || p.z !== e.pz || q.x !== e.qx || q.y !== e.qy || q.z !== e.qz || q.w !== e.qw || s.x !== e.sx || s.y !== e.sy || s.z !== e.sz) {
+      e.px = p.x; e.py = p.y; e.pz = p.z; e.qx = q.x; e.qy = q.y; e.qz = q.z; e.qw = q.w; e.sx = s.x; e.sy = s.y; e.sz = s.z; o.updateMatrix();
+    }
+  }
+  const ch = scene.children, n = ch.length;
+  for (let k = 0; k < 8 && n; k++) { const o = ch[PERF4.si++ % n]; if (o.matrixAutoUpdate === false && !o.isLight && !o.isCamera) perf4Scan(o); }
+  const now = performance.now();
+  if (now > PERF4.pruneAt) {
+    PERF4.pruneAt = now + 3000; let j = 0;
+    for (let i = 0; i < W.length; i++) { let r = W[i].o; while (r.parent) r = r.parent; if (r === scene) W[j++] = W[i]; else W[i].o._p4w = false; }
+    W.length = j;
+  }
+}
+if (PERF4.on) {
+  scene.updateMatrix(); scene.matrixAutoUpdate = false; scene.updateMatrixWorld(true);
+  const umw = THREE.Object3D.prototype.updateMatrixWorld;
+  scene.updateMatrixWorld = function (force) { perf4Tick(); umw.call(this, force); if (P4B.on) p4bSync(); else p4mCheckDrawn(); };   // every render path of the game scene (plain render, composer RenderPass) goes through this
+}
+// GK.perfProbe(frames): dev-only frame probe (?debug=1 or ?perf=1): draw calls and triangles summed over every renderer.render of a frame (composer passes included),
+// render passes, CPU ms of the game frame (frame() start to the end of renderWorld) and inside renderer.render, positive JS heap growth per frame.
+PERF4.frameEnd = () => {
+  const P = PERF4.probe; if (!P) return;
+  const now = performance.now(); P.cpu += now - PERF4.t0; P.frames++;
+  const h = performance.memory ? performance.memory.usedJSHeapSize : 0; if (P.heap && h > P.heap) P.grow += h - P.heap; P.heap = h;
+  if (P.frames >= P.n) { PERF4.probe = null; renderer.render = P.orig; renderer.info.autoReset = P.auto; const f = P.frames;
+    P.res({ frames: f, calls: Math.round(P.calls / f), tris: Math.round(P.tris / f), passes: +(P.passes / f).toFixed(1), cpuMs: +(P.cpu / f).toFixed(2), renderMs: +(P.rms / f).toFixed(2), heapKB: +(P.grow / Math.max(1, f - 1) / 1024).toFixed(1), programs: renderer.info.programs ? renderer.info.programs.length : 0, gfx: GK.settings.gfx }); }
+};
+if (/[?&](debug|perf)=1/.test(location.search)) GK.perfProbe = (n = 120) => new Promise(res => {
+  if (PERF4.probe) { res(null); return; }
+  const r = renderer, info = r.info, orig = r.render, P = PERF4.probe = { n, res, orig, auto: info.autoReset, frames: 0, calls: 0, tris: 0, passes: 0, cpu: 0, rms: 0, grow: 0, heap: 0 };
+  info.autoReset = false;
+  r.render = function (s, c) { const a = performance.now(), c0 = info.render.calls, t0 = info.render.triangles; orig.call(this, s, c); P.rms += performance.now() - a; P.calls += info.render.calls - c0; P.tris += info.render.triangles - t0; P.passes++; if (info.render.calls > 1e7) info.reset(); };
+});
+// Door rest bake. Doors were half of the draw calls of a big view (a skull door 28 calls, a vault door 41, after the PERF2 merge): PERF2 merges per moving part (wall,
+// leaf, each wheel and ring), so a material used on 4 parts costs 4 calls. A door spends nearly all its time at rest (fully closed or fully open), and at rest nothing in it
+// moves except the beacon rotors and the scanner bars. So for each rest pose the door's opaque meshes (instanced rivets and chains expanded) are baked into one mesh per
+// material in the wall group's space, built one door per frame, cached for both poses. While the door rests the bake is drawn and the live parts are hidden; the moment
+// it moves the live parts come back. Same materials (the door code keeps animating colours and lamps), same geometry, same transforms: the picture does not change.
+// Also at rest: a fully open sliding leaf sits inside the wall pocket (hidden by the wall on both faces) and is not drawn, and beacon beams whose opacity has faded to
+// zero (skull doors at rest) are not drawn. Transparent parts, sprites, lasers, scanner bars, rotors and the loot doors' swappable art always stay live.
+const P4D = { doors: [], queue: [], gfx: null, built: 0 };
+function p4dEligible(o) {
+  if (!o.isMesh || o.isSkinnedMesh || Array.isArray(o.material) || o.onBeforeRender !== FX_OBR) return false;
+  const m = o.material, g = o.geometry; if (!m || m.transparent || !g || !g.attributes.position || Object.keys(g.morphAttributes).length || g.drawRange.start || g.drawRange.count !== Infinity) return false;   // (geometry groups are ignored with a single material)
+  if (o.isInstancedMesh && (o.instanceColor || o.count < 1)) return false;
+  return !Object.values(g.attributes).some(a => a.isInterleavedBufferAttribute);
+}
+function p4dInit() {
+  for (const d of doors) {
+    if (d.hatch) continue;
+    let root = d.leaf; while (root.parent && root.parent !== scene) root = root.parent;
+    const ex = new Set(), add = o => o && o.traverse(c => ex.add(c));
+    for (const o of d.rots) add(o); for (const o of d.scan || []) add(o); for (const o of d.lasers || []) add(o); for (const o of d.merchPlates || []) add(o);
+    if (d.art) for (const k in d.art) d.art[k].forEach(add);
+    const nodes = []; root.traverse(o => { if (!ex.has(o) && p4dEligible(o)) nodes.push(o); });
+    const leafSet = new Set(); d.leaf.traverse(o => leafSet.add(o));
+    const pocket = d.slide && d.wallL && d.wallL / 2 >= (DW + 0.15) + (d.dw - 0.04) / 2 + 0.1;   // the open leaf ends inside the wall
+    d.p4 = { root, nodes, leafSet, pocket, bake: [null, null], state: -1, prevP: -1, queued: [false, false] };
+    P4D.doors.push(d);
+  }
+}
+const _p4M = new THREE.Matrix4(), _p4I = new THREE.Matrix4(), _p4R = new THREE.Matrix4();
+function p4MergeGeo(parts, names) {   // parts [{g: BufferGeometry, m: Matrix4}] with the same attribute layout -> one indexed geometry (mirrored transforms re-wound, normals by the normal matrix)
+  let nv = 0, ni = 0; for (const p of parts) { nv += p.g.attributes.position.count; ni += p.g.index ? p.g.index.count : p.g.attributes.position.count; }
+  const out = new THREE.BufferGeometry(), idx = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni);
+  const arrs = {}; for (const n of names) { const a0 = parts[0].g.attributes[n]; arrs[n] = new a0.array.constructor(nv * a0.itemSize); }
+  let vo = 0, io = 0; const v = new THREE.Vector3(), nm = new THREE.Matrix3();
+  for (const p of parts) {
+    const g = p.g, cnt = g.attributes.position.count, flip = p.m.determinant() < 0; nm.getNormalMatrix(p.m);
+    for (const n of names) {
+      const a = g.attributes[n], dst = arrs[n], sz = a.itemSize;
+      if (n === 'position' || n === 'normal' || n === 'tangent') {
+        for (let i = 0; i < cnt; i++) { v.fromBufferAttribute(a, i); if (n === 'position') v.applyMatrix4(p.m); else v.applyMatrix3(nm).normalize(); const k = (vo + i) * sz; dst[k] = v.x; dst[k + 1] = v.y; dst[k + 2] = v.z; if (sz === 4) dst[k + 3] = a.getW(i) * (flip ? -1 : 1); }
+      } else if (a.array.length >= cnt * sz) dst.set(a.array.subarray(0, cnt * sz), vo * sz);
+      else for (let i = 0; i < cnt; i++) for (let c = 0; c < sz; c++) dst[(vo + i) * sz + c] = a.getComponent(i, c);
+    }
+    if (g.index) { const ix = g.index.array, n = g.index.count; for (let i = 0; i < n; i += 3) { idx[io + i] = ix[i] + vo; idx[io + i + 1] = ix[i + (flip ? 2 : 1)] + vo; idx[io + i + 2] = ix[i + (flip ? 1 : 2)] + vo; } io += n; }
+    else { for (let i = 0; i < cnt; i += 3) { idx[io + i] = vo + i; idx[io + i + 1] = vo + i + (flip ? 2 : 1); idx[io + i + 2] = vo + i + (flip ? 1 : 2); } io += cnt; }
+    vo += cnt;
+  }
+  for (const n of names) { const a0 = parts[0].g.attributes[n]; out.setAttribute(n, new THREE.BufferAttribute(arrs[n], a0.itemSize, a0.normalized)); }
+  out.setIndex(new THREE.BufferAttribute(idx, 1)); out.computeBoundingSphere(); out.computeBoundingBox();
+  return out;
+}
+function p4dBuild(d, s) {   // bake rest pose s (0 closed, 1 open) from the current world matrices
+  const P = d.p4, root = P.root; root.updateMatrixWorld(true); _p4I.copy(root.matrixWorld).invert();
+  const buckets = new Map(), skipLeaf = s === 1 && P.pocket, used = [];
+  for (const o of P.nodes) {
+    if (skipLeaf && P.leafSet.has(o)) continue;
+    let vis = true; for (let p = o; p && p !== root; p = p.parent) if (!p.visible) { vis = false; break; } if (!vis) continue;
+    const g = o.geometry, key = o.material.uuid + '|' + o.renderOrder + '|' + o.layers.mask + '|' + Object.keys(g.attributes).sort().map(n => n + g.attributes[n].itemSize + g.attributes[n].array.constructor.name + g.attributes[n].normalized).join();
+    let b = buckets.get(key); if (!b) buckets.set(key, b = { mat: o.material, ro: o.renderOrder, layers: o.layers.mask, names: Object.keys(g.attributes), parts: [] });
+    _p4R.multiplyMatrices(_p4I, o.matrixWorld);
+    if (o.isInstancedMesh) for (let i = 0; i < o.count; i++) { o.getMatrixAt(i, _p4M); b.parts.push({ g, m: _p4R.clone().multiply(_p4M) }); }
+    else b.parts.push({ g, m: _p4R.clone() });
+    used.push(o);
+  }
+  const grp = new THREE.Group(); grp.name = 'perf4DoorBake'; grp.matrixAutoUpdate = false; grp.visible = false;
+  for (const b of buckets.values()) {
+    const m = new THREE.Mesh(p4MergeGeo(b.parts, b.names), b.mat); m.renderOrder = b.ro; m.layers.mask = b.layers; m.matrixAutoUpdate = false; m.name = 'perf4DoorBake'; grp.add(m);
+  }
+  root.add(grp); grp.updateMatrixWorld(true);
+  P.bake[s] = { grp, used, skipLeaf, gfx: GK.settings.gfx }; P4D.built++;
+}
+function p4dApply(d, s) {   // s: -1 live, 0 / 1 the rest bake of that pose
+  const P = d.p4, cur = P.state >= 0 ? P.bake[P.state] : null;
+  if (cur) { cur.grp.visible = false; for (const o of cur.used) o.visible = true; if (cur.skipLeaf) d.leaf.visible = true; }
+  const nb = s >= 0 ? P.bake[s] : null;
+  if (nb) { for (const o of nb.used) o.visible = false; nb.grp.visible = true; if (nb.skipLeaf) d.leaf.visible = false; }
+  P.state = nb ? s : -1;
+}
+function p4dTick() {   // renderWorld, before culling
+  if (!P4D.doors.length) return;
+  if (P4D.gfx !== GK.settings.gfx) {   // the preset swaps the rivet / chain meshes (PERF2 detail): rebake lazily
+    P4D.gfx = GK.settings.gfx; P4D.queue.length = 0;
+    for (const d of P4D.doors) { const P = d.p4; p4dApply(d, -1); for (let s = 0; s < 2; s++) { const b = P.bake[s]; if (b) { root4Dispose(b.grp); P.bake[s] = null; } P.queued[s] = false; } }
+  }
+  for (let i = 0; i < P4D.doors.length; i++) {
+    const d = P4D.doors[i], P = d.p4;
+    const rest = d.p === P.prevP && (d.p === 0 || d.p === 1) ? d.p : -1; P.prevP = d.p;
+    if (P4B.on) { const lv = !(rest === 1 && P.pocket); if (d.leaf.visible !== lv) d.leaf.visible = lv; for (let k = 0; k < d.rots.length; k++) { const r = d.rots[k], v = d.beamM.opacity > 0.002; if (r.visible !== v) r.visible = v; } continue; }   // batched: no bake needed, only the hidden pocket leaf and the faded beams
+    if (rest >= 0 && !P.bake[rest] && !P.queued[rest]) { P.queued[rest] = true; P4D.queue.push(d, rest); }
+    const want = rest >= 0 && P.bake[rest] ? rest : -1;
+    if (want !== P.state) p4dApply(d, want);
+    for (let k = 0; k < d.rots.length; k++) { const r = d.rots[k], v = d.beamM.opacity > 0.002; if (r.visible !== v) r.visible = v; }   // faded beacon beams draw nothing
+  }
+  if (P4D.queue.length) {   // one bake per frame (about 1 ms), only while that pose is still the door's rest pose
+    const d = P4D.queue.shift(), s = P4D.queue.shift(); d.p4.queued[s] = false;
+    if (d.p === s && d.p4.prevP === s) { try { p4dBuild(d, s); } catch (e) { console.warn('door bake skipped', e); d.p4.bake[s] = null; d.p4.nodes = []; } }
+  }
+}
+function root4Dispose(grp) { if (grp.parent) grp.parent.remove(grp); grp.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
+if (PERF4.on) try { p4dInit(); } catch (e) { console.warn('door bake off', e); P4D.doors.length = 0; }
+GK.perf4.doors = P4D;
+// Room interior merge. A loot room's kit (merchant counter, shelves, knowledge tree, workbench, recycler, chest stand...) is hundreds of small meshes: a merchant room was
+// 510 draw calls when seen through its open door. Each frozen, room-tagged top-level object is observed for 1.5 s; its opaque meshes whose world matrix, visibility,
+// material and geometry did not change are merged per material (additive glow pieces too), one material per frame-slice of about 1.5 ms. The originals stay in place
+// (raycasts, station targets, logic, userData) on a layer the camera does not draw (P4M.LAYER). A rolling check (400 originals per frame) watches them: the moment one
+// moves, hides, swaps material or geometry, or leaves the scene, its whole material group is un-merged and the originals draw again. Animated nodes are never merged.
+const P4M = { LAYER: 30, recs: new Map(), queue: [], items: [], ci: 0, si: 0, merged: 0, meshes: 0, unmerged: 0, doorRoots: null };
+const p4mSnap = o => { const e = o.matrixWorld.elements, a = new Float64Array(16); for (let i = 0; i < 16; i++) a[i] = e[i]; return a; };
+const p4mSame = (o, a) => { const e = o.matrixWorld.elements; for (let i = 0; i < 16; i++) if (e[i] !== a[i]) return false; return true; };
+function p4mEligible(o) {
+  if (!o.isMesh || o.isInstancedMesh || o.isSkinnedMesh || Array.isArray(o.material) || o.onBeforeRender !== FX_OBR || o.layers.mask !== 1) return false;
+  const m = o.material, g = o.geometry; if (!m || !g || !g.attributes.position || Object.keys(g.morphAttributes).length || g.drawRange.count !== Infinity || g.drawRange.start) return false;
+  if (m.transparent && !(m.depthWrite === false && m.blending === THREE.AdditiveBlending)) return false;   // ordinary see-through parts keep their own sort order
+  if (Object.values(g.attributes).some(a => a.isInterleavedBufferAttribute)) return false;
+  for (let p = o; p; p = p.parent) { if (!p.visible) return false; if (p.parent === scene) break; }   // visible (whether it moves is decided by watching its world matrix)
+  return true;
+}
+function p4mFind() {   // rolling discovery: 4 top-level objects per frame
+  if (!P4M.doorRoots) P4M.doorRoots = new Set(P4D.doors.map(d => d.p4.root));
+  const ch = scene.children, n = ch.length, now = performance.now();
+  for (let k = 0; k < 4 && n; k++) {
+    const o = ch[P4M.si++ % n]; if (P4M.recs.has(o) || o.matrixAutoUpdate !== false || o.isLight || P4M.doorRoots.has(o) || o.name === 'fxMerged') continue;
+    const cls = fxCull.cls.get(o); if (!cls || !cls.length) continue;   // room-tagged objects only (always-drawn ones stay as they are)
+    const cands = []; o.traverse(c => { if (c !== o && p4mEligible(c)) cands.push({ o: c, mw: p4mSnap(c), mat: c.material, geo: c.geometry, pv: c.geometry.attributes.position.version }); });
+    if (cands.length < 6) { P4M.recs.set(o, { root: o, state: 'small', n: o.children.length }); continue; }
+    P4M.recs.set(o, { root: o, state: 'observe', t: now, cands, buckets: [] });
+  }
+  for (const r of P4M.recs.values()) {   // rooms rebuilt after a layout change come back with new children: look again
+    if (r.root.parent !== scene) { for (const b of r.buckets || []) p4mUnmerge(b); P4M.recs.delete(r.root); }
+    else if (r.state === 'small' && r.root.children.length !== r.n) P4M.recs.delete(r.root);
+    else if (r.state === 'observe' && now - r.t > 1500) {
+      r.state = 'queued'; const bk = new Map();
+      for (const c of r.cands) {
+        const o = c.o; if (!p4mEligible(o) || !p4mSame(o, c.mw) || o.material !== c.mat || o.geometry !== c.geo || o.geometry.attributes.position.version !== c.pv) continue;
+        const g = o.geometry, key = o.material.uuid + '|' + o.renderOrder + '|' + Object.keys(g.attributes).sort().map(n => n + g.attributes[n].itemSize + g.attributes[n].array.constructor.name + g.attributes[n].normalized).join();
+        let b = bk.get(key); if (!b) bk.set(key, b = { rec: r, mat: o.material, ro: o.renderOrder, names: Object.keys(g.attributes), items: [], mesh: null, dead: false }); b.items.push(c);
+      }
+      r.cands = null; for (const b of bk.values()) if (b.items.length >= 2) { r.buckets.push(b); P4M.queue.push(b); }
+    }
+  }
+}
+function p4mBuild(b) {
+  const root = b.rec.root; if (root.parent !== scene) { b.dead = true; return; }
+  for (const c of b.items) if (!p4mEligible(c.o) || !p4mSame(c.o, c.mw) || c.o.material !== b.mat || c.o.geometry !== c.geo) { b.dead = true; return; }   // changed while queued: leave it live
+  _p4I.copy(root.matrixWorld).invert();
+  const parts = b.items.map(c => ({ g: c.geo, m: new THREE.Matrix4().multiplyMatrices(_p4I, c.o.matrixWorld) }));
+  const m = new THREE.Mesh(p4MergeGeo(parts, b.names), b.mat); m.renderOrder = b.ro; m.matrixAutoUpdate = false; m.name = 'perf4Merged'; m._p4m = true;
+  root.add(m); m.updateMatrixWorld(true); b.mesh = m;
+  for (const c of b.items) { c.o.layers.set(P4M.LAYER); c.b = b; P4M.items.push(c); }
+  P4M.merged += b.items.length; P4M.meshes++;
+}
+function p4mUnmerge(b) {
+  if (b.dead) return; b.dead = true; P4M.unmerged++;
+  for (const c of b.items) if (c.o.layers.mask === 1 << P4M.LAYER) c.o.layers.set(0);
+  if (b.mesh) { if (b.mesh.parent) b.mesh.parent.remove(b.mesh); b.mesh.geometry.dispose(); b.mesh = null; }
+}
+function p4mTick() {
+  p4mFind();
+  const t0 = performance.now();
+  while (P4M.queue.length && performance.now() - t0 < 1.5) { const b = P4M.queue.shift(); if (!b.dead) { try { p4mBuild(b); } catch (e) { console.warn('room merge skipped', e); p4mUnmerge(b); } } }
+  const I = P4M.items; let n = Math.min(300, I.length);
+  while (n-- > 0 && I.length) {   // rolling check of the hidden originals in rooms that are not drawn this frame (the drawn ones are checked every frame, p4mCheckDrawn)
+    if (P4M.ci >= I.length) P4M.ci = 0;
+    const c = I[P4M.ci], b = c.b;
+    if (b.dead) { I[P4M.ci] = I[I.length - 1]; I.pop(); continue; }
+    if (!p4mOk(c, b)) p4mUnmerge(b);
+    P4M.ci++;
+  }
+}
+function p4mOk(c, b) {
+  const o = c.o; if (!(o.visible && o.material === b.mat && o.geometry === c.geo && o.geometry.attributes.position.version === c.pv && o.layers.mask === 1 << P4M.LAYER && p4mSame(o, c.mw))) return false;
+  const root = b.rec.root; let p = o.parent; while (p && p !== root) { if (!p.visible) return false; p = p.parent; }
+  return p === root && root.parent === scene;
+}
+function p4mCheckDrawn() {   // inside scene.updateMatrixWorld, right after the world matrices are current and before anything is drawn: a merged room that is about to be drawn
+  if (!fxCull.active) return;   // is checked in full, so an original that just moved / hid is drawn live in this very frame
+  const vis = fxCull.vis;
+  for (const r of P4M.recs.values()) {
+    if (!r.buckets || !r.buckets.length || !r.root.visible) continue;
+    const k = fxCull.cls.get(r.root); if (!k || !fxAny(k, vis)) continue;
+    for (let i = 0; i < r.buckets.length; i++) { const b = r.buckets[i]; if (b.dead || !b.mesh) continue; for (let j = 0; j < b.items.length; j++) if (!p4mOk(b.items[j], b)) { p4mUnmerge(b); break; } }
+  }
+}
+GK.perf4.merge = P4M;
+// Static batching (WEBGL_multi_draw: Chrome / Edge; elsewhere the door bake and the room merge above do the job). Every opaque (or additive) mesh of a built-in material
+// inside a room-tagged, frozen top-level object (room shells, kits, door parts, rivets and chains, room art) is mirrored into one BatchedMesh per material: one draw
+// call per material for the whole visible world instead of one per mesh. The original stays where it is (raycasts, logic, animation) on a layer the camera does not
+// draw. Right before each frame is drawn (scene.updateMatrixWorld, after culling) the mirror follows it: an instance is drawn only when its original would be (the room
+// culler's verdict on the top-level object, every visible flag up the chain), and an original that moved (door leaves, wheels, bolts, animated kit parts) copies its
+// world matrix into its instance. A changed material or geometry, or an original that leaves the scene, drops the mirror and the original draws itself again.
+// A new batch is compiled in the background (compileAsync) before it replaces anything, so batching never stalls a frame on a shader compile.
+const P4B = { on: false, LAYER: 30, batches: new Map(), roots: new Map(), src: new WeakMap(), cand: new Map(), boot: true, si: 0, sources: 0, ready: 0, pending: 0, dropped: 0 };
+P4B.on = PERF4.on && !/[?&]batch=0/.test(location.search) && renderer.extensions.has('WEBGL_multi_draw') && !!THREE.BatchedMesh;
+const P4B_MATS = m => m.isMeshStandardMaterial || m.isMeshBasicMaterial || m.isMeshLambertMaterial || m.isMeshPhongMaterial || m.isMeshToonMaterial || m.isMeshMatcapMaterial;
+const P4B_OBC = THREE.Material.prototype.onBeforeCompile;
+function p4bEligible(o) {
+  if (!o.isMesh || o.isSkinnedMesh || o.isBatchedMesh || Array.isArray(o.material) || o.onBeforeRender !== FX_OBR || o.layers.mask !== 1 || P4B.src.has(o)) return false;
+  if (o.isInstancedMesh && (o.instanceColor || o.morphTexture)) return false;
+  const m = o.material, g = o.geometry; if (!m || !P4B_MATS(m) || m.onBeforeCompile !== P4B_OBC || m.customProgramCacheKey !== THREE.Material.prototype.customProgramCacheKey) return false;
+  if (m.transparent && !(m.depthWrite === false && m.blending === THREE.AdditiveBlending)) return false;   // see-through parts keep three's per-object back-to-front sort
+  if (!g || !g.attributes.position || Object.keys(g.morphAttributes).length || g.drawRange.start || g.drawRange.count !== Infinity) return false;
+  for (const n in g.attributes) if (g.attributes[n].isInterleavedBufferAttribute) return false;
+  return true;
+}
+function p4bKey(o) { const g = o.geometry; return o.material.uuid + '|' + o.renderOrder + '|' + !!g.index + '|' + Object.keys(g.attributes).sort().map(n => n + g.attributes[n].itemSize + g.attributes[n].array.constructor.name + g.attributes[n].normalized).join(); }
+function p4bBatch(key, o, nv, ni) {   // one batch per material, render order and vertex layout; sized for what it holds (grown by doubling)
+  let b = P4B.batches.get(key); if (b) return b;
+  const bm = new THREE.BatchedMesh(16, Math.max(256, nv * 2), Math.max(512, ni * 2), o.material);
+  bm.name = 'perf4Batch'; bm.frustumCulled = false; bm.perObjectFrustumCulled = true; bm.sortObjects = !!o.material.transparent; bm.renderOrder = o.renderOrder; bm.matrixAutoUpdate = false; bm.visible = false;
+  b = { key, mat: o.material, bm, geo: new Map(), ready: false, srcs: new Set(), nvis: 0 }; P4B.batches.set(key, b); P4B.pending++;
+  return b;
+}
+const _p4bM = new THREE.Matrix4(), _p4bI = new THREE.Matrix4();
+function p4bGeo(b, g, flip) {   // geometry id in the batch (shared by every mesh that uses the same geometry; mirrored meshes get a re-wound copy)
+  const k = flip ? 'f' + g.uuid : g.uuid; let e = b.geo.get(k); if (e) { e.refs++; return e.id; }
+  let src = g;
+  if (flip) { src = g.clone(); if (src.index) { const ix = src.index.array; for (let i = 0; i < ix.length; i += 3) { const t = ix[i + 1]; ix[i + 1] = ix[i + 2]; ix[i + 2] = t; } } }
+  const bm = b.bm, nv = src.attributes.position.count, ni = src.index ? src.index.count : 0;
+  if (bm.unusedVertexCount < nv || (src.index && bm.unusedIndexCount < ni)) bm.setGeometrySize(Math.max(bm._maxVertexCount * 2, bm._maxVertexCount + nv * 2), Math.max(bm._maxIndexCount * 2, bm._maxIndexCount + ni * 2));
+  const id = bm.addGeometry(src); if (flip) src.dispose();
+  b.geo.set(k, e = { id, refs: 1 }); return id;
+}
+function p4bAdd(o, rec) {
+  const g = o.geometry, b = p4bBatch(p4bKey(o), o, g.attributes.position.count, g.index ? g.index.count : 0), bm = b.bm, flip = o.matrixWorld.determinant() < 0, gid = p4bGeo(b, g, flip), n = o.isInstancedMesh ? o.count : 1, ids = [];
+  for (let i = 0; i < n; i++) { if (bm._instanceInfo.length >= bm.maxInstanceCount && !bm._availableInstanceIds.length) bm.setInstanceCount(bm.maxInstanceCount * 2); const id = bm.addInstance(gid); bm.setVisibleAt(id, false); ids.push(id); }
+  const s = { o, b, rec, gk: flip ? 'f' + g.uuid : g.uuid, geo: g, ids, mw: new Float64Array(16), iv: -1, vis: false, flip, dead: false };
+  p4bPlace(s); P4B.src.set(o, s); b.srcs.add(s); rec.srcs.push(s); P4B.sources++;
+  if (b.ready) o.layers.set(P4B.LAYER);
+}
+function p4bPlace(s) {   // copy the original's world matrix (and its instance matrices) into the batch
+  const o = s.o, e = o.matrixWorld.elements; for (let i = 0; i < 16; i++) s.mw[i] = e[i];
+  if (o.isInstancedMesh) { s.iv = o.instanceMatrix.version; for (let i = 0; i < s.ids.length; i++) { o.getMatrixAt(i, _p4bI); s.b.bm.setMatrixAt(s.ids[i], _p4bM.multiplyMatrices(o.matrixWorld, _p4bI)); } }
+  else s.b.bm.setMatrixAt(s.ids[0], o.matrixWorld);
+}
+function p4bShow(s, vis) { if (vis === s.vis) return; s.vis = vis; const b = s.b; b.nvis += vis ? 1 : -1; for (let i = 0; i < s.ids.length; i++) b.bm.setVisibleAt(s.ids[i], vis); }
+function p4bRemove(s) {
+  if (s.dead) return; s.dead = true; p4bShow(s, false);
+  const b = s.b; P4B.src.delete(s.o); b.srcs.delete(s); P4B.sources--; P4B.dropped++;
+  for (const id of s.ids) b.bm.deleteInstance(id);
+  const e = b.geo.get(s.gk); if (e && --e.refs <= 0) { b.bm.deleteGeometry(e.id); b.geo.delete(s.gk); }
+  if (s.o.layers.mask === 1 << P4B.LAYER) s.o.layers.set(0);
+}
+function p4bFind() {   // rolling discovery (3 top-level objects per frame, more while starting): frozen, room-tagged objects; each is rescanned every few seconds for new parts
+  const ch = scene.children, n = ch.length, t0 = performance.now(), C = P4B.cand;
+  for (let k = 0; k < Math.min(n, 3) || (k < n && P4B.boot && performance.now() - t0 < 3); k++) {
+    const o = ch[P4B.si++ % n]; if (P4B.si >= n * 2) P4B.boot = false;
+    if (o.matrixAutoUpdate !== false || o.isLight || o.isBatchedMesh) continue;
+    const cls = fxCull.cls.get(o); if (!cls || !cls.length) continue;   // always-drawn objects stay as they are
+    let rec = P4B.roots.get(o); if (!rec) P4B.roots.set(o, rec = { root: o, srcs: [], shown: true });
+    const st = [o];
+    while (st.length) {
+      const c = st.pop(); for (let i = 0; i < c.children.length; i++) st.push(c.children[i]);
+      if ((c !== o || c.isMesh) && p4bEligible(c)) {   // a material's first mesh waits for a second one: a batch of one would only add a shader variant
+        const key = p4bKey(c), b = P4B.batches.get(key);
+        try {
+          if (b) p4bAdd(c, rec);
+          else { let l = C.get(key); if (!l) C.set(key, l = []); if (!l.some(x => x.o === c)) l.push({ o: c, rec }); if (l.length >= 2) { C.delete(key); for (const x of l) if (x.o.parent && p4bEligible(x.o)) p4bAdd(x.o, x.rec); } }
+        } catch (e) { console.warn('batch skipped', e.message); }
+      }
+    }
+  }
+  for (const b of P4B.batches.values()) if (!b.ready && !b.compiling && b.srcs.size) {   // compile in the background, then swap the originals out
+    b.compiling = true; const done = () => { if (b.ready) return; b.ready = true; P4B.pending--; P4B.ready++; scene.add(b.bm); for (const s of b.srcs) if (s.o.layers.mask === 1) s.o.layers.set(P4B.LAYER); };
+    try { if (renderer.compileAsync) renderer.compileAsync(b.bm, cam, scene).then(done, done); else done(); } catch (e) { done(); }
+  }
+}
+function p4bSync() {   // right before drawing: the mirror follows its originals (visibility, matrices, identity); an empty batch is not drawn at all
+  const L = 1 << P4B.LAYER;
+  for (const rec of P4B.roots.values()) {
+    const root = rec.root, S = rec.srcs;
+    if (root.parent !== scene) { for (let i = 0; i < S.length; i++) p4bRemove(S[i]); P4B.roots.delete(root); continue; }
+    if (!root.visible) { if (rec.shown) { rec.shown = false; for (let i = 0; i < S.length; i++) if (!S[i].dead) p4bShow(S[i], false); } continue; }
+    rec.shown = true; let dead = 0;
+    for (let i = 0; i < S.length; i++) {
+      const s = S[i]; if (s.dead) { dead++; continue; }
+      const o = s.o; let vis = o.visible, p = o;
+      while (p !== root) { p = p.parent; if (!p) break; if (!p.visible) vis = false; }
+      if (p !== root || o.material !== s.b.mat || o.geometry !== s.geo || o.layers.mask !== (s.b.ready ? L : 1) || (o.isInstancedMesh && o.count !== s.ids.length)) { p4bRemove(s); dead++; continue; }
+      if (vis) {
+        const e = o.matrixWorld.elements, m = s.mw;
+        if (e[12] !== m[12] || e[13] !== m[13] || e[14] !== m[14] || e[0] !== m[0] || e[1] !== m[1] || e[2] !== m[2] || e[4] !== m[4] || e[5] !== m[5] || e[6] !== m[6] || e[8] !== m[8] || e[9] !== m[9] || e[10] !== m[10] || (o.isInstancedMesh && o.instanceMatrix.version !== s.iv)) {
+          if ((o.matrixWorld.determinant() < 0) !== s.flip) { p4bRemove(s); dead++; continue; }   // mirrored now: re-added with a re-wound copy on the next scan
+          p4bPlace(s);
+        }
+      }
+      p4bShow(s, vis);
+    }
+    if (dead > 32 && dead > S.length / 4) rec.srcs = S.filter(s => !s.dead);
+  }
+  for (const b of P4B.batches.values()) { const v = b.ready && b.nvis > 0; if (b.bm.visible !== v) b.bm.visible = v; }
+}
+GK.perf4.batch = P4B;
+// PERF4-END
 // FX-END
 // ROOMART-BEGIN (room art: floor trims, skirting caps, ceiling beams, wall seams, door hazard stripes, goblin graffiti decals, scattered props, vault treasure dressing, chest/mystery/merchant mood accents.
 // Visual only, no collision, no new lights. Per room the geometry is baked into a few merged static meshes (vertex-coloured solid, gold, ceiling, alpha decals, emissive accents) so the FX room culling handles them.
@@ -6845,7 +7330,7 @@ const ROOMART = (() => {
     return r;
   };
   const dispose = key => { for (const m of built.get(key) || []) { scene.remove(m); m.geometry.dispose(); const i = ceilings.indexOf(m); if (i >= 0) ceilings.splice(i, 1); } built.delete(key); };
-  // 5x5 (docs/PLAN-5x5.md 4.1): 41 rooms are too many to dress at load, so the dressing is lazy. near(key) builds the camera's room and its 2-hop neighbours at once
+  // 5x5 (docs/PLAN-5x5.md 4.1): 45 rooms are too many to dress at load, so the dressing is lazy. near(key) builds the camera's room and its 2-hop neighbours at once
   // (called every frame, it returns early unless the room changed); everything else is built one room per idle slot, nearest first by door hops.
   const sigOf = cr => cr.type + (cr.mystery ? ':' + cr.mystery.kind : '');
   const attSig = new Map(), ALL = WORLD.ROOMS.map(r => r.key), ADJ = {};
@@ -7653,6 +8138,7 @@ GK.jump = JUMP;
 // JUMP-END
 function frame(now) {
   const dt = clamp((now - last) / 1000, 0.001, 0.05); last = now; const t = now / 1000;
+  PERF4.t0 = performance.now();   // PERF4: frame CPU for GK.perfProbe
   if (GK.mode !== 'play' && GK.mode !== 'dead' && GK.mode !== 'win') { vmHide(); GK.menu && GK.menu.render(now, dt); requestAnimationFrame(frame); return; }
   if (GK.mode === 'win' && WINSTAGE.on) { if (GK.feel) GK.feel.tick(dt, now); winStageRender(now, dt); requestAnimationFrame(frame); return; }   // MENU2: the victory stage replaces the world view
   panelTick();
@@ -7673,12 +8159,15 @@ function frame(now) {
     run.dist += Math.hypot(P.x - ox, P.z - oz);
     P.speed += (Math.hypot(P.x - ox, P.z - oz) / dt - P.speed) * Math.min(1, dt * 12);
     mine.x = P.x; mine.z = P.z; mine.yaw = P.yaw; mine.speed = P.speed;
-    sendT += dt; if (sendT > 0.066 || JUMP.sendNow()) { sendT = 0;   /* CLIMB: take-off and landing frames go out at once */ net.send({ m: [+P.x.toFixed(2), +P.z.toFixed(2), +P.yaw.toFixed(3), ...JUMP.tail()] }); }
+    sendT += dt; if (sendT > 0.05 || JUMP.sendNow()) { sendT = 0;   /* CLIMB: take-off and landing frames go out at once */ net.send({ m: [+P.x.toFixed(2), +P.z.toFixed(2), +P.yaw.toFixed(3), ...JUMP.tail()] }); }
   }
   JUMP.step(dt, !!(mine && spawned && GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked)); JUMP.hintTick(dt);   // JUMP / CLIMB
   // doors
   for (const d of doors) {
-    if (d.hatch) continue;   // 5x5: home hatches are open archways (no leaf, nothing to animate)
+    if (d.hatch) {   // 5x5: home hatches are open archways; HOME PHASE: the round-1 grille drops / rises (d.p 0 = shut, 1 = open; the blocker lets you through above 0.86)
+      const tp = d.locked ? 0 : 1; if (d.p !== tp) { d.p = clamp(d.p + (tp ? 1 : -1) * dt / 1.4, 0, 1); d.bars.position.y = d.p * (d.dh + 0.05); d.bars.visible = d.p < 0.995; }
+      continue;
+    }
     const near = d.open, prev = d.p;   // doors open/close from the round state (GK.setDoorsOpen)
     const vault = !d.slide, dur = vault ? 2.4 : 0.8;
     d.p = clamp(d.p + (near ? 1 : -1) * dt / dur, 0, 1);
@@ -7766,6 +8255,7 @@ requestAnimationFrame(frame);
 const lockNow = requestLock;
 // FULLSCREEN-BEGIN
 GK.requestLock = requestLock; GK.lockOk = lockOk;   // menu.js fullscreen block: re-take the pointer lock after entering fullscreen
+GK.panelOpen = () => invOpen || shopOpen; GK.closePanels = () => { closeInv(true); closeShop(true); };   // FULLSCREEN-2 (fskeep.js)
 // FULLSCREEN-END
 GK.net = net; GK.cam = cam; GK.P = P; GK.actors = actors; GK.renderer = renderer; GK.scene = scene; GK.build = t => buildGoblin(t, true); GK.NAMES = NAMES; GK.SCALE = SCALE; GK.glowTex = glowTex; GK.textTex = textTex;
 // MATCH-BEGIN (matchmaking: the wheel screen is the queue, the match start moves everyone into the rooms, a 3-2-1-GO countdown locks movement/attacks/interaction; see docs/reports/matchmaking.md)
@@ -7881,6 +8371,7 @@ GK.applySettings = () => { renderer.setPixelRatio(fxPixelRatio()); fxApplyQualit
 GK.doors = doors;
 GK.fxDebug = { get fx() { return fx; }, cam };   // test hook: post-effects state and the world camera
 GK.setDoorsOpen = ids => { const set = new Set(ids); doors.forEach(d => d.open = d.hatch || set.has(d.id)); };   // ids of doors that are open right now (a home's hatch is always open)
+GK.setHomeLock = (on, snap) => { for (const d of doors) if (d.hatch) { d.locked = !!on; if (snap) { d.p = on ? 0 : 1; d.bars.position.y = d.p * (d.dh + 0.05); d.bars.visible = !!on; } } };   // HOME PHASE: round 1 shuts every hatch (snap: no drop animation on the first round state)
 GK.skipMenu = () => {   // for tests: straight into the rooms, with the title menu hidden as a real Enter would
   const mn = $('menu'); if (mn) mn.classList.add('gone'); document.body.classList.remove('menu');
   GK.mode = 'play'; GK.start();   // joins the queue; the match start and the countdown follow

@@ -338,11 +338,14 @@ module.exports = function create(S) {
   function broadcast(m, now) {
     const A = m.act;
     for (const key of ACT_ROOMS) {   // actS: when it changed, at most 5 Hz per room, to the room and its neighbours through open doors
+      const e = A.sent[key] || (A.sent[key] = { s: '', t: 0 });
+      if (now - e.t < 200) continue;   // PERF4: the 200 ms spacing is checked first (it was checked after building and stringifying the view, 41 rooms x 10 Hz)
+      const to = humansIn(m, nbrs(m, key)); if (!to.length) continue;   // PERF4: and nobody to tell, nothing to build; the first view after a human arrives differs from the stale one and is sent
       let v; try { v = viewOf(m, key, now); } catch (e) { oops('view ' + key, e); continue; }
-      const s = JSON.stringify(v), e = A.sent[key] || (A.sent[key] = { s: '', t: 0 });
-      if (s === e.s || now - e.t < 200) continue;
+      const s = JSON.stringify(v);
+      if (s === e.s) continue;
       e.s = s; e.t = now; const msg = actSMsg(m, key, now, v);
-      for (const q of humansIn(m, nbrs(m, key))) S.sendTo(q.ws, msg);
+      for (const q of to) S.sendTo(q.ws, msg);
     }
     for (const q of m.players.values()) {   // actMe: your own state, when it changed
       if (q.bot || q.npc || !q.ws || q.dead) continue;

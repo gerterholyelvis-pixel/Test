@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node server.js",
     "test": "node tests/run.js",
-    "gameinfo": "node tools/gameinfo.js"
+    "test:browser": "node tools/perfbench.js --presets low,high --views vault --frames 120 --budget",
+    "gameinfo": "node tools/gameinfo.js",
+    "gameinfo:pdf": "node tools/gameinfo-pdf.js"
   },
   "repository": {
     "type": "git",

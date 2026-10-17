@@ -182,7 +182,7 @@
       // doors start moving
       for (const d of A.doors) {
         const prev = doorP.get(d);
-        if (prev !== undefined && prev <= 0.0005 && d.p > 0.0005) play(d.slide ? 'door' : 'vaultDoor', { x: d.gx, z: d.gz });
+        if (prev !== undefined && prev <= 0.0005 && d.p > 0.0005) play(d.slide || d.hatch ? 'door' : 'vaultDoor', { x: d.gx, z: d.gz });
         doorP.set(d, d.p);
       }
       // round: last-5-seconds tick, change gong and banner
@@ -193,7 +193,7 @@
         if (R.n !== lastN) {
           const first = lastN === 0, opened = (R.open ? R.open.length : 0) - lastOpenLen;
           lastN = R.n; lastOpenLen = R.open ? R.open.length : 0;
-          banner('Round ' + R.n + ' · ' + (first ? 'Pick a door' : opened > 0 ? 'Doors open' : R.fizzled && R.fizzled.length ? 'The vault stays sealed' : 'No doors opened'));
+          banner('Round ' + R.n + ' · ' + (GK.homeLocked && GK.homeLocked() ? 'Prepare in your base' : first ? 'Pick a door' : opened > 0 ? 'Doors open' : R.fizzled && R.fizzled.length ? 'The vault stays sealed' : 'No doors opened'));
           play('gong');
         } else lastOpenLen = R.open ? R.open.length : 0;
       }

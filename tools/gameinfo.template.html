@@ -1,107 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
 <title>Goblin King Codex</title>
-<meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700&family=Barlow:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
-/* layout: sticky tab bar over one wide, sortable table at a time; numbers in mono, names in condensed */
-:root{--bg:#f3f4ee;--panel:#e8eae0;--line:#cfd3c2;--fg:#1d2418;--mute:#59634d;--accent:#7a5a12;--accent-bg:#e9dcb0;
---t0:#6b7466;--t1:#2f7a3c;--t2:#2b63b8;--t3:#8a3fb5;--t4:#b8651a;--t5:#a8261f;--up:#2f7a3c;--down:#a8261f;
+/* layout: header with global search, a sticky tab bar, then blocks (cards, text, sortable tables) of one section at a time; numbers in mono, names in condensed */
+:root{--bg:#f3f4ee;--panel:#e8eae0;--line:#cfd3c2;--fg:#1d2418;--mute:#59634d;--accent:#7a5a12;--accent-bg:#e9dcb0;--bar:#b88a1c;
+--t0:#6b7466;--t1:#2f7a3c;--t2:#2b63b8;--t3:#8a3fb5;--t4:#b8651a;--t5:#a8261f;--up:#2f7a3c;--down:#a8261f;--link:#1f5fa8;
 --disp:'Barlow Condensed','Arial Narrow',sans-serif;--body:'Barlow',system-ui,sans-serif;--mono:'JetBrains Mono',ui-monospace,monospace}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12160f;--panel:#1b2117;--line:#2d3626;--fg:#e6e9dc;--mute:#9aa58d;--accent:#e2b84a;--accent-bg:#3a3014;
---t0:#9aa58d;--t1:#6fcf7e;--t2:#7aa8ee;--t3:#c28be8;--t4:#f0a050;--t5:#ff7a70;--up:#6fcf7e;--down:#ff7a70;color-scheme:dark}}
-:root[data-theme="dark"]{--bg:#12160f;--panel:#1b2117;--line:#2d3626;--fg:#e6e9dc;--mute:#9aa58d;--accent:#e2b84a;--accent-bg:#3a3014;
---t0:#9aa58d;--t1:#6fcf7e;--t2:#7aa8ee;--t3:#c28be8;--t4:#f0a050;--t5:#ff7a70;--up:#6fcf7e;--down:#ff7a70;color-scheme:dark}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12160f;--panel:#1b2117;--line:#2d3626;--fg:#e6e9dc;--mute:#9aa58d;--accent:#e2b84a;--accent-bg:#3a3014;--bar:#c99a2c;
+--t0:#9aa58d;--t1:#6fcf7e;--t2:#7aa8ee;--t3:#c28be8;--t4:#f0a050;--t5:#ff7a70;--up:#6fcf7e;--down:#ff7a70;--link:#8cb8f0;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#12160f;--panel:#1b2117;--line:#2d3626;--fg:#e6e9dc;--mute:#9aa58d;--accent:#e2b84a;--accent-bg:#3a3014;--bar:#c99a2c;
+--t0:#9aa58d;--t1:#6fcf7e;--t2:#7aa8ee;--t3:#c28be8;--t4:#f0a050;--t5:#ff7a70;--up:#6fcf7e;--down:#ff7a70;--link:#8cb8f0;color-scheme:dark}
 *{box-sizing:border-box}
-body{background:var(--bg);color:var(--fg);font:15px/1.45 var(--body);padding-inline:max(16px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px));padding-block:20px 48px}
-main{max-width:1180px;margin:0 auto}
-header{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 18px;margin-bottom:14px}
+html{scroll-padding-top:120px}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 var(--body);padding-inline:max(16px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px));padding-block:20px 56px}
+main{max-width:1240px;margin:0 auto}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;margin-bottom:12px}
 h1{font:700 40px/1 var(--disp);letter-spacing:.02em;text-transform:uppercase;margin:0;text-wrap:balance}
 .stamp{color:var(--mute);font:12px var(--mono)}
-nav{display:flex;flex-wrap:wrap;gap:4px;position:sticky;top:env(safe-area-inset-top,0px);background:var(--bg);padding:8px 0;border-bottom:1px solid var(--line);z-index:2}
-nav button{font:500 17px var(--disp);letter-spacing:.04em;text-transform:uppercase;background:none;color:var(--mute);border:0;border-bottom:3px solid transparent;padding:6px 12px;cursor:pointer}
-nav button b{font:400 12px var(--mono);margin-left:6px;color:var(--mute)}
-nav button[aria-selected=true]{color:var(--fg);border-bottom-color:var(--accent)}
-nav button:focus-visible,input:focus-visible,th:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.bar{display:flex;gap:10px;margin:14px 0 10px;align-items:center;flex-wrap:wrap}
-input[type=search]{font:15px var(--body);background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:7px 10px;min-width:min(260px,100%)}
+.hdr-r{margin-left:auto;display:flex;gap:8px;align-items:center;flex:1 1 280px;justify-content:flex-end}
+#gq{flex:1 1 220px;max-width:440px}
+button,input{font:inherit;color:inherit}
+input[type=search]{font:15px var(--body);background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:7px 10px;min-width:min(200px,100%)}
+.btn{font:500 14px var(--disp);letter-spacing:.06em;text-transform:uppercase;background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:6px 10px;cursor:pointer}
+nav{display:flex;flex-wrap:wrap;gap:2px 4px;position:sticky;top:env(safe-area-inset-top,0px);background:var(--bg);padding:6px 0;border-bottom:1px solid var(--line);z-index:3}
+nav a{font:500 17px var(--disp);letter-spacing:.04em;text-transform:uppercase;color:var(--mute);border-bottom:3px solid transparent;padding:5px 10px;text-decoration:none}
+nav a b{font:400 11px var(--mono);margin-left:5px}
+nav a[aria-selected=true]{color:var(--fg);border-bottom-color:var(--accent)}
+a{color:var(--link)}
+a:focus-visible,button:focus-visible,input:focus-visible,th:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .note{color:var(--mute);font-size:13px}
-.wrap{overflow-x:auto;border:1px solid var(--line);border-radius:4px}
-table{border-collapse:collapse;width:100%;min-width:640px}
-th,td{padding:7px 10px;text-align:left;white-space:nowrap;border-bottom:1px solid var(--line)}
-td.wrapc{white-space:normal;min-width:240px;color:var(--mute)}
+.lead{max-width:80ch;margin:14px 0 4px}
+.blk{margin-top:22px}
+.blk h2{font:700 22px var(--disp);letter-spacing:.05em;text-transform:uppercase;margin:0 0 6px}
+.bar-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 8px}
+.wrap{overflow-x:auto;border:1px solid var(--line);border-radius:4px;background:var(--bg)}
+table{border-collapse:collapse;width:100%;min-width:560px}
+th,td{padding:6px 10px;text-align:left;white-space:nowrap;border-bottom:1px solid var(--line);vertical-align:top}
+td.wrapc{white-space:normal;min-width:260px;color:var(--mute)}
+td.wrapc.long{min-width:340px}
 th{font:500 14px var(--disp);letter-spacing:.06em;text-transform:uppercase;background:var(--panel);cursor:pointer;user-select:none;position:sticky;top:0}
 th[aria-sort=ascending]::after{content:' \25B2';font-size:10px}th[aria-sort=descending]::after{content:' \25BC';font-size:10px}
 td.n,th.n{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
 td.name{font:500 17px var(--disp);letter-spacing:.02em}
 tr:last-child td{border-bottom:0}
+tr.hit td{background:var(--accent-bg);transition:background 2s}
 .tier{font:500 12px var(--mono);text-transform:uppercase;letter-spacing:.04em}
 .t0{color:var(--t0)}.t1{color:var(--t1)}.t2{color:var(--t2)}.t3{color:var(--t3)}.t4{color:var(--t4)}.t5{color:var(--t5)}
-.up{color:var(--up)}.down{color:var(--down)}
-.bars{display:inline-block;height:8px;background:var(--accent);border-radius:1px;vertical-align:middle;margin-right:6px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:18px;margin-top:14px}
-.card{border:1px solid var(--line);border-radius:4px;padding:14px 16px;background:var(--panel);min-width:0}
-.card h2{font:700 20px var(--disp);letter-spacing:.05em;text-transform:uppercase;margin:0 0 8px}
-.kv{display:flex;justify-content:space-between;gap:12px;padding:3px 0;border-bottom:1px dotted var(--line)}
-.kv span:last-child{font-family:var(--mono);text-align:right}
-@media (max-width:520px){h1{font-size:32px}nav button{padding:6px 8px;font-size:15px}}
+.bars{display:inline-block;height:8px;background:var(--bar);border-radius:1px;vertical-align:middle;margin-right:6px;min-width:1px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:16px;margin-top:18px}
+.card{border:1px solid var(--line);border-radius:4px;padding:12px 14px;background:var(--panel);min-width:0}
+.card h2{font:700 20px var(--disp);letter-spacing:.05em;text-transform:uppercase;margin:0 0 6px}
+.kv{display:flex;justify-content:space-between;gap:14px;padding:3px 0;border-bottom:1px dotted var(--line)}
+.kv span:first-child{color:var(--fg)}
+.kv span:last-child{text-align:right;color:var(--mute);min-width:0;overflow-wrap:anywhere}
+.kv:last-child{border-bottom:0}
+#res{margin-top:14px}
+#res h3{font:700 18px var(--disp);letter-spacing:.05em;text-transform:uppercase;margin:16px 0 4px}
+.hitrow{display:block;padding:6px 8px;border-bottom:1px solid var(--line);text-decoration:none;color:var(--fg)}
+.hitrow:hover{background:var(--panel)}
+.hitrow b{font:500 17px var(--disp)}
+.hitrow span{color:var(--mute);font-size:13px;display:block;overflow-wrap:anywhere}
+mark{background:var(--accent-bg);color:inherit;border-radius:2px}
+@media (max-width:640px){h1{font-size:32px}nav a{padding:5px 7px;font-size:15px}.hdr-r{justify-content:stretch}#gq{max-width:none}}
+@media (prefers-reduced-motion:reduce){tr.hit td{transition:none}}
 </style>
+</head>
+<body>
 <main>
-<header><h1>Goblin King Codex</h1><span class="stamp" id="stamp"></span></header>
-<nav id="tabs" role="tablist"></nav>
+<header><h1>Goblin King Codex</h1><span class="stamp" id="stamp"></span>
+<div class="hdr-r"><input type="search" id="gq" aria-label="Search the whole codex" placeholder="Search everything: items, goblins, perks, rooms..."><button class="btn" id="theme" type="button" aria-label="Switch theme">Theme</button></div></header>
+<nav id="tabs" aria-label="Sections"></nav>
+<div id="res" hidden></div>
 <div id="view"></div>
 </main>
 <script>
 const D = /*DATA*/null;
-const TABS = [['overview', 'Overview'], ['goblins', 'Goblins', D.goblins.length], ['weapons', 'Weapons', D.weapons.length], ['armour', 'Armour', D.armour.length], ['items', 'Items', D.others.length], ['recipes', 'Recipes', D.recipes.length]];
-const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const tierCell = r => `<span class="tier t${r.tierN}">${esc(r.tier)}</span>`;
-const sign = v => v ? `<span class="${v > 0 ? 'up' : 'down'}">${v > 0 ? '+' : ''}${v}%</span>` : '';
-// column spec: [key, label, numeric?, render?, sortValue?]
-const SPEC = {
-  goblins: { rows: D.goblins, cols: [['n', '#', 1], ['name', 'Goblin', 0, r => esc(r.name), 0, 'name'], ['odds', 'Odds %', 1, r => `<span class="bars" style="width:${Math.max(2, r.odds * 3)}px"></span>${r.odds}`], ['speed', 'Speed x', 1], ['size', 'Size x', 1], ['hp', 'Start HP', 1], ['knowledge', 'Start know.', 1], ['weapon', 'Weapon'], ['armor', 'Armour'], ['perk', 'Perk', 0, r => esc(r.perk), 0, 'wrapc']], note: 'Odds are the chance of being assigned each goblin when you join a match. Start HP comes from the starting armour.' },
-  weapons: { rows: D.weapons, cols: [['name', 'Weapon', 0, r => esc(r.name), 0, 'name'], ['tierN', 'Tier', 0, tierCell], ['family', 'Family'], ['dmg', 'Damage', 1], ['reach', 'Reach m', 1], ['swing', 'Swing ms', 1], ['dps', 'DPS', 1], ['ranged', 'Ranged'], ['drop', 'Drop %', 1], ['price', 'Price', 1], ['scrap', 'Recycles to']], note: 'Drop % is the share of weapon drops. DPS is damage per second of swings.' },
-  armour: { rows: D.armour, cols: [['name', 'Armour', 0, r => esc(r.name), 0, 'name'], ['tierN', 'Tier', 0, tierCell], ['family', 'Family'], ['hp', 'Health', 1], ['speed', 'Speed', 1, r => sign(r.speed)], ['drop', 'Drop %', 1], ['price', 'Price', 1], ['scrap', 'Recycles to']], note: 'Health is the armour value added to your health pool. Speed is the movement change while worn.' },
-  items: { rows: D.others, cols: [['name', 'Item', 0, r => esc(r.name), 0, 'name'], ['type', 'Type'], ['tierN', 'Tier', 0, tierCell], ['family', 'Family'], ['price', 'Price', 1], ['effect', 'What it does', 0, r => esc(r.effect), 0, 'wrapc']], note: 'Consumables, throwables and other non-gear.' },
-  recipes: { rows: D.recipes, cols: [['out', 'Makes', 0, r => esc(r.out), 0, 'name'], ['kind', 'Kind'], ['tier', 'Tier', 1], ['needs', 'Knowledge', 1], ['cost', 'Parts']], note: 'Crafted at the workbench. Knowledge is the amount you must have to craft it.' }
-};
-let tab = (location.hash || '#overview').slice(1), q = '', sortKey = null, sortDir = 1;
-try { q = sessionStorage.getItem('q') || ''; } catch (e) {}
-function tabs() {
-  document.getElementById('tabs').innerHTML = TABS.map(([k, l, n]) => `<button role="tab" data-k="${k}" aria-selected="${k === tab}">${l}${n != null ? `<b>${n}</b>` : ''}</button>`).join('');
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const cv = c => c == null ? '' : Array.isArray(c) ? c.map(cv).join(', ') : (typeof c === 'object' ? c.v : c);          // a cell is a value or {v, href, bar, cls, sort}
+const ctext = c => String(cv(c));
+const csort = c => { const x = c && typeof c === 'object' ? (c.sort != null ? c.sort : c.v) : c; return x === '' || x == null ? null : x; };
+let state = { tab: 'overview', ref: '', q: '', sort: {}, filter: {} };
+const TAB = id => D.tabs.find(t => t.id === id);
+let rowSeq = 0;
+// give every table row a stable id and every block a key, then build the search index once
+const INDEX = [];
+for (const t of D.tabs) {
+  (D.sections[t.id] || []).forEach((b, bi) => {
+    const items = b.t === 'cards' ? b.cards : [b];
+    for (const x of items) {
+      if (x.t === 'table') x.rows.forEach((r, i) => { if (r.id == null) r.id = x.id + '-' + i; INDEX.push({ tab: t.id, ref: r.id, title: ctext(r[x.cols[0].k]), kind: x.title || x.id, text: x.cols.map(c => ctext(r[c.k])).join(' | ') }); });
+      else if (x.t === 'card') x.rows.forEach(([k, v]) => INDEX.push({ tab: t.id, ref: '', title: ctext(k), kind: x.title, text: ctext(v) }));
+      else if (x.t === 'p') INDEX.push({ tab: t.id, ref: '', title: 'Note', kind: 'Section text', text: x.text });
+    }
+  });
 }
-function overview() {
-  const c = D.combat, tops = (rows, key, n = 3) => [...rows].sort((a, b) => b[key] - a[key]).slice(0, n);
-  const best = tops(D.weapons, 'dps').map(w => `<div class="kv"><span>${esc(w.name)}</span><span>${w.dps} dps</span></div>`).join('');
-  const tough = tops(D.armour, 'hp').map(a => `<div class="kv"><span>${esc(a.name)}</span><span>${a.hp} hp</span></div>`).join('');
-  return `<div class="grid">
-  <div class="card"><h2>Game numbers</h2>${Object.entries(c).map(([k, v]) => `<div class="kv"><span>${k}</span><span>${v}</span></div>`).join('')}
-    <div class="kv"><span>Starting gold</span><span>${D.startGold}</span></div><div class="kv"><span>Backpack / quick slots</span><span>${D.slots.backpack} / ${D.slots.quick}</span></div></div>
-  <div class="card"><h2>Roster</h2>${Object.entries(D.counts).map(([k, v]) => `<div class="kv"><span>${k}</span><span>${v}</span></div>`).join('')}</div>
-  <div class="card"><h2>Tiers</h2>${D.tiers.map(t => `<div class="kv"><span class="tier t${t.n}">${t.tier}</span><span>${t.n}</span></div>`).join('')}
-    <div class="kv"><span>Knowledge thresholds</span><span>${D.knowledgeTiers.join(' / ')}</span></div></div>
-  <div class="card"><h2>Highest DPS</h2>${best}</div>
-  <div class="card"><h2>Toughest armour</h2>${tough}</div>
-  <div class="card"><h2>Goblin odds</h2>${D.goblins.map(g => `<div class="kv"><span>${esc(g.name)}</span><span>${g.odds}%</span></div>`).join('')}</div></div>`;
+function cell(c, col) {
+  if (Array.isArray(c)) return c.map(x => cell(x, col)).join(', ');
+  const v = cv(c), o = c && typeof c === 'object' ? c : null;
+  if (v === '' || v == null) return '';
+  let h = esc(v);
+  if (o && o.bar != null) h = `<span class="bars" style="width:${Math.max(1, Math.min(100, 100 * (+o.v) / o.bar)) * 0.8}px"></span>${esc(v)}%`;
+  if (o && o.href) h = `<a href="${esc(o.href)}">${h}</a>`;
+  if (o && o.cls) h = `<span class="tier ${esc(o.cls)}">${h}</span>`;
+  return h;
 }
-function table() {
-  const S = SPEC[tab]; const needle = q.trim().toLowerCase();
-  let rows = S.rows.filter(r => !needle || JSON.stringify(r).toLowerCase().includes(needle));
-  if (sortKey) rows = [...rows].sort((a, b) => (a[sortKey] > b[sortKey] ? 1 : a[sortKey] < b[sortKey] ? -1 : 0) * sortDir);
-  const head = S.cols.map(c => `<th tabindex="0" class="${c[2] ? 'n' : ''}" data-k="${c[0]}"${sortKey === c[0] ? ` aria-sort="${sortDir > 0 ? 'ascending' : 'descending'}"` : ''}>${c[1]}</th>`).join('');
-  const body = rows.map(r => '<tr>' + S.cols.map(c => `<td class="${c[2] ? 'n ' : ''}${c[5] || ''}">${c[3] ? c[3](r) : esc(r[c[0]] == null ? '' : r[c[0]])}</td>`).join('') + '</tr>').join('');
-  return `<div class="bar"><input type="search" id="q" aria-label="Filter rows" placeholder="Filter ${rows.length} of ${S.rows.length}" value="${esc(q)}"><span class="note">${esc(S.note)}</span></div>
-  <div class="wrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+function table(b) {
+  const sk = state.sort[b.id], needle = (state.filter[b.id] || '').trim().toLowerCase();
+  let rows = b.rows.filter(r => !needle || b.cols.some(c => ctext(r[c.k]).toLowerCase().includes(needle)));
+  if (sk) rows = [...rows].sort((a, z) => { const x = csort(a[sk.k]), y = csort(z[sk.k]); if (x == null) return y == null ? 0 : 1; if (y == null) return -1; const n = typeof x === 'number' && typeof y === 'number'; return (n ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true })) * sk.d; });
+  const head = b.cols.map(c => `<th tabindex="0" class="${c.num ? 'n' : ''}" data-t="${esc(b.id)}" data-k="${esc(c.k)}"${sk && sk.k === c.k ? ` aria-sort="${sk.d > 0 ? 'ascending' : 'descending'}"` : ''}>${esc(c.label)}</th>`).join('');
+  const body = rows.map(r => '<tr data-id="' + esc(r.id) + '">' + b.cols.map(c => `<td class="${c.num ? 'n ' : ''}${c.cls || ''}${c.cls === 'wrapc' && String(ctext(r[c.k])).length > 120 ? ' long' : ''}">${cell(r[c.k], c)}</td>`).join('') + '</tr>').join('');
+  const filt = b.rows.length > 10 ? `<input type="search" class="tf" data-t="${esc(b.id)}" aria-label="Filter ${esc(b.title || b.id)}" placeholder="Filter ${rows.length} of ${b.rows.length}" value="${esc(state.filter[b.id] || '')}">` : '';
+  return `<section class="blk" id="b-${esc(b.id)}"><h2>${esc(b.title || '')}</h2><div class="bar-row">${filt}<span class="note">${esc(b.note || '')}</span></div><div class="wrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div></section>`;
 }
-function render(keepFocus) {
-  tabs(); document.getElementById('view').innerHTML = tab === 'overview' || !SPEC[tab] ? overview() : table();
-  if (keepFocus) { const i = document.getElementById('q'); if (i) { i.focus(); i.setSelectionRange(q.length, q.length); } }
+const card = c => `<div class="card"><h2>${esc(c.title)}</h2>${c.rows.map(([k, v]) => `<div class="kv"><span>${cell(k)}</span><span>${cell(v)}</span></div>`).join('')}${c.note ? `<p class="note">${esc(c.note)}</p>` : ''}</div>`;
+function block(b) {
+  if (b.t === 'p') return `<p class="lead">${esc(b.text)}</p>`;
+  if (b.t === 'table') return table(b);
+  if (b.t === 'cards') return `<div class="grid">${b.cards.map(card).join('')}</div>`;
+  if (b.t === 'card') return `<div class="grid">${card(b)}</div>`;
+  return '';
 }
-document.getElementById('stamp').textContent = 'generated ' + D.stamp;
+function tabs() { $('tabs').innerHTML = D.tabs.map(t => `<a href="#${t.id}" role="tab" aria-selected="${t.id === state.tab && !state.q}">${esc(t.label)}${t.n != null ? `<b>${t.n}</b>` : ''}</a>`).join(''); }
+function view(keep) {
+  tabs();
+  $('res').hidden = !state.q; $('view').hidden = !!state.q;
+  if (state.q) return results();
+  $('view').innerHTML = (D.sections[state.tab] || []).map(block).join('');
+  if (keep) { const i = document.querySelector(`.tf[data-t="${keep.t}"]`); if (i) { i.focus(); i.setSelectionRange(keep.p, keep.p); } }
+}
+function results() {
+  const words = state.q.toLowerCase().split(/\s+/).filter(Boolean), hits = INDEX.filter(e => { const h = (e.title + ' ' + e.text + ' ' + e.kind).toLowerCase(); return words.every(w => h.includes(w)); });
+  const by = {}; for (const h of hits) (by[h.tab] = by[h.tab] || []).push(h);
+  const mk = s => { let t = esc(s); for (const w of words) { const re = new RegExp('(' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig'); t = t.replace(re, '<mark>$1</mark>'); } return t; };
+  const snip = (e) => { const t = e.text; const i = Math.max(0, t.toLowerCase().indexOf(words[0] || '')); return t.slice(Math.max(0, i - 30), i + 110); };
+  $('res').innerHTML = `<p class="note">${hits.length} result${hits.length === 1 ? '' : 's'} for "${esc(state.q)}"${hits.length > 150 ? ' (showing the first 150)' : ''}</p>` + Object.keys(by).map(t => `<h3>${esc(TAB(t).label)} (${by[t].length})</h3>` + by[t].slice(0, 150).map(e => `<a class="hitrow" href="#${t}${e.ref ? '/' + encodeURIComponent(e.ref) : ''}"><b>${mk(e.title)}</b> <span>${esc(e.kind)}: ${mk(snip(e))}</span></a>`).join('')).join('');
+}
+function route() {
+  const h = decodeURIComponent((location.hash || '#overview').slice(1)), i = h.indexOf('/'), tab = i < 0 ? h : h.slice(0, i);
+  state.tab = TAB(tab) ? tab : 'overview'; state.ref = i < 0 ? '' : h.slice(i + 1);
+  if (state.ref) { state.q = ''; $('gq').value = ''; }
+  view();
+  if (state.ref) {
+    const tr = [...document.querySelectorAll('tr[data-id]')].find(r => r.dataset.id === state.ref);
+    if (tr) { const f = tr.closest('table'), b = tr.closest('section'); tr.classList.add('hit'); tr.scrollIntoView({ block: 'center' }); setTimeout(() => tr.classList.remove('hit'), 2600); }
+  } else if (!state.q) window.scrollTo(0, 0);
+  document.title = 'Goblin King Codex: ' + TAB(state.tab).label;
+}
 document.addEventListener('click', e => {
-  const b = e.target.closest('nav button'); if (b) { tab = b.dataset.k; sortKey = null; location.hash = tab; render(); return; }
-  const th = e.target.closest('th'); if (th) { const k = th.dataset.k; sortDir = sortKey === k ? -sortDir : 1; sortKey = k; render(); }
+  const th = e.target.closest('th[data-k]');
+  if (th) { const t = th.dataset.t, k = th.dataset.k, cur = state.sort[t]; state.sort[t] = { k, d: cur && cur.k === k ? -cur.d : 1 }; view(); }
 });
-document.addEventListener('keydown', e => { const th = e.target.closest && e.target.closest('th'); if (th && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); th.click(); } });
-document.addEventListener('input', e => { if (e.target.id === 'q') { q = e.target.value; try { sessionStorage.setItem('q', q); } catch (x) {} render(true); } });
-addEventListener('hashchange', () => { tab = (location.hash || '#overview').slice(1); render(); });
-render();
+document.addEventListener('keydown', e => { const th = e.target.closest && e.target.closest('th[data-k]'); if (th && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); th.click(); } });
+document.addEventListener('input', e => {
+  if (e.target.id === 'gq') { state.q = e.target.value.trim(); view(); if (!state.q) route(); }
+  else if (e.target.classList.contains('tf')) { const t = e.target.dataset.t; state.filter[t] = e.target.value; view({ t, p: e.target.selectionStart }); }
+});
+$('theme').addEventListener('click', () => {
+  const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'), nx = cur === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = nx; try { localStorage.setItem('gk.codex.theme', nx); } catch (er) {}
+});
+try { const th = localStorage.getItem('gk.codex.theme'); if (th) document.documentElement.dataset.theme = th; } catch (er) {}
+addEventListener('hashchange', () => { state.q = ''; $('gq').value = ''; route(); });
+$('stamp').textContent = 'generated ' + D.stamp;
+route();
 </script>
+</body>
+</html>

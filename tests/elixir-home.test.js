@@ -77,6 +77,7 @@ async function pair(srv) {   // a third goblin keeps the match alive when one of
         const [a, b] = await pair(srv), ha = homeOf(a);
         dbg(a, { lv: { lock: 1, alarm: 1, snare: 1 } }); await a.until(c => c.state.home && c.state.home.lv.lock === 1, 1500);
         a.send({ dbgElixir: { lv: { snare: 1 } } });
+        await a.until(c => c.state.round.n >= 2, 8000, 'round 2: the hatches open (home phase)');
         // the owner walks out and in without any delay
         const out = doorSpot(ha, 1.0), inn = doorSpot(ha, -0.2); a.send({ tp: doorSpot(ha, -1) }); await sleep(80);
         const i = mark(a); a.send({ m: [...doorSpot(ha, 0.2), 0] }); await sleep(120); a.send({ m: [...doorSpot(ha, 1.0), 0] }); await sleep(120); a.send({ m: [...doorSpot(ha, 0.1), 0] }); await sleep(120); a.send({ m: [...doorSpot(ha, -0.9), 0] }); await sleep(150);
@@ -100,7 +101,7 @@ async function pair(srv) {   // a third goblin keeps the match alive when one of
         dbg(a, { n: 100 }); a.send({ tp: at(ha, 'screen', 1, 0) }); await sleep(100);
         a.send({ base: { send: 'rats', room: cellB } }); await a.until(c => c.state.homeRes && c.state.homeRes.reason === 'round1', 1500, 'round 1 refused');
         await a.until(c => c.state.round.n >= 2, 8000, 'round 2');
-        for (const [id, room, why] of [['rats', W.VAULT_KEY, 'vault'], ['rats', ha, 'own'], ['leech', cellB, 'target'], ['rats', 'c1', 'target'], ['nope', cellB, 'unknown']]) {
+        for (const [id, room, why] of [['rats', W.VAULT_KEY, 'vault'], ['rats', ha, 'own'], ['leech', cellB, 'target'], ['rats', 'c' + W.LOOT_IDS[0], 'target'], ['nope', cellB, 'unknown']]) {
           const k = mark(a); a.send({ base: { send: id, room } }); await a.until(c => since(c, k, 'homeRes').length > 0, 1500, 'reply ' + why); await sleep(300);
           eq(since(a, k, 'homeRes')[0].reason, why, id + ' to ' + room); eq(a.state.elixir, 100, 'nothing charged for a refusal');
         }
@@ -120,6 +121,7 @@ async function pair(srv) {   // a third goblin keeps the match alive when one of
         const sp = b.state.drops.find(d => d.items.includes('w:sword') && d.id !== dr.id) || b.state.drops.find(d => d.items.includes('w:sword')); assert(sp, 'the lockbox spilled as a loot pile');
         // the dead pump is a neutral tank: anyone may take what was left
         b.send({ tp: at(ha, 'pump', 0, 1.2) }); await sleep(100); b.send({ pump: 1 }); await b.until(c => c.state.elixir === 62, 2000, 'left-over tank of the dead home');
+        await b.until(c => c.state.round.n >= 2, 8000, 'round 2: the hatches open (home phase)');
         // the lock is gone: B walks in with no pick (we are already inside); walk out and in
         b.send({ tp: doorSpot(ha, 0.5) }); await sleep(100); const j = mark(b); b.send({ m: [...doorSpot(ha, -0.5), 0] }); await sleep(250); eq(since(b, j, 'fix').length, 0, 'the lock opened');
         await b.close();

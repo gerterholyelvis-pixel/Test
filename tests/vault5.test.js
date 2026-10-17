@@ -176,8 +176,8 @@ const onDais = (w, id, o) => w.add(id, Object.assign({ x: 0.5, z: 0.5 }, o));
     ['round/phase constants: sudden after round 5, the match is over after round 7', async () => {
       assert(!V.isSudden(5) && V.isSudden(6)); assert(!V.matchOver(6) && V.matchOver(7));
       const w = world(); w.add(1); const r = V.roundEnd(w.st, Object.assign(w.ctx(), { round: 7 })); eq(r.over, true); eq(r.decision.winner, 1);
-      for (const k of ['0', '2', '24', 'c0', 'c14']) assert(['outer', 'home'].includes(V.kindOf(k)));
-      eq([V.kindOf('12'), V.kindOf('7'), V.kindOf('8'), V.kindOf('c3'), V.kindOf('99')], ['vault', 'vb', 'tree', 'loot', 'none']);
+      for (const k of ['0', '2', '24', 'c1', 'c18']) assert(['outer', 'home'].includes(V.kindOf(k)));
+      eq([V.kindOf('12'), V.kindOf('7'), V.kindOf('8'), V.kindOf('c2'), V.kindOf('99')], ['vault', 'vb', 'tree', 'loot', 'none']);
     }],
     ['decide: highest claim wins; claims under 5 s count for nothing; then kills, then HP, then lowest id', async () => {
       const st = V.state0(ACT.rng(1), 0), ps = [{ id: 1, alive: true, hp: 50, kills: 1 }, { id: 2, alive: true, hp: 90, kills: 0 }, { id: 3, alive: true, hp: 10, kills: 4 }];

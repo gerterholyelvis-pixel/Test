@@ -64,9 +64,9 @@ const walk = async (c, x0, z0, x1, z1, secs, speed) => {   // send {m} every 66 
         const last = snapsOf(a, b.state.you).pop(); assert(Math.abs(last.x - -12.5) < 0.1, 'server followed to ' + last.x);
         delete b.state.fix; b.send({ m: [-15, -12.5, 0] }); await b.until(x => x.state.fix, 2000, 'fix after a 4 m jump');
         assert(Math.abs(b.state.fix[0] - -12.5) < 0.1 && Math.abs(b.state.fix[1] - -12.5) < 0.1, 'fix puts him back at the last good position: ' + b.state.fix);
-        delete b.state.fix; const n = b.msgs.length; await walk(b, -12.5, -12.5, -17, -12.5, 0.5, 20); await sleep(100);   // 20 m/s for 0.8 s
+        delete b.state.fix; const n = b.msgs.length; await walk(b, -12.5, -12.5, -22, -12.5, 0.5, 20); await sleep(100);   // 20 m/s for 0.5 s (PERF4: the burst bank is 2.0 m, so the hack needs more road than before)
         const fixes = b.msgs.slice(n).filter(m => m.fix); assert(fixes.length >= 1, 'no fix for 20 m/s'); assert(fixes.length <= 6, 'fix spam: ' + fixes.length);
-        const far = snapsOf(a, b.state.you).pop(); assert(far.x > -15, 'speed hacker got to ' + far.x + ' (should crawl)');
+        const far = snapsOf(a, b.state.you).pop(); assert(far.x > -16.5, 'speed hacker got to ' + far.x + ' (should crawl)');
         await a.close(); await b.close();
       }],
       ['closed door: walking through a wall or a closed door is rejected; after the round opens it, the doorway works but the wall beside it does not', async () => {
