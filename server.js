@@ -223,19 +223,7 @@ function tickAll() { // steps every match (scheduled by the TICK block below)
     else if (now - m.lastRound >= 1000) { m.lastRound = now; broadcastRound(m); }
     // COMBAT-BEGIN regen: 1 HP every 4 s once a player has not been hit for 6 s. SUDDEN DEATH: only inside THE VAULT (the sanctuary everyone converges on), nowhere else.
     for (const p of m.players.values()) if ((!m.sudden || p.room === VK) && p.entered && !p.dead && p.stats && p.stats.health < p.stats.maxHealth && now - (p.hurtAt || 0) >= C.regenIdle * RSCALE * G.goblinRegen(p.goblin).idle && now - (p.regenAt || 0) >= C.regenEvery * RSCALE * G.goblinRegen(p.goblin).every) { p.regenAt = now; p.stats.health = Math.min(p.stats.maxHealth, p.stats.health + C.regenAmt); m.dirty = true; }
-    // AFFIX-HOOK: after a landed hit, a weapon's bleed chance and life leech (items.js combat() gives bleedAff / leech; sudden death stops the leech like other healing)
-function affixHit(m, p, t, cb, hp0, now) {
-  if (!(t.stats.health < hp0) || p.dead) return;
-  if (cb.bleedAff && t.stats.health > 0 && Math.random() < cb.bleedAff.chance) t.bleed = { by: p, dmg: cb.bleedAff.dmg, left: cb.bleedAff.ticks, next: now + BLEED_MS, w: G.ITEMS[p.inv.weapon].name };
-  if (cb.leech && !m.sudden && p.stats.health < p.stats.maxHealth) { p.stats.health = Math.min(p.stats.maxHealth, p.stats.health + Math.max(1, Math.round((hp0 - t.stats.health) * cb.leech))); m.dirty = true; }
-}
-// AFFIX-HOOK: after a landed hit, a weapon's bleed chance and life leech (items.js combat() gives bleedAff / leech; sudden death stops the leech like other healing)
-function affixHit(m, p, t, cb, hp0, now) {
-  if (!(t.stats.health < hp0) || p.dead) return;
-  if (cb.bleedAff && t.stats.health > 0 && Math.random() < cb.bleedAff.chance) t.bleed = { by: p, dmg: cb.bleedAff.dmg, left: cb.bleedAff.ticks, next: now + BLEED_MS, w: G.ITEMS[p.inv.weapon].name };
-  if (cb.leech && !m.sudden && p.stats.health < p.stats.maxHealth) { p.stats.health = Math.min(p.stats.maxHealth, p.stats.health + Math.max(1, Math.round((hp0 - t.stats.health) * cb.leech))); m.dirty = true; }
-}
-// COMBAT-END
+    // COMBAT-END
     if (m.dirty) { m.dirty = false; bcast(m, { players: [...m.players.values()].map(pub) }); } // slow state: only when something other than movement changed
     snapshots(m); // NETCODE: positions of players who moved go out at 20 Hz as compact snapshots
     m.errs = 0;
@@ -587,7 +575,12 @@ function attack(m, ws, p, now, rt) {   // {atk:1, rt}: rate limit by weapon, nea
   const [tws, t] = best, hp0 = t.stats.health; hitTarget(m, ws, p, tws, t, cb.dmg, now, undefined, { melee: !cb.ranged });   // thorns and the scout's dodge only apply to melee
   if (cb.bleed && t.stats.health > 0 && t.stats.health < hp0) t.bleed = { by: p, dmg: cb.bleed[0], left: cb.bleed[1], next: now + BLEED_MS, w: p.inv && p.inv.weapon && G.ITEMS[p.inv.weapon] ? G.ITEMS[p.inv.weapon].name : '' };   // WEAPONS3: whips and tridents leave a bleed
   if (cb.bleedAff || cb.leech) affixHit(m, p, t, cb, hp0, now);   // AFFIX
-  if (cb.bleedAff || cb.leech) affixHit(m, p, t, cb, hp0, now);   // AFFIX
+}
+// AFFIX-HOOK: after a landed hit, a weapon's bleed chance and life leech (items.js combat() gives bleedAff / leech; sudden death stops the leech like other healing)
+function affixHit(m, p, t, cb, hp0, now) {
+  if (!(t.stats.health < hp0) || p.dead) return;
+  if (cb.bleedAff && t.stats.health > 0 && Math.random() < cb.bleedAff.chance) t.bleed = { by: p, dmg: cb.bleedAff.dmg, left: cb.bleedAff.ticks, next: now + BLEED_MS, w: G.ITEMS[p.inv.weapon].name };
+  if (cb.leech && !m.sudden && p.stats.health < p.stats.maxHealth) { p.stats.health = Math.min(p.stats.maxHealth, p.stats.health + Math.max(1, Math.round((hp0 - t.stats.health) * cb.leech))); m.dirty = true; }
 }
 // COMBAT-END
 // WEAPONS3-BEGIN (bleed from whips and tridents, tuned magic bolts; weapon numbers live in items.js WEAPON_TUNE)
