@@ -40,7 +40,7 @@ function cached(key, file, type) {
   return e;
 }
 const missUntil = new Map();   // PERF4: url key -> time the remembered miss expires
-const CLIENT_JS = new Set(['game', 'menu', 'items', 'combat4', 'affix', 'mutators', 'world', 'save', 'stats', 'statsui', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'wbui', 'act5ui', 'halls', 'fskeep', 'keep', 'keepui', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)   // KEEP: keep, keepui
+const CLIENT_JS = new Set(['game', 'menu', 'items', 'combat4', 'combat5', 'affix', 'mutators', 'world', 'save', 'stats', 'statsui', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'wbui', 'act5ui', 'halls', 'fskeep', 'keep', 'keepui', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)   // KEEP: keep, keepui
 let CSP = '';
 function buildCsp() {   // the page has two inline scripts (importmap + module): allowed by hash, so no 'unsafe-inline' for scripts
   const page = cached('/index.html', path.join(ROOT_DIR, 'index.html'), 'text/html; charset=utf-8'), hashes = [];
@@ -217,6 +217,7 @@ function tickAll() { // steps every match (scheduled by the TICK block below)
     useTick(m, now);   // UTILITY: bombs, smoke, mushroom regeneration
     weapons3Tick(m, now);   // WEAPONS3: bleeds, and bolts of tuned wands when the staffbolt rule is off
     c4Tick(m, now);   // COMBAT4: open swing windows, projectiles in flight
+    c5Tick(m, now);   // COMBAT5: held guards drain stamina
     ruleTick(m, now);   // RULES: experimental rules (no-op unless GK_RULES is set)
     guardTick(m, now);   // DOORGUARD: nobody stays locked in a room, nobody stays stuck inside a prop
     H5.tick(m, now);   // HALLS: searches and restocks
@@ -572,6 +573,8 @@ function attack(m, ws, p, now, rt, a4) {   // {atk:1, rt, heavy, sq, pt}: rate l
   p.atkAt = now; if (p.c4q) { clearTimeout(p.c4q); p.c4q = null; }
   if (p.charge) p.charge = 0;   // ABILITY: any swing ends a wind-up
   if (hm) p.atkAt = now - Math.round(cb.cd * (1 - HEAVY.cdMul));   // ABILITY: the wind-up already took its time, so the next swing comes sooner
+  { const c5 = c5Pre(m, p, cb, now, hm, !(bolt || cb.ranged)); p.c5nx = c5;   // COMBAT5: stamina, chain position (finisher), winded swings recover slower and hit softer
+    if (c5) { if (c5.dmgMul !== 1) cb = { ...cb, dmg: Math.max(1, Math.round(cb.dmg * c5.dmgMul)) }; if (c5.cdMul !== 1) p.atkAt += Math.round(cb.cd * (c5.cdMul - 1)); } }
   c4Start(m, ws, p, now, rt, a4, cb, bolt, hm, base);   // COMBAT4: the blow lands on the clip's contact frame (melee sweep, real projectile or magic bolt); see the COMBAT4 block
 }
 // AFFIX-HOOK: after a landed hit, a weapon's bleed chance and life leech (items.js combat() gives bleedAff / leech; sudden death stops the leech like other healing)
@@ -605,11 +608,14 @@ function c4Start(m, ws, p, now, rt, a4, cb, bolt, hm, base) {   // hm = heavy bl
   const sq = a4 && Number.isInteger(a4.sq) ? a4.sq & 0xffff : 0, pt = a4 && Number.isFinite(a4.pt) ? Math.max(-1.3, Math.min(1.3, a4.pt)) : null;
   const sw = { m, p, ws, kind: bolt ? 'bolt' : cb.ranged ? 'proj' : 'melee', at: T + tm.contact, end: T + tm.end, L, cb, pr, key, R: cb.range + (cb.ranged || p.npc ? 0 : G.goblinReach(p.goblin)), sq, pt, n: 0, hit: [], done: false, timer: null, t0: now, hm: hm || 0, base: base || 0 };
   p.c4sw = sw; (m.c4sws || (m.c4sws = [])).push(sw); C4STAT.swings++;
-  bcast(m, { swing: p.id, c4: [tm.contact, tm.dur, sq], ...(hm ? { heavy: 1 } : null) });   // c4: when the blow lands and how long the clip runs (every client plays the clip so its contact frame meets the damage)
+  { const c5 = p.c5nx; p.c5nx = null; if (c5) { sw.c5i = c5.idx; sw.fin = c5.fin; } }   // COMBAT5: chain position of this swing (2 = finisher)
+  bcast(m, { swing: p.id, c4: [tm.contact, tm.dur, sq], ...(hm ? { heavy: 1 } : null), ...(sw.fin ? { fin: 1 } : null) });   // c4: when the blow lands and how long the clip runs (every client plays the clip so its contact frame meets the damage)
   sw.timer = setTimeout(() => { sw.timer = null; try { c4Eval(sw); } catch (e) { console.error('c4 eval', e); } }, tm.contact);
 }
 function c4Done(sw, why) {
   if (sw.done) return; sw.done = true; if (sw.timer) { clearTimeout(sw.timer); sw.timer = null; }
+  if (why === 'e' && sw.parN) why = 'p'; else if (why === 'e' && sw.n > 0 && sw.n - (sw.blkN || 0) <= 0) why = 'b';   // COMBAT5: a parried / fully blocked swing
+  try { c5Done(sw, why); } catch (e) { console.error('c5 done', e); }   // COMBAT5: chain, whiff recovery
   if (sw.p.c4sw === sw) sw.p.c4sw = null;
   const L = sw.m.c4sws; if (L) { const i = L.indexOf(sw); if (i >= 0) L.splice(i, 1); }
   if (why === 'c' || why === 's') C4STAT.cancels++;
@@ -646,15 +652,16 @@ function c4Eval(sw) {   // one look at the swing at the current server time (con
 }
 function c4Guard(m, p, t, sw, now) { try { return (C4HOOKS.guard && C4HOOKS.guard(m, p, t, sw)) || C4.guard(t.guard, now, t.x, t.z, t.yaw, p.x, p.z); } catch (e) { return null; } }
 function c4Apply(m, sw, tws, t, dmg, now, proj) {   // one landed blow: guard, damage (hitTarget does wards, dodges, perks, kills), bleed, stagger, knockback
-  const p = sw.p, g = c4Guard(m, p, t, sw, now);
-  if (g && g.parry) { C4STAT.blocked++; bcast(m, { c4g: { from: p.id, to: t.id, k: 'parry' } }); c4Stagger(m, p, C4.STAG_MAX, now); return; }   // a parry: no damage, the attacker reels
-  if (g && g.block) { C4STAT.blocked++; dmg = Math.max(1, Math.round(dmg * g.mul)); }
+  const p = sw.p, g = c4Guard(m, p, t, sw, now), b5 = g ? c5Block(m, sw, t, g, dmg, now, !!proj) : null;   // COMBAT5: stamina, parry rules, guard break
+  if (b5 && b5.parry) { C4STAT.blocked++; bcast(m, { c4g: { from: p.id, to: t.id, k: 'parry' } }); c4Stagger(m, p, C5T.GUARD.parryStag, now); return; }   // a parry: no damage, the attacker reels
+  if (b5 && b5.block) { C4STAT.blocked++; dmg = b5.dmg; }
+  dmg = c5Counter(sw, p, t, dmg, proj);   // COMBAT5: counterplay table
   const fam = proj ? null : sw.pr, poise = C4.poiseOf(t.inv && t.inv.armor && G.ITEMS[t.inv.armor] ? G.ITEMS[t.inv.armor].family : null);
-  const st = !fam || g || t.npc && t.npc === 'troll' ? 0 : now < (t.c4imm || 0) ? 0 : Math.min(C4.STAG_MAX, Math.round((fam.stag || 0) * (1 - poise)));
+  const st = !fam || g || t.npc && t.npc === 'troll' ? 0 : now < (t.c4imm || 0) ? 0 : Math.min(C4.STAG_MAX, Math.round(Math.max(fam.stag || 0, sw.fin ? C5T.COMBO.fin.stag : 0) * (1 - poise)));
   const kb = !fam || g ? 0 : +((fam.kb || 0) * (1 - poise) / Math.max(0.75, c4Size(t))).toFixed(2), dx = t.x - p.x, dz = t.z - p.z, dl = Math.hypot(dx, dz) || 1, kx = +(dx / dl * kb).toFixed(2), kz = +(dz / dl * kb).toFixed(2);
   const hg = highGround(p, t), pb = proj && sw.dist0 != null && sw.dist0 < G.POINT_BLANK.r ? G.POINT_BLANK.mul : 1;   // CLIMB: high ground; BALANCE-3: thrown / shot from inside 2 m hits for less
   dmg = Math.max(1, Math.round(dmg * pb * (sw.hm || 1) * (hg ? CLIMB_HG : 1)));
-  const opts = { melee: !proj, base: sw.base, hg, ...(sw.hm ? { heavy: 1 } : null), c4x: { sq: sw.sq, ...(st ? { st } : null), ...(kb >= 0.05 ? { kb: [kx, kz] } : null), ...(g ? { blk: 1 } : null), ...(proj ? { k: proj } : null) } }, hp0 = t.stats.health;
+  const opts = { melee: !proj, base: sw.base, hg, ...(sw.hm ? { heavy: 1 } : null), c4x: { sq: sw.sq, ...(st ? { st } : null), ...(kb >= 0.05 ? { kb: [kx, kz] } : null), ...(g ? { blk: 1 } : null), ...(b5 && b5.broke ? { brk: 1 } : null), ...(sw.fin ? { fin: 1 } : null), ...(proj ? { k: proj } : null) } }, hp0 = t.stats.health;
   const landed = hitTarget(m, sw.ws, p, tws, t, dmg, now, undefined, opts); C4STAT.hits++;
   if (landed && (sw.cb.bleedAff || sw.cb.leech)) affixHit(m, p, t, sw.cb, hp0, now);   // AFFIX
   if (!landed || t.dead || t.stats.health <= 0) return;
@@ -664,6 +671,7 @@ function c4Apply(m, sw, tws, t, dmg, now, proj) {   // one landed blow: guard, d
   if (kb >= 0.05) c4Push(m, t, kx, kz);
 }
 function c4Stagger(m, t, ms, now) {   // the victim's wind-up is cancelled and he cannot start a swing for ms; then he is immune to staggers for a moment
+  if (t.guard) c5Lower(m, t, now, 'stag');   // COMBAT5: a stagger drops the guard
   t.c4stag = Math.max(t.c4stag || 0, now + ms); t.staggerUntil = Math.max(t.staggerUntil || 0, now + ms); t.c4imm = now + C4.STAG_IMMUNE;   // staggerUntil: the ABILITY flag (no dash / wind-up while staggered)
   if (t.c4sw && srvT() < t.c4sw.at) c4Done(t.c4sw, 's');
 }
@@ -734,13 +742,14 @@ const DASH = G.ABIL.DASH, HEAVY = G.ABIL.HEAVY;
 const canAct = (m, p, now) => p.entered && !p.dead && !!m.goAt && now >= m.goAt && !p.carry && now >= (p.staggerUntil || 0) && now >= (p.dazeUntil || 0);
 function dash(m, p, now) {   // {dash:1}: DASH.dist metres of extra movement allowance for DASH.ms (the client moves, applyMove validates walls and doors); blows in the first iframeMs miss
   if (!canAct(m, p, now) || now < (p.dashAt || 0) + DASH.cd * 0.95) return false;   // 5% jitter allowance on the cooldown
+  if (!c5Dash(m, p, now)) return false;   // COMBAT5: a dash costs stamina
   p.dashAt = now; p.iUntil = now + DASH.iframeMs; p.dashBank = DASH.dist + 0.4;
   if (p.charge) { p.charge = 0; bcast(m, { charge: p.id, off: 1 }); }   // a dash cancels a wind-up
   bcast(m, { dash: p.id }); return true;
 }
 function windUp(m, p, now, on) {   // {charge:1}: start winding up a heavy blow (heavy weapons only), {charge:0}: let it go without striking. Everyone sees the wind-up: that is the counterplay
   if (!on) { if (p.charge) { p.charge = 0; bcast(m, { charge: p.id, off: 1 }); } return; }
-  if (!canAct(m, p, now) || !G.ABIL.heavyFor(p.inv.weapon) || (p.charge && now - p.charge < 4000)) return;
+  if (!canAct(m, p, now) || !G.ABIL.heavyFor(p.inv.weapon) || (p.charge && now - p.charge < 4000) || !c5Heavy(m, p, now)) return;   // COMBAT5: needs a little stamina
   p.charge = now; bcast(m, { charge: p.id });
 }
 const heavyOf = (p, now) => { const h = p.charge && now - p.charge >= HEAVY.chargeMs - 80 && now - p.charge < 4000 && G.ABIL.heavyFor(p.inv.weapon); return h ? h.mult : 0; };   // the multiplier when a heavy blow is released now (80 ms latency grace), else 0
@@ -758,6 +767,82 @@ function botAbil(m, p, t, d, rx, rz, ranged, cb, now) {   // a fighting bot, fou
   return false;
 }
 // ABILITY-END
+// COMBAT5-BEGIN (docs/reports/combat-5.md): stamina, block / parry, combo chains, whiff recovery and the counterplay table. Numbers: items.js COMBAT5; pure rules: combat5.js (the client runs the same).
+// The server is authoritative: {grd:1|0} raises / lowers a guard (target.guard, judged by combat4.js guard() inside c4Apply), swings spend stamina in attack(), c4Done chains or punishes a whiff.
+const C5 = require('./combat5.js').of(G), C5T = G.COMBAT5, C5STAT = { parries: 0, blocks: 0, breaks: 0, chains: 0, fins: 0, whiffs: 0, winded: 0, botGuards: 0, botParries: 0 };
+const c5Of = p => p.c5 || (p.c5 = C5.state());
+function c5Send(p, now) { if (p.ws && !p.bot && !p.npc) { const s = c5Of(p).sta; sendTo(p.ws, { sta: [Math.round(s.v), Math.max(0, Math.round(s.hold - now))] }); } }   // my stamina and how long it waits before refilling (the client mirrors the rest)
+function c5Lower(m, p, now, why) { if (!p.guard) return; p.guard = null; c5Of(p).off = now; bcast(m, { grd: p.id, off: 1, ...(why ? { k: why } : null) }); }
+function c5Guard(m, p, on, now) {   // {grd:1}: hold the guard up (stamina to raise, a drain while held, a pause between raises), {grd:0}: lower it
+  if (p.npc) return; if (!on) return c5Lower(m, p, now);
+  const c = c5Of(p), g = C5.guardOf(p.inv && p.inv.weapon);
+  if (p.guard || !g || !canAct(m, p, now) || p.charge || now < c.off + C5T.GUARD.raiseCd || (p.c4sw && !p.c4sw.done)) return;
+  if (!C5.staHas(c.sta, now, C5T.STA.guardMin)) return c5Send(p, now);
+  C5.staSpend(c.sta, now, C5T.STA.guardRaise);
+  p.guard = { at: now, until: now + 1500, mul: g.mul, parry: g.parry, cone: g.cone, held: now };
+  bcast(m, { grd: p.id }); c5Send(p, now);
+}
+function c5Dash(m, p, now) {   // dash(): a dash costs stamina and needs a little left
+  if (p.npc) return true; const c = c5Of(p);
+  if (!C5.staHas(c.sta, now, C5T.STA.dashMin)) { c5Send(p, now); return false; }
+  C5.staSpend(c.sta, now, C5T.STA.dash); c5Lower(m, p, now); c5Send(p, now); return true;
+}
+function c5Heavy(m, p, now) { if (p.npc) return true; c5Lower(m, p, now); return C5.staHas(c5Of(p).sta, now, C5T.STA.heavyMin); }   // windUp(): a heavy blow's wind-up needs a little stamina and drops the guard
+function c5Pre(m, p, cb, now, hm, melee) {   // attack(): this swing's stamina and chain position -> { idx, fin, winded, cdMul, dmgMul } (null for mystery enemies)
+  if (p.npc) return null; c5Lower(m, p, now);
+  const c = c5Of(p), r = C5.pre(c, now, cb.cd, p.inv.weapon, hm, melee);
+  if (r.winded) C5STAT.winded++; if (r.fin) C5STAT.fins++;
+  if (melee && c.rip > now) { r.dmgMul *= C5T.GUARD.rip.mul; c.rip = 0; }   // the riposte after a parry
+  c5Send(p, now); return r;
+}
+function c5Done(sw, why) {   // a melee swing ended: the chain goes on after a landed blow, a whiff costs recovery, a blocked or parried blow breaks the chain
+  const p = sw.p; if (p.npc || sw.kind !== 'melee') return;
+  const c = c5Of(p), landed = sw.n - (sw.blkN || 0) - (sw.parN || 0), r = why === 'e' ? (sw.parN ? 'p' : sw.n > 0 && landed <= 0 ? 'b' : 'e') : why;
+  const d = C5.post(c, sw.key, sw.cb.cd, sw.c5i | 0, r === 'e' ? landed : 0, r);
+  if (r === 'e') { if (landed <= 0) C5STAT.whiffs++; else if (d < 0) C5STAT.chains++; }
+  if (d) p.atkAt = (p.atkAt || 0) + d;
+}
+function c5Block(m, sw, t, g, dmg, now, proj) {   // the guard's verdict on one blow -> { parry } | { block, dmg, broke }: stamina decides how long a guard holds
+  const p = sw.p, tc = c5Of(t), kf = C5.famOf(sw.key);
+  if (g.parry && !proj && !sw.hm && kf !== 'hammer' && !p.npc) {   // a parry: only a tight window, never against shots or a hammer, a heavy blow or a mystery enemy
+    tc.sta.v = Math.min(C5T.STA.max, C5.staStep(tc.sta, now) + C5T.STA.parryRefund); tc.rip = now + C5T.GUARD.rip.ms; sw.parN = (sw.parN || 0) + 1; C5STAT.parries++; if (t.bot) C5STAT.botParries++;
+    if (!p.npc) { C5.staSpend(c5Of(p).sta, now, C5T.STA.parryDrain); c5Send(p, now); }
+    c5Send(t, now); return { parry: true };
+  }
+  const cost = C5.blockCost(sw.key, dmg, sw.hm), short = C5.staSpend(tc.sta, now, cost); c5Send(t, now);
+  if (short > 0) { C5STAT.breaks++; c5Lower(m, t, now, 'brk'); c4Stagger(m, t, C5T.GUARD.breakStag, now); return { block: true, broke: true, dmg: Math.max(1, Math.round(dmg * C5T.GUARD.brkDmg)) }; }   // the guard breaks: most of the blow gets through
+  sw.blkN = (sw.blkN || 0) + 1; C5STAT.blocks++; return { block: true, dmg: Math.max(1, Math.round(dmg * (g.mul != null ? g.mul : 0.4))) };
+}
+function c5Counter(sw, p, t, dmg, proj) {   // the counterplay table (items.js COMBAT5.RULES): a spear punishes an approach, sweeping blows shred daggers and whips
+  const R = C5T.RULES; if (proj || t.npc) return dmg;
+  if (C5.famOf(sw.key) === 'spear' && !p.npc) { const sp = R.spearApproach, [ox, oz] = posAt(t, srvT() - sp.ms); if (Math.hypot(ox - p.x, oz - p.z) - Math.hypot(t.x - p.x, t.z - p.z) >= sp.dist) dmg *= sp.mul; }
+  const bane = t.inv && t.inv.weapon && R.cleaveBane[C5.famOf(t.inv.weapon)]; if (bane && (sw.pr.cleave || 1) >= 2) dmg *= bane;
+  return Math.max(1, Math.round(dmg));
+}
+function c5Tick(m, now) {   // 20 Hz: a held guard drains stamina (and runs out), a guard whose owner left is dropped
+  for (const p of m.players.values()) {
+    const g = p.guard; if (!g) continue;
+    if (p.dead || !p.entered || p.match !== m || m.ended) { p.guard = null; continue; }
+    const s = c5Of(p).sta, short = C5.staSpend(s, now, C5T.STA.guardHold * Math.max(0, now - g.held) / 1000); g.held = now; g.until = now + 1500;
+    if (short > 0 || s.v < 0.5) { c5Lower(m, p, now, 'dry'); c5Send(p, now); }
+  }
+}
+function guard6(m, p, t, d, foeReach, now) {   // BOTS6 fight tick: hold the guard up against a swing the foe has started (some raise it in the parry window, some early), drop it after; a winded bot rests out of reach. true = this tick is spent
+  const b = p.brain, c = c5Of(p), L = b.L6 || {}, sw = t.c4sw, T = srvT(), face = () => mv(m, p, p.x, p.z, yawTo(p, t.x, t.z), now);
+  if (!C5.guardOf(p.inv.weapon)) return false;
+  if (p.guard) { if ((!sw || sw.done || T > sw.end + 60) && now - p.guard.at > 220 || now - p.guard.at > 1500) c5Lower(m, p, now); else { face(); return true; } }
+  if (sw && !sw.done && sw.kind === 'melee' && d <= foeReach + 0.3 && T < sw.at && b.g5sw !== sw) {
+    b.g5sw = sw; const lead = rnd(70, 230);   // one decision per swing: the lower the level, the earlier (blocks, rarely parries) and the less often
+    if (Math.random() < (L.dodge != null ? L.dodge : 0.5) * (0.35 + 0.4 * (b.caution || 0.5)) && !isDazed(p, now)) b.g5at = { at: sw.at - lead, sw };
+  }
+  if (b.g5at && b.g5at.sw.done) b.g5at = null;
+  if (b.g5at && srvT() >= b.g5at.at) { b.g5at = null; c5Guard(m, p, true, now); if (p.guard) { C5STAT.botGuards++; face(); return true; } }
+  if (C5.staStep(c.sta, now) < 14 && d > foeReach + 0.6 && !(sw && !sw.done) && now >= (b.restAt || 0)) { b.restUntil = now + 700; b.restAt = now + 3500; }
+  if (now < (b.restUntil || 0)) { face(); return true; }   // winded and the foe is not on it: stand and breathe
+  return false;
+}
+const isDazed = (p, now) => now < (p.dazeUntil || 0) || now < (p.staggerUntil || 0);
+// COMBAT5-END
 // RULES-LOGIC-BEGIN (the four experimental rules; every function is a no-op unless its rule is on)
 const ruleState = m => RULES.size ? { rules: [...RULES], ...(rule('bribe') ? { bribes: m.bribes || {} } : null), ...(rule('doorclose') ? { openLeft: Object.fromEntries((m.open || []).filter(d => m.openLeft && m.openLeft[d]).map(d => [d, m.openLeft[d]])) } : null) } : null;
 function ruleOpen(m, fresh) {   // doorclose: the doors stay open for DOOR_LIFE rounds (m.openLeft counts the rounds still to go), a door picked again is refreshed
@@ -1790,6 +1875,7 @@ function fight6(m, p, t, now, dt, hold) {   // one fight tick by botgoals fightP
   if (!e || e.id !== t.id) { e = b.e6 = { id: t.id, t0: now, flank: sneak6(p) && Math.random() < L.flank, win: Math.random() < L.window, kite: Math.random() < L.kite, w0: 0, hp0: t.stats.health, vx: 0, vz: 0, lx: t.x, lz: t.z, lt: now, kited: 0 }; S.styles[style] = (S.styles[style] || 0) + 1; }
   if (now - e.lt >= 90) { const s = (now - e.lt) / 1000; e.vx = e.vx * 0.5 + (t.x - e.lx) / s * 0.5; e.vz = e.vz * 0.5 + (t.z - e.lz) / s * 0.5; e.lx = t.x; e.lz = t.z; e.lt = now; }   // his velocity, for leading a bolt
   if (!hold && BG.giveUp({ chaseMs: now - e.t0, dealt: e.hp0 - t.stats.health, fled: 0, human: isHum(t) }) && !(p.hitBy === t.id && now - (p.hurtAt || 0) < 4000)) { b.gu6[t.id] = now + 12000; b.tgt = null; b.e6 = null; S.gaveUp++; return; }   // no endless standoffs
+  if (!t.npc && guard6(m, p, t, d, foeReach, now)) return;   // COMBAT5: block / parry a swing in flight, rest when winded
   const swung = (t.atkAt || 0) >= e.t0, ready = BG.readyIn(now, p.atkAt, cb.cd), behind = BG.isBehind(p.x, p.z, t.x, t.z, t.yaw);   // every swing is broadcast: a player sees when his foe has just swung
   const plan = BG.fightPlan({ style, d, reach, foeReach, foeRanged: fRanged, ready, foeReady: swung ? BG.readyIn(now, t.atkAt, fcb.cd || 600) : 1e4, behind, wantFlank: e.flank, useWindow: e.win && swung, kite: e.kite,
     waited: e.w0 ? now - e.w0 : 0, rangeD: b.rangeD, orbitR: b.orbitR, hold, holdR: HOLD_D });
@@ -2781,7 +2867,7 @@ wss.on('connection', (ws, req) => {
     tokens--;
     let d; try { d = JSON.parse(raw.toString()); } catch { return; }
     if (p.dead && d && typeof d.ping === 'number' && Number.isFinite(d.ping)) return sendTo(ws, { pong: d.ping, t: srvT() });
-    if (p.dead && d && d.botstat && process.env.GK_DEBUG) return sendTo(ws, { botstat: { n: BS.n, sum: BS.sum, max: BS.max, calls: BS.calls, bad: BS.bad, tick: TS, cpu: process.cpuUsage(), heap: process.memoryUsage().heapUsed, c4: C4STAT, matches: matches.size, tokens: socTokens.size, ips: ipCount.size } });   // debug stats still answer a dead human (bots can kill the test client)
+    if (p.dead && d && d.botstat && process.env.GK_DEBUG) return sendTo(ws, { botstat: { n: BS.n, sum: BS.sum, max: BS.max, calls: BS.calls, bad: BS.bad, tick: TS, cpu: process.cpuUsage(), heap: process.memoryUsage().heapUsed, c4: C4STAT, c5: C5STAT, matches: matches.size, tokens: socTokens.size, ips: ipCount.size } });   // debug stats still answer a dead human (bots can kill the test client)
     if (d && d.duel6 && process.env.GK_DEBUG) return sendTo(ws, { duel6: duel6Lab(m, d.duel6) });
     if (d && d.bot6 && process.env.GK_DEBUG) return sendTo(ws, { bot6: bot6Lab(m, p, d.bot6) });   // BOTS6: lab (tests/bots6-lab.test.js)   // BOTS6: the duel harness (tests/sim-duel.js)
     if (d && d.bot5 && process.env.GK_DEBUG) { if (typeof d.bot5 === 'object') bot5Lab(m, d.bot5); return sendTo(ws, { bot5: bot5Stat(m) }); }   // BOTS5: per-match bot stats (tests, sim), also for a dead spectator; {bot5:{goal}} lab
@@ -2802,7 +2888,7 @@ wss.on('connection', (ws, req) => {
     } else if (dbg && d.dbgElixir) { elixirDbg(m, p, d.dbgElixir);
     } else if (typeof d.recycle === 'string' && homeAt(m, p.room)) { const why = homeRecycle(m, p, d.recycle, d.refine === 1); if (why) sendTo(ws, { recycleFail: why });   // ELIXIR: the home recycler is owner-only and follows its upgrade
     } else if (typeof d.craft === 'string' && homeAt(m, p.room) && !HB.canUseStation(homeAt(m, p.room), p.id)) { sendTo(ws, { craftFail: 'owner' });
-    } else if (dbg && d.botstat) { sendTo(ws, { botstat: { n: BS.n, sum: BS.sum, max: BS.max, calls: BS.calls, bad: BS.bad, tick: TS, cpu: process.cpuUsage(), heap: process.memoryUsage().heapUsed, c4: C4STAT, matches: matches.size, tokens: socTokens.size, ips: ipCount.size } });
+    } else if (dbg && d.botstat) { sendTo(ws, { botstat: { n: BS.n, sum: BS.sum, max: BS.max, calls: BS.calls, bad: BS.bad, tick: TS, cpu: process.cpuUsage(), heap: process.memoryUsage().heapUsed, c4: C4STAT, c5: C5STAT, matches: matches.size, tokens: socTokens.size, ips: ipCount.size } });
     } else if (d.dbgFF === 1) { dbgFF(m, now);   // DEV: skip to 0:10 (ignored without GK_DEBUG)
     } else if (dbg && d.boom === 1) { m.boom = true;   // test hook: this match's tick throws from now on (tests/robust.test.js)
     } else if (dbg && d.quit === 1) { process.exit(0);   // lets tests/tickbench.js flush a --cpu-prof profile
@@ -2812,12 +2898,14 @@ wss.on('connection', (ws, req) => {
     } else if (dbg && Array.isArray(d.tp) && d.tp.length === 2 && d.tp.every(v => typeof v === 'number' && Number.isFinite(v))) {
       { const pr = p.room; place(p, clamp(d.tp[0]), clamp(d.tp[1])); noteRoom(m, p, pr); } m.dirty = true;
     } else if (dbg && Number.isFinite(d.hp)) { p.stats.health = Math.max(1, Math.min(p.stats.maxHealth, Math.floor(d.hp))); p.hurtAt = now; m.dirty = true;   // test hook (utility items)
+    } else if (dbg && Number.isFinite(d.sta5)) { C5.staSet(c5Of(p).sta, d.sta5, now, 0); c5Send(p, now);   // test hook (tests/combat5.test.js): set my stamina
     } else if (dbg && Number.isFinite(d.know)) { p.stats.knowledge = Math.max(0, d.know); m.dirty = true;   // test hook (knowledge.test.js)
     } else if (dbg && d.setParts && typeof d.setParts === 'object') { for (const pt of G.PARTS) if (Number.isFinite(d.setParts[pt.key])) p.parts[pt.key] = Math.max(0, Math.floor(d.setParts[pt.key])); sendParts(p);   // test hook (stations.test.js)
     } else if (dbg && Number.isFinite(d.gold)) { p.gold = Math.max(0, Math.floor(d.gold)); sendGold(p);
     } else if (typeof d.throw === 'string') { throwPlushie(m, p, d.throw, now);   // LOOT
     } else if (typeof d.use === 'string') { const why = useItem(m, p, d.use, now); if (why) sendTo(ws, { useFail: why });   // UTILITY
     } else if (dbg && d.botlab) { botLab(m, ws, p, d.botlab);
+    } else if (d.grd !== undefined) { c5Guard(m, p, d.grd === 1, now); if (d.grd === 1 && !p.guard) sendTo(ws, { grd: p.id, off: 1 });   // COMBAT5: hold / release the guard (a refused raise tells the client to lower its own)
     } else if (d.dash !== undefined || d.charge !== undefined) { abilMsg(m, p, d, now);   // ABILITY: the dash and the heavy blow's wind-up
     } else if (d.atk === 1) { attack(m, ws, p, now, d.rt, d);   // COMBAT4: the whole message (heavy, sq = swing id, pt = aim pitch)
     } else if (Array.isArray(d.aim) && d.aim.length === 2 && Number.isFinite(d.aim[1])) { c4Aim(p, d.aim);   // COMBAT4: the pitch at the release frame of a bow / sling
