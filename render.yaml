@@ -1,8 +1,22 @@
+# Render blueprint (docs/RELEASE.md, "Deploy"). New > Blueprint picks this file up.
 services:
   - type: web
     name: goblin-king
     runtime: node
-    plan: free
-    buildCommand: npm install
+    plan: free                     # the free plan sleeps after 15 min idle and has 512 MB; use a paid plan for a public launch (docs/RELEASE.md)
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm start
-    healthCheckPath: /
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production          # serves dist/ (minified, hashed, precompressed) and compresses the rest
+      - key: NODE_VERSION
+        value: "24"
+      - key: GK_SECRET
+        generateValue: true        # signs saved-character tokens; keep it stable or every saved goblin stops verifying
+      - key: GK_TRUST_PROXY
+        value: "1"                 # Render terminates TLS in a proxy: take the client IP from X-Forwarded-For for the per-IP limit
+      - key: GK_LOG
+        value: json
+      # - key: GK_ORIGINS          # optional: allow only these page origins to open a game socket
+      #   value: https://goblin-king.onrender.com

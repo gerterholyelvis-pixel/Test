@@ -41,7 +41,7 @@ const walk = async (c, x0, z0, x1, z1, secs, speed) => {   // send {m} every 66 
         assert(air.every(s => s.v % 100 < 1), 'speed part stays 0 when standing still');
         eq(mine[mine.length - 1].v, 0, 'a final grounded snapshot ends the jump');
         const bad = a.msgs.length; b.send({ m: [-13, -12.5, 0, 5000] }); await sleep(150);
-        assert(snapsOf(a, b.state.you, bad).every(s => Math.floor(s.v / 100) <= 100), 'jump height is clamped on the server');
+        assert(snapsOf(a, b.state.you, bad).every(s => Math.floor(s.v / 100) <= Math.round((W.CLIMB.APEX + 0.12) * 100)), 'jump height is clamped on the server (CLIMB: launch surface + APEX)');
         b.send({ m: [-13, -12.5, 0] }); await sleep(100); await a.close(); await b.close();
       }],
       ['snapshots: flat {s:[t, id,x,z,yaw,speed,age,...]}, rounded, only movers, never yourself; moving does not resend the slow players list', async () => {

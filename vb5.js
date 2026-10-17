@@ -6,6 +6,7 @@
 // Glue contract (ctx) is documented in docs/reports/vb5.md. Anchor id of a message arrives as ctx.a, the small argument as `arg`.
 (function (root) {
   const ACT = (typeof module !== 'undefined' && module.exports) ? require('./activity.js') : root.ACT;
+  const EXT = (typeof module !== 'undefined' && module.exports) ? require('./vbx5.js') : (root.VBX || null);   // VBX-HOOK: the extra stations S1..S4 / G1..G4 (vbx5.js, docs/reports/vaultbreaker-depth.md)
   const TYPES = ['ram', 'locksmith', 'counting', 'keystone'];
   const K = {
     HEIST_ACT_R: 1.6, ANNOUNCE_MS: 15000, BREACH_DECAY: 20, CRACKED: 50, BROKEN: 100,
@@ -64,8 +65,8 @@
   // -> 'hit' | 'miss' | null (no open attempt here). Bots: the glue-free roll 0.45 + 0.3 * skill. Opens the next attempt at once.
   function tmTap(st, ctx, p, anchor) {
     const e = st._tm[p.id]; if (!e || e.anchor !== anchor) return null;
-    const res = p.bot ? (ctx.rng() < 0.45 + 0.3 * (p.skill || 0) ? 'hit' : 'miss') : ACT.timing.judge(e.tm, ctx.now, { lat: p.lat || 0 });
-    tmOpen(st, ctx, p, anchor, e.o); return res;
+    const res = p.bot ? (ctx.rng() < 0.45 + 0.3 * (p.skill || 0) ? 'hit' : 'miss') : p._dbgHit ? 'hit' : ACT.timing.judge(e.tm, ctx.now, { lat: p.lat || 0 });   // _dbgHit: GK_DEBUG test hook (act5 actDbg)
+    tmOpen(st, ctx, p, anchor, e.o); if (ctx.H) ctx.H._tap = res; return res;
   }
   const tmClose = (st, id) => { delete st._tm[id]; };
   const meTiming = (st, id) => { const e = st._tm[id]; return e ? { a: e.anchor, t0: e.tm.t0, per: e.tm.per, wa: e.tm.a % 1, wb: (e.tm.a + e.tm.win) % 1 } : null; };
@@ -93,7 +94,8 @@
       if (sw.n >= K.NOTCH_MAX && ctx.now >= st.quakeCd) { st.quakeCd = ctx.now + K.QUAKE_CD; ctx.H.quakeUntil = ctx.now + K.QUAKE_FREEZE; fx(ctx, 'quake', {}, 'all'); }
       return;
     }
-    let power = sw.n * K.STRIKE_POWER * (sw.charge ? 2 : 1);
+    let power = sw.n * K.STRIKE_POWER * (sw.charge ? 2 : 1) * (sw.mul || 1);   // VBX-HOOK: the forged head and the war drum (sw.mul, set at the release)
+    if (EXT) EXT.onStrike(ctx.H);
     if (st.bar) {   // the barricade takes the blow first; only the overflow reaches the door
       const absorbed = Math.min(st.bar.hp, power); st.bar.hp -= absorbed; power -= absorbed;
       fx(ctx, 'barhit', { hp: st.bar.hp }); if (st.bar.hp <= 0) { st.bar = null; fx(ctx, 'barbreak', {}); }
@@ -112,12 +114,12 @@
             if (st.swing) return 'busy';
             if (cur != null && cur !== p.id) return 'busy';
             const other = st.handles[1 - h]; if (other === p.id) st.handles[1 - h] = null;   // one handle per goblin
-            st.handles[h] = p.id; st._hAt[h] = ctx.now; tmOpen(st, ctx, p, 'B', { per: K.WINCH_PER, win: K.WINCH_WIN }); return null;
+            st.handles[h] = p.id; st._hAt[h] = ctx.now; tmOpen(st, ctx, p, 'B', { per: K.WINCH_PER, win: EXT ? EXT.winchWin(ctx.H, K.WINCH_WIN) : K.WINCH_WIN }); return null;   // VBX-HOOK: a worn winch has a narrower window
           }
           case 'FL': {
             if (st.swing) return 'busy'; if (st.notches < 2) return 'state';
             let charge = false; if (x === 1) { if (!(ctx.takeItem && ctx.takeItem(p, 'x:runecharge'))) return 'item'; charge = true; }
-            st.swing = { t0: ctx.now, n: st.notches, charge, by: p.id }; st.notches = 0; st.handles = [null, null]; st._tm = {};
+            st.swing = { t0: ctx.now, n: st.notches, charge, by: p.id, mul: EXT ? EXT.strikeMul(ctx.H, ctx.now) : 1 }; st.notches = 0; st.handles = [null, null]; st._tm = {};
             fx(ctx, 'ramdraw', { n: st.swing.n, charge }, 'near'); return null;
           }
           default: return 'state';
@@ -138,6 +140,7 @@
         if (ctx.a !== 'F') return 'state'; if (ctx.sudden) return 'state';
         if (st.bar) return 'busy'; if (st.swing) return 'busy'; if (ctx.now < st.barCd) return 'cool';
         if (chBusy(st, 'F', 'bar')) return 'busy';
+        if (x === 2) { if (!EXT || EXT.planks(ctx.H) < 1) return 'item'; return chStart(st, ctx, p, 'bar', EXT.K.PLACE_MS, 'F', 2); }   // VBX-HOOK: a plank from the workshop stock
         if (ctx.spend && !ctx.spend(p, x === 1 ? { elixir: K.BAR_ELIXIR } : { metal: K.BAR_METAL }, true)) return 'cost';   // true = dry run
         return chStart(st, ctx, p, 'bar', K.BAR_MS, 'F', x === 1 ? 1 : 0);
       },
@@ -152,7 +155,8 @@
         slack(s, p, c, cx) { s.notches = 0; fx(cx, 'slack', {}); },
         bar(s, p, c, cx) {
           if (s.bar || s.swing || !p) return;
-          if (cx.spend && !cx.spend(p, c.arg === 1 ? { elixir: K.BAR_ELIXIR } : { metal: K.BAR_METAL })) return;
+          if (c.arg === 2) { if (!EXT || !EXT.takePlank(cx.H)) return; }
+          else if (cx.spend && !cx.spend(p, c.arg === 1 ? { elixir: K.BAR_ELIXIR } : { metal: K.BAR_METAL })) return;
           s.bar = { hp: K.BAR_HP, max: K.BAR_HP, by: p.id }; s.barCd = cx.now + K.BAR_CD; fx(cx, 'barplace', {});
         },
       });
@@ -184,7 +188,7 @@
     }
     const v = ACT.heat.level(st.heat, ctx.now); if (v < K.LOUD_OFF) st.loud = false;
   }
-  const noise = (st, ctx, n) => { ACT.heat.add(st.heat, n, ctx.now); lsCheck(st, ctx); };
+  const noise = (st, ctx, n) => { ACT.heat.add(st.heat, n * (EXT && ctx.H ? EXT.noiseMul(ctx.H, ctx.now) : 1), ctx.now); lsCheck(st, ctx); };   // VBX-HOOK: felt halves, the shift change doubles
   const CUTS = ['x:lockpick', 'x:skeleton'];
   ACT.def('locksmith', {
     kind: 'vb', state0: lsState,
@@ -198,7 +202,7 @@
         if (ctx.a === 'B') {
           if (st.pins >= K.PINS) return 'state';
           if (st.pins === 0 && st._wedged[p.id]) { delete st._wedged[p.id]; st.pins = 1; }
-          tmOpen(st, ctx, p, 'B', { per: K.PIN_PER, win: K.PIN_WIN }); return null;
+          tmOpen(st, ctx, p, 'B', { per: K.PIN_PER, win: K.PIN_WIN * (EXT && ctx.H ? EXT.pinMul(ctx.H, p) : 1) }); return null;   // VBX-HOOK: Steady Hands
         }
         return 'state';
       },
@@ -364,7 +368,7 @@
         }
         const idx = STONES.indexOf(ctx.a); if (idx < 0) return 'state';
         if (chBusy(st, ctx.a)) { return st.ch.some(c => c.pid === p.id && c.anchor === ctx.a) ? null : 'busy'; }
-        return st.lit[idx] ? chStart(st, ctx, p, 'feed', K.FEED_MS, ctx.a) : chStart(st, ctx, p, 'light', K.LIGHT_MS, ctx.a);
+        return st.lit[idx] ? chStart(st, ctx, p, 'feed', EXT && ctx.H ? EXT.feedMs(ctx.H, p, K.FEED_MS) : K.FEED_MS, ctx.a) : chStart(st, ctx, p, 'light', EXT && ctx.H ? EXT.lightMs(ctx.H, p, K.LIGHT_MS) : K.LIGHT_MS, ctx.a);   // VBX-HOOK: attuned at the ritual circle
       },
       choose(st, p, x, ctx) {   // snuff a lit stone
         ksSettle(st, ctx); const idx = STONES.indexOf(ctx.a); if (idx < 0 || x !== 1 || !st.lit[idx]) return 'state';
@@ -421,6 +425,7 @@
     const H = { cells, doors: Object.assign({}, o.doors), rng, round: 1, sudden: false, order, nextOrder: derange(order, rng), revealed: false, st: {}, breach: {}, limits: ACT.limit.make(), quakeUntil: 0, wedgeAt: {}, struck: {} };
     for (const t of TYPES) H.st[t] = ACT.init(t, rng, o.now || 0);
     for (const d of Object.values(H.doors)) H.breach[d] = 0;
+    if (EXT) EXT.attach(H, rng, o.now || 0);   // VBX-HOOK
     return H;
   }
   const typeAt = (H, cell) => H.order[H.cells.indexOf(cell)] || null;
@@ -428,20 +433,27 @@
   const stOf = (H, cell) => { const t = typeAt(H, cell); return t ? H.st[t] : null; };
   const wrap = (H, cell, ctx) => Object.assign({}, ctx, { H, cell, door: H.doors[cell], round: ctx.round == null ? H.round : ctx.round, sudden: ctx.sudden == null ? H.sudden : ctx.sudden, rng: ctx.rng || H.rng });
   // ctx.a (anchor id) must be set by the caller for verbs
-  function verb(H, cell, p, v, arg, ctx) { const t = typeAt(H, cell); if (!t) return 'state'; return ACT.verb(H.st[t], t, p, v, arg, wrap(H, cell, ctx)); }
-  function tick(H, cell, ctx, dt) { const t = typeAt(H, cell); if (t) ACT.tick(H.st[t], t, wrap(H, cell, ctx), dt); }
-  function hurt(H, cell, p, ctx) { const t = typeAt(H, cell); if (t) ACT.hurt(H.st[t], t, p, wrap(H, cell, ctx)); }
-  function leave(H, cell, p, ctx) { const t = typeAt(H, cell); if (t) ACT.leave(H.st[t], t, p, wrap(H, cell, ctx)); }
+  function verb(H, cell, p, v, arg, ctx) {
+    const t = typeAt(H, cell); if (!t) return 'state'; H._tap = null;
+    if (EXT && EXT.owns(ctx.a)) { try { return EXT.verb(H, t, p, v, arg, wrap(H, cell, ctx)); } catch (e) { return 'state'; } }   // VBX-HOOK: the extra stations
+    const r = ACT.verb(H.st[t], t, p, v, arg, wrap(H, cell, ctx));
+    if (EXT && !r && t === 'counting' && v === 'buy') EXT.onWrit(H, p, arg);   // the ledger's writ log
+    return r;
+  }
+  function tick(H, cell, ctx, dt) { const t = typeAt(H, cell); if (!t) return; const c = wrap(H, cell, ctx); if (EXT) EXT.tick(H, t, c, dt); ACT.tick(H.st[t], t, c, dt); }
+  function hurt(H, cell, p, ctx) { const t = typeAt(H, cell); if (t) { if (EXT) EXT.hurt(H, t, p); ACT.hurt(H.st[t], t, p, wrap(H, cell, ctx)); } }
+  function leave(H, cell, p, ctx) { const t = typeAt(H, cell); if (t) { if (EXT) EXT.leave(H, t, p); ACT.leave(H.st[t], t, p, wrap(H, cell, ctx)); } }
   function died(H, cell, victim, killer, ctx) { const t = typeAt(H, cell); if (t) ACT.kill(H.st[t], t, killer, victim, wrap(H, cell, ctx)); }
-  const view = (H, cell, now) => { const t = typeAt(H, cell); if (!t) return null; const s = H.st[t]; if (t === 'keystone') ksSettle(s, { now, rng: H.rng }); if (t === 'counting') coSettle(s, now); return { type: t, st: (ACT.get(t).view)(s, { now }) }; };
-  const me = (H, cell, id) => { const s = stOf(H, cell); return s ? meTiming(s, id) : null; };
+  const view = (H, cell, now) => { const t = typeAt(H, cell); if (!t) return null; const s = H.st[t]; if (t === 'keystone') ksSettle(s, { now, rng: H.rng }); if (t === 'counting') coSettle(s, now); const v = (ACT.get(t).view)(s, { now }); if (EXT) v.x = EXT.view(H, t, now); return { type: t, st: v }; };
+  const me = (H, cell, id) => { const s = stOf(H, cell); if (!s) return null; const a = meTiming(s, id), b = EXT ? EXT.meTiming(H, typeAt(H, cell), id) : null; return a && b ? (b.t0 >= a.t0 ? b : a) : a || b; };   // the newest attempt (vb5's or a station's)
+  const meX = (H, cell, id) => { const t = typeAt(H, cell); return t && EXT ? EXT.meX(H, t, id) : null; };   // VBX-HOOK: my station progress / round bonuses / IOU
   // sudden death: all doors open, the heists turn into anti-claimant tools (Quake, Crown Seal, Bounty, Ward)
   const setSudden = (H, on) => { H.sudden = !!on; };
   // Ward (keystone armed in sudden death): the top claimant gains claim at half speed. Quake: claims frozen
   const wardActive = (H, now) => { const s = H.st.keystone; if (!H.sudden) return false; ksSettle(s, { now, rng: H.rng }); return s.armed; };
   const quakeActive = (H, now) => now < H.quakeUntil;
   // a panel bribe was paid anywhere: half goes into the strongbox
-  const onBribe = (H, amount, now) => { const s = H.st.counting; coSettle(s, now); s._box = Math.min(K.BOX_CAP, s._box + Math.floor(amount * K.BRIBE_SHARE)); };
+  const onBribe = (H, amount, now, who) => { const s = H.st.counting; coSettle(s, now); s._box = Math.min(K.BOX_CAP, s._box + Math.floor(amount * K.BRIBE_SHARE)); if (EXT) EXT.onBribe(H, who, amount); };   // who: {id, name, where} for the ledger
   // any kill: pay out a bounty on the victim
   const killed = (H, killer, victim, ctx) => { const s = H.st.counting; if (!killer || !victim || killer.id === victim.id || !s.bounties[victim.id]) return 0; const n = s.bounties[victim.id]; delete s.bounties[victim.id]; if (ctx.pay) ctx.pay(killer, n); return n; };
   // the claimant is gone: bounty stays (it is on the goblin; paid to whoever kills him)
@@ -457,9 +469,10 @@
   const reveal = H => { H.revealed = true; return layoutView(H, 0).vbNext; };
   // the round boundary: call AFTER the tally. ctxFor(cell) -> the glue ctx for that cell (occupants of the OLD type are converted/reset first)
   function roundBoundary(H, ctxFor) {
-    H.cells.forEach((c, i) => { const t = H.order[i]; ACT.rekey(H.st[t], t, wrap(H, c, ctxFor(c))); });
+    if (EXT) { try { EXT.roundEnd(H, t => wrap(H, cellOf(H, t), ctxFor(cellOf(H, t)))); } catch (e) { /* never block the re-key */ } }   // VBX-HOOK: auctions resolve, IOUs are collected
+    H.cells.forEach((c, i) => { const t = H.order[i]; ACT.rekey(H.st[t], t, wrap(H, c, ctxFor(c))); if (EXT) EXT.rekey(H, t, wrap(H, c, ctxFor(c))); });
     for (const d of Object.keys(H.breach)) H.breach[d] = Math.max(0, H.breach[d] - K.BREACH_DECAY);
-    ACT.limit.newRound(H.limits); H.struck = {}; H.round++;
+    ACT.limit.newRound(H.limits); H.struck = {}; H.round++; if (EXT) EXT.newRound(H);
     H.order = H.nextOrder; H.nextOrder = derange(H.order, H.rng); H.revealed = false;
     H.cells.forEach((c, i) => { const cx = ctxFor(c); (cx.fx || noop)('rekey', { cell: c, type: H.order[i] }, 'room'); });
     return layoutView(H, null);
@@ -506,7 +519,12 @@
 
   // ---------- bot goal hints. info: {now, round, sudden, gold, metal, has:(key)=>bool, aggression, greed, defend, wantVault, wantNoVault, rivalArmed}
   // -> {score, next} where next is {go:anchorId} | {verb, a, x} | null (leave). Bots take the same ACT.verb path; maxStay 45 s.
-  function botHint(H, cell, p, info) {
+  function botHint(H, cell, p, info) {   // VBX-HOOK: vb5's own hint, then the extra stations may take over (vbx5.js botHint)
+    const out = botHint0(H, cell, p, info), t = typeAt(H, cell);
+    if (EXT && t) { try { EXT.botHint(H, cell, t, p, info, out); } catch (e) { /* the plain hint stands */ } }
+    return out;
+  }
+  function botHint0(H, cell, p, info) {
     const t = typeAt(H, cell), s = H.st[t], now = info.now || 0, has = info.has || (() => false);
     const out = { score: 0, next: null, maxStay: 45000 };
     if (t === 'keystone') {
@@ -538,7 +556,8 @@
     out.next = s._tm[p.id] ? { verb: 'tap', a: 'B' } : { verb: 'use', a: 'B', x: s.handles[0] != null && s.handles[0] !== p.id ? 1 : 0 }; return out;
   }
 
-  const VB5 = { TYPES, K, NPC, TOKENS, RING, STONES, create, derange, typeAt, cellOf, stOf, verb, tick, hurt, leave, died, view, me, setSudden, wardActive, quakeActive, onBribe, killed, npcGone, wispSnuff, hitBarricade, layoutView, reveal, roundBoundary, heistVotes, roundFields, risk, botHint, ksWispGoal: (H, ctx) => ksWispGoal(H.st.keystone, ctx) };
+  if (EXT) EXT.bind(K);
+  const VB5 = { TYPES, K, NPC, TOKENS, RING, STONES, EXT, create, derange, typeAt, cellOf, stOf, verb, tick, hurt, leave, died, view, me, meX, setSudden, wardActive, quakeActive, onBribe, killed, npcGone, wispSnuff, hitBarricade, layoutView, reveal, roundBoundary, heistVotes, roundFields, risk, botHint, ksWispGoal: (H, ctx) => ksWispGoal(H.st.keystone, ctx) };
   root.VB5 = VB5;
   if (typeof module !== 'undefined' && module.exports) module.exports = VB5;
 })(typeof window !== 'undefined' ? window : globalThis);

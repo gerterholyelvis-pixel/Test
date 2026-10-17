@@ -37,8 +37,8 @@ const equipBow = async c => { c.send({ give: 'w:bow' }); await c.until(x => x.st
         await b.until(x => x.state.hit && x.state.hit.hp === SMALL_HP - MACE_ATK, 1500, 'victim sees the hit');
         eq(a.state.kills, undefined);
         eq(ms.filter(m => m.swing != null).length, 1, 'cooldown ignored: ' + JSON.stringify(ms.filter(m => m.swing != null)));
-        await sleep(600);
-        const ms2 = await swing(a); eq(hits(ms2).map(x => x.dead), [true], 'second hit kills');
+        let ms2 = []; for (let i = 1; i < Math.ceil(SMALL_HP / MACE_ATK); i++) { await sleep(600); ms2 = await swing(a); }   // BALANCE-3: the small goblin's jerkin takes three mace blows
+        eq(hits(ms2).map(x => x.dead), [true], 'the last hit kills');
         await b.until(x => x.state.died, 2000, 'died'); eq(b.state.died.by, a.state.you); assert(b.state.died.killer && b.state.died.killer.name && typeof b.state.died.killer.w === 'string' && b.state.died.killer.npc === false, 'the died message names the killer: ' + JSON.stringify(b.state.died.killer)); assert(b.state.died.brain.startsWith('m:brain:'), 'brain'); assert(b.state.died.items.includes(G.START[0].weapon), 'dropped gear');
         await a.until(x => x.state.kills === 1, 2000, 'kill count'); await a.until(x => x.state.won, 2000, 'survivor won'); assert(a.state.won.items.includes(MACE), 'winner keeps the mace');
         await a.close(); await b.close();

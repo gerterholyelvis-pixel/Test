@@ -91,15 +91,17 @@ module.exports = function create(S) {
     S.addDrop(m, p, [key]); return true;
   }
   const giveTok = (m, p, key) => { if (!G.info(key) || (TOKENS.has(key) && count(p, key))) return false; if (!S.giveItem(p, key)) return false; m.dirty = true; return true; };
-  function spend(m, p, c, dry) {
-    const gold = c.gold | 0, metal = c.metal | 0, elx = c.elixir | 0;
-    if ((p.gold || 0) < gold || ((p.parts && p.parts.metal) || 0) < metal || (elx && !(typeof p.elixir === 'number' && p.elixir >= elx))) return false;
+  function spend(m, p, c, dry) {   // gold, elixir and any parts ({metal, wood, cloth, bone, ...}: VBX stations)
+    const gold = c.gold | 0, elx = c.elixir | 0, parts = Object.keys(c).filter(k => k !== 'gold' && k !== 'elixir' && (c[k] | 0) > 0);
+    if ((p.gold || 0) < gold || (elx && !(typeof p.elixir === 'number' && p.elixir >= elx))) return false;
+    for (const k of parts) if (((p.parts && p.parts[k]) || 0) < (c[k] | 0)) return false;
     if (dry) return true;
     if (gold) { p.gold -= gold; S.sendGold(p); }
-    if (metal) { p.parts.metal -= metal; S.sendParts(p); }
+    if (parts.length) { for (const k of parts) p.parts[k] -= c[k] | 0; S.sendParts(p); }
     if (elx) { p.elixir -= elx; S.sendTo(p.ws, { elixir: p.elixir }); }
     return true;
   }
+  const addParts = (m, p, c) => { if (!p || !p.parts) return; for (const k of Object.keys(c || {})) if ((c[k] | 0) > 0) p.parts[k] = (p.parts[k] || 0) + (c[k] | 0); S.sendParts(p); m.dirty = true; };   // VBX: the supply crate
   const pay = (m, p, n) => { if (!(n > 0)) return; p.gold = (p.gold || 0) + Math.round(n); S.sendGold(p); };
   const spendElixir = (p, n) => { if (!(typeof p.elixir === 'number' && p.elixir >= n)) return false; p.elixir -= n; S.sendTo(p.ws, { elixir: p.elixir }); return true; };
   const brainOf = p => [...p.inv.backpack, ...p.inv.quick].some(k => G.isBrain(k)) ? 'goblin' : count(p, 'x:huskbrain') ? 'husk' : null;
@@ -162,6 +164,10 @@ module.exports = function create(S) {
     if (kind === 'strongbox') return 'The Counting House strongbox holds ' + Math.floor(H.st.counting._box) + ' gold';
     if (kind === 'circuit') { const ks = H.st.keystone; return 'The Keystone circuit: ' + ks.order.join(' > '); }
     if (kind === 'vbNext') { const n = VB5.layoutView(H, 0).vbNext; return 'Next re-key: ' + VB_CELLS.map(c => TYPE_NAME[n[c]] + ' ' + LABEL[SIDE_OF[c]]).join(', '); }
+    if (kind === 'vault') {   // VBX: the Ram's siege tower looks over the vault door
+      const inside = occ(m, VK), cv = VAULT5.view(A.vault, { now: Date.now() }), top = cv.claims && cv.claims[0];
+      return 'The vault: ' + (inside.length ? inside.length + ' inside (' + inside.slice(0, 3).map(q => q.name || 'a goblin').join(', ') + ')' : 'empty') + (top ? '; ' + (top.name || 'a goblin') + ' leads the claim, ' + Math.floor(top.s || 0) + ' s' : '') + ((cv.bars || []).length ? '; barred: ' + cv.bars.join(' ') : '');
+    }
     return null;
   }
 
@@ -202,6 +208,9 @@ module.exports = function create(S) {
       topClaimant: () => VAULT5.topClaimant(A.vault), doorLabel: d => LABEL[DIR_OF_DOOR[d]] || 'vault',
       doorOpen: dir => S.isOpen(m, DOOR_OF_DIR[dir]), doorBroken: dir => (A.H.breach[DOOR_OF_DIR[dir]] || 0) >= VB5.K.BROKEN,
       relicTaken: () => !!m.relicTaken, roomKind: k => VAULT5.kindOf(k), carryBlocks: p => !!(p.carry && p.carry.heavy),
+      // VBX (vbx5.js): a private event, parts, an item into the pack or at the feet, a toast to the vault's or this room's occupants
+      fxTo: (p, k, d) => { if (p && p.ws) send(p, { actFx: Object.assign({ r: key }, d || {}, { k }) }); }, parts: (p, c) => addParts(m, p, c), give: (p, k) => give(m, p, alias(k)),
+      toastVault: text => { for (const q of occ(m, VK)) send(q, { toast: String(text) }); }, toastRoom: text => { for (const q of occ(m, key)) send(q, { toast: String(text) }); },
     };
   }
 
@@ -296,6 +305,7 @@ module.exports = function create(S) {
       const tm = VB5.me(A.H, key, p.id), s = VB5.stOf(A.H, key);
       if (tm) o.timing = { a: tm.a, t0: srv(tm.t0), per: tm.per, wa: tm.wa, wb: tm.wb, curve: 'saw' };
       const c = s && s.ch.find(x => x.pid === p.id); if (c) o.chan = { a: c.anchor, t0: srv(c.t0), ms: c.ms, n: c.k };
+      const vx = VB5.meX ? VB5.meX(A.H, key, p.id) : null; if (vx) o.vx = vx;   // VBX: station progress, Steady Hands / Attuned, my IOU
     } else if (kd === 'vault') {
       for (const k of Object.keys(A.vault.ch)) { const c = A.vault.ch[k]; if (c.by === p.id) { o.chan = { a: k, t0: srv(c.t0), ms: c.ms }; break; } }
     }
@@ -386,7 +396,7 @@ module.exports = function create(S) {
       else r = ACT.verb(A.vault, 'vault', p, a.v, { a: a.a, x: a.x }, c);
     } catch (e) { oops('verb', e); r = 'state'; }
     if (r) return send(p, { actFail: FAILS.includes(r) ? r : 'state' });
-    if (a.v === 'tap') send(p, { actFx: { r: a.r, k: progress(viewOf(m, a.r, now)) > before ? 'hit' : 'miss' } });
+    if (a.v === 'tap') send(p, { actFx: { r: a.r, k: kd === 'vb' && A.H._tap ? A.H._tap : progress(viewOf(m, a.r, now)) > before ? 'hit' : 'miss' } });   // VBX: the vaultbreaker judge says what it judged (a station press moves no notch or pin)
     const e = A.sent[a.r]; if (e) e.t = 0;   // let the next tick send the new state at once
   }
 
@@ -499,7 +509,7 @@ module.exports = function create(S) {
     if (!m.act || p.room !== VK) return false; prep(p);
     return VAULT5.sealClaim(m.act.vault, p, ctx(m, VK, Date.now()));
   }
-  const bribe = (m, amount) => { if (m.act && amount > 0) VB5.onBribe(m.act.H, amount, Date.now()); };   // half of every panel bribe goes into the strongbox
+  const bribe = (m, amount, p) => { if (m.act && amount > 0) VB5.onBribe(m.act.H, amount, Date.now(), p ? { id: p.id, name: p.name, where: roomLabel(m, p.room) } : null); };   // half of every panel bribe goes into the strongbox; the payer goes in the Counting House ledger (VBX)
 
   // ---- GK_DEBUG test hooks: {actDbg: {tree:[cell, type], vb:[t7, t11, t13, t17], claim: ms, breach:[doorId, v], npcs: bool, elixir: n, metal: n}} (any subset)
   function debug(m, p, d) {
@@ -510,6 +520,10 @@ module.exports = function create(S) {
     if (Number.isFinite(d.claim)) A.vault.cap.acc[p.id] = Math.max(0, d.claim);
     if (Array.isArray(d.breach) && A.H.breach[d.breach[0]] != null && Number.isFinite(d.breach[1])) { A.H.breach[d.breach[0]] = Math.max(0, Math.min(100, d.breach[1])); S.broadcastRound(m); }
     if (typeof d.npcs === 'boolean') A.noSpawn = !d.npcs;   // {npcs:false}: no activity NPCs in this match (deterministic tests)
+    if (typeof d.hit === 'boolean') { if (d.hit) Object.defineProperty(p, '_dbgHit', { value: true, configurable: true, writable: true }); else delete p._dbgHit; }   // VBX tests: every vaultbreaker timing press of this goblin hits
+    if (d.parts && typeof d.parts === 'object') { for (const k of Object.keys(d.parts)) if (p.parts && k in p.parts && Number.isFinite(d.parts[k])) p.parts[k] = Math.max(0, d.parts[k] | 0); S.sendParts(p); }
+    if (Number.isFinite(d.gold)) { p.gold = Math.max(0, d.gold | 0); S.sendGold(p); }
+    if (Number.isFinite(d.box)) A.H.st.counting._box = Math.max(0, Math.min(VB5.K.BOX_CAP, d.box));
     if (Number.isFinite(d.elixir)) p.elixir = Math.max(0, d.elixir);
     if (Number.isFinite(d.metal)) { p.parts.metal = Math.max(0, d.metal | 0); S.sendParts(p); }
     S.sendTo(p.ws, { actDbg: { trees: m.trees, vb: m.vb } });

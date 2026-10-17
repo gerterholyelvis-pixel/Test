@@ -70,6 +70,72 @@
     },
   };
 
+  // ---- VBX: the extra stations of the vaultbreakers (vbx5.js, docs/reports/vaultbreaker-depth.md) at S1..S4 and the Keystone's ritual plates G1..G4. x = st.x, my part = me.vx
+  const XA = /^(S[1-4]|G[1-4])$/;
+  const mineT = (me, a) => !!(me.timing && me.timing.a === a);
+  const VX = {
+    ram(a, x, me, env, st) {
+      if (a === 'S1') return list(x.head < 2 && act('E', 'Forge a ram head (3 metal)', 'use', 'S1', 0, true), x.wear > 0 && act('R', 'Repair the winch (1 metal)', 'use', 'S1', 1, true));
+      if (a === 'S2') return (me.vx && me.vx.climbed) ? [] : [act('E', 'Climb the siege tower', 'use', 'S2', null, true)];
+      if (a === 'S3') {
+        if (x.crate) return [act('E', 'Take the supply crate', 'pick', 'S3')];
+        return list(x.planks < 3 && act('E', 'Saw planks (2 wood)', 'use', 'S3', 0, true), x.planks > 0 && st.bar && act('R', 'Reinforce the barricade with a plank', 'use', 'S3', 1, true), x.planks > 0 && act('Q', 'Smash a plank (spoils the stock)', 'choose', 'S3', 9, true));
+      }
+      if (a === 'S4') return [mineT(me, 'S4') ? act('E', 'Strike the drum with the needle in the window', 'tap', 'S4') : act('E', 'Beat the war drum', 'use', 'S4')];
+      return [];
+    },
+    locksmith(a, x, me, env) {
+      const vx = me.vx || {};
+      if (a === 'S1') { if (mineT(me, 'S1')) return [act('E', 'Cut with the needle in the window', 'tap', 'S1')]; return has(env, 'x:blank') && !has(env, 'x:skeleton') ? [act('E', 'Cut a Skeleton Key at the bench', 'use', 'S1')] : []; }
+      if (a === 'S2') { if (mineT(me, 'S2')) return [act('E', 'Set the practice pin in the window', 'tap', 'S2')]; return vx.steady ? [] : [act('E', 'Practise on the pin board', 'use', 'S2')]; }
+      if (a === 'S3') return x.felt ? [act('E', 'Strip the felt (lets the noise out)', 'choose', 'S3', 9, true)] : [act('E', 'Wrap the tools in felt (1 cloth)', 'use', 'S3', null, true)];
+      if (a === 'S4') return x.jam ? [] : [act('E', 'Turn the first dial', 'use', 'S4', 0), act('R', 'Turn the second dial', 'use', 'S4', 1), act('Q', 'Turn the third dial', 'use', 'S4', 2)];
+      return [];
+    },
+    counting(a, x, me, env) {
+      const vx = me.vx || {};
+      if (a === 'S1') return [mineT(me, 'S1') ? act('E', 'Sort the coin in the window', 'tap', 'S1') : act('E', 'Sort coins on the belt', 'use', 'S1')];
+      if (a === 'S2') {
+        const L = x.lot;
+        if (L) { if (L.sid === env.uid) return L.bid0 == null ? [act('E', 'Withdraw your ' + L.name, 'choose', 'S2', 9)] : []; return L.bid0 === env.uid ? [] : [act('E', 'Bid ' + L.next + ' gold on the ' + L.name, 'buy', 'S2', 0)]; }
+        const j = env.junk && env.junk(); return j ? [act('E', 'Auction your ' + j.name, 'use', 'S2', j.slot)] : [];
+      }
+      if (a === 'S3') return [act('E', 'Read the ledger (5 gold)', 'use', 'S3', null, true)];
+      if (a === 'S4') {
+        if (vx.debt) return [act('E', 'Repay your IOU (' + vx.debt + ' gold)', 'choose', 'S4', 0)];
+        return list(!env.sudden && act('E', 'Borrow 40 gold (repay 50 next round)', 'use', 'S4', 0), x.notes > 0 && act('R', 'Buy an IOU note (40 gold, collect 50)', 'buy', 'S4', 0));
+      }
+      return [];
+    },
+    keystone(a, x, me, env) {
+      const vx = me.vx || {}, R = x.rite;
+      if (a === 'S1') { if (mineT(me, 'S1')) return [act('E', 'Carve the stroke in the window', 'tap', 'S1')]; return has(env, 'x:runecharge') ? [] : [act('E', vx.carve != null ? 'Go on carving the Rune Charge' : 'Carve a Rune Charge (1 metal, 1 bone)', 'use', 'S1')]; }
+      if (a === 'S2') return vx.attuned || (R && R.by !== env.uid) ? [] : [act('E', R ? 'Begin the rite again' : 'Begin the rite', 'use', 'S2')];
+      if (a[0] === 'G') return R && R.by === env.uid && !R.show ? [act('E', 'Step on this glyph', 'use', a)] : [];
+      if (a === 'S3') {
+        const rc = env.slotOf && (env.slotOf('x:runecharge') ?? env.slotOf('x:goldleaf')), j = env.junk && env.junk();
+        return list(j && act('E', 'Offer your ' + j.name, 'use', 'S3', j.slot, true), rc != null && act('R', 'Offer it for a vision of the next re-key', 'use', 'S3', rc, true));
+      }
+      if (a === 'S4') return x.node && x.node.holder === env.uid ? [act('E', 'Hold the ley node (touch it now and then)', 'use', 'S4')] : [act('E', 'Attune to the ley node, then stay on it', 'use', 'S4')];
+      return [];
+    },
+  };
+  // the HUD arc label of a station channel, the sound of an actFx event (audio.js names) and the art drivers (rooms5art-vault.js EXTRAS setters)
+  const LABELX = { forge: 'Forging a ram head', repair: 'Repairing the winch', climb: 'Climbing', saw: 'Sawing planks', reinforce: 'Reinforcing', smash: 'Smashing a plank', felt: 'Wrapping in felt', strip: 'Stripping the felt', ledger: 'Reading the ledger', offer: 'Offering' };
+  const SOUNDX = { hit: 'timingHit', miss: 'timingMiss', drum: 'drumBeat', forged: 'craft', repaired: 'craft', sawn: 'craft', tower: 'rewardChime', crate: 'chest', crateland: 'chest', smashed: 'hit', click: 'lockpickClick', scrape: 'timingMiss', keycut: 'pickup', steady: 'rewardChime',
+    felt: 'useSoft', strip: 'useSoft', shift: 'riskWarn', safeopen: 'chest', sort: 'coinCount', lot: 'gavel', bid: 'coins', sold: 'gavel', loan: 'buy', note: 'buy', repaid: 'buy', rush: 'riskWarn', ledger: 'invOpen',
+    stroke: 'runeChime', chip: 'timingMiss', carved: 'rewardChime', rite: 'runeChime', glyph: 'runeChime', attuned: 'ward', backlash: 'zap', offered: 'ward', vision: 'ward', ley: 'captureTick', surge: 'riskWarn' };
+  const sound = f => (f && SOUNDX[f.k]) ? { name: SOUNDX[f.k], o: f.k === 'glyph' ? { freq: [523.3, 659.3, 784, 1046.5][f.i | 0] } : f.k === 'drum' ? { pitch: 1 + 0.05 * (f.chant | 0) } : {} } : null;
+  const TOASTX = { crateland: 'A supply crate landed at the workshop', shift: 'Shift change: every sound carries twice as far', rush: 'The rush: the belt pays double', surge: 'The ley line surges', steady: 'Steady Hands: the pins feel easier this round', attuned: 'Attuned: the stones light faster this round', safeopen: 'The master safe swings open', keycut: 'A Skeleton Key, cut true' };
+  const callX = (o, fn, ...a) => { try { if (o && typeof o[fn] === 'function') o[fn](...a); } catch (e) {} };
+  function driveX(sk, type, x, now) {   // now: server-clock epoch ms of the actS (absolute times in x are epoch ms)
+    if (!sk || !x) return; const run = x.run || [], on = a => run.includes(a), lit = t => (t | 0) > now;
+    if (type === 'ram') { callX(sk, 'setHeads', x.head | 0); callX(sk, 'setWear', x.wear | 0); callX(sk, 'setPlanks', x.planks | 0); callX(sk, 'setCrate', !!x.crate); callX(sk, 'setChant', x.chant | 0); callX(sk, 'setForging', on('S1')); callX(sk, 'setClimbing', on('S2')); callX(sk, 'setSawing', on('S3')); }
+    else if (type === 'locksmith') { callX(sk, 'setFelt', lit(x.felt)); callX(sk, 'setSafe', x.safe || [0, 0, 0], !!x.jam); callX(sk, 'setShift', lit(x.shift)); }
+    else if (type === 'counting') { callX(sk, 'setLot', x.lot ? x.lot.key : null, x.lot ? x.lot.bid | 0 : 0); callX(sk, 'setRush', lit(x.rush)); callX(sk, 'setNotes', (x.debts | 0)); callX(sk, 'setLedger', on('S3')); }
+    else if (type === 'keystone') { const R = x.rite; callX(sk, 'setRite', R && R.show ? R.show : null, R ? R.pos | 0 : 0, !!R); callX(sk, 'setNode', x.node && x.node.holder != null ? 1 : 0, !!(x.node && x.node.contested)); callX(sk, 'setSurge', lit(x.surge)); callX(sk, 'setOffering', on('S3')); }
+  }
+
   // ---- vaultbreakers: anchors B L R FL FR F
   const VB = {
     ram(a, st, me, env) {
@@ -82,7 +148,7 @@
       if (a === 'FL') return st.notches >= 2 && !st.swing ? list(act('E', 'Release the ram', 'use', 'FL', 0), has(env, 'x:runecharge') && act('R', 'Release it with a Rune Charge', 'use', 'FL', 1)) : [];
       if (a === 'F') {
         if (st.bar) return [act('E', 'Chop the barricade', 'tap', 'F')];
-        return !st.swing && !env.sudden ? list(act('E', 'Build a barricade (2 metal)', 'buy', 'F', 0, true), (env.elixir | 0) >= 10 && act('R', 'Build it with 10 elixir', 'buy', 'F', 1, true)) : [];
+        return !st.swing && !env.sudden ? list(act('E', 'Build a barricade (2 metal)', 'buy', 'F', 0, true), (env.elixir | 0) >= 10 && act('R', 'Build it with 10 elixir', 'buy', 'F', 1, true), st.x && st.x.planks > 0 && act('Q', 'Set a stocked plank barricade', 'buy', 'F', 2, true)) : [];   // VBX: the workshop stock
       }
       return a === 'FR' && st.rack > 0 ? [act('E', 'Take an Iron Wedge', 'pick', 'FR')] : [];
     },
@@ -127,6 +193,7 @@
     if (kind === 'tree') return (TREE[type] || (() => []))(a, st, me, env) || [];
     if (kind === 'vb') {
       const sack = env.sack; if (type === 'counting' && sack) return [act('E', 'Pick up the coin sack', 'pick', a, sack.id)];
+      if (XA.test(a)) return (VX[type] || (() => []))(a, st.x || {}, me, env, st) || [];   // VBX stations
       return (VB[type] || (() => []))(a, st, me, env) || [];
     }
     if (kind === 'vault') return vault(a, st, me, env) || [];
@@ -143,5 +210,5 @@
     }
     return best;
   }
-  return { options, pick, BLESS, PINS, STONE_ORDER };
+  return { options, pick, BLESS, PINS, STONE_ORDER, LABELX, TOASTX, sound, driveX };
 });

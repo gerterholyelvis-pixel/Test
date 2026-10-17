@@ -142,14 +142,16 @@
   // ROOMS5ART vaultbreaker rooms (rooms5art-vault.js, 22.5 x 15 local frame, the vault door in the local north wall z = -7.5): the B / L / R / FL / FR station footprints, the same for all 4 skins; [x, z, r]
   // The art room is 22.5 x 15 with its walls at the cell boundary; the real interior is T smaller, so game.js scales the art group by VB_SCALE (local x, z) and the circles are scaled the same way.
   const VB_SCALE = [(V - T) / V, (W - T) / W];
-  const VB_SOLIDS = [[3.9, 7, 0.58], [4.7, 7, 0.58], [5.5, 7, 0.58], [-10.65, 3.9, 0.72], [10.65, -3.9, 0.72], [-3, -5.5, 0.6], [3, -5.5, 0.6]];
+  const VB_SOLIDS = [[3.9, 7, 0.58], [4.7, 7, 0.58], [5.5, 7, 0.58], [-10.65, 3.9, 0.72], [10.65, -3.9, 0.72], [-3, -5.5, 0.6], [3, -5.5, 0.6],
+    [-6.4, -4.8, 0.65], [6.4, -4.8, 0.65], [-6.4, 3.8, 0.65], [6.8, 3.4, 0.65]];   // VBX: the four extra stations S1..S4 (vbx5.js, rooms5art-vault.js EXTRAS), the same footprint for every skin
   // the four vault coffers (two circles each, turned toward the dais), vault-centred; the art dressing is built with half = V / 2 - T / 2 (the real wall faces)
   const COFFERS = [[-8.162, -7.738], [-7.738, -8.162], [7.738, -8.162], [8.162, -7.738], [8.162, 7.738], [7.738, 8.162], [-7.738, 8.162], [-8.162, 7.738]];
   // ACT ANCHORS (shared by act5.js on the server and the activity prompts in game.js): the interaction points of the tree rooms, vaultbreakers and the vault as { id: [x, z, r] } in the room-local frame
   // (x east, z south, from the room centre; rooms5art-trees-a/b.js, rooms5art-vault.js). The B / L / R stations stand beside their doors (rooms5art-vault.js LAYOUT: +4.7 / +3.9 / -3.9 along the wall, the same as VB_SOLIDS). A vaultbreaker is turned so its local -z (the vault door) faces the vault. The server accepts an act within r + 1.4 m.
   const ACT_LOCAL = {
     tree: { C: [0, 0, 1.1], NE: [P4, -P4, 0.7], NW: [-P4, -P4, 0.7], SE: [P4, P4, 0.7], SW: [-P4, P4, 0.7], ring: [0, 0, 3.0], nook: [0, 1.95, 0.9] },
-    vb: { B: [4.7, 7.0, 1.2], L: [-10.65, 3.9, 0.8], R: [10.65, -3.9, 0.8], FL: [-3, -5.5, 0.6], FR: [3, -5.5, 0.6], F: [0, -5.0, 1.0] },
+    vb: { B: [4.7, 7.0, 1.2], L: [-10.65, 3.9, 0.8], R: [10.65, -3.9, 0.8], FL: [-3, -5.5, 0.6], FR: [3, -5.5, 0.6], F: [0, -5.0, 1.0],
+      S1: [-6.4, -4.8, 0.8], S2: [6.4, -4.8, 0.8], S3: [-6.4, 3.8, 0.8], S4: [6.8, 3.4, 0.8], G1: [6.4, -6.5, 0.4], G2: [8.1, -4.8, 0.4], G3: [6.4, -3.1, 0.4], G4: [4.7, -4.8, 0.4] },   // VBX: the extra stations; G1..G4 are the Keystone's ritual plates around S2 (floor, not solid)
     vault: { dais: [0, 0, 2.2], K1: [-8.25, -8.25, 0.9], K2: [8.25, -8.25, 0.9], K3: [8.25, 8.25, 0.9], K4: [-8.25, 8.25, 0.9], D_N: [5.7, -10.85, 0.8], D_E: [10.85, 5.7, 0.8], D_S: [-5.7, 10.85, 0.8], D_W: [-10.85, -5.7, 0.8], grate: [0, 7.25, 1.4] },
   };
   const vbRot = cell => { const [cx, cz] = rc(+cell), [vx, vz] = rc(VAULT); return Math.atan2(-Math.sign(vx - cx), -Math.sign(vz - cz)); };
@@ -202,7 +204,7 @@
         for (const q of [-1, 1]) cornerStack(key, i, q, loc, 'b' + q, uz ? -uz : -ux, !uz);
         for (const p of loc) p.art = false;   // these corners can meet the north wall's map / control panel: keep-clear zones apply (game.js still draws every listed crate)
         const ry = Math.atan2(-Math.sign(vx - cx), -Math.sign(vz - cz)), c = Math.cos(ry), s = Math.sin(ry);   // ROOMS5ART: the art's local north (the vault door wall) turned to face the vault
-        for (const [x, z, r] of VB_SOLIDS) loc.push({ k: 'vbprop', x: (x * VB_SCALE[0]) * c + (z * VB_SCALE[1]) * s, z: -(x * VB_SCALE[0]) * s + (z * VB_SCALE[1]) * c, r, art: true });
+        VB_SOLIDS.forEach(([x, z, r], j) => loc.push({ k: j < 7 ? 'vbprop' : 'vbx', x: (x * VB_SCALE[0]) * c + (z * VB_SCALE[1]) * s, z: -(x * VB_SCALE[0]) * s + (z * VB_SCALE[1]) * c, r, art: true }));
       } else if (kd === 'tree') {   // no story corner; the trunk and the type's props (TREE_SOLIDS) once the type is known, else only a trunk
         cornerStack(key, i, hashStr('solid:' + key) & 1 ? 1 : -1, loc, '');
         for (const [x, z, r] of TREE_SOLIDS[type] || [[0, 0, 1.1]]) loc.push({ k: x === 0 && z === 0 ? 'trunk' : 'tprop', x, z, r, art: true });
@@ -221,13 +223,14 @@
       if (c && type === 'mystery' && !c.home) {   // the back-corner clutter of the "?" room, authored in the room's own frame (+z toward the door, game.js buildMystery)
         for (const [k, lx, lz, r] of [['mcrate', -2.8, -2.85, 0.62], ['mcrate', -1.95, -3.2, 0.3], ['urn', 2.9, -2.9, 0.5], ['urn', 2.0, -3.15, 0.36], ['urn', 3.2, -1.7, 0.34]]) { const [x, z] = attLocal(c, lx, lz); out.push({ k, x, z, r }); }
       } else if (c && c.home) {   // the home furniture (rooms5art-home.js footprints): workbench, recycler, pump, screen, lockbox, shelves, crates
-        for (const [k, x0, z0, hx, hz] of HOME_SOLIDS) for (const q of rectCircles(k, x0 * HOME_K, z0 * HOME_K, hx * HOME_K, hz * HOME_K)) { const [x, z] = attLocal(c, q.x, q.z); out.push({ k, x, z, r: q.r }); }
+        for (const [k, x0, z0, hx, hz] of HOME_SOLIDS) for (const q of rectCircles(k, x0 * HOME_K, z0 * HOME_K, hx * HOME_K, hz * HOME_K)) { const [x, z] = attLocal(c, q.x, q.z); out.push(HOME_TOP[x0] != null ? { k, x, z, r: q.r, top: HOME_TOP[x0] } : { k, x, z, r: q.r }); }   // CLIMB: home tops
       } else if (c && (type === 'forge' || type === 'grand')) {   // the station footprint
         const S = LOOT_LAYOUT[type];
         if (type === 'forge') for (const ox of [-0.58, 0.58]) { const [x, z] = attLocal(c, S[0] + ox, S[1]); out.push({ k: 'bench', x, z, r: 0.62 }); }
         else { const [x, z] = attLocal(c, S[0], S[1]); out.push({ k: 'recycler', x, z, r: 0.82 }); }
       }
     }
+    climbTag(out);   // CLIMB: every circle gets its top height h and whether it can be stood on
     cache.set(ck, out); return out;
   };
   const typeOf = (types, id) => { const t = types && types[id]; return t && t.type ? t.type : t; };
@@ -239,14 +242,65 @@
   const PILLAR_D = V * 0.3;   // the four vault pillars stand at (+-PILLAR_D, +-PILLAR_D) from the vault centre (game.js VAULT block and blob shadows use it too)
   const PILLARS = []; for (const sx of [-1, 1]) for (const sz of [-1, 1]) PILLARS.push([sx * PILLAR_D - 0.6, sz * PILLAR_D - 0.6, sx * PILLAR_D + 0.6, sz * PILLAR_D + 0.6]);   // vault pillars (game.js rects); the vault centre is the origin
   const rectsAt = (x, z) => Math.abs(x) < V / 2 && Math.abs(z) < V / 2 ? PILLARS : [];
+  // CLIMB-BEGIN (docs/reports/climb.md): real vertical movement. Every prop circle carries h (its top height, m) and climb (a goblin can stand on it).
+  // A climbable prop is a wall only while the feet are more than STEP below its top; above that he walks over it, and groundY() is its top while his centre is within r + SUP.
+  // ONE vertical model (vstep) for client prediction and server bots; the server validates reported heights with the same constants (server.js CLIMB block).
+  const CLIMB = (() => { const APEX = 1.2, AIR = 0.6, G = 8 * APEX / (AIR * AIR), V0 = 4 * APEX / AIR, MAXTOP = 1.25;   // a normal jump peaks at 1.2 m after 0.3 s
+    return { APEX, AIR, G, V0, STEP: 0.35, SUP: 0.15, COYOTE: 0.1, BUF: 0.12, MAXTOP, MAXY: MAXTOP + APEX + 0.1, PUSHV: 5, EDGEV: 2.5, AIRMAX: 3 }; })();
+  const COVER = 0.12;   // a line of sight must pass this far above a climbable top
+  // top heights from the art (game.js crate / barrels / mystery clutter, rooms5art-*): only flat, low, sturdy tops are climbable
+  const TOPH = { crate: p => 1.012 * p.s, scrate: p => p.r > 0.37 ? 0.63 : 0.56, sbarrel: () => 0.95, tbarrel: () => 0.66, mcrate: p => p.r < 0.4 ? 0.5 : 1.57, urn: p => p.r > 0.4 ? 1.16 : 0.8, ped: () => 1.11, coffer: () => 0.8 };
+  const CLIMBK = { crate: 1, scrate: 1, sbarrel: 1, tbarrel: 1 };   // + the small mystery crate and the home tops (p.top); urns (narrow lids), the relic pedestal, coffers, stations, trees and pillars stay walls
+  const HOME_TOP = { '3.65': 0.82, '-4.25': 1.2, '-3.85': 0.3 };   // rooms5art-home.js: the two barrels, the stacked crates, the bedroll pallet (a step)
+  const TERRAIN = [{ k: 'dais', x: rc(VAULT)[0], z: rc(VAULT)[1], r: 3.35, h: 0.16 }];   // walk-on surfaces that never block (game.js VAULT dais cylinder)
+  function climbTag(out) { for (const p of out) { if (p.h != null) continue; const h = p.top != null ? p.top : TOPH[p.k] ? TOPH[p.k](p) : H; p.h = Math.round(h * 1000) / 1000; p.climb = (p.top != null || !!CLIMBK[p.k] || (p.k === 'mcrate' && p.r < 0.4)) && h <= CLIMB.MAXTOP; } }
+  function blocksAt(p, y) { return !p.climb || y < p.h - CLIMB.STEP; }
+  // the walkable surface height under (x, z): the floor (0), the dais, or the top of a climbable prop he is over. With y: only tops he can reach from there (at most a step up).
+  const groundY = (x, z, types, y, sup) => {   // sup: the support pad around a top (default SUP; the server is a little wider)
+    let g = 0; const lim = y == null ? Infinity : y + CLIMB.STEP + 1e-3, S = sup == null ? CLIMB.SUP : sup;
+    for (const t of TERRAIN) if (t.h > g && t.h <= lim && (x - t.x) * (x - t.x) + (z - t.z) * (z - t.z) < t.r * t.r) g = t.h;
+    for (const p of propsAt(x, z, types)) if (p.climb && p.h > g && p.h <= lim && (x - p.x) * (x - p.x) + (z - p.z) * (z - p.z) < (p.r + S) * (p.r + S)) g = p.h;
+    return g;
+  };
+  const topAt = (x, z, types, y) => { let best = null; for (const p of propsAt(x, z, types)) if (p.climb && Math.abs(p.h - y) < 0.03 && Math.hypot(x - p.x, z - p.z) < p.r + CLIMB.SUP) best = p; return best; };   // the prop he stands on (footstep sound, bots)
+  // one frame of the vertical model. s = { y, vy, air, coy, buf } (buf: set to CLIMB.BUF on a jump press); gy = groundY under the feet; on = input allowed. Returns '' | 'jump' | 'land' | 'step'.
+  const vstep = (s, dt, gy, on = true) => {
+    const C = CLIMB; let ev = '';
+    s.buf = on ? Math.max(0, (s.buf || 0) - dt) : 0; s.vy = s.vy || 0; s.y = s.y || 0;
+    if (!s.air) {
+      if (s.y - gy > C.STEP + 1e-3) { s.air = true; s.vy = 0; s.coy = C.COYOTE; }   // walked off a ledge: fall, a jump still counts for COYOTE
+      else { if (Math.abs(gy - s.y) > 0.02) ev = 'step'; s.y = gy; s.coy = C.COYOTE; }   // auto step up / down (<= STEP)
+    } else s.coy = Math.max(0, (s.coy || 0) - dt);
+    if (on && s.buf > 0 && (!s.air || s.coy > 0)) { s.air = true; s.vy = C.V0; s.coy = 0; s.buf = 0; ev = 'jump'; }
+    if (s.air) {
+      s.y += s.vy * dt - 0.5 * C.G * dt * dt; s.vy -= C.G * dt;
+      if (s.vy <= 0 && s.y <= gy) { s.fall = -s.vy; s.y = gy; s.vy = 0; s.air = false; s.coy = C.COYOTE; ev = 'land'; }   // landing (a ledge within a step under the feet catches him: mantle)
+    }
+    return ev;
+  };
+  // stability: depenetrate from a prop that blocks at height y (smoothly, PUSHV m/s), and slide him off an edge he is no longer supported by (EDGEV), so nobody perches on a rim or sticks inside
+  const climbPush = (x, z, y, rad, types, dt) => {
+    let ox = x, oz = z; const C = CLIMB;
+    for (const p of propsAt(x, z, types)) {
+      const dx = ox - p.x, dz = oz - p.z, d = Math.hypot(dx, dz), ux = d > 1e-6 ? dx / d : 1, uz = d > 1e-6 ? dz / d : 0; let a = 0;
+      if (blocksAt(p, y)) { if (d < p.r + rad) a = Math.min(p.r + rad - d, C.PUSHV * dt); }
+      else if (y < p.h - 0.01 && d >= p.r + C.SUP && d < p.r + rad) a = Math.min(p.r + rad - d, C.EDGEV * dt);
+      if (a > 0) { ox += ux * a; oz += uz * a; }
+    }
+    return [ox, oz];
+  };
+  // after the horizontal move (slide with y): stability push, then the vertical step. Returns [x, z, event]; game.js checks the walls for the push, the tests run exactly this.
+  const climbFrame = (s, x, z, rad, types, dt, on) => { const [px, pz] = climbPush(x, z, s.y || 0, rad, types, dt); return [px, pz, vstep(s, dt, groundY(px, pz, types, s.y || 0), on)]; };
+  // CLIMB-END
   // Push a walker of radius rad out of every footprint. (x0, z0) is where he came from. A head-on move (no progress after the push) gets turned along the surface so nobody sticks to a barrel.
-  const slide = (x0, z0, x1, z1, rad, types, withRects) => {
+  const slide = (x0, z0, x1, z1, rad, types, withRects, y) => {   // CLIMB: with a feet height y, a climbable prop whose top is within a step of y is not a wall
     const ps = propsAt(x1, z1, types), rs = withRects ? rectsAt(x1, z1) : null;
     if (!ps.length && !(rs && rs.length)) return [x1, z1];
     let x = x1, z = z1, nx = 0, nz = 0, hit = false;
     for (let it = 0; it < 3; it++) {
       let moved = false;
       for (const p of ps) {
+        if (y != null && !blocksAt(p, y)) continue;   // CLIMB
         const dx = x - p.x, dz = z - p.z, R = p.r + rad, d2 = dx * dx + dz * dz;
         if (d2 >= R * R) continue;
         const d = Math.sqrt(d2); let ux, uz; if (d > 1e-6) { ux = dx / d; uz = dz / d; } else { const e = Math.hypot(x0 - p.x, z0 - p.z) || 1; ux = (x0 - p.x) / e; uz = (z0 - p.z) / e; }
@@ -266,27 +320,27 @@
       if (st > 1e-4 && Math.hypot(x - x0, z - z0) < st * 0.3) {   // stalled head-on
         let tx = -nz, tz = nx; if (tx * (x1 - x0) + tz * (z1 - z0) < 0) { tx = -tx; tz = -tz; }
         const qx = x0 + tx * st, qz = z0 + tz * st;
-        if (!inProp(qx, qz, rad - 1e-6, types, withRects)) { x = qx; z = qz; }
+        if (!inProp(qx, qz, rad - 1e-6, types, withRects, y)) { x = qx; z = qz; }
       }
     }
     return [x, z];
   };
-  function inProp(x, z, rad, types, withRects) {
-    for (const p of propsAt(x, z, types)) if ((x - p.x) * (x - p.x) + (z - p.z) * (z - p.z) < (p.r + rad) * (p.r + rad)) return true;
+  function inProp(x, z, rad, types, withRects, y) {   // CLIMB: a feet height y skips the climbable props he stands on or above
+    for (const p of propsAt(x, z, types)) if ((y == null || blocksAt(p, y)) &&(x - p.x) * (x - p.x) + (z - p.z) * (z - p.z) < (p.r + rad) * (p.r + rad)) return true;
     if (withRects) for (const q of rectsAt(x, z)) { const cx = Math.max(q[0], Math.min(x, q[2])), cz = Math.max(q[1], Math.min(z, q[3])); if ((x - cx) * (x - cx) + (z - cz) * (z - cz) < rad * rad) return true; }
     return false;
   }
-  const segBlocked = (x0, z0, x1, z1, types, pad = 0) => {   // does the segment cross a footprint (bolts, melee line of sight)? Only the props of the start point's room count.
+  const segBlocked = (x0, z0, x1, z1, types, pad = 0, y0, y1) => {   // does the segment cross a footprint (bolts, melee line of sight)? Only the props of the start point's room count. CLIMB: y0 / y1 = the line's heights at both ends (absent: 2D, every prop shields)
     const dx = x1 - x0, dz = z1 - z0, L2 = dx * dx + dz * dz;
     for (const p of propsAt(x0, z0, types)) {
       const t = L2 > 1e-9 ? Math.max(0, Math.min(1, ((p.x - x0) * dx + (p.z - z0) * dz) / L2)) : 0, qx = x0 + dx * t - p.x, qz = z0 + dz * t - p.z, R = p.r * 0.85 + pad;
-      if (qx * qx + qz * qz < R * R) return true;
+      if (qx * qx + qz * qz < R * R && (y0 == null || !p.climb || y0 + ((y1 == null ? y0 : y1) - y0) * t < p.h + COVER)) return true;   // CLIMB: a line above a low top passes (high ground sees over crates)
     }
     return false;
   };
   const allProps = types => { const out = []; for (let i = 0; i < NARENA; i++) out.push(...solidsOf(String(i), treeTypeOf(types, i))); for (const c of CHEST) out.push(...solidsOf('c' + c.id, typeOf(types, c.id))); return out; };
   const obstaclesIn = (key, m) => solidsOf(key, key[0] === 'c' ? typeOf(m && m.layout, +key.slice(1)) : treeTypeOf(m, key) || treeTypeOf(m && m.layout, key));   // bot steering: the room's prop circles {x,z,r}
-  const api = { obstaclesIn, solidsOf, storyOf, slide, inProp, segBlocked, allProps, propsAt, rectsAt, PILLARS, PILLAR_D, RELIC, SCALE, W, V, H, T, CS, HS, N, NARENA, NATT, COLW, ROWD, COLX, ROWZ, EDGE, HALF, LIM,
+  const api = { CLIMB, groundY, vstep, climbPush, climbFrame, blocksAt, topAt, TERRAIN, obstaclesIn, solidsOf, storyOf, slide, inProp, segBlocked, allProps, propsAt, rectsAt, PILLARS, PILLAR_D, RELIC, SCALE, W, V, H, T, CS, HS, N, NARENA, NATT, COLW, ROWD, COLX, ROWZ, EDGE, HALF, LIM,
     VAULT, VAULT_KEY, TREE_CELLS, VB_CELLS, HOME_IDS, LOOT_IDS, NSIDE, SIDE_ORDER, SIDE_CELLS, HOME_POS, attachedSide, attachedPos, attachedId, attachedOf, isHomeKey, colOf, rowOf, roomW, roomD, rc, gi, roomAt, inGrid, kindOf, CHEST, chestKey, roomKeyOf, panelOffsets, panelDX, randomPoint,
     ROOMS, roomRect, DOORS, WALLS, ROOM_DOORS, HATCHES, alwaysOpen, attachedAt, homeOf, attLocal, HOME_LAYOUT, LOOT_LAYOUT, HOME_SOLIDS, HOME_K, TREE_SOLIDS, VB_SOLIDS, VB_SCALE, COFFERS, rectCircles, treeKind, treeTypeOf, ACT_LOCAL, vbRot, actAnchors, actKind };
   root.GKWORLD = api;

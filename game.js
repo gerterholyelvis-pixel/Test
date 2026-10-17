@@ -2612,7 +2612,7 @@ window.GKRULES = (() => {
   }
   function loop() {
     R.raf = 0; const now = performance.now(), live = R.bolts.size || R.crown; if (!live) return;
-    for (const [id, b] of R.bolts) { const t = (now - b.t0) / 1000; b.spr.position.set(b.x + b.vx * t, 1.1, b.z + b.vz * t); try { GKVFX.bolt(id, b.spr.position, 0xb89cff, 0.016); } catch (e) {} /* VFX */ if (t * 10 > b.range + 1) { scene.remove(b.spr); R.bolts.delete(id); } }
+    for (const [id, b] of R.bolts) { const t = (now - b.t0) / 1000; b.spr.position.set(b.x + b.vx * t, b.y != null ? b.y + 0.2 : 1.1, b.z + b.vz * t);   /* CLIMB: the server sends the bolt height */ try { GKVFX.bolt(id, b.spr.position, 0xb89cff, 0.016); } catch (e) {} /* VFX */ if (t * 10 > b.range + 1) { scene.remove(b.spr); R.bolts.delete(id); } }
     if (R.crown && R.ring) { const k = Math.min(1, (R.crown.p0 + (now - R.crown.t0) / R.crown.ms)); R.ring.geometry.setDrawRange(0, Math.max(0, Math.round(k * 96)) * 6); R.ring.rotation.z = now * 0.0006; }
     R.raf = requestAnimationFrame(loop);
   }
@@ -2634,7 +2634,7 @@ window.GKRULES = (() => {
       if (!d.crown) { R.crown = null; t.style.display = 'none'; if (R.ring) { scene.remove(R.ring); R.ring = null; } }
       else { R.crown = { p0: d.crown.p, t0: performance.now(), ms: d.crown.ms }; t.style.display = ''; t.textContent = (d.crown.id === me ? 'YOU ARE' : d.crown.name + ' IS') + ' CLAIMING THE CROWN ' + Math.ceil(d.crown.ms * (1 - d.crown.p) / 1000) + 's'; ringMesh(); kick(); }
     }
-    if (d.bolt) { const b = d.bolt, spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow(), color: 0xb89cff, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })); spr.scale.set(0.7, 0.7, 1); scene.add(spr); R.bolts.set(b.id, { spr, x: b.x, z: b.z, vx: b.vx, vz: b.vz, range: b.range, t0: performance.now() }); snd('swing', { x: b.x, z: b.z }); kick(); }
+    if (d.bolt) { const b = d.bolt, spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow(), color: 0xb89cff, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })); spr.scale.set(0.7, 0.7, 1); scene.add(spr); R.bolts.set(b.id, { spr, x: b.x, z: b.z, y: b.y, vx: b.vx, vz: b.vz, range: b.range, t0: performance.now() }); snd('swing', { x: b.x, z: b.z }); kick(); }
     if (d.boltEnd) { const b = R.bolts.get(d.boltEnd.id); if (b) { try { GKVFX.boltHit(b.spr.position, 0xb89cff); GKVFX.boltEnd(d.boltEnd.id); } catch (e) {} /* VFX */ scene.remove(b.spr); R.bolts.delete(d.boltEnd.id); } }
     if (d.showdown && !R.showdown) { R.showdown = 1; toastMsg('THREE GOBLINS LEFT: every door is open!', false, 3500); }   // PACE
     if (d.klaxon) { toastMsg('KLAXON: doors close at the end of the round!', false); for (let i = 0; i < 3; i++) setTimeout(() => snd('tickLast'), i * 350); }
@@ -3833,7 +3833,7 @@ const A_EARS = {};
     u.arms[1].userData.el.rotation.x = P.hold; u.arms[0].userData.el.rotation.x = -0.3;
     // blob shadow and name tag
     const sh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: glowTex, color: 0x000000, transparent: true, opacity: 0.55, depthWrite: false }));
-    sh.rotation.x = -Math.PI / 2; sh.position.y = 0.03; sh.scale.setScalar(1.1 * SCALE[type] * b * 1.4); root.add(sh);
+    sh.rotation.x = -Math.PI / 2; sh.position.y = 0.03; sh.scale.setScalar(1.1 * SCALE[type] * b * 1.4); root.add(sh); sh.userData.s0 = sh.scale.x; u.blob = sh;   // CLIMB: JUMP.pose keeps it on the ground under the feet
     const nameCol = type === 4 ? '#ffd75e' : type === 3 ? '#c9a6ff' : '#f1f1f1';
     const label = window.GKTAGS ? window.GKTAGS.nameTag(NAMES[type], nameCol) : new THREE.Sprite(new THREE.SpriteMaterial({ map: textTex(NAMES[type], nameCol, null, 512, 96, 'bold 52px system-ui'), transparent: true, depthWrite: false }));   // UI-TAGS: one shared atlas texture (client/ui/tags.js)
     if (!window.GKTAGS) label.scale.set(1.6, 0.3, 1); label.position.y = (GOB_TAGY[type] || 1.95) * SCALE[type]; root.add(label); u.label = label;   // UNIQUE: tag above the wizard hat / king crown
@@ -3860,7 +3860,7 @@ const A_EARS = {};
     u.legs[0].rotation.z = -(0.03 + 0.07 * walk * S2); u.legs[1].rotation.z = 0.03 + 0.07 * walk * S2;
     u.legs[0].scale.y = 1 + 0.15 * S2 * walk - 0.15 * lift0; u.legs[1].scale.y = 1 + 0.15 * S2 * walk - 0.15 * lift1;
     u.legs[0].position.y = u.legs[1].position.y = 0.58;
-    const sw = a.swing > 0 && a.swing < 1 ? a.swing : -1, ant = sw < 0 ? 0 : sstep(0, 0.28, sw) * (1 - sstep(0.28, 0.46, sw)), lun = sw < 0 ? 0 : sstep(0.28, 0.46, sw) * (1 - sstep(0.52, 1, sw));   // swing: wind up (crouch, lean back), then lunge
+    const sw = a.swing > 0 && a.swing < 1 ? a.swing : a.chg ? 0.25 : -1, ant = sw < 0 ? 0 : sstep(0, 0.28, sw) * (1 - sstep(0.28, 0.46, sw)), lun = sw < 0 ? 0 : sstep(0.28, 0.46, sw) * (1 - sstep(0.52, 1, sw));   // swing: wind up (crouch, lean back), then lunge
     if (sw >= 0) { u.legs[0].rotation.x += 0.3 * lun - 0.1 * ant; u.legs[1].rotation.x += -0.3 * lun + 0.1 * ant; u.legs[0].scale.y -= 0.06 * ant; u.legs[1].scale.y -= 0.06 * ant; }
     rig.position.y = -0.115 * sc * S2 * S2 * walk - 0.035 * f - 0.05 * sc * ant; rig.rotation.z = S * 0.075 * walk + Math.sin(t * 0.7 + id * 2.1) * 0.018 * idle; rig.rotation.x = 0.05 * walk + 0.12 * run - 0.1 * ant + 0.16 * lun;
     const sq = (1 - 2 * S2) * walk;   // stretched while the legs pass under the body, squashed when they spread
@@ -4067,7 +4067,7 @@ function invAll(inv) { return [inv.weapon, inv.armor, inv.charm, ...inv.backpack
 function makeNet(opts) {   // opts.goblin: play this goblin type (a saved character) instead of rolling one
   if (!window.GK_OFFLINE) {
     // SECURITY: the server rolls the goblin and owns the victories. A saved character only sends its signed token (empty = an old character without one: the server rolls a new goblin and says so).
-    const joinUrl = () => { let tk = ''; try { const c = opts && opts.charId != null && window.GKSAVE ? GKSAVE.getCharacter(+opts.charId) : null; if (c) tk = c.token || ''; else if (opts && opts.charId != null) tk = ''; } catch (e) {} return funUrl((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + (opts && opts.charId != null ? '/?ctoken=' + encodeURIComponent(tk) : '')); };
+    const joinUrl = () => { let tk = ''; try { const c = opts && opts.charId != null && window.GKSAVE ? GKSAVE.getCharacter(+opts.charId) : null; if (c) tk = c.token || ''; else if (opts && opts.charId != null) tk = ''; } catch (e) {} return funUrl((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + (opts && opts.charId != null ? '/?ctoken=' + encodeURIComponent(tk) + (window.GKKEEPUI ? GKKEEPUI.joinQuery(opts.charId, opts.bring) : '') : '')); };   // KEEP: the signed stash and the chosen loadout
     const tokUrl = tk => (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/?token=' + encodeURIComponent(tk);   // SOCIAL: resume a player inside the grace period
     let ws = new WebSocket(opts && opts.resume ? tokUrl(opts.resume) : joinUrl()), busyRetry = false;
     let lastM = '', lastMT = 0;   // NET: my position goes out only when it changed (plus a 1 s keepalive); attacks carry the server time I was seeing
@@ -4423,7 +4423,7 @@ const handleMsg0 = d => {
   if (d.s) return netSnap(d.s);   // NET: fast position snapshots (hot path)
   if (d.pong != null) return netPong(d);
   if (d.emote || d.token || d.resumed || d.resumeFail) SOC.onMsg(d);   // SOCIAL
-  if (d.fix) { NETC.fix = d.fix; NETC.fixN++; NETC.fixT.push(performance.now()); }   // PERF4: counted for GK.net.stats()
+  if (d.fix) { NETC.fix = d.fix; NETC.fixN++; NETC.fixT.push(performance.now()); JUMP.fix(d.fix); }   // PERF4: counted for GK.net.stats(); CLIMB: a third element is my corrected feet height
   /* FEEL-BEGIN */ if (GK.feel) GK.feel.onMsg(d); /* FEEL-END */
   if (window.GKACT5) GKACT5.pre(d);   // ACT5UI: breach by door -> by side, arc labels
   if (GK.r5) GK.r5.onMsg(d);   // ROOMS5ART: trees / vb / treasury / crown / breach fields and the match start / end
@@ -4448,13 +4448,15 @@ const handleMsg0 = d => {
   if (d.lootFail) lootFailFx(d.lootFail);
   if (GK.fun) GK.fun.onMsg(d);   // FUN: kill feed, board, match summary
   if (window.GKSTATSUI) GKSTATSUI.onMsg(d);   // STATS: lifetime stats recorder (statsui.js)
+  if ((d.keep || d.keepOffer) && window.GKKEEPUI) GKKEEPUI.onMsg(d, GK.charId);   // KEEP: stash token updates, bring-in notices, the consolation offer
   if (window.GKLOOT) GKLOOT.onMsg(d);   // LOOT: vault relic, thrown plushie
   if (window.GKHOMEW) GKHOMEW.onMsg(d);   // ELIXIR: counter, Elixir Screen state, toasts, send effects
   if (window.GKUSE) GKUSE.onMsg(d);   // UTILITY: used items, thrown bombs, smoke
   if (window.GKRULES) GKRULES.onMsg(d);   // RULES: experimental rules (inert unless the server advertises them)
   if (d.died) showDeathScreen(d.died);
   if (d.won) showVictory(d.won);
-  if (d.swing != null || d.hit || d.kills != null || d.match || d.dodge || d.swr || d.proj || d.projEnd || d.c4g) combatMsg(d);   // COMBAT (COMBAT4: + dodge, which never reached combatMsg, swing results, projectiles, blocks)
+  if (d.swing != null || d.hit || d.kills != null || d.match || d.dodge || d.swr || d.proj || d.projEnd || d.c4g) combatMsg(d);   // COMBAT (BALANCE-3: a lone {dodge} used to be dropped; COMBAT4: swing results, projectiles, blocks)
+  if (d.dash != null || d.charge != null || (d.hit && (d.hit.bs || d.hit.rage || d.hit.heavy))) GK.abil && GK.abil.onMsg(d);   // ABILITY
   if (d.you) me = d.you;
   if (d.dbg === 1 || (d.matchStart && d.matchStart.dbg === 1)) GK.dbg = true;   // DEV: the server runs with GK_DEBUG (shows the skip-to-0:10 button)
   if (d.round || d.sel || d.open) applyRound(d);
@@ -5165,7 +5167,8 @@ function showVictory(info) {
   const ms = performance.now() - run.t0, secs = Math.floor(ms / 1000), n = GK.roundInfo ? GK.roundInfo().n : 0;
   const items = ((info && info.items) || []).filter(k => k != null);
   const from = GK.charId;
-  let c = null; try { c = window.GKSAVE.recordWin({ charId: from, goblin: type, items, parts: (info && info.parts) || {}, token: info && info.ctoken, name: GK.fun && GK.fun.myName && GK.fun.myName() }); if (c && c.id != null) GK.charId = c.id; } catch (e) { c = null; }
+  const keepO = info && info.keep && window.GKKEEPUI ? info.keep : null;   // KEEP: the server's "choose what to keep" offer
+  let c = null; try { c = window.GKSAVE.recordWin({ charId: from, goblin: type, items, parts: (info && info.parts) || {}, token: info && info.ctoken, name: GK.fun && GK.fun.myName && GK.fun.myName(), keep: keepO }); if (c && c.id != null) GK.charId = c.id; } catch (e) { c = null; }
   const wins = c && c.wins != null ? c.wins : (GK.wins | 0) + 1;
   closeInv(true); closeShop(true); GK.mode = 'win'; inside = false; { const sd = document.getElementById('gkSudTag'); if (sd) sd.remove(); } keys.clear(); hideHotbar(); GK.social.clear();   // SOCIAL: match won, nothing to resume
   try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
@@ -5177,17 +5180,18 @@ function showVictory(info) {
   const whero = [[rsTime(secs), 'Survived'], [n || 1, 'Round'], [wins, wins === 1 ? 'Victory' : 'Victories']];
   const wsub = c ? '<b>' + esc(c.name) + '</b> now has <b>' + wins + '</b> victor' + (wins === 1 ? 'y' : 'ies') : 'Your run is won';
   winEl = rsShow('win', rsCard({ big: 'Victory', sub: wsub, hero: whero, rows: rows.filter(r => !['Survived', 'Round reached', 'Victories'].includes(r[0])),
-    mid: '<div class="rs-h">Items you keep</div><div id="winItems" class="rs-items"></div>' + (partsStr ? '<div class="rs-note">Materials kept: ' + esc(partsStr) + '</div>' : ''),
-    note: c ? 'Saved to your stash, along with ' + esc(c.name) : 'Saved to your stash', btns: [['winQueue', 'Queue again', true], ['winMenu', 'Main menu']] }));
+    mid: keepO && c ? '<div id="winKeep"></div>' : '<div class="rs-h">Items you keep</div><div id="winItems" class="rs-items"></div>' + (partsStr ? '<div class="rs-note">Materials kept: ' + esc(partsStr) + '</div>' : ''),   // KEEP
+    note: keepO && c ? esc(c.name) + ' is saved with its victories' : c ? 'Saved to your stash, along with ' + esc(c.name) : 'Saved to your stash', btns: [['winQueue', 'Queue again', true], ['winMenu', 'Main menu']] }));
   winStageStart(type);
+  const kc = keepO && c ? GKKEEPUI.chooser($('winKeep'), c.id, keepO, { inline: true }) : null, viaKeep = f => () => { if (!kc) return f(); kc.finish().then(f, f); };   // KEEP: leaving the card keeps the current choice
   const box = $('winItems');
-  if (!items.length) box.innerHTML = '<span style="color:var(--mut)">nothing</span>';
-  for (const k of items) {
+  if (box && !items.length) box.innerHTML = '<span style="color:var(--mut)">nothing</span>';
+  if (box) for (const k of items) {
     const d = document.createElement('div'); d.className = 'rs-item';
     d.appendChild(mkIcon(k, 44)); const t = document.createElement('span'); t.textContent = itemName(k) + (tierN(k) != null ? ' (T' + tierN(k) + ')' : ''); d.appendChild(t); box.appendChild(d);
   }
-  $('winQueue').onclick = () => { try { sessionStorage.setItem('gk.requeue', '1'); if (from != null) sessionStorage.setItem('gk.requeueChar', String(from)); } catch (e) {} location.reload(); };
-  $('winMenu').onclick = () => location.reload();
+  $('winQueue').onclick = viaKeep(() => { try { sessionStorage.setItem('gk.requeue', '1'); if (GK.charId != null) sessionStorage.setItem('gk.requeueChar', String(GK.charId)); } catch (e) {} location.reload(); });   // KEEP: requeue as the character just saved (a first win makes a new one)
+  $('winMenu').onclick = viaKeep(() => location.reload());
   $('winQueue').focus();
 }
 GK.showVictory = showVictory;
@@ -5652,7 +5656,7 @@ function fxResize() {
   const pr = renderer.getPixelRatio(); fxMat.uHeight.value = innerHeight * pr;
   if (fx) { fx.composer.setPixelRatio(pr); fx.composer.setSize(innerWidth, innerHeight); }
 }
-// GFX2 quality presets (Settings > Graphics quality, GK.settings.gfx): post chain, ambient occlusion, pixel ratio cap, texture anisotropy
+// GFX2 quality presets (Settings > Graphics > Quality preset, GK.settings.gfx): post chain, ambient occlusion, pixel ratio cap, texture anisotropy
 const FXQ = {
   low: { post: false, ao: 0, pr: 1, aniso: 2 },        // plain render (context MSAA), no composer
   medium: { post: true, ao: 0, pr: 1.5, aniso: 4 },    // composer: MSAA 4x HDR target, bloom, vignette/grain
@@ -7560,7 +7564,7 @@ function combatMsg(d) {   // server messages: swing, hit, kills, match (goblins 
       v.hp = h.hp; v.maxHp = h.max; v.hitT = h.bleed ? 0 : CB.HIT;   /* WEAPONS3: a bleed tick is just a number, no lean or flash */
       const dx = f ? v.x - f.x : 0, dz = f ? v.z - f.z : 1, l = Math.hypot(dx, dz) || 1; v.kx = dx / l; v.kz = dz / l;
       const y = (h.to === me ? 1.4 : 2.0) * (SCALE[v.goblin] || 1);
-      combatFloat('-' + h.dmg + (h.cr ? '!' : ''), C4C.v3.set(v.x, y, v.z), h.blk ? '#a9bccc' : h.cr ? '#ff8a3a' : h.from === me ? '#ffd75e' : '#ffffff', h.cr || h.dead ? 0.62 : 0.5);   /* COMBAT4: crit (backstab / rage) and blocked cues */
+      combatFloat('-' + h.dmg + (h.bs || h.rage ? '!' : ''), C4C.v3.set(v.x, y, v.z), h.blk ? '#a9bccc' : h.bs || h.rage ? '#ff8a3a' : h.from === me ? '#ffd75e' : '#ffffff', h.bs || h.rage || h.dead ? 0.62 : 0.5);   /* COMBAT4: crit (backstab / rage) and blocked cues */
       if (!h.bleed && !c4Flash(v.x, 1.0 * (SCALE[v.goblin] || 1), v.z)) { const burst = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff3a2a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.9 }));   // red hit flash on the victim (sprite only, no lights)
       burst.scale.set(1.3, 1.3, 1); burst.position.set(v.x, 1.0 * (SCALE[v.goblin] || 1), v.z); scene.add(burst); CB.floats.push({ sp: burst, t: 0, flash: true }); }
     }
@@ -8158,44 +8162,118 @@ const SOC = (() => {
 })();
 GK.social = SOC;
 // SOCIAL-END
-// JUMP-BEGIN (Space: a cosmetic hop. y moves only my camera, my goblin, the viewmodel and the snapshot; collision, doors, ranges and hits stay 2D, so jumping dodges nothing; server side is the JUMP block in server.js)
+// JUMP-BEGIN (Space: a real jump. CLIMB: one vertical model shared with the server (world.js vstep / groundY): gravity, 1.2 m apex, auto step <= 0.35 m, coyote time, a jump buffer,
+// crate tops you can stand on; the server validates the height like x / z (server.js JUMP block). docs/reports/climb.md)
 const JUMP = (() => {
-  const H = 0.9, T = 0.55, G = 8 * H / (T * T), V0 = 4 * H / T, COYOTE = 0.08, BUF = 0.1, DIPT = 0.26;   // 0.9 m apex, 0.55 s in the air
-  const J = { y: 0, vy: 0, air: false, buf: 0, coy: COYOTE, dipT: 9 };
+  const C = WORLD.CLIMB, DIPT = 0.26;
+  const J = { y: 0, vy: 0, air: false, buf: 0, coy: C.COYOTE, dipT: 9, cy: 0, force: false, dipK: 1, top: null, hint: (() => { try { return localStorage.getItem('gkClimbHint') ? 9 : 0; } catch (e) { return 0; } })() };
   const active = () => GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked && spawned;
-  const dip = () => { const k = J.dipT / DIPT; return k >= 1 ? 0 : Math.sin(Math.PI * Math.min(1, k * 1.6)) * (1 - k); };   // 0..1 landing bump
-  const start = () => { J.air = true; J.vy = V0; J.coy = 0; J.buf = 0; snd('hup'); try { GKVFX.jump(P.x, P.z, vfxSurf(P.x, P.z)); } catch (e) {} /* VFX */ };
+  const dip = () => { const k = J.dipT / DIPT; return k >= 1 ? 0 : Math.sin(Math.PI * Math.min(1, k * 1.6)) * (1 - k) * J.dipK; };   // 0..1 landing bump, deeper after a long fall
+  const surf = () => J.top ? 'wood' : null;   // footstep / landing surface of the top I stand on
   J.key = e => {
     if (e.code !== 'Space') return;
     const tg = e.target && e.target.tagName; if (tg === 'INPUT' || tg === 'TEXTAREA' || e.ctrlKey || e.metaKey || e.altKey) return;
     if (!active()) return;
     e.preventDefault();   // no page scroll, no focused button pressed
-    if (!e.repeat) J.buf = BUF;
+    if (!e.repeat) J.buf = C.BUF;
   };
-  J.step = (dt, on) => {
-    if (!on) J.buf = 0; else J.buf = Math.max(0, J.buf - dt);
+  J.step = (dt, on) => {   // after the horizontal move: stability push (walls still block it), then gravity / jump / landing
     J.dipT += dt;
-    if (!J.air) { J.coy = COYOTE; if (on && J.buf > 0) start(); }   // coyote: there are no ledges yet, so the grace never decides anything; a jump pressed after walking off one would still count for 80 ms
-    if (J.air) {
-      J.y += J.vy * dt - 0.5 * G * dt * dt; J.vy -= G * dt;
-      if (J.y <= 0) { J.y = 0; J.vy = 0; J.air = false; J.dipT = 0; snd('thud'); try { GKVFX.land(P.x, P.z, vfxSurf(P.x, P.z)); } catch (e) {} /* VFX */ if (on && J.buf > 0) start(); }
-    }
+    if (!spawned) { J.y = J.cy = J.vy = 0; J.air = false; J.buf = 0; return; }
+    const y0 = J.y, [px, pz, ev] = WORLD.climbFrame(J, P.x, P.z, RAD, CHEST_ROOMS, dt, on);
+    if (px !== P.x || pz !== P.z) { if (!blocked(px, P.z)) P.x = px; if (!blocked(P.x, pz)) P.z = pz; const mine = actors.get(me); if (mine) { mine.x = P.x; mine.z = P.z; } }
+    J.top = J.air ? null : WORLD.topAt(P.x, P.z, CHEST_ROOMS, J.y);
+    if (ev === 'jump') { snd('hup'); try { GKVFX.jump(P.x, P.z, vfxSurf(P.x, P.z), y0); } catch (e) {} /* VFX */ J.force = true; }
+    else if (ev === 'land') { const f = J.fall || 0; J.dipT = 0; J.dipK = clamp(0.6 + f / 9, 0.6, 1.4); snd('thud', { surf: surf(), vol: clamp(0.5 + f / 10, 0.5, 1.1) }); try { GKVFX.land(P.x, P.z, vfxSurf(P.x, P.z), J.y); } catch (e) {} /* VFX */ J.force = true; if (J.y > 0.3) J.hint = 9; }
+    else if (ev === 'step') J.force = true;
+    // camera height: follows the arc exactly in the air, eases over a step up / down so the view never pops
+    if (J.air || !spawned) J.cy = J.y; else J.cy += (J.y - J.cy) * Math.min(1, dt * 14);
+    if (Math.abs(J.cy - J.y) > 0.6) J.cy = J.y - Math.sign(J.y - J.cy) * 0.6;
   };
-  J.camY = () => J.y - (GK.settings.bob === false ? 0 : 0.07 * dip());   // landing dip follows the head bob setting
-  J.vmY = () => (J.air ? 0.035 * clamp(J.vy / V0, -0.5, 1) : 0) - (GK.settings.bob === false ? 0 : 0.05 * dip());
-  J.tail = () => (J.y > 0.004 ? [Math.round(J.y * 100)] : []);   // 4th element of {m}: height in cm, only while airborne
-  J.pose = (a, u, id, dt) => {   // after GA.anim: ears flop (rising: down, falling: up, landing: a bounce), remote hop sounds
-    const y = a.jy || 0, py = a.jyP || 0; a.jyP = y;
-    if (id !== me && dt > 0) { const o = { x: a.x, z: a.z }; if (py < 0.01 && y > 0.03) snd('hup', o); else if (py > 0.03 && y < 0.01) snd('thud', o); }
-    const vy = dt > 0 ? (y - py) / dt : 0, air = y > 0.01;
-    let tg = air ? clamp(vy / 5, -1, 1) : 0; if (!air && py > 0.01) a.jfl = 1;   // landing: ears slap down
+  J.fix = f => { if (f.length > 2 && Number.isFinite(f[2])) { J.y = Math.min(J.y, f[2]); J.vy = Math.min(J.vy, 0); J.air = J.y > 0.01; } };   // the server put my feet lower
+  J.camY = () => J.cy - (GK.settings.bob === false ? 0 : 0.07 * dip());   // landing dip follows the head bob setting
+  J.vmY = () => (J.air ? 0.035 * clamp(J.vy / C.V0, -0.5, 1) : 0) - (GK.settings.bob === false ? 0 : 0.05 * dip());
+  J.tail = () => (J.y > 0.004 ? [Math.round(J.y * 100)] : []);   // 4th element of {m}: feet height in cm (absent = on the floor)
+  J.sendNow = () => { const f = J.force; J.force = false; return f; };   // a take-off / landing frame is sent at once, so the server sees every grounded moment
+  J.surf = () => surf();
+  J.pose = (a, u, id, dt) => {   // after GA.anim: squash and stretch, ears flop (rising: down, falling: up, landing: a bounce), remote hop sounds; feet on the surface, blob shadow on the ground under them
+    const y = a.jy || 0, py = a.jyP == null ? y : a.jyP; a.jyP = y;
+    const gy = id === me ? WORLD.groundY(a.x, a.z, CHEST_ROOMS, J.air ? J.y : y + 0.05) : WORLD.groundY(a.x, a.z, CHEST_ROOMS, y + 0.05), air = y > gy + 0.03, pAir = !!a.jAir; a.jAir = air;
+    if (id !== me && dt > 0) { const o = { x: a.x, z: a.z }; if (!pAir && air && y > py + 0.02) snd('hup', o); else if (pAir && !air) snd('thud', o); }
+    const vy = dt > 0 ? (y - py) / dt : 0;
+    let tg = air ? clamp(vy / 5, -1, 1) : 0; if (!air && pAir) { a.jfl = 1; a.jsq = -1; }   // landing: ears slap down, body squashes
     a.jfl = (a.jfl || 0) + (tg - (a.jfl || 0)) * Math.min(1, dt * (air ? 16 : 9));
+    const sk = air ? clamp(vy / C.V0, -0.6, 1) * 0.07 : (a.jsq || 0) * 0.11; a.jsq = (a.jsq || 0) * Math.max(0, 1 - dt * 9); if (Math.abs(a.jsq) < 0.01) a.jsq = 0;
+    if (u.rig && (Math.abs(sk) > 0.002 || a.jsk)) { const b = (SCALE[u.type] || 1) * (u.sz || 1), s = Math.abs(sk) > 0.002 ? sk : 0; u.rig.scale.set(b * (1 - s * 0.5), b * (1 + s), b * (1 - s * 0.5)); a.jsk = s !== 0; }
+    if (u.blob) { u.blob.position.y = gy - y + 0.03; const k = clamp(1 - (y - gy) / 2.2, 0.45, 1); u.blob.scale.setScalar(u.blob.userData.s0 * k); u.blob.material.opacity = 0.55 * k; }
+    a.gy = gy;
     if (Math.abs(a.jfl) < 0.01 || !u.earL) return;
     for (let i = 0; i < 2; i++) { const ear = i ? u.earR : u.earL, s = i ? 1 : -1; ear.rotation.z += s * 0.85 * a.jfl; ear.rotation.x += 0.3 * a.jfl; }
   };
+  // a quiet one-time hint: the first time a crate is close and in front of me, "Space: jump onto it" fades in under the crosshair for a moment (never again once I have stood on a top)
+  J.hintTick = dt => {
+    if (J.hint >= 9) { if (J.hintEl) { J.hintEl.remove(); J.hintEl = null; try { localStorage.setItem('gkClimbHint', '1'); } catch (e) {} } return; }
+    if (!active() || J.air) return;
+    let el = J.hintEl; const near = WORLD.propsAt(P.x, P.z, CHEST_ROOMS).some(p => p.climb && p.h > 0.4 && Math.hypot(p.x - P.x, p.z - P.z) < p.r + 1.6 && ((p.x - P.x) * -Math.sin(P.yaw) + (p.z - P.z) * -Math.cos(P.yaw)) > 0.3);
+    if (near && !el) { el = J.hintEl = document.createElement('div'); el.style.cssText = 'position:fixed;left:50%;top:58%;transform:translateX(-50%);z-index:6;pointer-events:none;font:600 13px/1 system-ui,sans-serif;color:#efe6cf;text-shadow:0 1px 3px #000;opacity:0;transition:opacity .4s'; el.innerHTML = '<span style="display:inline-block;padding:2px 7px;margin-right:6px;border:1px solid rgba(239,230,207,.6);border-radius:4px;font-size:11px">SPACE</span>jump onto it'; document.body.appendChild(el); }
+    if (!el) return;
+    J.hint = near ? Math.min(8, J.hint + dt) : J.hint; el.style.opacity = near && J.hint < 6 ? '0.85' : '0';
+    if (J.hint >= 6 && !near) J.hint = 9;
+  };
   return J;
 })();
+GK.jump = JUMP;
 // JUMP-END
+// ABILITY-BEGIN (docs/reports/balance-3.md; numbers in items.js ABIL, server side in server.js ABILITY): double-tap a direction or C to dash, hold the right mouse button to wind up a heavy blow
+const ABIL5 = (() => {
+  const A = () => itemsData().ABIL, st = { dashAt: -1e9, until: 0, dir: [0, 0], tap: {}, chg: 0 }, DIRS = { KeyW: [1, 0], KeyS: [-1, 0], KeyA: [0, -1], KeyD: [0, 1] };
+  const live = () => GK.mode === 'play' && !invOpen && !shopOpen && spawned && !GK.locked && !GK.carryHeavy;
+  const world = (f, s) => { let x = -Math.sin(P.yaw) * f + Math.cos(P.yaw) * s, z = -Math.cos(P.yaw) * f - Math.sin(P.yaw) * s; const l = Math.hypot(x, z); return l ? [x / l, z / l] : [-Math.sin(P.yaw), -Math.cos(P.yaw)]; };
+  function dash(f, s) {
+    const D = A() && A().DASH, now = performance.now(); if (!D || !live() || now < st.dashAt + D.cd) return;
+    st.dashAt = now; st.until = now + D.ms; st.dir = world(f, s); if (st.chg) release(false);
+    net.send({ dash: 1 }); snd('swing', { vol: 0.5 }); try { GK.feel && GK.feel.kick && GK.feel.kick(0.4); } catch (e) {}
+  }
+  function charge() {
+    const mine = actors.get(me), H = A() && A().HEAVY, now = performance.now();
+    if (!H || !live() || !mine || st.chg || !invReady || !A().heavyFor(myInv.weapon) || now < CB.nextAt) return;
+    st.chg = now; mine.chg = true; net.send({ charge: 1 });
+  }
+  function release(strike) {
+    const mine = actors.get(me), H = A().HEAVY, now = performance.now(), held = now - st.chg; st.chg = 0; if (mine) mine.chg = false;
+    if (!strike || !mine || !live() || held < H.chargeMs - 40) { net.send({ charge: 0 }); return; }
+    const cb = itemsData().combat(myInv.weapon); CB.last = now; CB.nextAt = now + cb.cd * H.cdMul;
+    mine.swing = 1e-4; vmSwing(mine, true); net.send({ atk: 1, heavy: 1 }); snd('swing', { fam: mine.vmFam });
+  }
+  addEventListener('keydown', e => {
+    if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || (e.target && /INPUT|TEXTAREA/.test(e.target.tagName))) return;
+    if (e.code === 'KeyC') { const f = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0), s = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0); dash(f, s); return; }
+    const d = DIRS[e.code]; if (!d) return; const now = performance.now();
+    if (now - (st.tap[e.code] || -1e9) < 260) { st.tap[e.code] = -1e9; dash(d[0], d[1]); } else st.tap[e.code] = now;
+  });
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+  canvas.addEventListener('mousedown', e => { if (e.button === 2) charge(); });
+  addEventListener('mouseup', e => { if (e.button === 2 && st.chg) release(true); });
+  addEventListener('blur', () => { if (st.chg) release(false); });
+  function move(dt, f, s) {   // -> extra metres this frame and a multiplier on the walk
+    const a = A(), now = performance.now(); if (!a) return { dx: 0, dz: 0, mul: 1 };
+    const v = now < st.until ? a.DASH.dist / a.DASH.ms * 1000 * dt : 0;
+    return { dx: st.dir[0] * v, dz: st.dir[1] * v, mul: st.chg ? a.HEAVY.moveMul : 1 };
+  }
+  function onMsg(d) {
+    if (d.dash != null && d.dash !== me) { const a = actors.get(d.dash); if (a) snd('swing', { x: a.x, z: a.z, vol: 0.4 }); }
+    if (d.charge != null && d.charge !== me) { const a = actors.get(d.charge); if (a) a.chg = !d.off; }   // the wind-up pose (crouch, lean back) is the warning
+    if (d.swing != null) { const a = actors.get(d.swing); if (a) a.chg = false; }
+    const h = d.hit; if (!h || (h.to !== me && h.from !== me)) return;
+    const v = actors.get(h.to); if (!v) return;
+    const tag = h.bs ? 'backstab' : h.rage ? 'rage' : h.heavy ? 'stagger' : null;
+    if (tag) combatFloat(tag, new THREE.Vector3(v.x, 2.25 * (SCALE[v.goblin] || 1), v.z), h.heavy ? '#ffb347' : '#ff7a5c', 0.36);
+    if (h.heavy && h.to === me) { const n = performance.now(), cd = itemsData().combat(invReady ? myInv.weapon : null).cd; CB.nextAt = Math.max(CB.nextAt, n + A().HEAVY.staggerMs); CB.last = Math.max(CB.last, n + A().HEAVY.staggerMs - cd); if (st.chg) release(false); }   // staggered: no swing for a moment
+  }
+  return { move, onMsg, dash, st };
+})();
+GK.abil = ABIL5;
+// ABILITY-END
 function frame(now) {
   const dt = clamp((now - last) / 1000, 0.001, 0.05); last = now; const t = now / 1000;
   PERF4.t0 = performance.now();   // PERF4: frame CPU for GK.perfProbe
@@ -8212,16 +8290,17 @@ function frame(now) {
     const sp = (GK.carryHeavy ? 4.6 * 0.7 : keys.has('ShiftLeft') || keys.has('ShiftRight') ? 7.5 : 4.6) * ((itemsData().SPEED || [])[mine.goblin] || (0.85 + 0.15 * SCALE[mine.goblin])) * (invReady && itemsData().armorSpeed ? itemsData().armorSpeed(myInv.armor) : 1) * (window.GKUSE ? GKUSE.speedMul() : 1);   // ARMOUR-2: worn armour speed   // BALANCE: class speed table (items.js SPEED, shared with the server): small fastest, big slowest
     let mx = -Math.sin(P.yaw) * f + Math.cos(P.yaw) * s, mz = -Math.cos(P.yaw) * f - Math.sin(P.yaw) * s;
     const len = Math.hypot(mx, mz) || 1; mx = mx / len * sp * dt * (f || s ? 1 : 0); mz = mz / len * sp * dt * (f || s ? 1 : 0);
+    if (GK.abil) { const ab = GK.abil.move(dt, f, s); mx = mx * ab.mul + ab.dx; mz = mz * ab.mul + ab.dz; }   // ABILITY: the dash burst, slower while winding up a heavy blow
     const ox = P.x, oz = P.z;
     if (!blocked(P.x + mx, P.z)) P.x += mx;
     if (!blocked(P.x, P.z + mz)) P.z += mz;
-    if (WORLD.slide && (mx || mz)) { const [qx, qz] = WORLD.slide(ox, oz, P.x, P.z, RAD, CHEST_ROOMS); if (qx !== P.x || qz !== P.z) { const bz0 = P.z; P.x = blocked(qx, bz0) ? ox : qx; P.z = blocked(P.x, qz) ? oz : qz; } }   // SOLID: slide around crates, barrels, urns and the pedestal (world.js footprints, shared with the server)
+    if (WORLD.slide && (mx || mz)) { const [qx, qz] = WORLD.slide(ox, oz, P.x, P.z, RAD, CHEST_ROOMS, false, JUMP.y);   /* CLIMB: tops within a step of my feet are walkable */ if (qx !== P.x || qz !== P.z) { const bz0 = P.z; P.x = blocked(qx, bz0) ? ox : qx; P.z = blocked(P.x, qz) ? oz : qz; } }   // SOLID: slide around crates, barrels, urns and the pedestal (world.js footprints, shared with the server)
     run.dist += Math.hypot(P.x - ox, P.z - oz);
     P.speed += (Math.hypot(P.x - ox, P.z - oz) / dt - P.speed) * Math.min(1, dt * 12);
     mine.x = P.x; mine.z = P.z; mine.yaw = P.yaw; mine.speed = P.speed;
-    sendT += dt; if (sendT > 0.05) { sendT = 0; net.send({ m: [+P.x.toFixed(2), +P.z.toFixed(2), +P.yaw.toFixed(3), ...JUMP.tail()] }); }
+    sendT += dt; if (sendT > 0.05 || JUMP.sendNow()) { sendT = 0;   /* CLIMB: take-off and landing frames go out at once */ net.send({ m: [+P.x.toFixed(2), +P.z.toFixed(2), +P.yaw.toFixed(3), ...JUMP.tail()] }); }
   }
-  JUMP.step(dt, !!(mine && spawned && GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked));   // JUMP
+  JUMP.step(dt, !!(mine && spawned && GK.mode === 'play' && !invOpen && !shopOpen && !GK.locked)); JUMP.hintTick(dt);   // JUMP / CLIMB
   // doors
   for (const d of doors) {
     if (d.hatch) {   // 5x5: home hatches are open archways; HOME PHASE: the round-1 grille drops / rises (d.p 0 = shut, 1 = open; the blocker lets you through above 0.86)
@@ -8273,7 +8352,7 @@ function frame(now) {
     u.label.visible = id !== me && GK.settings.tags;
     if (window.GKTAGS && u.label.visible) { const tb = CB.bars.get(id), td = Math.hypot(cam.position.x - a.x, cam.position.y - (g.position.y + u.label.position.y), cam.position.z - a.z); window.GKTAGS.fit(u.label, td, true); if (tb && tb.sp.visible) window.GKTAGS.fit(tb.sp, td, true); }   // UI-TAGS: clamp size, fade up close
     const walk = clamp(a.speed / 3.5, 0, 1); a.phase += dt * a.speed * 2.7 / Math.pow(SCALE[u.type] || 1, 0.6);   // stride rate follows the leg length (small goblins scurry, big ones lumber) so the feet stay planted
-    try { GKVFX.foot(id, a.phase, a.speed, a.x, a.z, a.jy || 0, vfxSurf(a.x, a.z), 1, cam.position.x, cam.position.z); } catch (e) {} // VFX: footstep puffs
+    try { GKVFX.foot(id, a.phase, a.speed, a.x, a.z, (a.jy || 0) - (a.gy || 0), a.gy ? 'none' : vfxSurf(a.x, a.z), 1, cam.position.x, cam.position.z); } catch (e) {} // VFX: footstep puffs (CLIMB: height above the surface; no dust on crate tops / the dais)
     /* PERF2-BEGIN: far goblins refresh their pose every 2nd / 3rd frame (the skipped dt is carried over); distant ones also drop to simpler geometry */
     let adt = dt;
     if (PERF2_ON) {
@@ -8368,8 +8447,8 @@ function gfxAutoProbe() {
       if (fps < 40 && i > 0) {   // too slow: one preset down
         const to = GFX_ORDER[i - 1]; GK.settings.gfx = to; GK.settings.fx = to !== 'low'; GK.gfxProbe.to = to;
         try { const s = JSON.parse(localStorage.getItem('gk.settings') || '{}'); s.gfx = to; s.fx = GK.settings.fx; localStorage.setItem('gk.settings', JSON.stringify(s)); } catch (e) {}
-        GK.applySettings(); toastMsg('Graphics set to ' + to[0].toUpperCase() + to.slice(1) + ' for smoother play (Settings > Graphics quality)', true);
-      } else if (fps > 100 && cur === 'high') toastMsg('Running at ' + Math.round(fps) + ' fps: Ultra graphics are available in Settings > Graphics quality', true);
+        GK.applySettings(); toastMsg('Graphics set to ' + to[0].toUpperCase() + to.slice(1) + ' for smoother play (Settings > Graphics > Quality preset)', true);
+      } else if (fps > 100 && cur === 'high') toastMsg('Running at ' + Math.round(fps) + ' fps: Ultra graphics are available in Settings > Graphics > Quality preset', true);
     };
     requestAnimationFrame(tick);
   }, 600);
@@ -8798,7 +8877,7 @@ window.GKACT5 = (() => {
       const b = {}; for (const k of Object.keys(d.breach)) { const s = sideOfDoor[k] || (SIDES.includes(k) ? k : null); if (s) b[s] = d.breach[k]; }
       d.breach = b; A.breach = b;
     }
-    if (d.actMe && d.actMe.chan && !d.actMe.chan.label) d.actMe.chan.label = LABEL[d.actMe.chan.n] || '';
+    if (d.actMe && d.actMe.chan && !d.actMe.chan.label) d.actMe.chan.label = LABEL[d.actMe.chan.n] || (U.LABELX && U.LABELX[d.actMe.chan.n]) || '';   // VBX: station channels
     if (d.actMe && d.actMe.timing && !d.actMe.timing.label) d.actMe.timing.label = 'Press E in the green';
   }
   let flashes = {};   // memory lanterns lit by a touch: key:a -> until (ms of performance.now)
@@ -8824,6 +8903,10 @@ window.GKACT5 = (() => {
     }
     if (f.k === 'pulse') { A.pulse = { until: performance.now() + (f.ms || 8000), ids: new Set((f.gob || []).map(g => g[0])) }; try { GK.minimap && GK.minimap.redraw(); } catch (x) {} }
     else if (f.k === 'vbNext' && f.vbNext && window.GKHUD5) { GKHUD5.S.vbNext = f.vbNext; try { GK.minimap && GK.minimap.redraw(); } catch (x) {} }
+    if (U.sound && window.GKAUDIO) { const s = U.sound(f), rr = f.r != null && W.roomRect(String(f.r)); if (s) try { GKAUDIO.play(s.name, Object.assign(rr ? { x: rr.cx, z: rr.cz } : {}, s.o)); } catch (x) {} }   // VBX: station and timing sounds
+    if (f.k === 'ledger' && f.lines) { toastMsg(f.lines.join('\n'), true, 7000); try { toastEl.style.whiteSpace = 'pre-line'; toastEl.style.textAlign = 'center'; } catch (x) {} return; }   // VBX: the Counting House ledger (private)
+    if (f.k === 'click') { toastMsg('A soft click: dial ' + ((f.d | 0) + 1) + ' sits right', true, 1300); return; }
+    if (U.TOASTX && U.TOASTX[f.k] && !(f.k === 'attuned' && f.by !== me)) toastMsg(U.TOASTX[f.k], true, 1900);
     if (f.id != null && f.id !== me && f.k !== 'gain') return;
     if (f.k === 'gain' || f.k === 'treasury') {
       const t = []; if (f.know) t.push('+' + f.know + ' knowledge'); if (f.gold) t.push('+' + f.gold + ' gold'); if (f.item) t.push(itemName(f.item)); if (f.tok) t.push(itemName(f.tok));
@@ -8854,6 +8937,7 @@ window.GKACT5 = (() => {
         let r2 = null; if (myInv) myInv.backpack.forEach((k, i) => { if (!r2 && twin(k)) r2 = { slot: i, name: infoOf(k).name }; }); return r2;
       },
       doorOpen: dir => { const d = doors[doorOfSide[dir]]; return !!d && (d.open || d.p > 0.5); },
+      slotOf: k => { if (!myInv) return null; let i = myInv.backpack.indexOf(k); if (i >= 0) return i; i = myInv.quick.indexOf(k); return i >= 0 ? 9 + i : null; },   // VBX: the offering bowl
     };
   }
   function recompute() {
@@ -8947,6 +9031,7 @@ window.GKACT5 = (() => {
         call(sk, 'setArmed', !!st.armed); call(sk, 'setResonance', st.res | 0); call(sk, 'setAltar', st.armed ? 1 : 0); break;
       }
     }
+    if (st.x && U.driveX) U.driveX(sk, e.type, st.x, now + (r.e || 0));   // VBX: the extra stations' props (absolute times in st.x are epoch ms)
   }
   function driveVault(e) {
     const d = e.api, r = rooms[W.VAULT_KEY], c = A.crown || (r && r.st) || {}, claims = c.claims || [], g = c.gaining, top = claims.find(x => x.id === g);
@@ -9069,6 +9154,10 @@ window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw,
       g.fillStyle = DARK; g.beginPath(); g.arc(118, 62, 8, 0, 7); g.arc(142, 62, 8, 0, 7); g.fill(); g.fillRect(126, 74, 8, 8);
       g.fillStyle = GOLDC; [[30, 40], [50, 100], [210, 50], [225, 110], [70, 130]].forEach(([x, y]) => { g.beginPath(); g.arc(x, y, 8, 0, 7); g.fill(); });
       g.strokeStyle = '#ff4a3a'; g.lineWidth = 3; g.beginPath(); g.moveTo(100, 120); g.lineTo(160, 140); g.moveTo(160, 120); g.lineTo(100, 140); g.stroke(); } },
+    { t: 'Win: choose what to keep', x: 'A winner keeps a few things it carried (more with more victories, one more when crowned) and banks a little gold. Bring some into your next match within a budget: they are at stake again.', d(g) {   // KEEP (keepui.js)
+      g.fillStyle = GOLDC; g.beginPath(); g.moveTo(104, 26); g.lineTo(156, 26); g.quadraticCurveTo(156, 74, 130, 78); g.quadraticCurveTo(104, 74, 104, 26); g.fill(); g.fillRect(124, 78, 12, 14); g.fillRect(110, 92, 40, 8);
+      [['#5aa8ff', 40], ['#c06bff', 112], ['#6fdc6a', 184]].forEach(([c, x], i) => { g.strokeStyle = c; g.lineWidth = i === 1 ? 4 : 2; g.strokeRect(x, 110, 36, 36); g.fillStyle = c; g.globalAlpha = i === 1 ? .35 : .15; g.fillRect(x, 110, 36, 36); g.globalAlpha = 1; });
+      g.fillStyle = '#efe9d8'; g.font = 'bold 18px system-ui'; g.textAlign = 'center'; g.fillText('✓', 130, 135); g.textAlign = 'left'; } },
   ];
   let ov = null;
   function closeHow() { if (ov) { ov.remove(); ov = null; document.removeEventListener('keydown', onKey, true); } }

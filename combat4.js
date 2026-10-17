@@ -144,8 +144,7 @@
     }
     if (propsToo === false) return true;
     const ya = y0 == null ? 0.9 : y0, yb = y1 == null ? 0.9 : y1;
-    if (Math.min(ya, yb) >= PROP_H) return true;   // the whole line runs above the props
-    if (L > 1e-6 && W.segBlocked && W.segBlocked(x0, z0, x1, z1, layout)) return false;
+    if (L > 1e-6 && W.segBlocked && W.segBlocked(x0, z0, x1, z1, layout, 0, ya, yb)) return false;   // world.js knows each prop's height (CLIMB): a line over a low top is clear
     if (W.rectsAt) for (const q of W.rectsAt(x0, z0)) if (segRect(x0, z0, x1, z1, q[0], q[1], q[2], q[3])) return false;   // vault pillars (segBlocked only knows the round props)
     return true;
   }
