@@ -193,7 +193,7 @@
         if (R.n !== lastN) {
           const first = lastN === 0, opened = (R.open ? R.open.length : 0) - lastOpenLen;
           lastN = R.n; lastOpenLen = R.open ? R.open.length : 0;
-          banner('Round ' + R.n + ' · ' + (GK.homeLocked && GK.homeLocked() ? 'Prepare in your base' : first ? 'Pick a door' : opened > 0 ? 'Doors open' : R.fizzled && R.fizzled.length ? 'The vault stays sealed' : 'No doors opened'));
+          banner('Round ' + R.n + ' · ' + (GK.homeLocked && GK.homeLocked() ? 'Prepare in your base' : first ? 'Pick a door' : R.n === 2 ? 'Vote your way out' : opened > 0 ? (opened === 1 ? 'A door opens for good' : opened + ' doors open for good') : R.fizzled && R.fizzled.length ? 'The vault stays sealed' : 'No new doors'));   // DOORS-PERSIST: opened = the doors new this round
           play('gong');
         } else lastOpenLen = R.open ? R.open.length : 0;
       }

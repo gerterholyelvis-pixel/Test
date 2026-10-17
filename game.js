@@ -2404,7 +2404,7 @@ if (GK.layout && GK.CHEST_ROOMS) { /* the rooms agent calls buildMysteryContents
     row(9, (x, y) => { g.fillStyle = '#2a3442'; g.fillRect(x - 14, y - 14, 28, 28); g.strokeStyle = '#9fb4cc'; g.lineWidth = 2; g.strokeRect(x - 14, y - 14, 28, 28); }, 'THE VAULT');
     row(10, (x, y) => mysteryIcon(g, x, y, 0.95), 'Mystery room');
     row(11, (x, y) => merchantIcon(g, x, y, 0.85), 'Merchant');
-    g.fillStyle = '#7f95ad'; g.font = '22px system-ui, sans-serif'; g.fillText('All doors sealed', 722, 692); g.fillText('Random rooms each match', 722, 718);
+    g.font = '22px system-ui, sans-serif'; g.fillStyle = '#2fd46a'; g.fillRect(722, 687, 26, 10); g.fillStyle = '#7f95ad'; g.fillText('Open door', 756, 692); g.fillText('Random rooms each match', 722, 718);   // DOORS-PERSIST: open doors are drawn live on the shared map (they stay open)
   }
   drawBase();
   // 5x5 (docs/PLAN-5x5.md 4.4): ONE shared facility drawing (base + intel + lore) on one CanvasTexture, shown on a wall map in every arena room except the vault;
@@ -2414,6 +2414,13 @@ if (GK.layout && GK.CHEST_ROOMS) { /* the rooms agent calls buildMysteryContents
   const sharedCtx = shared.getContext('2d'), sharedTex = new THREE.CanvasTexture(shared); sharedTex.colorSpace = THREE.SRGBColorSpace; sharedTex.anisotropy = 8; sharedTex.generateMipmaps = true;
   function drawShared() {
     const g = sharedCtx; g.drawImage(base, 0, 0);
+    const dv = GK.doorView ? GK.doorView() : null;   // the round state (RS is declared further down, after this block first draws)
+    if (dv) for (const d of WORLD.DOORS) {   // DOORS-PERSIST: doors that are open for good show as a green opening over the lock mark; a barred vault door as amber
+      if (d.kind === 'hatch') continue; const on = dv.open.includes(d.id), sh = !on && dv.shut.includes(d.id); if (!on && !sh) continue;
+      const w = d.wall, L = (d.kind === 'vault' ? 4.9 : DW) * MS, x = mx(w.x), y = my(w.z);
+      g.fillStyle = on ? '#2fd46a' : '#e0902a'; g.strokeStyle = '#04200f'; g.lineWidth = 2;
+      if (d.axis === 'x') { g.fillRect(x - L / 2, y - 5, L, 10); g.strokeRect(x - L / 2, y - 5, L, 10); } else { g.fillRect(x - 5, y - L / 2, 10, L); g.strokeRect(x - 5, y - L / 2, 10, L); }
+    }
     if (GK.mapIntel) GK.mapIntel(g, mx, my, MS);   // UNIQUE: faint arrows for last round's door picks
     if (GK.hud5Map) GK.hud5Map(g, mx, my, MS);   // HUD5: special room icons (vaultbreakers, trees, breach)
     if (GK.knowMap) GK.knowMap(g, mx, my, null);   // KNOWLEDGE: Lore perks draw on the map
@@ -2473,15 +2480,16 @@ const doorLabel = (key, id) => {
 const fmtT = ms => { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
 
 // ----- round state (fed by applyRound; the local clock interpolates between server updates) -----
-const RS = { n: 0, endAt: 0, dur: 0, sel: {}, open: [], fizzled: [], votes: 0, selJ: '{}', openJ: '[]', flashUntil: 0, fizzUntil: 0, homeLock: false, arenaUntil: 0 };
+const RS = { n: 0, endAt: 0, dur: 0, sel: {}, open: [], shut: [], fizzled: [], votes: 0, selJ: '{}', openJ: '[]', flashUntil: 0, fizzUntil: 0, homeLock: false, arenaUntil: 0 };
 GK.homeLocked = () => RS.homeLock;   // HOME PHASE: round 1, the hatches are shut
+GK.doorView = () => RS;   // DOORS-PERSIST: the wall maps read the open / barred doors
 const roundLeft = () => Math.max(0, RS.endAt - performance.now());
 function applyRound(d) {
   const now = performance.now();
   if (d.round && Number.isFinite(d.round.n)) {
     if (RS.n > 0 && d.round.n > RS.n) {   // a round just ended: banners depend on what actually opened / fizzled
       RS.fizzled = Array.isArray(d.fizzled) ? d.fizzled : [];
-      if (Array.isArray(d.open) && d.open.length) RS.flashUntil = now + 2200;
+      if (Array.isArray(d.open) && d.open.some(x => !RS.open.includes(x))) RS.flashUntil = now + 2200;   // DOORS-PERSIST: only when a new door opened (the old ones stay open)
       const mySel = RS.sel[roomKeyAt(P.x, P.z)];
       if (Array.isArray(d.fizzled) && d.fizzled.length && mySel !== undefined && d.fizzled.includes(mySel)) RS.fizzUntil = now + 2800;
     }
@@ -2490,7 +2498,8 @@ function applyRound(d) {
   }
   if (Number.isFinite(d.vaultVotes) && d.vaultVotes !== RS.votes) { RS.votes = d.vaultVotes; panelsDirty(); }
   if (d.sel && typeof d.sel === 'object') { const j = JSON.stringify(d.sel); if (j !== RS.selJ) { RS.selJ = j; RS.sel = d.sel; panelsDirty(); } }
-  if (Array.isArray(d.open)) { const j = JSON.stringify(d.open); if (j !== RS.openJ) { RS.openJ = j; RS.open = d.open; GK.setDoorsOpen(d.open); panelsDirty(); } }
+  if (Array.isArray(d.open)) { const j = JSON.stringify(d.open); if (j !== RS.openJ) { RS.openJ = j; RS.open = d.open; GK.setDoorsOpen(d.open); panelsDirty(); if (GK.redrawMap) GK.redrawMap(); } }
+  if (d.round) { const sh = Array.isArray(d.shut) ? d.shut : []; if (sh.join() !== RS.shut.join()) { RS.shut = sh; panelsDirty(); } }   // DOORS-PERSIST: vault doors barred this round (they reopen at the round end)
   if (GK.unique) GK.unique.round(d); if (d.selBy) panelsDirty();   // UNIQUE: who made each pick, last round's picks
 }
 
@@ -2564,8 +2573,9 @@ function cpDraw(p) {
     g.font = '700 ' + Math.min(26, b.h * 0.22) + 'px system-ui, sans-serif';
     g.fillStyle = sel ? '#7a1200' : opn ? '#6dff9f' : hov ? '#cfe8ff' : '#7fa4cc';
     const vlt = L.kind === 'vault', dy = vlt ? 4 : fs * 0.72;
-    g.fillText(sel ? 'SELECTED · OPENS AT 0:00' : opn ? ((window.GKRULES && GKRULES.openText(b.id)) || 'OPEN THIS ROUND') : 'Press E to select', tx, iy + dy);
-    if (vlt) { g.font = '800 ' + Math.min(21, b.h * 0.18) + 'px system-ui, sans-serif'; g.fillStyle = sel ? (RS.votes < 2 ? '#8a0a00' : '#1a5a10') : '#ffb347'; g.fillText('NEEDS 2 PLAYERS · THE VAULT votes: ' + RS.votes + '/2', tx, iy + dy + Math.min(27, b.h * 0.24)); }
+    const barred = !opn && RS.shut.includes(b.id);   // DOORS-PERSIST: an open door stays open for good; a barred vault door reopens when the round ends
+    g.fillText(sel ? 'SELECTED · OPENS AT 0:00' : opn ? ((window.GKRULES && GKRULES.openText(b.id)) || 'OPEN FOR GOOD') : barred ? 'BARRED · REOPENS AT 0:00' : 'Press E to select', tx, iy + dy);
+    if (vlt && !opn && !barred) { g.font = '800 ' + Math.min(21, b.h * 0.18) + 'px system-ui, sans-serif'; g.fillStyle = sel ? (RS.votes < 2 ? '#8a0a00' : '#1a5a10') : '#ffb347'; g.fillText('NEEDS 2 PLAYERS · THE VAULT votes: ' + RS.votes + '/2', tx, iy + dy + Math.min(27, b.h * 0.24)); }
     if (opn) { g.fillStyle = '#18c25e'; cpRR(g, b.x + b.w - 100, iy - 20, 84, 40, 20); g.fill(); g.fillStyle = '#04200f'; g.textAlign = 'center'; g.font = '800 24px system-ui, sans-serif'; g.fillText('OPEN', b.x + b.w - 58, iy + 1); }
   });
   if (GK.unique) GK.unique.panel(g, p);   // UNIQUE: picker badge + flash
@@ -2672,6 +2682,7 @@ function panelTick() {
 }
 function cpInteract() {   // E while aiming at a control-panel button picks that door; true if it did
   const a = cpComputeAim(); if (!a) return false;
+  { const id = a.p.buttons[a.i].id; if ((RS.open.includes(id) || RS.shut.includes(id)) && !(window.GKRULES && GKRULES.has('doorclose'))) { snd('deny'); return true; } }   // DOORS-PERSIST: open for good, nothing to vote (the server ignores it too)
   net.send({ sel: a.p.buttons[a.i].id }); return true;
 }
 GK.panelClick = (room, idx) => { const ids = ROOM_DOORS[String(room)]; if (ids && ids[idx] !== undefined) net.send({ sel: ids[idx] }); };   // test helper: same message as a click
@@ -2701,8 +2712,8 @@ GK.tipAim = () => { const a = cpAim, b = a && a.p.buttons[a.i]; return b ? doorL
     const txt = 'ROUND ' + RS.n + '  ' + fmtT(left), warn = left <= 5000;
     if (txt !== lastTxt) { tEl.textContent = txt; lastTxt = txt; }
     if (warn !== lastWarn) { tEl.classList.toggle('warn', warn); lastWarn = warn; }
-    { const h = RS.homeLock ? 'Prepare in your base: the arena opens in ' + fmtT(left) : ''; if (h !== lastHome) { if (!h || !lastHome) hEl.style.display = h ? 'block' : 'none'; hEl.textContent = h; lastHome = h; } }   // HOME PHASE: round 1 line under the timer
-    if (now < RS.flashUntil) { if (shownBanner !== RS.flashUntil) { shownBanner = RS.flashUntil; bEl.textContent = now < RS.arenaUntil ? 'THE ARENA IS OPEN' : 'DOORS OPENING'; bEl.style.display = 'none'; void bEl.offsetWidth; bEl.style.display = 'block'; } }
+    { const h = RS.homeLock ? 'Prepare in your base: the arena opens in ' + fmtT(left) : RS.n === 2 && !RS.open.length ? 'Pick a door on your hall\'s panel: it opens in ' + fmtT(left) : ''; if (h !== lastHome) { if (!h || !lastHome) hEl.style.display = h ? 'block' : 'none'; hEl.textContent = h; lastHome = h; } }   // HOME PHASE: round 1 line under the timer
+    if (now < RS.flashUntil) { if (shownBanner !== RS.flashUntil) { shownBanner = RS.flashUntil; bEl.textContent = now < RS.arenaUntil ? 'YOUR HALL IS OPEN' : 'DOORS OPENING'; bEl.style.display = 'none'; void bEl.offsetWidth; bEl.style.display = 'block'; } }
     else if (shownBanner) { shownBanner = 0; bEl.style.display = 'none'; }
     if (now < RS.fizzUntil) { if (shownFizz !== RS.fizzUntil) { shownFizz = RS.fizzUntil; fEl.style.display = 'none'; void fEl.offsetWidth; fEl.style.display = 'block'; } }
     else if (shownFizz) { shownFizz = 0; fEl.style.display = 'none'; }
@@ -4103,7 +4114,6 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
   const rs = { n: 1, dur: 120000, endsAt: performance.now() + 120000, sel: {}, open: [], fizzled: [] };   // 5x5: every round is 2 minutes, as on the server (offline: tree rooms and vaultbreakers are visual only, no special rules)
   const isVault = id => DINFO[id].kind === 'vault', votes = () => Object.keys(rs.sel).filter(k => isVault(rs.sel[k])).length;
   const rmsg = () => ({ round: { n: rs.n, left: Math.max(0, rs.endsAt - performance.now()), dur: rs.dur }, sel: { ...rs.sel }, open: rs.open.slice(), vaultVotes: votes(), fizzled: rs.fizzled.slice(), ...(rs.n === 1 ? { homeLock: 1 } : null) });   // HOME PHASE: round 1 is spent at home, as on the server
-  const homeExits = () => { for (const p of list) { const c = String(WORLD.CHEST[+p.home.slice(1)].parent), ds = (ROOM_DOORS[c] || []).filter(id => !isVault(id)); if (ds.length && !ds.some(id => rs.open.includes(id))) rs.open.push(ds[Math.floor(Math.random() * ds.length)]); } };   // HOME PHASE: round 2 opens one door of every home's cell (server.js homeOpen)
   const emitRound = () => net.onmessage && net.onmessage(rmsg());
   const botPlan = () => { for (const b of list) if (b.bot) b.selAt = performance.now() + 1500 + Math.random() * (rs.dur - 6000); };
   // COMBAT-BEGIN offline simulation of the server's combat: bots have health, fight back within 6 m, drop loot when killed; same rules as server.js (items.js combat())
@@ -4274,8 +4284,8 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
   setInterval(() => {
     const now = performance.now();
     if (!rs.started) { rs.endsAt = now + rs.dur; return; }   // round 1 waits for Enter, as on the server
-    if (now >= rs.endsAt) { const picked = [...new Set(Object.values(rs.sel))], ok = votes() >= 2; rs.open = picked.filter(d => ok || !isVault(d)); rs.fizzled = ok ? [] : picked.filter(isVault); rs.sel = {}; rs.n++; if (rs.n === 2) homeExits(); rs.dur = 120000; rs.endsAt = now + rs.dur; botPlan(); emitRound(); return; }
-    for (const b of list) if (b.bot && b.selAt && now >= b.selAt) { b.selAt = 0; const k = roomKeyAt(b.x, b.z), ids = ROOM_DOORS[k]; if (ids && rs.sel[k] === undefined) { const vs = ids.filter(isVault), pool = vs.length && Math.random() < 0.5 ? vs : ids; rs.sel[k] = pool[Math.floor(Math.random() * pool.length)]; emitRound(); } }
+    if (now >= rs.endsAt) { const picked = [...new Set(Object.values(rs.sel))], ok = votes() >= 2; rs.open = rs.n === 1 ? rs.open : [...new Set([...rs.open, ...picked.filter(d => ok || !isVault(d))])]; rs.fizzled = ok ? [] : picked.filter(d => isVault(d) && !rs.open.includes(d)); rs.sel = {}; rs.n++; rs.dur = 120000; rs.endsAt = now + rs.dur; botPlan(); emitRound(); return; }
+    for (const b of list) if (b.bot && b.selAt && now >= b.selAt) { b.selAt = 0; const k = roomKeyAt(b.x, b.z), ids = ROOM_DOORS[k]; if (ids && rs.sel[k] === undefined) { const shut = ids.filter(id => !rs.open.includes(id) && DINFO[id].kind !== 'hatch'), vs = shut.filter(isVault), pool = vs.length && Math.random() < 0.5 ? vs : shut; if (pool.length) rs.sel[k] = pool[Math.floor(Math.random() * pool.length)]; emitRound(); } }
   }, 200);
   setInterval(emitRound, 1000);
   setInterval(() => {
@@ -4643,7 +4653,7 @@ GK.showDeathScreen = showDeathScreen;
     dsc.length = 0; for (let i = 0; i < disc.length; i++) if (disc[i]) dsc.push('c' + CHEST_ROOMS[i].id);
     ST.me.x = P.x; ST.me.z = P.z; ST.me.yaw = P.yaw; ST.myHome = GK.myHome;
     ST.vb = H.vb; ST.vbNext = H.vbNext; ST.trees = H.trees; ST.armed = H.armed; ST.breach = H.breach; ST.crown = H.crown;
-    for (let id = 0; id < ND; id++) ST.open[id].open = dKind[id] !== 2 ? !!openF[id] : !RS.homeLock;   // HOME PHASE: the hatches show shut in round 1
+    for (let id = 0; id < ND; id++) { ST.open[id].open = dKind[id] !== 2 ? !!openF[id] : !RS.homeLock; ST.open[id].shut = RS.shut.length > 0 && RS.shut.includes(id); }   // HOME PHASE: the hatches show shut in round 1; DOORS-PERSIST: barred vault doors
     ST.actors.length = 0;
     actors.forEach((a, id) => { if (id === me || a.npc || (vis[keyIdx(a.x, a.z)] !== 1 && !(window.GKUSE2 && GKUSE2.reveal()) && !(window.GKHOMEW && GKHOMEW.bellAt(a.x, a.z)) && !(window.GKACT5 && GKACT5.pulsed(id)))) return; ST.actors.push(a); });   // GKHOMEW.bellAt: a room with a Bell send running shows its goblins
   }
@@ -4676,7 +4686,7 @@ GK.showDeathScreen = showDeathScreen;
     g.restore();
     HUD5.drawMap(g, S, topOps, mo);
     const R = S / 2 - S * .04; g.font = font; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#e8c860'; g.fillText('N', S / 2 + Math.sin(rot) * R, S / 2 - Math.cos(rot) * R);
-    if (big) { g.font = fontCap; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillStyle = 'rgba(232,214,160,.85)'; g.fillText('M to close', S * .03, S * .975); g.textAlign = 'right'; g.fillText('green open  red closed  blue ring picked  faint arrows last round', S * .97, S * .975); }
+    if (big) { g.font = fontCap; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillStyle = 'rgba(232,214,160,.85)'; g.fillText('M to close', S * .03, S * .975); g.textAlign = 'right'; g.fillText('green open for good  red closed  amber barred  blue ring your pick  faint arrows last round', S * .97, S * .975); }
   }
   function discover(my) {   // an outer room is known once I stand in it or look into it through an open door
     if (my >= NR) return;
@@ -8494,14 +8504,14 @@ const GKUSE = window.GKUSE = (() => {
         if (it.use === 'heal') note('+' + u.hp + ' HP', '#8be28b');
         else if (it.use === 'regen') note('Regenerating', '#8be28b');
         else if (it.use === 'speed') { tonicEnd = performance.now() + (u.ms || 8000); note('Quick on your feet', '#ffd76a'); }
-        else if (it.use === 'wedge') note('Door wedged open', '#ffd76a');
+        else if (it.use === 'wedge') note('Door wedged: it opens at 0:00', '#ffd76a');
         else if (it.use === 'pick') note('Vault vote added', '#ffd76a');
       }
       if (d.sealed) { note('Panel sealed by ' + d.sealed.by, '#ffd76a'); snd('useSoft', { pitch: 0.8 }); }
       if (d.sealBlock) { toastMsg('This panel is sealed', false, 1100); snd('deny'); }
       if (d.useFail) {
         const pickMsg = lastKey === 'x:lockpick' ? 'Pick a Vault door on the panel first' : 'Pick a door on the panel first';
-        toastMsg(d.useFail === 'pick' ? pickMsg : d.useFail === 'door' && lastKey === 'x:pry' ? 'No closed door close by (not the Vault)' : FAIL[d.useFail] || 'Cannot use that', false, 1400); snd('deny');
+        toastMsg(d.useFail === 'pick' ? pickMsg : d.useFail === 'door' && (lastKey === 'x:pry' || lastKey === 'x:wedge') ? 'No closed door close by (not the Vault)' : FAIL[d.useFail] || 'Cannot use that', false, 1400); snd('deny');
       }
     },
   };
@@ -8562,7 +8572,7 @@ const GKUSE2 = window.GKUSE2 = (() => {
         try { GK.feel.itemUsed(it, 'use'); } catch (e) {}
         if (it.use === 'flare') { flareEnd = n + (u.ms || 8000); redraw(); later((u.ms || 8000) + 50, redraw); note('Flare lit: every goblin shows', '#ffb070'); }
         else if (it.use === 'lens') { lensEnd = n + (u.ms || 12000); redraw(); later((u.ms || 12000) + 50, redraw); note('Picks revealed on the map', '#bfe6ff'); }
-        else if (it.use === 'pry') note('Door pried open', '#ffd76a');
+        else if (it.use === 'pry') note('Door pried open for good', '#ffd76a');
         else if (it.use === 'ward') { wardEnd = n + (u.ms || 30000); note('Ward up', '#7fe8ff'); }
         else if (it.use === 'bait') note('Bait set', '#ffd76a');
         else if (it.use === 'haggle') note('Next purchase half price', '#ffd76a');
@@ -8891,7 +8901,7 @@ window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw,
 (() => {
   const KEY = 'gk.tips.v1', MAX = { go: 3, vaultAim: 3, outer: 2, brain: 2, lowhp: 2, vaultOpen: 2, sudden: 2 };
   const TEXT = {
-    go: 'Each round, every room picks ONE door on its panel. It opens when the timer hits 0.',
+    go: 'Each round, every room picks ONE door on its panel. It opens when the timer hits 0 and stays open for good.',
     vaultAim: 'Vault doors need TWO rooms to pick them, or the vote fizzles.',
     outer: 'Behind outer doors: chests, mystery rooms (risky!) and merchants.',
     brain: 'Eat a goblin brain for 5% of its knowledge. Each brain is also a knowledge point for a perk at the workbench.',
@@ -8959,7 +8969,7 @@ window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw,
   // ---- How to Play overlay: five canvas drawings in the gold style ----
   const GOLDC = '#f5c451', DARK = '#120f0a', PINK = '#f08aa8';
   const PANELS = [
-    { t: 'Pick a door', x: 'Each room votes on ONE door at its panel. When the timer hits 0, picked doors open.', d(g) {
+    { t: 'Pick a door', x: 'Each room votes on ONE door at its panel. When the timer hits 0, picked doors open, and they stay open.', d(g) {
       g.fillStyle = '#0d1b2a'; g.fillRect(14, 16, 96, 118); g.strokeStyle = '#4aa8ff'; g.strokeRect(14, 16, 96, 118);
       [0, 1, 2].forEach(i => { g.fillStyle = i === 1 ? GOLDC : '#2f5e8f'; g.fillRect(24, 28 + i * 34, 76, 24); });
       g.fillStyle = GOLDC; g.fillRect(150, 30, 70, 100); g.fillStyle = DARK; g.fillRect(158, 38, 54, 92);

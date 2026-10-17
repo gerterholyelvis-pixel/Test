@@ -59,12 +59,13 @@ const pair = async srv => { const [a, b] = await Promise.all([connect(srv.port, 
         await sleep(550); await give(c, 'x:lens'); r = await use(c); assert(r.some(m => m.used && m.used.ms === 12000), 'lens');
         await sleep(550); await give(c, 'x:ward'); await use(c); await sleep(550); await give(c, 'x:ward'); r = await use(c); assert(r.some(m => m.useFail === 'busy'), 'one ward at a time'); eq(c.state.inv.quick[0], 'x:ward'); await c.close();
       }],
-      ['crowbar pries a closed door open for 10 s, then it slams shut; never a vault door; not from afar', async () => {
+      ['crowbar pries a closed door open for good (DOORS-PERSIST); never a vault door; not from afar', async () => {
         const c = await connect(srv.port, 'goblin=1'), [cx, cz] = W.rc(0), hw = W.roomW(0) / 2; c.send({ tp: [cx, cz] }); await sleep(100);
         await give(c, 'x:pry'); let r = await use(c); assert(r.some(m => m.useFail === 'door'), 'too far from any door'); eq(c.state.inv.quick[0], 'x:pry');
-        c.send({ tp: [cx + hw - 1.5, cz] }); await sleep(120); r = await use(c); const u = r.find(m => m.used); assert(u && u.used.ms === 10000 && Number.isInteger(u.used.door), 'pried: ' + JSON.stringify(r));
+        c.send({ tp: [cx + hw - 1.5, cz] }); await sleep(120); r = await use(c); const u = r.find(m => m.used); assert(u && u.used.ms === undefined && Number.isInteger(u.used.door), 'pried: ' + JSON.stringify(r));
         await c.until(x => x.state.open.includes(u.used.door), 2000, 'the door shows as open'); eq(c.state.inv.quick[0], null);
-        await c.until(x => !x.state.open.includes(u.used.door), 12000, 'closed again'); await c.close();
+        await sleep(600); await give(c, 'x:pry'); r = await use(c); assert(r.some(m => m.useFail === 'door'), 'an open door is not pried again: ' + JSON.stringify(r.filter(m => m.useFail || m.used)));   // after the 500 ms use cooldown
+        await sleep(1500); assert(c.state.open.includes(u.used.door), 'still open: the door never slams shut'); await c.close();
       }],
       ['crowbar refuses a vault door', async () => {
         const n1 = L.vaultNeighbours()[0], vd = W.DOORS[L.doorBetween(n1, W.VAULT_KEY)], [cx, cz] = L.centre(n1), ux = Math.sign(vd.wall.x - cx), uz = Math.sign(vd.wall.z - cz);
