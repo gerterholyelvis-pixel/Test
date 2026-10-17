@@ -84,17 +84,24 @@ const walk = async (c, x0, z0, x1, z1, secs, speed) => {   // send {m} every 66 
       }],
       ['lag compensation: melee uses the target position the attacker saw (rewound, capped at 200 ms)', async () => {
         const [a, b] = await pair(srv, 30, 0, 0); a.send({ enter: 1 }); b.send({ enter: 1 }); await a.until(x => x.state.match && x.state.match.alive === 2, 2000, 'both entered');
-        const MACE_ATK = G.ITEMS[G.START[0].weapon].attack, reach = G.COMBAT.melee + G.COMBAT.slack;
-        await put(a, -15, -12.5, FACE_E); await put(b, -13, -12.5); await sleep(150);   // 2.0 m away: in reach
-        const n = a.msgs.length; b.send({ m: [-11.8, -12.5, 0] });   // one 1.2 m step: now 3.2 m away, out of reach
-        await a.until(x => snapsOf(x, b.state.you, n).some(s => s.x > -11.9), 1500, 'step seen');
-        const first = snapsOf(a, b.state.you, n)[0], tSaw = first.t - first.age - 20;   // server time just before he moved away
+        // COMBAT4: the blow is judged on the clip's contact frame, against where the attacker DREW the target at that frame: server time rt + contact (rt = the render time he sent)
+        const MACE_ATK = G.ITEMS[G.START[0].weapon].attack, reach = G.COMBAT.melee + G.hitRadius(0), contact = require('../combat4.js').timing(G, G.START[0].weapon, G.combat(G.START[0].weapon).cd).contact;
         assert(3.2 > reach && 2.0 < reach, 'test geometry');
-        const hitBy = async rt => hits(await swing(a, rt)); const hits = ms => ms.filter(m => m.hit);
-        const swing = async (c, rt) => { const k = c.msgs.length; c.send(rt == null ? { atk: 1 } : { atk: 1, rt }); await sleep(130); return c.msgs.slice(k); };
-        const h = await hitBy(tSaw); eq(h.length, 1, 'rewound swing should hit what the attacker saw'); eq(h[0].hit.dmg, MACE_ATK);
-        await sleep(450); eq((await hitBy()).length, 0, 'without rewind he is out of reach');
-        await sleep(450); eq((await hitBy(tSaw)).length, 0, 'rewind is capped at 200 ms: ' + 'an old timestamp must not reach back');
+        const clock = async () => { const k = Math.random(); a.send({ ping: k }); await a.until(x => x.state.pong === k, 2000, 'pong'); const t = a.msgs.filter(m => m.pong === k).pop().t, at = Date.now(); return () => t + (Date.now() - at); };   // the server clock, as a client estimates it
+        const home = async () => { await put(b, -13, -12.5); await sleep(250); };   // 2.0 m away: in reach
+        const result = async k => { await a.until(x => x.msgs.slice(k).some(m => m.swr), 1500, 'swing result'); await sleep(30); return a.msgs.slice(k).filter(m => m.hit); };
+        await put(a, -15, -12.5, FACE_E); await home(); let now = await clock();
+        // 1) he steps out of reach 40 ms after the click; the attacker's picture is 150 ms old, so at the contact frame he still drew him in reach: hit
+        let k = a.msgs.length; a.send({ atk: 1, rt: Math.round(now() - 150) }); await sleep(40); b.send({ m: [-11.8, -12.5, 0] });
+        let h = await result(k); eq(h.length, 1, 'rewound swing should hit what the attacker saw at the contact frame ' + JSON.stringify(a.msgs.slice(k).filter(m => m.swing || m.swr || m.hit || m.s))); eq(h[0].hit.dmg, MACE_ATK);
+        await sleep(700); await home(); now = await clock();
+        // 2) the same without rt (no rewind): at the contact frame (' + contact + ' ms) he is gone
+        k = a.msgs.length; a.send({ atk: 1 }); await sleep(40); b.send({ m: [-11.8, -12.5, 0] });
+        eq((await result(k)).length, 0, 'without rewind he is out of reach');
+        await sleep(700); await home(); now = await clock();
+        // 3) he left 120 ms before the click; an rt 1 s old would still see him, but the rewind is capped at 200 ms (contact - 200 is after he left): miss
+        b.send({ m: [-11.8, -12.5, 0] }); await sleep(120); k = a.msgs.length; a.send({ atk: 1, rt: Math.round(now() - 1000) });
+        eq((await result(k)).length, 0, 'rewind is capped at 200 ms: an old timestamp must not reach back');
         await a.close(); await b.close();
       }],
     ]);
