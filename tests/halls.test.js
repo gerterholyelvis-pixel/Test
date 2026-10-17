@@ -160,5 +160,16 @@ const seeded = seed => () => { seed = (seed * 1664525 + 1013904223) >>> 0; retur
       }],
     ]);
   } finally { srv2.stop(); }
-  process.exit(bad2 ? 1 : 0);
+  if (bad2) process.exit(1);
+  const srv3 = await L.startServer({ GK_MATCH_SIZE: '2', GK_QUEUE_MS: '100', GK_BOT_GRACE_MS: '0', GK_HALL_DRY: '0', GK_HALL_GUARDS: '0' }); let bad3 = 1;   // a match with a bot
+  try {
+    bad3 = await L.run('halls-bots', [
+      ['bots use the halls: a bot dropped next to a container searches it by itself, through the same rules (the restock message arrives)', async () => {
+        const c = await connect(srv3.port, 'goblin=2&wins=0'), sp = W.hallSpots(20).find(x => x.role === 'cont'); c.send({ botlab: { near: [sp.sx + 1.5, sp.sz], hallGo: 1 } });
+        const t0 = Date.now(); let got = false; while (Date.now() - t0 < 30000 && !got) { await sleep(300); for (const d of c.msgs) if (d.hallS && Object.keys(d.hallS).some(id => id.startsWith('20:') && d.hallS[id] > 0)) got = true; }
+        assert(got, 'no bot searched a container in hall 20 within 30 s'); await c.close();
+      }],
+    ]);
+  } finally { srv3.stop(); }
+  process.exit(bad3 ? 1 : 0);
 })();

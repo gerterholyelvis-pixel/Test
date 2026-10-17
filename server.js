@@ -1451,7 +1451,7 @@ function bot5Stat(m) {   // GK_DEBUG {bot5:1}: this match's bot stats for tests/
 function hallBot(m, p, now, dt) {
   const b = p.brain, h = b.h5s || (b.h5s = { id: null, until: 0, next: now + 3000 });
   if (p.hs) { idleLook(m, p, now); return true; }   // searching: hold still (moving breaks it)
-  if (m.sudden || b.tgt || !/^\d+$/.test(p.room || '')) return false;
+  if (m.sudden || b.tgt || !/^\d+$/.test(p.room || '') || (!h.id && now < b.idleUntil)) return false;   // not while it looks around after arriving (or a test holds it still)
   if (!h.id) {
     if (now < h.next) return false; h.next = now + 2500;
     if (Math.random() > 0.7) return false;
@@ -1844,7 +1844,7 @@ function botLab(m, ws, p, cmd) {   // GK_DEBUG only, for tests. 'station': make 
     const c = WORLD.CHEST[L0]; bot.brain.route = []; bot.brain.done = {}; bot.brain.idleUntil = 0; bot.brain.mode = ''; place(bot, c.cx, c.cz); m.dirty = true; BS.rec = 0; BS.cra = 0;
   } else if (cmd && Array.isArray(cmd.near) && bot) {   // {near:[x,z]} one bot; {near:[x,z], all:1} every living bot in a small grid, or on a ring of radius `ring` around the point
     const bots = cmd.all ? [...m.players.values()].filter(q => q.bot && !q.dead) : [bot], r = +cmd.ring > 0 ? +cmd.ring : 0;
-    bots.forEach((q, i) => { const a = 2 * Math.PI * i / bots.length; place(q, cmd.near[0] + (r ? Math.cos(a) * r : (i % 3) * 0.8), cmd.near[1] + (r ? Math.sin(a) * r : Math.floor(i / 3) * 0.8)); q.brain.route = []; q.brain.idleUntil = Date.now() + 60000; q.brain.mode = ''; q.roomAt = 0; q.brain.tgt = null; q.brain.search = null; q.brain.scan = null; q.brain.waitUntil = 0; q.brain.pauseUntil = 0;
+    bots.forEach((q, i) => { const a = 2 * Math.PI * i / bots.length; place(q, cmd.near[0] + (r ? Math.cos(a) * r : (i % 3) * 0.8), cmd.near[1] + (r ? Math.sin(a) * r : Math.floor(i / 3) * 0.8)); q.brain.route = []; q.brain.idleUntil = Date.now() + (cmd.hallGo ? 0 : 60000); if (cmd.hallGo) q.brain.h5s = { id: null, until: 0, next: 0 }; q.brain.mode = '';   /* HALLS test hook: {near, hallGo:1} lets the bot act at once */ q.roomAt = 0; q.brain.tgt = null; q.brain.search = null; q.brain.scan = null; q.brain.waitUntil = 0; q.brain.pauseUntil = 0;
       if (typeof cmd.yaw === 'number') q.yaw = cmd.yaw; else if (r) q.yaw = yawTo(q, cmd.near[0], cmd.near[1]);   // ring bots face the middle unless {yaw} says otherwise
       q.brain.scanAt = typeof cmd.scanAfter === 'number' ? Date.now() + cmd.scanAfter : 0; q.sd = true; if (cmd.wpn === 'none' || (typeof cmd.wpn === 'string' && G.ITEMS[cmd.wpn])) { q.inv.weapon = cmd.wpn === 'none' ? null : cmd.wpn; recalc(q); } }); m.dirty = true;   // wpn: give the bot that weapon ('none': unarmed, 1 damage, keeps a test human alive). roomAt 0: they count as long-time residents. scanAfter: ms before the idle bot first looks around
   }
