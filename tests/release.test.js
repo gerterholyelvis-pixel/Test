@@ -68,6 +68,18 @@ const hashOf = s => "'sha256-" + crypto.createHash('sha256').update(s.replace(/\
         const src = fs.readFileSync(path.join(L.ROOT, 'server.js'), 'utf8'), names = [...src.match(/const CLIENT_JS = new Set\(\[([^\]]*)\]\)/)[1].matchAll(/'([a-z0-9-]+)'/g)].map(x => x[1]);
         for (const n of names) assert(fs.existsSync(path.join(L.ROOT, n + '.js')), 'exists: ' + n + '.js');
       }],
+      ['RELEASE2: credits page, the new client scripts (dev and dist) and the /healthz health fields', async () => {
+        const cr = await get(dev.port, '/credits'); eq(cr.status, 200); assert(/Credits/.test(cr.body) && /OWNER/.test(cr.body) && /three\.js/.test(cr.body) && /SIL Open Font/.test(cr.body), 'credits text with owner placeholders'); assert(cr.body.includes('/privacy'), 'links the privacy page');
+        for (const f of ['live', 'access', 'onboard']) { eq((await get(dev.port, '/client/' + f + '.js')).status, 200, f + ' dev'); eq((await get(prod.port, '/client/' + f + '.js')).status, 200, f + ' dist'); assert((await get(dev.port, '/')).body.includes('/client/' + f + '.js'), f + ' is in the page'); }
+        eq((await get(dev.port, '/safety.js')).status, 404, 'server-only module stays private'); eq((await get(dev.port, '/tools/soak.js')).status, 404);
+        const h = JSON.parse((await get(dev.port, '/healthz')).body); for (const k of ['humans', 'tickMs', 'tickMaxMs', 'heapMb', 'rssMb', 'reports', 'refusedConnections', 'errors']) assert(Number.isFinite(h[k]), 'healthz.' + k + ': ' + JSON.stringify(h));
+        const pv = (await get(dev.port, '/privacy')).body; assert(/quick chat/i.test(pv) && /report/i.test(pv) && /bots/i.test(pv) && /30 seconds/.test(pv), 'the privacy page covers the new features');
+      }],
+      ['RELEASE2: a restart notice: the shutdown hook sends {bye} before close code 1012 (client shows "restarting")', async () => {
+        const src = fs.readFileSync(path.join(L.ROOT, 'release.js'), 'utf8'); assert(src.includes('{"bye":"restart"}') && src.includes('1012'), 'release.js shutdown sends bye then 1012');
+        const live = fs.readFileSync(path.join(L.ROOT, 'client/live.js'), 'utf8'); assert(live.includes('d.bye') && live.includes('1012') && live.includes("'/version'"), 'client/live.js handles bye, 1012 and the version check');
+        const game = fs.readFileSync(path.join(L.ROOT, 'game.js'), 'utf8'); for (const h of ['GKR2.onMsg', 'GKR2.closed', 'GKR2.joinUrl', 'GKR2.muted']) assert(game.includes(h), 'game.js hook ' + h);
+      }],
     ]);
   } finally { dev.stop(); prod.stop(); old.stop(); try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) {} }
   process.exit(fail ? 1 : 0);

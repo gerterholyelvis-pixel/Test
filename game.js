@@ -4081,7 +4081,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     }, onmessage: null };
     const ping = () => ws.readyState === 1 && ws.send(JSON.stringify({ ping: performance.now() }));
     setInterval(ping, 2000);   // NET: RTT and clock offset
-    const wire = w => { w.onopen = ping; w.onmessage = e => { NETC.rxB += e.data.length; NETC.rxM++; let d; try { d = JSON.parse(e.data); } catch (err) { return; } if (d.busy) { busyRetry = true; toastMsg('Servers are full — retrying…', false, 3500); setTimeout(() => { busyRetry = false; lastM = ''; ws = new WebSocket(joinUrl()); wire(ws); }, 4000); return; } net.onmessage && net.onmessage(d); }; w.onclose = () => { if (w !== ws || busyRetry) return; onClose(); }; };   // SECURITY: {busy:1} = match cap reached, try again
+    const wire = w => { w.onopen = ping; w.onmessage = e => { NETC.rxB += e.data.length; NETC.rxM++; let d; try { d = JSON.parse(e.data); } catch (err) { return; } if (d.busy) { busyRetry = true; toastMsg('Servers are full — retrying…', false, 3500); setTimeout(() => { busyRetry = false; lastM = ''; ws = new WebSocket(joinUrl()); wire(ws); }, 4000); return; } net.onmessage && net.onmessage(d); }; w.onclose = ev => { if (w !== ws || busyRetry) return; if (window.GKR2) { try { GKR2.closed(ev && ev.code); } catch (e) {} } /* RELEASE2 */ onClose(); }; };   // SECURITY: {busy:1} = match cap reached, try again
     GK.social.attach({ state: () => ws.readyState, drop: () => ws.close(), reopen: tk => { lastM = ''; ws = new WebSocket(tokUrl(tk)); wire(ws); } });   // SOCIAL: reconnect with the token
     const onClose = () => { if (GK.social.onClose()) return; const m = document.getElementById('me'); if (m) m.textContent = 'Disconnected - reload to rejoin'; /* FEEL-BEGIN */ if (GK.feel) GK.feel.onClose(); /* FEEL-END */ };
     wire(ws);
@@ -4421,11 +4421,11 @@ function npcLook(group, kind) {   // BOTS: hostile mystery enemy = normal goblin
 }
 let me = 0, spawned = false;
 const P = { x: 0, z: 0, yaw: 0, pitch: 0, speed: 0 };
-const handleMsg = d => { handleMsg0(d); /* MATCH */ if (GK.matchOnMsg) GK.matchOnMsg(d); };
+const handleMsg = d => { if (window.GKR2 && !d.s) { try { GKR2.onMsg(d); } catch (e) {} } /* RELEASE2: client/live.js (version, rooms, quick chat) */ handleMsg0(d); /* MATCH */ if (GK.matchOnMsg) GK.matchOnMsg(d); };
 const handleMsg0 = d => {
   if (d.s) return netSnap(d.s);   // NET: fast position snapshots (hot path)
   if (d.pong != null) return netPong(d);
-  if (d.emote || d.token || d.resumed || d.resumeFail) SOC.onMsg(d);   // SOCIAL
+  if ((d.emote && !(window.GKR2 && GKR2.muted(d.emote.id))) || d.token || d.resumed || d.resumeFail) SOC.onMsg(d);   // SOCIAL (RELEASE2: a muted goblin's emotes are dropped)
   if (d.fix) { NETC.fix = d.fix; NETC.fixN++; NETC.fixT.push(performance.now()); JUMP.fix(d.fix); }   // PERF4: counted for GK.net.stats(); CLIMB: a third element is my corrected feet height
   /* FEEL-BEGIN */ if (GK.feel) GK.feel.onMsg(d); /* FEEL-END */
   if (window.GKACT5) GKACT5.pre(d);   // ACT5UI: breach by door -> by side, arc labels
@@ -4796,6 +4796,7 @@ GK.hud5 = GKHUD5;
 // HUD5-END
 // FUN-BEGIN (kill feed, scoreboard on `, spectating after death, match summary; see docs/reports/fun.md)
 function funUrl(u) {   // add the saved character's name to the join query
+  if (window.GKR2) u = GKR2.joinUrl(u);   // RELEASE2: ?room=CODE (private room)
   try { const c = GK.charId != null && window.GKSAVE ? GKSAVE.getCharacter(+GK.charId) : null; if (c && c.name) return u + (u.indexOf('?') < 0 ? '/?' : '&') + 'name=' + encodeURIComponent(String(c.name).slice(0, 14)); } catch (e) {}
   return u;
 }
@@ -8009,7 +8010,7 @@ function combatFloat(text, pos, color, size) {   // floating damage number (a sp
 }
 function combatHurtFx(dmg, max) {   // red vignette + screen number when I am hurt
   if (!CB.vig) { CB.vig = document.createElement('div'); CB.vig.style.cssText = 'position:fixed;inset:0;z-index:45;pointer-events:none;opacity:0;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 42%,rgba(190,8,8,.55) 78%,rgba(120,0,0,.85) 100%)'; document.body.appendChild(CB.vig); }
-  CB.vig.animate([{ opacity: Math.min(1, 0.5 + 2 * dmg / (max || 40)) }, { opacity: 0 }], { duration: 520, easing: 'ease-out' });
+  CB.vig.animate([{ opacity: Math.min(1, 0.5 + 2 * dmg / (max || 40)) * (window.GKACC && (GKACC.flash || GKACC.calm) ? 0.3 : 1) }, { opacity: 0 }], { duration: 520, easing: 'ease-out' });
   const f = document.createElement('div'); f.textContent = '-' + dmg;
   f.style.cssText = 'position:fixed;left:50%;top:58%;z-index:90;pointer-events:none;color:#ff4a3a;font:800 34px system-ui,sans-serif;text-shadow:0 2px 10px #000';
   document.body.appendChild(f); f.animate([{ opacity: 1, transform: 'translate(-50%,0)' }, { opacity: 0, transform: 'translate(-50%,-50px)' }], 900).onfinish = () => f.remove();
@@ -8312,7 +8313,7 @@ function vmUpdate(dt, t, mine) {   // hook: every frame after the actor loop, be
     A.br.position.copy(wr).addScaledVector(dir, -0.07); A.br.scale.set(0.051, 0.14, 0.051); A.br.quaternion.copy(A.arm.quaternion);
   }
   // camera shake (after the pose; cam rotation is reset every frame)
-  if (VM.shake > 0.001) { const k = VM.shake; cam.rotation.x += (Math.random() - 0.5) * 0.02 * k; cam.rotation.y += (Math.random() - 0.5) * 0.016 * k; cam.rotation.z += (Math.random() - 0.5) * 0.014 * k; VM.shake *= Math.pow(0.002, dt); }
+  if (VM.shake > 0.001 && !(window.GKACC && GKACC.calm)) { const k = VM.shake;   /* RELEASE2: calm mode = no camera shake */ cam.rotation.x += (Math.random() - 0.5) * 0.02 * k; cam.rotation.y += (Math.random() - 0.5) * 0.016 * k; cam.rotation.z += (Math.random() - 0.5) * 0.014 * k; VM.shake *= Math.pow(0.002, dt); }
 }
 function vmHide() { VM.root.visible = false; }   // hook: menu / early-return path of frame()
 // ---- third person: per-family arm clips driven by a.swing (0..1)
@@ -8473,7 +8474,7 @@ const SOC = (() => {
   const sm = (a, b, x) => { const k = Math.min(1, Math.max(0, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
   const mx = (o, p, v, e) => { o[p] += (v - o[p]) * e; };   // blend a joint toward the emote pose
   const now = () => performance.now() / 1000;
-  const FRESH_MS = 15000, BOOT_MS = 8000;   // a reload resumes only inside the server's grace period; the resume gets 8 s to answer
+  const FRESH_MS = 30000, BOOT_MS = 8000;   // a reload resumes only inside the server's grace period; the resume gets 8 s to answer
   const stamp = () => { try { sessionStorage.setItem('gk.tokenT', String(Date.now())); sessionStorage.setItem('gk.tokenO', JSON.stringify({ c: GK.charId, w: GK.wins | 0 })); } catch (e) {} };   // 'last seen connected' time + the saved character, next to gk.token
   function clear() { S.token = null; try { for (const k of ['gk.token', 'gk.tokenT', 'gk.tokenO']) sessionStorage.removeItem(k); } catch (e) {} }   // a clean exit (death, win, cancel, main menu): nothing to resume
   try { S.token = sessionStorage.getItem('gk.token'); } catch (e) {}
@@ -8577,7 +8578,7 @@ const SOC = (() => {
   function startRc() {
     const rc = S.rc = { t0: performance.now(), last: -1e9, done: false };
     const step = () => {
-      if (rc.done) return; const el = performance.now() - rc.t0, left = Math.ceil((15000 - el) / 1000);
+      if (rc.done) return; const el = performance.now() - rc.t0, left = Math.ceil((30000 - el) / 1000);
       if (left <= 0) return fail();
       overlay('Connection lost', 'Reconnecting… ' + left, false);
       if (el - rc.last >= 2000 && S.net && S.net.state() >= 2) { rc.last = el; S.net.reopen(S.token); }

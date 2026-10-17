@@ -24,6 +24,7 @@
     "start:prod": "node server.js --production",
     "check": "node tools/check.js",
     "smoke": "node tools/smoke.js",
+    "soak": "node tools/soak.js",
     "release:check": "node tools/check.js && node tests/run.js && node tools/smoke.js --dist"
   },
   "repository": {
