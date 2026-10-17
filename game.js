@@ -1625,7 +1625,7 @@ const chestSlots = [];                    // per chest room: {holder, glow, labe
     const L = WORLD.HOME_LAYOUT, id = cr.id, iron = steelDark, brass = brassM, wood = mat('hpWood', () => M(0x6b4a2a, { roughness: 0.82 }));
     if (window.GK5ART && window.GK5ART.home) {   // INTEGRATION: the art home draws the pump, screen and lockbox; these are only the invisible E-prompt targets at the art anchors (HOME_LAYOUT)
       const hit = (kind, x, y, z, w, h, d) => { const o = new THREE.Mesh(kgeo('hpHit' + w + h + d, () => new THREE.BoxGeometry(w, h, d)), proxyM); o.position.set(x, y, z); o.visible = false; g.add(o); regStation(kind, o, id); };
-      hit('pump', L.pump[0], 0.9, L.pump[1], 1.1, 1.8, 1.1); hit('screen', L.screen[0] - 0.2, 1.5, L.screen[1], 0.7, 1.4, 1.5); hit('box', L.box[0], 0.4, L.box[1], 0.9, 0.8, 1.1);
+      hit('pump', L.pump[0], 0.9, L.pump[1], 1.1, 1.8, 1.1); hit('screen', L.screen[0] - 0.2, 1.5, L.screen[1], 0.7, 1.4, 1.5); hit('box', L.box[0], 0.4, L.box[1], 0.9, 0.8, 1.1); hit('camera', L.cam[0], 1.2, L.cam[1] + 0.2, 1.0, 2.4, 1.0);   // CAMTERM: the terminal prompt target
       return;
     }
     const glass = mat('hpGlass', () => new THREE.MeshStandardMaterial({ color: 0xbfeaff, transparent: true, opacity: 0.26, roughness: 0.08, metalness: 0.1, depthWrite: false }));
@@ -2483,7 +2483,7 @@ const fmtT = ms => { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.fl
 // ----- round state (fed by applyRound; the local clock interpolates between server updates) -----
 const RS = { n: 0, endAt: 0, dur: 0, sel: {}, open: [], shut: [], fizzled: [], votes: 0, selJ: '{}', openJ: '[]', flashUntil: 0, fizzUntil: 0, homeLock: false, arenaUntil: 0 };
 GK.homeLocked = () => RS.homeLock;   // HOME PHASE: round 1, the hatches are shut
-GK.homeReach = (kind, d) => !window.GKHOMEBASE || !GKHOMEBASE.inReach || GKHOMEBASE.inReach(kind, d);   // QA-FULL: pump / screen / lockbox prompt only within the server's reach
+GK.homeReach = (kind, d, room) => (kind !== 'c' || (window.GKHOMEW && GKHOMEW.camOwned(room))) && !window.GKHOMEBASE || !GKHOMEBASE.inReach || GKHOMEBASE.inReach(kind, d);   // QA-FULL: pump / screen / lockbox prompt only within the server's reach
 GK.doorView = () => RS;   // DOORS-PERSIST: the wall maps read the open / barred doors
 const roundLeft = () => Math.max(0, RS.endAt - performance.now());
 function applyRound(d) {
@@ -5302,22 +5302,22 @@ function setHover(id, kind) {
   hoverTip.innerHTML = 'Press <b style="padding:1px 6px;border-radius:4px;background:#ffd75e;color:#1a1405">E</b> to ' + (hoverKind === 'r' ? 'recycle' : hoverKind === 'w' ? 'craft' : hoverKind === 'k' ? 'study' : 'trade'); hoverTip.style.display = /* FEEL: shown by feel.js */ false ? 'block' : 'none';
 }
 function merchantHoverTick() {
-  const T = PERF2_ON ? perf2HoverTargets() : [...(GK.merchantTargets || []), ...(GK.stationTargets || []).filter(o => o && o.userData && (o.userData.station === 'recycler' || o.userData.station === 'workbench' || o.userData.station === 'knowledge' || o.userData.station === 'screen' || o.userData.station === 'pump' || o.userData.station === 'box'))];   // PERF2: list cached (was rebuilt with a spread and a closure every frame)
+  const T = PERF2_ON ? perf2HoverTargets() : [...(GK.merchantTargets || []), ...(GK.stationTargets || []).filter(o => o && o.userData && (o.userData.station === 'recycler' || o.userData.station === 'workbench' || o.userData.station === 'knowledge' || o.userData.station === 'screen' || o.userData.station === 'pump' || o.userData.station === 'box' || o.userData.station === 'camera'))];   // PERF2: list cached (was rebuilt with a spread and a closure every frame)
   lootPromptTick();
   if (GK.mode !== 'play' || invOpen || shopOpen || !inside || !spawned || !T.length) { if (hoverRoom >= 0) setHover(-1); return; }
   if (PERF2_ON && !perf2HoverNear(T)) { setHover(-1); return; }   // PERF2: nothing within 20 m, so the ray cannot reach (it is 7 m long): skip the raycast over every merchant, recycler and workbench model
   if (GK.perf5 && GK.perf5.hoverSkip(T)) return;   // PERF5: the hover ray (2 to 4 ms next to the home stations) runs on every 3rd frame, and only when the view moved
   cam.updateMatrixWorld(); ray.setFromCamera({ x: 0, y: 0 }, cam); ray.far = 7;
   const hit = ray.intersectObjects(T, true)[0]; let id = -1, kind = '';
-  if (hit) { for (let o = hit.object; o; o = o.parent) { const u = o.userData; if (!u || u.roomId == null) continue; id = u.roomId; kind = u.station === 'recycler' ? 'r' : u.station === 'workbench' ? 'w' : u.station === 'knowledge' ? 'k' : u.station === 'screen' ? 's' : u.station === 'pump' ? 'p' : u.station === 'box' ? 'b' : 'm';
-    if ((kind === 'p' || kind === 's' || kind === 'b') && GK.homeReach && !GK.homeReach(kind, Math.hypot(P.x - o.matrixWorld.elements[12], P.z - o.matrixWorld.elements[14]))) { id = -1; kind = ''; }   // QA-FULL: the pump / screen / lockbox only answer within the server's range (2.5 / 3 / 1.5 m): no prompt that ends in "Too far"
+  if (hit) { for (let o = hit.object; o; o = o.parent) { const u = o.userData; if (!u || u.roomId == null) continue; id = u.roomId; kind = u.station === 'recycler' ? 'r' : u.station === 'workbench' ? 'w' : u.station === 'knowledge' ? 'k' : u.station === 'screen' ? 's' : u.station === 'pump' ? 'p' : u.station === 'box' ? 'b' : u.station === 'camera' ? 'c' : 'm';
+    if ((kind === 'p' || kind === 's' || kind === 'b' || kind === 'c') && GK.homeReach && !GK.homeReach(kind, Math.hypot(P.x - o.matrixWorld.elements[12], P.z - o.matrixWorld.elements[14]), id)) { id = -1; kind = ''; }   // QA-FULL: the pump / screen / lockbox only answer within the server's range (2.5 / 3 / 1.5 m): no prompt that ends in "Too far"
     break; } }
   setHover(id, kind);
 }
 GK.hover = () => ({ room: hoverRoom, kind: hoverKind });
 function stationInteract() {   // E while looking at a merchant, recycler or workbench opens it; true if it did
   if (hoverRoom < 0 || invOpen || shopOpen || GK.mode !== 'play') return false;
-  if ((hoverKind === 's' || hoverKind === 'p' || hoverKind === 'b') && window.GKHOMEW) return GKHOMEW.interact(hoverKind, hoverRoom);   // ELIXIR: Elixir Screen, pump, lockbox
+  if ((hoverKind === 's' || hoverKind === 'p' || hoverKind === 'b' || hoverKind === 'c') && window.GKHOMEW) return GKHOMEW.interact(hoverKind, hoverRoom);   // ELIXIR: Elixir Screen, pump, lockbox
   if (hoverKind === 'r') openStation('recycle', hoverRoom); else if (hoverKind === 'w' || hoverKind === 'k') openStation('craft', hoverRoom); else openShop(hoverRoom);   // KNOWLEDGE: the tree and the bench open the same screen. QA-FULL: "else openShop" had slipped into this comment, so E never opened a merchant
   return true;
 }
@@ -6131,7 +6131,7 @@ function perf2HoverTargets() {
   const mt = GK.merchantTargets, st = GK.stationTargets, nm = mt ? mt.length : 0, ns = st ? st.length : 0, h = perf2Hov, m0 = nm ? mt[0] : null, m1 = nm ? mt[nm - 1] : null, s0 = ns ? st[0] : null, s1 = ns ? st[ns - 1] : null;
   if (h.mt !== mt || h.st !== st || h.nm !== nm || h.ns !== ns || h.m0 !== m0 || h.m1 !== m1 || h.s0 !== s0 || h.s1 !== s1) {
     h.mt = mt; h.st = st; h.nm = nm; h.ns = ns; h.m0 = m0; h.m1 = m1; h.s0 = s0; h.s1 = s1;
-    h.T = [...(mt || []), ...(st || []).filter(o => o && o.userData && (o.userData.station === 'recycler' || o.userData.station === 'workbench' || o.userData.station === 'knowledge' || o.userData.station === 'screen' || o.userData.station === 'pump' || o.userData.station === 'box'))];
+    h.T = [...(mt || []), ...(st || []).filter(o => o && o.userData && (o.userData.station === 'recycler' || o.userData.station === 'workbench' || o.userData.station === 'knowledge' || o.userData.station === 'screen' || o.userData.station === 'pump' || o.userData.station === 'box' || o.userData.station === 'camera'))];
   }
   return h.T;
 }
@@ -7768,7 +7768,7 @@ const R5 = (() => {
   const colorOf = id => { const a = actors.get(id); return a && a.goblin != null ? [0xffd75e, 0xff9a5e, 0x9ae06e, 0x6fc8ff, 0xc89aff][a.goblin % 5] : 0xffd75e; };
   function homeState(key) {   // GK.state.homes[key] = { pump 0..1, alert, dead, lv: { lock, alarm, sentry, lockbox } }; the own home also reads the pump tank
     const hs = (GK.state && GK.state.homes && GK.state.homes[key]) || {}, lv = hs.lv || {}, tank = GK.myHome === key && GK.state && GK.state.tankCap ? GK.state.tank / GK.state.tankCap : null;
-    return { pump: Math.max(0, Math.min(1, hs.pump != null ? hs.pump : tank != null ? tank : 0.55)), alert: !!hs.alert, dead: !!hs.dead, lock: lv.lock | 0, alarm: lv.alarm | 0, sentry: lv.sentry | 0, lockbox: lv.lockbox | 0 };
+    return { pump: Math.max(0, Math.min(1, hs.pump != null ? hs.pump : tank != null ? tank : 0.55)), alert: !!hs.alert, dead: !!hs.dead, lock: lv.lock | 0, alarm: lv.alarm | 0, sentry: lv.sentry | 0, lockbox: lv.lockbox | 0, camera: lv.camera | 0 };
   }
   const BUILD = {
     home(key) {
@@ -7779,9 +7779,9 @@ const R5 = (() => {
       e.lamp = [c.cx + (la.x * cs + la.z * sn) * K, 3.1, c.cz + (-la.x * sn + la.z * cs) * K];   // under the false ceiling: the pooled lamp of this room moves here
       e.sync = () => {
         const nm = homeOwner(c.id); if (nm !== owner) { owner = nm; home.setOwner(owner, col); }
-        const s = homeState(key), sig = [s.pump.toFixed(2), s.alert ? 1 : 0, s.dead ? 1 : 0, s.lock, s.alarm, s.sentry, s.lockbox].join();
+        const s = homeState(key), sig = [s.pump.toFixed(2), s.alert ? 1 : 0, s.dead ? 1 : 0, s.lock, s.alarm, s.sentry, s.lockbox, s.camera].join();
         if (sig === e.hs) return; e.hs = sig;
-        home.setPumpLevel(s.pump); home.setPumpAlert(s.alert); home.setScreenPower(!s.dead); home.setUpgrade('lock', s.lock); home.setUpgrade('alarm', s.alarm); home.setUpgrade('sentry', s.sentry); home.setUpgrade('lockbox', s.lockbox);
+        home.setPumpLevel(s.pump); home.setPumpAlert(s.alert); home.setScreenPower(!s.dead); home.setUpgrade('lock', s.lock); home.setUpgrade('alarm', s.alarm); home.setUpgrade('sentry', s.sentry); home.setUpgrade('lockbox', s.lockbox); home.setUpgrade('camera', s.camera);
       };
       e.update = (dt, t) => home.update(t); e.dispose = () => home.dispose();
       return e;
@@ -9190,6 +9190,10 @@ const HOMEW = window.GKHOMEW = (() => {
   const ringHome = () => { const e = GK.r5 && GK.r5.room(GK.myHome); if (e && e.api.ringAlarm) e.api.ringAlarm(); };
   const ui = GKHOMEUI.createHomeUI({ root: document.body, send: m => net.send(m), onClose: () => { shopOpen = false; panelKind = ''; keys.clear(); lockNow(); } });
   const mine = room => GK.myHome && 'c' + room === GK.myHome;
+  // CAMTERM: the Camera Terminal overlay (camterm.js). The server owns every rule and sends the frames; this only shows them.
+  const camClose = () => { shopOpen = false; panelKind = ''; keys.clear(); lockNow(); };
+  const cam = window.GKCAM ? GKCAM.createCamUI({ root: document.body, send: m => net.send(m), snd, n: W.N, vaultKey: W.VAULT_KEY, onClose: camClose }) : null;
+  const camOwned = room => !!(mine(room) && hs && !hs.dead && hs.lv && hs.lv.camera > 0);
   function mapState() {
     const cells = [];
     for (let i = 0; i < W.NARENA; i++) cells.push({ key: String(i), gx: i % W.N, gy: Math.floor(i / W.N), kind: String(i) === W.VAULT_KEY ? 'vault' : 'arena', label: String(i) === W.VAULT_KEY ? 'V' : '' });
@@ -9206,6 +9210,11 @@ const HOMEW = window.GKHOMEW = (() => {
       if (!hs) { ui.toast('info', 'The screen is warming up'); return true; }
       shopOpen = true; panelKind = 'home'; keys.clear(); try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
       ui.open(state()); return true;
+    }
+    if (kind === 'c') {   // CAMTERM
+      if (!camOwned(room) || !cam) { ui.toast('info', 'Not your terminal'); snd('deny'); return true; }
+      shopOpen = true; panelKind = 'home'; keys.clear(); try { document.exitPointerLock && document.exitPointerLock(); } catch (e) {}
+      cam.open({ level: hs.lv.camera, elixir }); return true;
     }
     if (kind === 'p') { net.send({ pump: 1 }); return true; }
     if (mine(room)) { ui.toast('info', 'Your lockbox: manage it on the Elixir Screen'); return true; }
@@ -9232,7 +9241,7 @@ const HOMEW = window.GKHOMEW = (() => {
   }, 1000);
   function onMsg(d) {
     if (d.matchStart || d.queue) { hs = null; elixir = 0; ui.setElixir(null); bells.clear(); gas.clear(); gs.homes = {}; gs.tank = gs.tankCap = undefined; }
-    if (d.elixir !== undefined) { elixir = d.elixir | 0; ui.setElixir(elixir, 120); if (ui.isOpen() && hs) ui.update(state()); }
+    if (d.elixir !== undefined) { elixir = d.elixir | 0; cam && cam.setElixir(elixir); ui.setElixir(elixir, 120); if (ui.isOpen() && hs) ui.update(state()); }
     if (d.home) {
       hs = d.home; if (ui.isOpen()) ui.update(state());
       hput(hs.key, { pump: hs.tankCap ? hs.tank / hs.tankCap : 0, lv: hs.lv || {}, dead: !!hs.dead }); gs.tank = hs.tank; gs.tankCap = hs.tankCap;
@@ -9250,6 +9259,8 @@ const HOMEW = window.GKHOMEW = (() => {
     if (d.brewed) ui.toast('good', 'Brewed ' + itemName(d.brewed.key));
     if (d.brewFail) ui.toast('info', REASON[d.brewFail] || 'Cannot brew that');
     if (d.homeFx) fx(d.homeFx);
+    if (cam && d.cam !== undefined) cam.frame(d.cam);   // CAMTERM: a frame, or null when the session ended
+    if (d.camRes) { if (d.camRes.end) { cam && cam.close(true); ui.toast('info', d.camRes.reason); } else if (cam && cam.isOpen()) cam.result(d.camRes); else if (d.camRes.reason) ui.toast('info', d.camRes.reason); }
   }
   // Refine and Brew live on the recycler / workbench panels (game.js hooks): they only show where the server will accept them
   const inHome = room => { const c = CHEST_ROOMS[room]; return !!c && c.type === 'home'; };
@@ -9269,7 +9280,7 @@ const HOMEW = window.GKHOMEW = (() => {
     for (const b of brewRow.querySelectorAll('button')) b.style.opacity = elixir >= (b.dataset.brew === 'heal' ? 8 : 12) ? 1 : 0.45;
   }
   return {
-    onMsg, interact, shut: () => ui.close(false), decorateCraft, paintBrew, dbgSend: m => { if (GK.dbg) net.send(m); },   // GK_DEBUG servers only (screenshots, tests)
+    onMsg, interact, camOwned, shut: () => { ui.close(false); cam && cam.close(false); }, decorateCraft, paintBrew, dbgSend: m => { if (GK.dbg) net.send(m); },   // GK_DEBUG servers only (screenshots, tests)
     elixir: () => elixir, benchLv: () => (hs && hs.lv && hs.lv.bench) | 0, recEff: () => (hs ? K.recyclerEff({ lv: hs.lv, dead: hs.dead }) : 0.5),
     canRefine: room => !!hs && !hs.dead && elixir >= 4 && mine(room) && inHome(room),
     bellAt: (x, z) => { if (!bells.size) return false; const k = W.roomKeyOf(x, z), t = bells.get(k); return t != null && t > performance.now(); },

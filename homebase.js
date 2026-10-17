@@ -8,7 +8,8 @@
     recycler: { tab: 'BASE',     name: 'Recycler',        levels: [{ cost: 25, fx: '75% yield' }, { cost: 50, fx: '100% yield' }] },
     lockbox:  { tab: 'BASE',     name: 'Lockbox',         levels: [{ cost: 20, fx: '3 slots' }, { cost: 35, fx: '6 slots' }] },
     pad:      { tab: 'BASE',     name: 'Healing Pad',     levels: [{ cost: 30, fx: '2 HP/s after 2 s unhurt' }] },
-    lock:     { tab: 'SECURITY', name: 'Door Lock',       levels: [{ cost: 25, fx: 'pick 2 s' }, { cost: 50, fx: 'pick 5 s, crack 14 s' }] },
+    camera:   { tab: 'BASE',     name: 'Camera Terminal', levels: [{ cost: 25, fx: 'watch any arena room live, 2 + 1 per 15 s, 2 min feed' }, { cost: 40, fx: 'the Vault too, 5 min feed, 1 per 20 s' }] },   // CAMTERM (camterm.js)
+    lock:     { tab: 'SECURITY', name: 'Door Lock',      levels: [{ cost: 25, fx: 'pick 2 s' }, { cost: 50, fx: 'pick 5 s, crack 14 s' }] },
     alarm:    { tab: 'SECURITY', name: 'Alarm',           levels: [{ cost: 10, fx: 'toast and ping on intruders' }] },
     snare:    { tab: 'SECURITY', name: 'Snare',           levels: [{ cost: 15, fx: 'root 2 s, 10 damage, one-shot' }] },
     sentry:   { tab: 'SECURITY', name: 'Sentry Crossbow', levels: [{ cost: 60, fx: '8 damage / 1.5 s, 20 shots, owner away' }] },
@@ -167,7 +168,7 @@
   // ---- balance helpers
   const baseIncomeMatch = (rounds, roundMs) => Math.floor(rounds * roundMs / 5000);
   // QA-FULL: client prompt reach for the home props (p pump = elixir.js PUMP_RANGE 2.5, s screen, b lockbox crack), 0.2 m inside the server gate
-  const PROP_REACH = { p: 2.5, s: SCREEN_RANGE, b: CRACK_RANGE };
+  const PROP_REACH = { p: 2.5, s: SCREEN_RANGE, b: CRACK_RANGE, c: 2.5 };   // c = the Camera Terminal (camterm.js RANGE)
   const inReach = (kind, d) => d <= (PROP_REACH[kind] || 0) - 0.2;
 
   return { PROP_REACH, inReach, UPGRADES, ORDER, ACTIONS, SENTRY, SNARE, PAD, PICK_MS, CRACK_MS, CRACK_RANGE, SCREEN_RANGE, MSG_RATE, SENDS, SEND_IDS, TELEGRAPH_MS, MAX_ACTIVE_PER_ROOM, FIRST_SEND_ROUND,
