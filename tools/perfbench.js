@@ -140,7 +140,7 @@ async function main() {
       if (/"m":"play"/.test(s) && /"l":false/.test(s)) { if (!goMs) goMs = Date.now() - t1; if (/"p":0/.test(s)) break; }
       await sleep(250);
     }
-    const goAt = Date.now(); let bakeWait = 0; for (let i = 0; i < 160; i++) { if (await ev('__pf.baked > 0 || !!(GK.perf5 && GK.perf5.on && i > 6)')) break;   /* PERF5 holds the non-priority icons during play */ await sleep(250); bakeWait = Date.now() - goAt; }   // the item icon bake runs after GO (main thread): measure after it
+    const goAt = Date.now(); let bakeWait = 0; for (let i = 0; i < 160; i++) { if (await ev('__pf.baked > 0 || !!(GK.perf5 && GK.perf5.on && ' + i + ' > 6)')) break;   /* PERF5 holds the non-priority icons during play */ await sleep(250); bakeWait = Date.now() - goAt; }   // the item icon bake runs after GO (main thread): measure after it
     await sleep(1500);
     const longs = await ev('__lt.slice()');
     return { menuMs, goMs, bakeWait, longTasks: longs.filter(x => x > 50), longMax: Math.max(0, ...longs) };
