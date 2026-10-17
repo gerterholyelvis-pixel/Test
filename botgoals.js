@@ -283,8 +283,8 @@ function claimNow(o) {
   if (o.sudden) return o.hp > 0.25;
   if (o.hp < 0.4) return false;
   if (o.wardens >= 2 && o.hp < 0.7) return false;
-  if (!o.foes) return o.round >= 2;                                   // nobody here: bank claim time (it is cumulative)
   if (o.round >= o.sudRound - 1) return o.hp > 0.5 || o.top > o.mine;   // late: the crown decides the match
+  if (!o.foes) return o.round >= 2;                                   // nobody here: bank claim time (it is cumulative)
   return o.aggr > 0.6 && o.hp > 0.7;
 }
 
