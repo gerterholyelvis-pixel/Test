@@ -2,7 +2,8 @@
 // Options (all optional; `npm test` with none runs everything, exactly like before):
 //   --tier fast|server|slow|all  fast = pure/unit files (no server), server = files that spawn server.js, slow = long simulations;
 //                            a comma list works (--tier server,slow); default all
-//   --changed[=REF]          only the files affected by what changed since REF (default: merge-base with main) plus uncommitted edits
+//   --changed[=REF]          only the files affected by what changed since REF (default: merge-base with main) plus uncommitted edits;
+//                            --dry prints the picked files without running them
 //   --jobs N                 parallel files (also GK_TEST_JOBS); default: half the cores, lowered when the CPU is already busy
 //   -q / --quiet             print only failures, flaky retries and the summary (also GK_TEST_QUIET=1)
 //   --no-retry               do not retry @timing files (also GK_TEST_RETRY=0); --retry-all retries every failed file once
@@ -41,21 +42,24 @@ if (argv.some(a => a === '--changed' || a.startsWith('--changed='))) {
   const git = a => { try { return execFileSync('git', a, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch (e) { return ''; } };
   const cv = argv.find(a => a.startsWith('--changed=')), ref = (cv && cv.slice(10)) || git(['merge-base', 'HEAD', 'main']) || 'HEAD';
   const changed = new Set([...git(['diff', '--name-only', ref]).split('\n'), ...git(['ls-files', '--others', '--exclude-standard']).split('\n')].filter(Boolean).map(s => s.replace(/\\/g, '/')));
-  // root modules server.js loads, transitively: a change there can affect every server-tier test
-  const req = (file, seen = new Set()) => { if (seen.has(file) || !fs.existsSync(path.join(ROOT, file))) return seen; seen.add(file); for (const m of fs.readFileSync(path.join(ROOT, file), 'utf8').matchAll(/require\(\s*['"]\.\/([\w./-]+?)(?:\.js)?['"]\s*\)/g)) req(m[1] + '.js', seen); return seen; };
-  const serverDeps = req('server.js'), pick = new Map(), add = (m, why) => { if (!pick.has(m.f)) pick.set(m.f, why); };
+  // A test is picked when it names the changed module, or names a root module that require()s it (transitively, server.js excluded).
+  // CORE files (server.js and the shared world / item tables) pick every server-tier test. The full suite at merge time is the safety net.
+  const CORE = new Set(['server.js', 'world.js', 'items.js']), roots = fs.readdirSync(ROOT).filter(f => f.endsWith('.js') && f !== 'server.js');
+  const reqs = {}; for (const f of roots) reqs[f] = [...fs.readFileSync(path.join(ROOT, f), 'utf8').matchAll(/require\(\s*['"]\.\/([\w./-]+?)(?:\.js)?['"]\s*\)/g)].map(m => m[1] + '.js');
+  const users = mod => { const out = new Set([mod]); let grew = true; while (grew) { grew = false; for (const f of roots) if (!out.has(f) && reqs[f].some(r => out.has(r))) { out.add(f); grew = true; } } return out; };
+  const mentions = (src, base) => new RegExp('(\\.\\./|/)' + base.replace(/\.js$/, '').replace(/[-.]/g, '\\$&') + "(\\.js)?['\"`]|\\b" + base.replace(/[-.]/g, '\\$&') + '\\b').test(src);
+  const pick = new Map(), add = (m, why) => { if (!pick.has(m.f)) pick.set(m.f, why); };
   for (const c of changed) {
-    const base = path.basename(c), mod = base.replace(/\.js$/, '');
+    const base = path.basename(c);
     if (c.startsWith('tests/') && base.endsWith('.test.js')) { const m = files.find(x => x.f === base); if (m) add(m, 'edited'); continue; }
     if (c === 'tests/lib.js' || c === 'tests/run.js' || c === 'package.json' || c === 'package-lock.json') { files.forEach(m => add(m, c)); continue; }
     if (c.startsWith('docs/') || c.startsWith('tools/') && !files.some(m => m.src.includes(c))) continue;
-    const rx = new RegExp('(\\.\\./|/)' + mod.replace(/[-.]/g, '\\$&') + "(\\.js)?['\"`]|\\b" + base.replace(/[-.]/g, '\\$&') + '\\b');
-    for (const m of files) if (rx.test(m.src)) add(m, 'mentions ' + base);
-    if (serverDeps.has(c)) for (const m of files) if (m.tier === 'server') add(m, c === 'server.js' ? 'server.js' : base + ' (loaded by server.js)');
+    if (CORE.has(c)) for (const m of files) if (m.tier !== 'fast') add(m, base + ' (core)');
+    for (const u of c.includes('/') ? [c] : users(base)) for (const m of files) if (mentions(m.src, path.basename(u))) add(m, u === base ? 'mentions ' + base : 'via ' + u);
   }
   files = files.filter(m => pick.has(m.f));
   console.log('changed since ' + ref.slice(0, 10) + ': ' + (changed.size ? [...changed].slice(0, 12).join(', ') + (changed.size > 12 ? ' (+' + (changed.size - 12) + ')' : '') : 'nothing') + '\n' + (files.length ? files.length + ' test files: ' + files.map(m => m.f.replace('.test.js', '') + ' (' + pick.get(m.f) + ')').join(', ') : 'no test file is affected'));
-  if (!files.length) process.exit(0);
+  if (!files.length || has('--dry')) process.exit(0);
 }
 
 // Load-aware parallelism: sample how busy the CPU already is (other agents' servers and suites) and leave it room.
