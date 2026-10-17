@@ -6975,7 +6975,7 @@ const ROOMART = (() => {
       if (cls === 'wall' && !bannerDone && p.h !== 'board' && nearWall) {   // one banner in the hall's colour on the wall above its first wall piece: the hall's identity from across the room
         bannerDone = true; bx(S, 0, 3.6, -phz - 0.03, 1.1, 2.1, 0.03, c(P.cloth, 0.04)); bx(S, 0, 4.35, -phz - 0.015, 1.1, 0.12, 0.02, c(P.cloth2, 0.04)); bx(S, 0, 2.85, -phz - 0.015, 1.1, 0.12, 0.02, c(P.cloth2, 0.04)); bx(S, 0, 4.78, -phz - 0.02, 1.3, 0.06, 0.06, c(P.dark)); bx(Gd, 0, 3.6, -phz - 0.005, 0.3, 0.3, 0.02, GC, PI / 4);
       }
-      switch (p.h) {
+      switch (p.h === 'cabinet' && theme === 'library' ? 'shelf' : p.h) {   // the library's cabinet is a bookcase
         case 'bunk':
           for (const sx of [-1, 1]) for (const sz of [-1, 1]) bx(S, sx * (phx - 0.05), 0.88, sz * (phz - 0.05), 0.07, 1.76, 0.07, c(P.dark));
           for (const y of [0.4, 1.2]) {
