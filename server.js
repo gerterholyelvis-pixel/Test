@@ -470,6 +470,7 @@ function statBlocks(m, order) { const o = {}; for (const p of order) if (p && !p
 // STATS-END
 // SUDDEN-BEGIN (match time limit, DEFAULT awaiting the owner's decision, see docs/FEATURES.md): after round SUDDEN_ROUND every door is open and regeneration stops; if nobody has won after round MAX_ROUND the goblin with the most kills wins, then the most HP
 // 5x5 (docs/PLAN-5x5.md 5.2): every round is ROUND_MS (2 min); sudden death after round 5, decided after round 7 (14 min at most)
+const SUDDEN_HEAL = 0.5;   // SUDDEN: instant heal items work at this fraction in sudden death (regen potions, brain heals and leech stay off)
 const SUDDEN_ROUND = DBG && +process.env.GK_SUDDEN_ROUND > 0 ? +process.env.GK_SUDDEN_ROUND : 5, MAX_ROUND = DBG && +process.env.GK_MAX_ROUND > 0 ? +process.env.GK_MAX_ROUND : 7;
 const ROUND_MS = 120000;
 const NEXT_MS = DBG && +process.env.GK_NEXT_ROUND_MS > 0 ? +process.env.GK_NEXT_ROUND_MS : ROUND_MS;   // length of rounds 2 and up (GK_DEBUG only override; GK_ROUND_MS shortens round 1)
@@ -2116,8 +2117,8 @@ function useItem(m, p, slot, now) {   // returns null or a failure reason
   let extra = null;
   switch (it.use) {
     case 'heal':
-      if (m.sudden) return 'sudden'; if (hp >= max) return 'full'; if (now < (p.healAt || 0)) return 'busy';
-      p.stats.health = Math.min(max, hp + Math.round(it.n * G.healMult(p.perks))); p.healAt = now + 4000; extra = { hp: p.stats.health - hp }; break;
+      if (hp >= max) return 'full'; if (now < (p.healAt || 0)) return 'busy';
+      p.stats.health = Math.min(max, hp + Math.round(it.n * G.healMult(p.perks) * (m.sudden ? SUDDEN_HEAL : 1))); p.healAt = now + (m.sudden ? 9000 : 4000);   // SUDDEN: bandages and draughts still work in sudden death, at half strength and a longer cooldown extra = { hp: p.stats.health - hp }; break;
     case 'regen':
       if (m.sudden) return 'sudden'; if (hp >= max) return 'full'; if (p.regen && p.regen.until > now) return 'busy';
       p.regen = { until: now + it.ms, next: now + 1000, since: now, n: Math.round(it.n * G.healMult(p.perks)) }; extra = { ms: it.ms }; break;

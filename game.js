@@ -8984,7 +8984,7 @@ const LOOT = window.GKLOOT = (() => {
 const GKUSE = window.GKUSE = (() => {
   const UT = k => (itemsData().ITEMS || {})[k] || {};
   let tonicEnd = 0, lastKey = null;
-  const FAIL = { now: 'Not now', busy: 'Not yet', full: 'You are at full health', sudden: 'Nothing heals in sudden death', door: 'No open door close by', room: 'Use it in a room with a panel', item: 'Cannot use that' };
+  const FAIL = { now: 'Not now', busy: 'Not yet', full: 'You are at full health', sudden: 'Regen potions and wedges do not work in sudden death', door: 'No open door close by', room: 'Use it in a room with a panel', item: 'Cannot use that' };
   const note = (text, col) => {   // short floating note, the same family as the knowledge gain text but smaller
     const f = document.createElement('div'); f.textContent = text;
     f.style.cssText = 'position:fixed;left:50%;top:50%;transform:translateX(-50%);z-index:90;pointer-events:none;color:' + (col || '#ffe9a8') + ';font:700 20px system-ui,sans-serif;letter-spacing:.04em;text-shadow:0 2px 8px #000';
@@ -9533,7 +9533,7 @@ window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw,
     brain: 'Eat a goblin brain for 5% of its knowledge. Each brain is also a knowledge point for a perk at the workbench.',
     lowhp: 'Death loses EVERYTHING you carry. Run through a door if you must.',
     vaultOpen: 'THE VAULT is open: scoop the coffers, grab the relic, and stand on the dais to claim the crown.',
-    sudden: 'Sudden death: the outer rooms are venting and only THE VAULT heals. Get to the vault!',
+    sudden: 'Sudden death: the outer rooms are venting. Only THE VAULT heals fully; bandages and draughts work at half strength. Get to the vault!',
   };
   let st = { on: true, seen: {} };
   try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && typeof s === 'object') st = { on: s.on !== false, seen: s.seen && typeof s.seen === 'object' ? s.seen : {} }; } catch (e) {}
