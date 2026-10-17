@@ -2474,6 +2474,7 @@ const fmtT = ms => { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.fl
 // ----- round state (fed by applyRound; the local clock interpolates between server updates) -----
 const RS = { n: 0, endAt: 0, dur: 0, sel: {}, open: [], fizzled: [], votes: 0, selJ: '{}', openJ: '[]', flashUntil: 0, fizzUntil: 0, homeLock: false, arenaUntil: 0 };
 GK.homeLocked = () => RS.homeLock;   // HOME PHASE: round 1, the hatches are shut
+GK.homeReach = (kind, d) => !window.GKHOMEBASE || !GKHOMEBASE.inReach || GKHOMEBASE.inReach(kind, d);   // QA-FULL: pump / screen / lockbox prompt only within the server's reach
 const roundLeft = () => Math.max(0, RS.endAt - performance.now());
 function applyRound(d) {
   const now = performance.now();
@@ -5134,7 +5135,9 @@ function merchantHoverTick() {
   if (PERF2_ON && !perf2HoverNear(T)) { setHover(-1); return; }   // PERF2: nothing within 20 m, so the ray cannot reach (it is 7 m long): skip the raycast over every merchant, recycler and workbench model
   cam.updateMatrixWorld(); ray.setFromCamera({ x: 0, y: 0 }, cam); ray.far = 7;
   const hit = ray.intersectObjects(T, true)[0]; let id = -1, kind = '';
-  if (hit) { for (let o = hit.object; o; o = o.parent) { const u = o.userData; if (!u || u.roomId == null) continue; id = u.roomId; kind = u.station === 'recycler' ? 'r' : u.station === 'workbench' ? 'w' : u.station === 'knowledge' ? 'k' : u.station === 'screen' ? 's' : u.station === 'pump' ? 'p' : u.station === 'box' ? 'b' : 'm'; break; } }
+  if (hit) { for (let o = hit.object; o; o = o.parent) { const u = o.userData; if (!u || u.roomId == null) continue; id = u.roomId; kind = u.station === 'recycler' ? 'r' : u.station === 'workbench' ? 'w' : u.station === 'knowledge' ? 'k' : u.station === 'screen' ? 's' : u.station === 'pump' ? 'p' : u.station === 'box' ? 'b' : 'm';
+    if ((kind === 'p' || kind === 's' || kind === 'b') && GK.homeReach && !GK.homeReach(kind, Math.hypot(P.x - o.matrixWorld.elements[12], P.z - o.matrixWorld.elements[14]))) { id = -1; kind = ''; }   // QA-FULL: the pump / screen / lockbox only answer within the server's range (2.5 / 3 / 1.5 m): no prompt that ends in "Too far"
+    break; } }
   setHover(id, kind);
 }
 GK.hover = () => ({ room: hoverRoom, kind: hoverKind });
@@ -8420,15 +8423,16 @@ window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw,
 
 // TIPS-BEGIN (onboarding: contextual tip card above the bottom-left HUD, How to Play overlay, Show/Reset tips settings; docs/reports/onboarding.md)
 (() => {
-  const KEY = 'gk.tips.v1', MAX = { go: 3, vaultAim: 3, outer: 2, brain: 2, lowhp: 2, vaultOpen: 2, sudden: 2 };
-  const TEXT = {
-    go: 'Each round, every room picks ONE door on its panel. It opens when the timer hits 0.',
-    vaultAim: 'Vault doors need TWO rooms to pick them, or the vote fizzles.',
-    outer: 'Behind outer doors: chests, mystery rooms (risky!) and merchants.',
+  const KEY = 'gk.tips.v1', MAX = { home: 3, go: 3, vaultAim: 3, outer: 2, brain: 2, lowhp: 2, vaultOpen: 2, sudden: 2 };
+  const TEXT = {   // QA-FULL: rewritten for the 5x5 arena and the round-1 home phase
+    home: 'Round 1: your home is locked. Collect elixir at the pump, spend it on the Elixir Screen, craft and recycle. The arena opens at round 2.',
+    go: 'The arena is open. Each room picks ONE door on its panel; it opens when the timer hits 0. THE VAULT is the middle room.',
+    vaultAim: 'Vault doors need TWO rooms to pick them, or the vote fizzles. The heist rooms around the vault can add votes.',
+    outer: 'Side rooms hold chests, mystery rooms (risky!), merchants, the Master Forge and the Grand Recycler.',
     brain: 'Eat a goblin brain for 5% of its knowledge. Each brain is also a knowledge point for a perk at the workbench.',
     lowhp: 'Death loses EVERYTHING you carry. Run through a door if you must.',
-    vaultOpen: 'THE VAULT holds a relic. Everyone else wants it too.',
-    sudden: 'Sudden death: every door is open and only THE VAULT heals. Last goblin standing wins.',
+    vaultOpen: 'THE VAULT is open: scoop the coffers, grab the relic, and stand on the dais to claim the crown.',
+    sudden: 'Sudden death: the outer rooms are venting and only THE VAULT heals. Get to the vault!',
   };
   let st = { on: true, seen: {} };
   try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && typeof s === 'object') st = { on: s.on !== false, seen: s.seen && typeof s.seen === 'object' ? s.seen : {} }; } catch (e) {}
@@ -8467,6 +8471,7 @@ window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw,
   setInterval(() => {
     if (cur) place();   // UI-POLISH: follow the stat cards (they appear and grow after the tip is shown)
     if (!st.on || GK.mode !== 'play' || GK.locked) { if (cur && GK.mode !== 'play') { cur = null; clearTimeout(hideT); card.style.display = 'none'; } return; }
+    if (GK.homeLocked && GK.homeLocked()) { goAt = 0; show('home'); return; }   // QA-FULL: round 1 is the home phase; the door tips wait until the arena opens
     if (!goAt) goAt = performance.now();
     const ri = GK.roundInfo(), env = GK.tipEnv(), mine = env.mine, now = performance.now();
     const sudden = !!document.getElementById('gkSudTag');
@@ -8489,29 +8494,27 @@ window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw,
 
   // ---- How to Play overlay: five canvas drawings in the gold style ----
   const GOLDC = '#f5c451', DARK = '#120f0a', PINK = '#f08aa8';
-  const PANELS = [
-    { t: 'Pick a door', x: 'Each room votes on ONE door at its panel. When the timer hits 0, picked doors open.', d(g) {
+  const PANELS = [   // QA-FULL: rewritten for the 5x5 arena, the home phase and the vault crown (the old five described the 3x3 game)
+    { t: 'Round 1: your home', x: 'The first round you are locked in your home. Collect elixir at the pump, spend it on the Elixir Screen, craft at the bench and recycle junk. At round 2 the grille rises.', d(g) {
+      g.strokeStyle = GOLDC; g.lineWidth = 4; g.beginPath(); g.moveTo(40, 70); g.lineTo(110, 22); g.lineTo(180, 70); g.stroke(); g.strokeRect(54, 70, 112, 74);
+      g.lineWidth = 3; for (let x = 76; x <= 144; x += 17) { g.beginPath(); g.moveTo(x, 92); g.lineTo(x, 144); g.stroke(); } g.beginPath(); g.moveTo(70, 92); g.lineTo(150, 92); g.stroke();
+      g.fillStyle = '#7fd8ff'; g.beginPath(); g.moveTo(222, 58); g.bezierCurveTo(206, 84, 204, 96, 222, 104); g.bezierCurveTo(240, 96, 238, 84, 222, 58); g.fill();
+      g.fillStyle = GOLDC; g.font = 'bold 15px system-ui'; g.fillText('2:00', 204, 136); } },
+    { t: 'Pick a door', x: 'From round 2 every room votes on ONE door at its panel. When the timer hits 0, picked doors open. A vault door needs TWO rooms to pick it.', d(g) {
       g.fillStyle = '#0d1b2a'; g.fillRect(14, 16, 96, 118); g.strokeStyle = '#4aa8ff'; g.strokeRect(14, 16, 96, 118);
       [0, 1, 2].forEach(i => { g.fillStyle = i === 1 ? GOLDC : '#2f5e8f'; g.fillRect(24, 28 + i * 34, 76, 24); });
       g.fillStyle = GOLDC; g.fillRect(150, 30, 70, 100); g.fillStyle = DARK; g.fillRect(158, 38, 54, 92);
       g.strokeStyle = GOLDC; g.lineWidth = 3; g.beginPath(); g.moveTo(112, 74); g.lineTo(144, 74); g.lineTo(136, 66); g.moveTo(144, 74); g.lineTo(136, 82); g.stroke();
       g.fillStyle = GOLDC; g.font = 'bold 15px system-ui'; g.fillText('0:00', 166, 24); } },
-    { t: 'The vault needs two', x: 'A vault door only opens if TWO different rooms pick it. One lonely vote fizzles.', d(g) {
-      g.strokeStyle = GOLDC; g.lineWidth = 4; g.beginPath(); g.arc(130, 78, 54, 0, 7); g.stroke(); g.lineWidth = 2; g.beginPath(); g.arc(130, 78, 38, 0, 7); g.stroke();
-      g.fillStyle = GOLDC; g.font = 'bold 44px system-ui'; g.textAlign = 'center'; g.fillText('$', 130, 94);
-      g.font = 'bold 13px system-ui'; g.fillText('ROOM A', 38, 150); g.fillText('ROOM B', 222, 150); g.textAlign = 'left';
-      g.fillRect(14, 60, 46, 5); g.fillRect(200, 60, 46, 5); } },
-    { t: 'Chests, mysteries, merchants', x: 'Outer doors lead to chest rooms, risky mystery rooms and merchants who sell for gold.', d(g) {
+    { t: 'Loot, trees, heists', x: 'Side rooms hold chests, risky mystery rooms, merchants, the Master Forge and the Grand Recycler. Tree rooms give knowledge and blessings; the heist rooms around the vault help you break in.', d(g) {
       [['▣', 30], ['?', 105], ['●', 180]].forEach(([c, x], i) => {
         g.strokeStyle = GOLDC; g.lineWidth = 3; g.strokeRect(x, 40, 60, 70); g.fillStyle = i === 1 ? '#ff7a4a' : GOLDC; g.font = 'bold 38px system-ui'; g.textAlign = 'center'; g.fillText(c, x + 30, 87);
         g.font = 'bold 11px system-ui'; g.fillStyle = '#efe9d8'; g.fillText(['CHEST', 'MYSTERY', 'MERCHANT'][i], x + 30, 128); }); g.textAlign = 'left'; } },
-    { t: 'Brains and knowledge', x: 'Eat a fallen goblin\'s brain to gain 5% of its knowledge. Knowledge unlocks recipe tiers, and every brain is a point to spend on a perk at the workbench or knowledge tree.', d(g) {
-      g.fillStyle = PINK; g.beginPath(); g.ellipse(80, 78, 42, 32, 0, 0, 7); g.fill(); g.strokeStyle = '#a83a60'; g.lineWidth = 3;
-      g.beginPath(); g.moveTo(80, 48); g.quadraticCurveTo(70, 78, 80, 108); g.moveTo(55, 70); g.quadraticCurveTo(70, 66, 80, 76); g.moveTo(105, 84); g.quadraticCurveTo(92, 82, 80, 90); g.stroke();
-      g.strokeStyle = GOLDC; g.lineWidth = 3; g.beginPath(); g.moveTo(130, 78); g.lineTo(158, 78); g.lineTo(150, 70); g.moveTo(158, 78); g.lineTo(150, 86); g.stroke();
-      g.fillStyle = '#5fae4a'; g.beginPath(); g.arc(205, 82, 28, 0, 7); g.fill(); g.beginPath(); g.moveTo(180, 80); g.lineTo(166, 62); g.lineTo(184, 70); g.fill(); g.beginPath(); g.moveTo(230, 80); g.lineTo(244, 62); g.lineTo(226, 70); g.fill();
-      g.fillStyle = DARK; g.fillRect(195, 76, 5, 5); g.fillRect(211, 76, 5, 5); g.fillStyle = GOLDC; g.font = 'bold 14px system-ui'; g.fillText('+5%', 187, 130); } },
-    { t: 'Death loses everything', x: 'If you die, you drop ALL you carry. Run through a door if the fight is lost.', d(g) {
+    { t: 'Claim the crown', x: 'THE VAULT in the middle holds gold coffers and a relic. Stand on its dais to build a crown claim. After round 5 the outer rooms vent; after round 7 the biggest claim wins, then kills, then health.', d(g) {
+      g.fillStyle = GOLDC; g.beginPath(); g.moveTo(80, 96); g.lineTo(72, 40); g.lineTo(102, 70); g.lineTo(130, 30); g.lineTo(158, 70); g.lineTo(188, 40); g.lineTo(180, 96); g.closePath(); g.fill();
+      g.fillStyle = PINK; [[102, 84], [130, 80], [158, 84]].forEach(([x, y]) => { g.beginPath(); g.arc(x, y, 6, 0, 7); g.fill(); });
+      g.strokeStyle = GOLDC; g.lineWidth = 3; g.beginPath(); g.ellipse(130, 128, 96, 18, 0, 0, 7); g.stroke(); g.lineWidth = 2; g.beginPath(); g.ellipse(130, 128, 70, 11, 0, 0, 7); g.stroke(); } },
+    { t: 'Death loses everything', x: 'Last goblin standing wins. If you die you drop ALL you carry, your brain too: eat fallen brains for knowledge and perk points.', d(g) {
       g.fillStyle = '#e9e4d6'; g.beginPath(); g.arc(130, 62, 32, 0, 7); g.fill(); g.fillRect(114, 80, 32, 22);
       g.fillStyle = DARK; g.beginPath(); g.arc(118, 62, 8, 0, 7); g.arc(142, 62, 8, 0, 7); g.fill(); g.fillRect(126, 74, 8, 8);
       g.fillStyle = GOLDC; [[30, 40], [50, 100], [210, 50], [225, 110], [70, 130]].forEach(([x, y]) => { g.beginPath(); g.arc(x, y, 8, 0, 7); g.fill(); });
