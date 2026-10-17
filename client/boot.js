@@ -19,7 +19,8 @@
     + '.gkSheet .r{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}.gkSheet button{cursor:pointer;padding:9px 18px;font:700 15px var(--ui,sans-serif);letter-spacing:.16em;text-transform:uppercase;color:#1a1104;background:linear-gradient(90deg,#ffe39a,#f5c451);border:1px solid #a8741a}'
     + '.gkSheet button.alt{color:#efe9d8;background:rgba(255,255,255,.05);border-color:rgba(245,196,81,.35)}'
     + '#gkOffline{position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:101;padding:5px 16px;font:600 14px var(--ui,sans-serif);letter-spacing:.12em;text-transform:uppercase;color:#1a1104;background:#e0b030;display:none}'
-    + '.foot .gkVer{margin-left:.9em;color:#57544c}.foot a{pointer-events:auto;color:#8b877a;text-decoration:none;margin-left:.9em}.foot a:hover{color:#f5c451}';
+    + '#menu .foot{left:auto;right:clamp(20px,2.4vw,28px)}'   // bottom right: with 8 menu buttons the left column reaches the bottom edge at 1080p
+    + '.foot .gkVer{margin-left:.9em;color:#6d6a60;text-transform:none}.foot a{pointer-events:auto;color:#8b877a;text-decoration:none;margin-left:.9em}.foot a:hover{color:#f5c451}';
   function el(tag, attrs, html) { var e = D.createElement(tag); for (var k in attrs) e.setAttribute(k, attrs[k]); if (html != null) e.innerHTML = html; return e; }
   function sheet(id, head, lines, buttons) {
     if (D.getElementById(id)) return;

@@ -5708,7 +5708,7 @@ function fxResize() {
   const pr = renderer.getPixelRatio(); fxMat.uHeight.value = innerHeight * pr;
   if (fx) { fx.composer.setPixelRatio(pr); fx.composer.setSize(innerWidth, innerHeight); }
 }
-// GFX2 quality presets (Settings > Graphics quality, GK.settings.gfx): post chain, ambient occlusion, pixel ratio cap, texture anisotropy
+// GFX2 quality presets (Settings > Graphics > Quality preset, GK.settings.gfx): post chain, ambient occlusion, pixel ratio cap, texture anisotropy
 const FXQ = {
   low: { post: false, ao: 0, pr: 1, aniso: 2 },        // plain render (context MSAA), no composer
   medium: { post: true, ao: 0, pr: 1.5, aniso: 4 },    // composer: MSAA 4x HDR target, bloom, vignette/grain
@@ -8284,8 +8284,8 @@ function gfxAutoProbe() {
       if (fps < 40 && i > 0) {   // too slow: one preset down
         const to = GFX_ORDER[i - 1]; GK.settings.gfx = to; GK.settings.fx = to !== 'low'; GK.gfxProbe.to = to;
         try { const s = JSON.parse(localStorage.getItem('gk.settings') || '{}'); s.gfx = to; s.fx = GK.settings.fx; localStorage.setItem('gk.settings', JSON.stringify(s)); } catch (e) {}
-        GK.applySettings(); toastMsg('Graphics set to ' + to[0].toUpperCase() + to.slice(1) + ' for smoother play (Settings > Graphics quality)', true);
-      } else if (fps > 100 && cur === 'high') toastMsg('Running at ' + Math.round(fps) + ' fps: Ultra graphics are available in Settings > Graphics quality', true);
+        GK.applySettings(); toastMsg('Graphics set to ' + to[0].toUpperCase() + to.slice(1) + ' for smoother play (Settings > Graphics > Quality preset)', true);
+      } else if (fps > 100 && cur === 'high') toastMsg('Running at ' + Math.round(fps) + ' fps: Ultra graphics are available in Settings > Graphics > Quality preset', true);
     };
     requestAnimationFrame(tick);
   }, 600);
