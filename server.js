@@ -2118,7 +2118,7 @@ function useItem(m, p, slot, now) {   // returns null or a failure reason
   switch (it.use) {
     case 'heal':
       if (hp >= max) return 'full'; if (now < (p.healAt || 0)) return 'busy';
-      p.stats.health = Math.min(max, hp + Math.round(it.n * G.healMult(p.perks) * (m.sudden ? SUDDEN_HEAL : 1))); p.healAt = now + (m.sudden ? 9000 : 4000);   // SUDDEN: bandages and draughts still work in sudden death, at half strength and a longer cooldown extra = { hp: p.stats.health - hp }; break;
+      p.stats.health = Math.min(max, hp + Math.round(it.n * G.healMult(p.perks) * (m.sudden ? SUDDEN_HEAL : 1))); p.healAt = now + (m.sudden ? 9000 : 4000); extra = { hp: p.stats.health - hp }; break;   // SUDDEN: bandages and draughts still work in sudden death, at half strength and a longer cooldown
     case 'regen':
       if (m.sudden) return 'sudden'; if (hp >= max) return 'full'; if (p.regen && p.regen.until > now) return 'busy';
       p.regen = { until: now + it.ms, next: now + 1000, since: now, n: Math.round(it.n * G.healMult(p.perks)) }; extra = { ms: it.ms }; break;
