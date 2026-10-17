@@ -120,7 +120,7 @@ const LIM = WORLD.LIM + 1; // world half-extent: the room grid plus the attached
 const clamp = v => Math.max(-LIM, Math.min(LIM, v));
 // ---- doors and rounds: every table comes from WORLD.DOORS / WORLD.ROOMS (docs/PLAN-5x5.md 5.1), the client derives the same ids ----
 const VK = WORLD.VAULT_KEY;   // THE VAULT's room key ('12')
-const ROOM_DOORS = WORLD.ROOM_DOORS, nDoors = WORLD.DOORS.length; // room key ('0'..'24' arena, 'c0'..'c15' attached) -> door ids on its walls (sorted N E S W)
+const ROOM_DOORS = WORLD.ROOM_DOORS, nDoors = WORLD.DOORS.length; // room key ('0'..'24' arena, 'c0'..'c19' attached) -> door ids on its walls (sorted N E S W)
 const DOOR_AT = {}; // 'a|b' and 'b|a' -> { id, axis, c, hw }: where the doorway sits on the wall between two rooms (axis = coordinate along the wall, c = its centre, hw = half opening + slack)
 for (const d of WORLD.DOORS) DOOR_AT[d.a + '|' + d.b] = DOOR_AT[d.b + '|' + d.a] = { id: d.id, axis: d.axis, c: d.c, hw: d.hw };
 const homeShut = m => m.round === 1;   // HOME PHASE (docs/reports/home-phase.md): round 1 is spent at home, every home's hatch is shut until round 2 starts
@@ -385,7 +385,7 @@ function addDrop(m, p, items) {
 }
 function rollGoblin() { return G.rollGoblin(); }   // GOBTYPES: 12 weighted types (items.js GOBLINS)
 const GOBLIN_N = G.GOBLINS.length;
-function spawn(slot = Math.floor(Math.random() * 8)) {   // a point in home slot 0..7 (room 'c' + 2 * slot), 3 m off the walls, facing the doorway
+function spawn(slot = Math.floor(Math.random() * 8)) {   // a point in home slot 0..7 (room WORLD.homeOf(slot)), 3 m off the walls, facing the doorway
   const home = WORLD.homeOf(slot), c = WORLD.CHEST[+home.slice(1)], [x, z] = WORLD.randomPoint(home);
   return { home, box: c.parent, x, z, yaw: Math.atan2(-(c.wallX - x), -(c.wallZ - z)) };
 }
@@ -704,7 +704,7 @@ const MAXV = 7.5 * Math.max(...G.SPEED) * G.MAX_ARMOR_SPEED * Math.max(1, ...G.C
 const HIST_MS = 1000, REWIND_MAX = 200;
 const r1 = v => Math.round(v * 10) / 10, r2 = v => Math.round(v * 100) / 100, r3 = v => Math.round(v * 1000) / 1000;
 const PROP_R = 0.33;   // SOLID: the walker radius the server checks against prop footprints (game.js RAD is 0.45; the gap keeps a slide along an edge from being corrected)
-function inBounds(x, z) {   // inside a room of the grid, or inside one of the 16 attached rooms (not the void around them)
+function inBounds(x, z) {   // inside a room of the grid, or inside one of the 20 attached rooms (not the void around them)
   if (Math.abs(x) > LIM || Math.abs(z) > LIM) return false;
   if (Math.abs(x) <= WORLD.HALF && Math.abs(z) <= WORLD.HALF) return true;
   const id = WORLD.attachedAt(x, z, SLACK);
@@ -1764,7 +1764,7 @@ function botStations(m, p) {   // in a merchant room or a stations mystery room:
     if (best && !craft(m, p, best.id)) BS.cra = (BS.cra || 0) + 1;
   }
 }
-function botLab(m, ws, p, cmd) {   // GK_DEBUG only, for tests. 'station': make c1 (the first loot room) a merchant and drop a bot with junk into it. {near:[x,z]}: put a bot there. Any command replies with counters and the lab bot's state.
+function botLab(m, ws, p, cmd) {   // GK_DEBUG only, for tests. 'station': make the first loot room (WORLD.LOOT_IDS[0]) a merchant and drop a bot with junk into it. {near:[x,z]}: put a bot there. Any command replies with counters and the lab bot's state.
   const bot = [...m.players.values()].find(q => q.bot && !q.dead);
   if (cmd && cmd.nav && bot) {   // NAV test: {nav:{obs:[{x,z,hw,hd}|{x,z,r}], from:[x,z], to:[x,z]}} synthetic props for this match, the bot walks from `from` to `to`; {nav:{backpack:[keys]}} fills the bot's backpack and runs equipBest
     const n = cmd.nav, b = bot.brain;
@@ -1773,8 +1773,8 @@ function botLab(m, ws, p, cmd) {   // GK_DEBUG only, for tests. 'station': make 
     if (Array.isArray(n.backpack)) { bot.inv.backpack = n.backpack.slice(0, 9).concat(Array(9).fill(null)).slice(0, 9).map(k => (typeof k === 'string' && G.ITEMS[k] ? k : null)); equipBest(m, bot); }
   }
   if (cmd === 'station' && bot) {
-    m.layout[1] = 'merchant'; m.shops[1] = G.randomShop().map(it => ({ ...it, base: it.price })); bot.inv.weapon = 'w:sword'; bot.inv.backpack[0] = 'w:stick'; bot.inv.backpack[1] = 'w:stick'; bot.gold = 0; recalc(bot);
-    const c = WORLD.CHEST[1]; bot.brain.route = []; bot.brain.done = {}; bot.brain.idleUntil = 0; bot.brain.mode = ''; place(bot, c.cx, c.cz); m.dirty = true; BS.rec = 0; BS.cra = 0;
+    const L0 = WORLD.LOOT_IDS[0]; m.layout[L0] = 'merchant'; m.shops[L0] = G.randomShop().map(it => ({ ...it, base: it.price })); bot.inv.weapon = 'w:sword'; bot.inv.backpack[0] = 'w:stick'; bot.inv.backpack[1] = 'w:stick'; bot.gold = 0; recalc(bot);
+    const c = WORLD.CHEST[L0]; bot.brain.route = []; bot.brain.done = {}; bot.brain.idleUntil = 0; bot.brain.mode = ''; place(bot, c.cx, c.cz); m.dirty = true; BS.rec = 0; BS.cra = 0;
   } else if (cmd && Array.isArray(cmd.near) && bot) {   // {near:[x,z]} one bot; {near:[x,z], all:1} every living bot in a small grid, or on a ring of radius `ring` around the point
     const bots = cmd.all ? [...m.players.values()].filter(q => q.bot && !q.dead) : [bot], r = +cmd.ring > 0 ? +cmd.ring : 0;
     bots.forEach((q, i) => { const a = 2 * Math.PI * i / bots.length; place(q, cmd.near[0] + (r ? Math.cos(a) * r : (i % 3) * 0.8), cmd.near[1] + (r ? Math.sin(a) * r : Math.floor(i / 3) * 0.8)); q.brain.route = []; q.brain.idleUntil = Date.now() + 60000; q.brain.mode = ''; q.roomAt = 0; q.brain.tgt = null; q.brain.search = null; q.brain.scan = null; q.brain.waitUntil = 0; q.brain.pauseUntil = 0;

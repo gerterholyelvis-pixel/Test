@@ -77,13 +77,13 @@ const vv = o => BG.vaultVote(Object.assign({ round: 3, sudden: false, hurt: fals
       eq(BG.watch(wd, 2, 0, '1', 7100, true), 0, 'moved'); eq(BG.watch(wd, 2, 0, '1', 9000, false), 0, 'standing still on purpose');
       eq(BG.watch(wd, 2, 0, '1', 9500, true), 500, 'the clock restarts after a deliberate stop'); eq(BG.watch(wd, 2, 0, '2', 9600, true), 0, 'a room change is progress');
     }],
-    ['all-pairs door hops over the WORLD door table: 41 rooms, symmetric, every home the hatch + 2 doors from a tree room and 3-5 doors from the vault', () => {
+    ['all-pairs door hops over the WORLD door table: 45 rooms, symmetric, every home the hatch + 1 door from a tree room and 4 doors from the vault (all 8 homes alike)', () => {
       const adj = {}; for (const d of W.DOORS) { (adj[d.a] = adj[d.a] || []).push(d.b); (adj[d.b] = adj[d.b] || []).push(d.a); }
-      const D = BG.allDist(adj), keys = Object.keys(adj); eq(keys.length, 41);
+      const D = BG.allDist(adj), keys = Object.keys(adj); eq(keys.length, 45);
       for (const a of keys) for (const b of keys) { assert(D[a][b] != null, a + '->' + b); eq(D[a][b], D[b][a]); }
       for (const h of W.HOME_IDS.map(i => 'c' + i)) {
-        assert(Math.min(...W.TREE_CELLS.map(t => D[h][String(t)])) === 3, 'home ' + h + ' to its nearest tree room: hatch + 2 doors');
-        assert(D[h][W.VAULT_KEY] >= 3 && D[h][W.VAULT_KEY] <= 5, 'home ' + h + ' to the vault: ' + D[h][W.VAULT_KEY]);
+        eq(Math.min(...W.TREE_CELLS.map(t => D[h][String(t)])), 2, 'home ' + h + ' to its nearest tree room: hatch + 1 door');
+        eq(D[h][W.VAULT_KEY], 4, 'home ' + h + ' to the vault'); eq(Math.min(...Object.values(W.VB_CELLS).map(t => D[h][String(t)])), 3, 'home ' + h + ' to its nearest vaultbreaker');
       }
     }],
     ['craft values and personalities', () => {

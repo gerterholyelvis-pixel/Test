@@ -263,16 +263,16 @@
     if (Math.random() < 0.3) { const idx = [0, 1, 2, 3, 4].filter(i => !/^[xc]:/.test(out[i].key)), k = pickCharm(), at = idx[Math.floor(Math.random() * idx.length)]; if (at !== undefined) out[at] = { key: k, price: Math.max(5, Math.round(ITEMS[k].price * (0.8 + Math.random() * 0.4) / 5) * 5) }; }   // UTIL2: some shops also stock a charm in place of another gear slot
     return out;
   }
-  // Random room layout for one match (docs/PLAN-5x5.md 1.5): the types of the 16 attached rooms 'c0'..'c15' (world.js CHEST order, clockwise from the NW corner, 4 per side).
-  // Even ids are homes. Of the 8 loot rooms (odd ids) one is the Master Forge and one the Grand Recycler, on opposite sides (side k and k+2) at a random slot;
-  // the other 6 roll chest 45 / mystery 35 / merchant 20, with at least one merchant (a random chest is converted when the roll has none).
-  const LOOT_ROLL = [['chest', 45], ['mystery', 35], ['merchant', 20]];
+  // Random room layout for one match (docs/PLAN-5x5.md 1.5): the types of the 20 attached rooms 'c0'..'c19' (world.js CHEST order: side s = N E S W holds ids 5s..5s+4, positions 1..5).
+  // Positions 2 and 4 (id % 5 = 1 or 3) are homes. Of the 12 loot rooms (positions 1, 3, 5) one is the Master Forge and one the Grand Recycler, on opposite sides (side k and k+2) at a random position;
+  // the other 10 roll chest 45 / mystery 35 / merchant 20, with at least one merchant (a random chest is converted when the roll has none).
+  const LOOT_ROLL = [['chest', 45], ['mystery', 35], ['merchant', 20]], NATT = 20, isHomeId = id => id % 5 === 1 || id % 5 === 3;
   function randomLayout(rnd = Math.random) {
     const pick = table => { let r = rnd() * table.reduce((a, b) => a + b[1], 0); for (const [t, w] of table) { if ((r -= w) < 0) return t; } return table[0][0]; };
-    const out = Array.from({ length: 16 }, (_, id) => id % 2 ? null : 'home');
-    const k = Math.floor(rnd() * 4), slot = s => 4 * s + (rnd() < 0.5 ? 1 : 3);   // the two loot ids of side s are 4s+1 and 4s+3
+    const out = Array.from({ length: NATT }, (_, id) => isHomeId(id) ? 'home' : null);
+    const k = Math.floor(rnd() * 4), slot = s => 5 * s + [0, 2, 4][Math.floor(rnd() * 3)];   // the three loot ids of side s are 5s, 5s+2, 5s+4
     out[slot(k)] = 'forge'; out[slot((k + 2) % 4)] = 'grand';
-    const rest = []; for (let id = 1; id < 16; id += 2) if (!out[id]) { out[id] = pick(LOOT_ROLL); rest.push(id); }
+    const rest = []; for (let id = 0; id < NATT; id++) if (!out[id]) { out[id] = pick(LOOT_ROLL); rest.push(id); }
     if (!rest.some(id => out[id] === 'merchant')) { const ch = rest.filter(id => out[id] === 'chest'), pool = ch.length ? ch : rest; out[pool[Math.floor(rnd() * pool.length)]] = 'merchant'; }
     return out;
   }

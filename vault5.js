@@ -26,7 +26,7 @@
   // Default room classifier from the PLAN-5x5 numbering. The server may pass ctx.roomKind(key) instead.
   function kindOf(key) {
     key = String(key);
-    if (key[0] === 'c') return (+key.slice(1)) % 2 === 0 ? 'home' : 'loot';
+    if (key[0] === 'c') { const n = +key.slice(1) % 5; return n === 1 || n === 3 ? 'home' : 'loot'; }   // 20 attached rooms, 5 per side: positions 2 and 4 are homes
     const i = +key; if (!(i >= 0 && i < 25)) return 'none';
     if (i === 12) return 'vault';
     if ([7, 11, 13, 17].includes(i)) return 'vb';

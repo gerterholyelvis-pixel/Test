@@ -1,7 +1,7 @@
 // stations (docs/PLAN-5x5.md 1.5, 1.6, 9): layout rules over many rolls, the recycler efficiency (home 50%: floor, at least 1 of the main part; merchant and Grand 100%),
 // and a live check that a recycle in your own home gives 50% and a recycle at a merchant gives 100%.
 const L = require('./lib.js'), { connect, connectWith, sleep, assert, eq } = L, W = require('../world.js'), G = require('../items.js');
-const side = id => Math.floor(id / 4);   // attached ids 4s..4s+3 sit on side s (N E S W)
+const side = id => Math.floor(id / 5);   // attached ids 5s..5s+4 sit on side s (N E S W), positions 1..5
 const seeded = seed => () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
 
 // an item whose full recycler yield differs from its 50% yield, so the live test can tell the two apart
@@ -15,17 +15,17 @@ const probe = (() => {
 
 (async () => {
   let fail = await L.run('stations', [
-    ['layout: 16 entries over 5000 rolls, homes on even ids, exactly 1 forge and 1 grand on opposite sides, at least one merchant, only known types', () => {
+    ['layout: 20 entries over 5000 rolls, homes at positions 2 and 4, exactly 1 forge and 1 grand on opposite sides, at least one merchant, only known types', () => {
       const rnd = seeded(7), sidesF = new Set(), slotsF = new Set(), slotsG = new Set(); let merchants = 0;
       for (let n = 0; n < 5000; n++) {
-        const l = G.randomLayout(rnd); eq(l.length, 16);
-        l.forEach((t, id) => { assert(['home', 'chest', 'mystery', 'merchant', 'forge', 'grand'].includes(t), 'bad type ' + t); eq(t === 'home', id % 2 === 0, 'only even ids are homes (id ' + id + ')'); });
+        const l = G.randomLayout(rnd); eq(l.length, 20);
+        l.forEach((t, id) => { assert(['home', 'chest', 'mystery', 'merchant', 'forge', 'grand'].includes(t), 'bad type ' + t); eq(t === 'home', id % 5 === 1 || id % 5 === 3, 'only positions 2 and 4 are homes (id ' + id + ')'); });
         const fi = l.indexOf('forge'), gi = l.indexOf('grand'); eq(l.filter(t => t === 'forge').length, 1); eq(l.filter(t => t === 'grand').length, 1);
         eq(side(gi), (side(fi) + 2) % 4, 'Grand Recycler sits on the opposite side of the Master Forge');
         assert(l.includes('merchant'), 'no merchant in a layout'); merchants += l.filter(t => t === 'merchant').length;
-        sidesF.add(side(fi)); slotsF.add(fi % 4); slotsG.add(gi % 4);
+        sidesF.add(side(fi)); slotsF.add(fi % 5); slotsG.add(gi % 5);
       }
-      eq([...sidesF].sort(), [0, 1, 2, 3], 'the Forge turns up on every side'); eq([...slotsF].sort(), [1, 3], 'on either loot slot of its side'); eq([...slotsG].sort(), [1, 3]);
+      eq([...sidesF].sort(), [0, 1, 2, 3], 'the Forge turns up on every side'); eq([...slotsF].sort(), [0, 2, 4], 'on any loot position (1, 3, 5) of its side'); eq([...slotsG].sort(), [0, 2, 4]);
       assert(merchants / 5000 > 1 && merchants / 5000 < 3, 'merchants per layout: ' + merchants / 5000);
     }],
     ['layout: the default (Math.random) roll obeys the same rules, and an unlucky roll without a merchant gets one', () => {

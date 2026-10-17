@@ -106,6 +106,15 @@ function reach(inRoom, free, sx, sz) {
         } else assert(ex.length >= 1, 'room ' + k + ' has no non-vault, non-hatch door');
       }
     }],
+    ['a loot door is no way out of an arena cell (the loot room is a dead end): a corner cell with only its two loot doors open is trapped and pickExit opens an arena door', () => {
+      const LOOT = W.DOORS.filter(d => d.kind === 'loot').map(d => d.id);
+      for (const i of [0, 4, 20, 24]) {
+        const k = String(i), lootDs = ROOM_DOORS[k].filter(d => LOOT.includes(d)); eq(lootDs.length, 2, 'corner ' + k + ' has two loot doors');
+        eq(GUARD.trapped(k, lootDs, ROOM_DOORS, VAULT), true, 'corner ' + k + ' with only loot doors open');
+        for (let n = 0; n < 100; n++) { const d = GUARD.pickExit(k, { [k]: lootDs[0] }, ROOM_DOORS, VAULT, rnd); assert(d >= 0 && !LOOT.includes(d) && W.DOORS[d].kind === 'arena', 'pickExit picked ' + d + ' for corner ' + k); }
+      }
+      for (const id of W.LOOT_IDS) { const k = 'c' + id, d = ROOM_DOORS[k][0]; eq(GUARD.isExit(d, VAULT, undefined, k), true, 'the loot door is the exit of ' + k); eq(GUARD.pickExit(k, {}, ROOM_DOORS, VAULT, rnd), d); }
+    }],
   ]);
   if (fail) process.exit(1);
   // ---- live server: a human teleported into a loot room / arena room is never locked in longer than TRAP_MS (+ slack) ----

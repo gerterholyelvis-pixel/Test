@@ -1,5 +1,5 @@
 // hud5.js: client HUD pieces for the 5x5 arena (activity arc, re-key banners, room banners, crown indicator,
-// vault alarm / sudden-death edge tint, minimap + M map drawing for 25 arena cells and 16 attached rooms,
+// vault alarm / sudden-death edge tint, minimap + M map drawing for 25 arena cells and 20 attached rooms,
 // dev-only "skip to 0:10" button). Self-contained DOM + CSS, no three.js, no game.js access.
 // Message-to-method mapping: docs/reports/hud5.md.  UMD: window.HUD5 / module.exports (for tests).
 (function (root) {
@@ -9,9 +9,14 @@
   const VAULT = '12';
   const VB_CELLS = { N: '7', E: '13', S: '17', W: '11' };           // vaultbreaker cell by compass side
   const TREE_CELLS = ['6', '8', '16', '18'];
-  // attached room c0..c15: [col, row, side]; even = home (10 m), odd = loot (8 m)
-  const ATT = [[0, 0, 'N'], [1, 0, 'N'], [2, 0, 'N'], [3, 0, 'N'], [4, 0, 'E'], [4, 1, 'E'], [4, 2, 'E'], [4, 3, 'E'],
-    [4, 4, 'S'], [3, 4, 'S'], [2, 4, 'S'], [1, 4, 'S'], [0, 4, 'W'], [0, 3, 'W'], [0, 2, 'W'], [0, 1, 'W']];
+  // attached room c0..c19 (world.js CHEST order): [col, row, side]; side N E S W holds ids 5s..5s+4 = positions 1..5 clockwise along it;
+  // positions 2 and 4 (id % 5 = 1 or 3) are homes (10 m), positions 1, 3, 5 loot rooms (8 m). A corner cell has two (one on each outward side).
+  const ATT = [];
+  for (let k = 0; k < 5; k++) ATT.push([k, 0, 'N']);
+  for (let k = 0; k < 5; k++) ATT.push([4, k, 'E']);
+  for (let k = 0; k < 5; k++) ATT.push([4 - k, 4, 'S']);
+  for (let k = 0; k < 5; k++) ATT.push([0, 4 - k, 'W']);
+  const isHomeAtt = i => i % 5 === 1 || i % 5 === 3;
 
   // name / colour / one-line function, per room type
   const INFO = {
@@ -40,7 +45,7 @@
 
   // ---------------------------------------------------------------- map layout (pure; no DOM)
   function attachedRect(i) {
-    const [c, r, side] = ATT[i], s = i % 2 === 0 ? HS : CS, cx = COLX[c], cz = COLX[r];
+    const [c, r, side] = ATT[i], s = isHomeAtt(i) ? HS : CS, cx = COLX[c], cz = COLX[r];
     if (side === 'N') return { id: 'c' + i, cx, cz: -HALF - s / 2, w: s, h: s, side };
     if (side === 'S') return { id: 'c' + i, cx, cz: HALF + s / 2, w: s, h: s, side };
     if (side === 'W') return { id: 'c' + i, cx: -HALF - s / 2, cz, w: s, h: s, side };
@@ -51,7 +56,7 @@
     return { id: String(n), cx: COLX[c], cz: COLX[r], w: COLW[c], h: COLW[r] };
   }
   const ARENA = []; for (let i = 0; i < 25; i++) ARENA.push(arenaRect(i));
-  const ATTACHED = []; for (let i = 0; i < 16; i++) ATTACHED.push(attachedRect(i));
+  const ATTACHED = []; for (let i = 0; i < ATT.length; i++) ATTACHED.push(attachedRect(i));
   const cellAt = (x, z) => {   // room key containing a point (arena or attached), or null
     if (Math.abs(x) <= HALF && Math.abs(z) <= HALF) { const f = v => v < -HALF + 15 ? 0 : v < -HALF + 30 ? 1 : v < HALF - 30 ? 2 : v < HALF - 15 ? 3 : 4; return String(f(x) + 5 * f(z)); }
     for (const a of ATTACHED) if (Math.abs(x - a.cx) <= a.w / 2 && Math.abs(z - a.cz) <= a.h / 2) return a.id;
@@ -84,7 +89,7 @@
       if (vbN && vbN[a.id] && vbN[a.id] !== vb[a.id]) ops.push({ t: 'icon', k: vbN[a.id], x: a.cx + a.w * .27, z: a.cz - a.h * .27, r: big ? 6 : 4, color: infoColor(vbN[a.id]), ghost: true });
     }
     for (const a of ATTACHED) {
-      const kind = lay[a.id] || (a.id.slice(1) % 2 === 0 ? 'home' : 'chest'), mine = state.myHome === a.id, known = !disc || kind === 'home' || disc.has(a.id) || a.id === my;
+      const kind = lay[a.id] || (isHomeAtt(+a.id.slice(1)) ? 'home' : 'chest'), mine = state.myHome === a.id, known = !disc || kind === 'home' || disc.has(a.id) || a.id === my;
       const here = a.id === my;
       ops.push({ t: 'rect', x: a.cx, z: a.cz, w: a.w - .5, h: a.h - .5, fill: kind === 'home' ? (mine ? 'rgba(245,196,81,.32)' : 'rgba(150,120,80,.2)') : known ? tintOf(kind) : 'rgba(60,50,35,.5)', stroke: mine ? '#f5c451' : here ? '#e8d6a0' : known ? 'rgba(200,170,110,.85)' : 'rgba(130,110,80,.55)', lw: mine ? 1.8 : 1.1 });
       if (known) {
