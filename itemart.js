@@ -329,7 +329,7 @@ function pommel(b, mat, kind, y, r = 0.035) {
 const WF = {
   sword(b, c, p) {   // also dagger / knife: real blade section (edge bevels, fuller, ridge), guard, spiral-wrapped grip, pommel. Options: twin, cleaver, hooks, wave, curve, serr
     const { S, T, H, tn } = c, L = p.len, W = p.w, gl = p.grip ?? 0.26, sp = c.spec;
-    const EG = tn >= 1 ? M('steel', 0xf0f3f6, { rough: 0.16 }) : S, FU = tn >= 1 && tn < 5 ? M(sp.iron ? 'iron' : 'steel', new THREE.Color(sp.steel ?? 0xb9c1c9).multiplyScalar(0.5).getHex(), { rough: 0.55 }) : S;
+    const EG = tn >= 1 ? M('steel', 0xf0f3f6, { rough: 0.16 }) : S, FU = tn >= 3 ? M('gem', [0, 0, 0, ACC.mythic, 0xff9a1a, ACC.transcendent][tn], { ei: tn === 3 ? 0.7 : 0.8, pulse: tn === 3 ? 0.35 : 0, speed: 2.4 }) : tn >= 1 ? M(sp.iron ? 'iron' : 'steel', new THREE.Color(sp.steel ?? 0xb9c1c9).multiplyScalar(0.5).getHex(), { rough: 0.55 }) : S;
     if (p.twin) {   // two crossed fangs on one grip
       for (const sd of [-1, 1]) { const g = bladeGeo(L, W, { ...p, curve: sd * (p.curveT ?? 0.08), tip: p.tip ?? 0.3 }); b.add(S, g.main, 0, 0.012, 0, 0, 0, -sd * 0.3); b.add(EG, g.edge, 0, 0.012, 0, 0, 0, -sd * 0.3); b.add(FU, g.fuller, 0, 0.012, 0, 0, 0, -sd * 0.3); }
     } else if (p.cleaver) {   // scrap cleaver: broad rectangular slab, hole, riveted patch plates, a bright edge
