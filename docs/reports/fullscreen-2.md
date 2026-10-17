@@ -22,5 +22,5 @@
 
 ## Not verified
 - Physical keyboard / mouse in the owner's Chrome: CDP input is not OS input. I did not inject OS-level keys because someone was using this machine's keyboard during the runs (foreign keys showed up in the test window, and the window was minimized once).
-- Elixir Screen and merchant: the offline demo player owns no home and the aim did not land on a merchant, so those two were not opened in the browser; they share `closeShop` and the same E / close-button paths.
+- Merchant: the aim never landed on a merchant in the offline demo, so its panel was not opened in a browser (same closeShop / E / close-button path as the stations). The Elixir Screen opened and closed by its button, fullscreen kept, only in the headless Edge run on HEAD code, not in headful Chrome with the fix.
 - Why keyboard lock was not active for the owner (origin? browser? Alt+Tab?) is unknown; the fix no longer depends on it.
