@@ -5657,7 +5657,7 @@ const FXQ = {
   ultra: { post: true, ao: 2, pr: 2, aniso: 16 },      // + GTAO at full resolution with more samples, max anisotropy
 };
 const fxQ = () => FXQ[GK.settings.gfx] || FXQ.high;
-function fxPixelRatio() { return Math.min(devicePixelRatio, fxQ().pr) * GK.settings.scale; }
+function fxPixelRatio() { return Math.min(devicePixelRatio, fxQ().pr) * GK.settings.scale * (GK.perf5 ? GK.perf5.dyn : 1); }   // PERF5: dynamic resolution factor
 const FX_TONE = THREE.NeutralToneMapping, FX_EXPOSURE = 0.88, FX_ENV = 0.6;   // game view only (the title menu keeps the renderer's ACES look)
 scene.traverse(o => { if (o.isHemisphereLight) o.intensity = 0.9; });   // was 2.1: the environment map now supplies most of the fill light (same light, lower intensity: light count unchanged)
 let fxAniso = 0;
@@ -5776,6 +5776,7 @@ function renderWorld(t) {
   fxCullEnd();
   if (PERF4.on) { const p5t = performance.now(); if (P4B.on) p4bFind(); else p4mTick(); const p5d = performance.now() - p5t; if (p5d > 4) PERF5.mark('batch', p5d); }   // PERF4: room interior merge (discovery, 1.5 ms of merging, rolling check); PERF5: long-frame mark
   PERF4.frameEnd();   // PERF4: GK.perfProbe (dev only; a no-op otherwise)
+  PERF5.dynTick();   // PERF5: dynamic resolution
 }
 // keypad screens and other status displays pulse gently (found by their material signature, the builders stay untouched)
 const fxScreens = [];
@@ -6671,6 +6672,23 @@ if (PERF5.on) {
     const same = p.x === H.x && p.y === H.y && p.z === H.z && q.x === H.qx && q.y === H.qy && q.z === H.qz && q.w === H.qw && T === H.T && T.length === H.n;
     if (same ? H.k < 20 : H.k < 3) return true;
     H.k = 0; H.x = p.x; H.y = p.y; H.z = p.z; H.qx = q.x; H.qy = q.y; H.qz = q.z; H.qw = q.w; H.T = T; H.n = T.length; return false;
+  }; }
+// 5. Dynamic resolution (Settings > Graphics > Dynamic resolution, on by default): while the frame time stays above ~19 ms (under ~52 fps) over 1.5 s the render scale drops
+//    one 10 % step (down to 60 % of the Resolution setting); after 5 s of smooth frames it climbs back one step. A step up that is followed by a drop within 4 s blocks
+//    climbing for 30 s, so it does not oscillate. Hitches over 250 ms (tab switch, loading) are ignored.
+PERF5.dyn = 1;
+{ const D = { last: 0, sum: 0, n: 0, t0: 0, upAt: 0, block: 0 };
+  PERF5.dynTick = () => {
+    const now = performance.now(), dt = now - D.last; D.last = now;
+    const on = PERF5.on && GK.settings.dynres !== false && GK.mode === 'play' && !document.hidden;
+    if (!on) { if (PERF5.dyn !== 1 && (!PERF5.on || GK.settings.dynres === false)) { PERF5.dyn = 1; renderer.setPixelRatio(fxPixelRatio()); fxResize(); } D.n = 0; D.sum = 0; D.t0 = now; return; }
+    if (dt > 250 || dt <= 0) { D.n = 0; D.sum = 0; D.t0 = now; return; }
+    D.sum += dt; D.n++;
+    const span = now - D.t0, mean = D.sum / D.n; let to = PERF5.dyn;
+    if (span > 1500 && mean > 19 && PERF5.dyn > 0.6) { to = Math.max(0.6, +(PERF5.dyn - 0.1).toFixed(2)); if (now - D.upAt < 4000) D.block = now + 30000; }
+    else if (span > 5000 && mean < 17.6 && PERF5.dyn < 1 && now > D.block) { to = Math.min(1, +(PERF5.dyn + 0.1).toFixed(2)); D.upAt = now; }
+    else if (span > 5000) { D.n = 0; D.sum = 0; D.t0 = now; }
+    if (to !== PERF5.dyn) { PERF5.dyn = to; renderer.setPixelRatio(fxPixelRatio()); fxResize(); D.n = 0; D.sum = 0; D.t0 = now; }
   }; }
 // 2. Long-frame marks for tools/perfbench.js (window.__pf exists only under the bench): room builds, goblin builds, icon bake steps, batch work.
 PERF5.mark = (k, ms) => { const pf = window.__pf; if (pf && pf.on && ms > 1) pf.mark(k, ms); };
