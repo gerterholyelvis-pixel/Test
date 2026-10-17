@@ -20,15 +20,15 @@ in priority order. Numbers were measured on 2026-10-16 on the owner's 16-thread 
 
 ## 1. Agents reading huge files (tokens)
 
-**Measured.** game.js is 8 522 lines / 869 KB (roughly 220 k tokens: it cannot even be read whole), server.js 2 192 lines / 197 KB
-(about 50 k tokens). Briefs said "Grep, not full reads", but there was no index of what lives where, so agents opened 300-2 000 line
+**Measured.** game.js is 9 012 lines / 922 KB (roughly 235 k tokens: it cannot even be read whole), server.js 2 267 lines / 208 KB
+(about 53 k tokens). Briefs said "Grep, not full reads", but there was no index of what lives where, so agents opened 300-2 000 line
 windows to orient. Every report re-derives conventions (node_modules junction, ports, CLIENT_JS, CRLF): 20+ reports repeat the
 "security tests fail without node_modules" note alone.
 
 **Done.**
 - `CLAUDE.md` (4.5 KB, read automatically by Claude Code): run, ports, worktrees, test commands, tags, CRLF, git rules, busy areas.
 - `docs/MAP.md` (~22 KB): who loads what, an area -> block -> test table, and a **generated** file index (lines, KB, EOL, globals,
-  exports, header) and tagged-block index (107 blocks with file, line range, size, one-line description).
+  exports, header) and tagged-block index (132 blocks with file, line range, size, one-line description).
 - `tools/mapgen.js`: `npm run map` rewrites the generated part; `--print PANEL` prints fresh numbers for one tag; `--check` fails on an
   unbalanced BEGIN/END (wired into `npm run check` and merge-check). It ignores prose like "see the ACT5-BEGIN block".
 
@@ -40,7 +40,7 @@ Grep the tag; generated-part conflicts are resolved by regenerating, never by ha
 
 ## 2. Test suite: speed and reliability
 
-**Measured (before).** 58 test files, 14 of them pure. The old runner ran everything with half the cores (8) in parallel, in
+**Measured (before).** 58 test files (68 after merging main), 14 of them pure. The old runner ran everything with half the cores (8) in parallel, in
 alphabetical order, printed every line of every file, and had no notion of flaky tests.
 - Per-file times (alone): elixir-sends 35.6 s, useplus 34.8 s, bots5-sim 31.3 s, bots-ai 26 s; most of it is real game timers
   (rounds, item durations, craft times, bot reactions), not CPU. Server start is only ~110 ms and a client join ~40 ms, so shared
@@ -52,7 +52,7 @@ alphabetical order, printed every line of every file, and had no notion of flaky
 
 **Done (tests/run.js, `npm test` still runs every file and exits non-zero on any failure).**
 - Tiers, inferred (a file that calls `startServer(` / `spawn(` is `server`) or tagged `// @tier`:
-  `npm run test:fast` = 14 pure files in **6.5 s** (CPU 100 % busy); `npm run test:server` = server + slow; `npm test` = all.
+  `npm run test:fast` = 19 pure files in **6.5-8.6 s** (CPU 30-100 % busy); `npm run test:server` = server + slow; `npm test` = all.
 - `npm run test:changed`: maps the diff vs main (plus uncommitted files) to tests: a test is picked when it names the changed module
   or a module that require()s it; server.js / world.js / items.js pick every server test; docs pick nothing. Examples: hud5.js -> 2
   files, vault5.js -> 6, game.js -> 9 static-check files, activity.js -> 10. `--dry` shows the pick.
@@ -65,7 +65,11 @@ alphabetical order, printed every line of every file, and had no notion of flaky
   vs 114 s for 8 plain slots), because most files wait on game timers; so the runner no longer lowers below the default.
 - Per-file timeout (default 60 s, `// @timeout N`, `GK_TEST_TIMEOUT`), `-q` (failures + summary only), `--list`, name filters
   (`node tests/run.js bots vault`), and a "slowest files" line.
-- See `docs/reports/dev-efficiency.md` for before/after runs.
+- Measured after (back to back with the old runner, same tree): CPU 96-100 % busy: old 146 s, 10 failed files, 64 KB of output;
+  new 154 s, 3 failed (bots and bots5-sim CPU budgets, which cannot pass on a saturated box), 1 FLAKY recovered, 4.3 KB of output
+  (15x less for an agent to read). CPU 21 % busy: new 57 s on 12 slots. After merging main: `GK_TEST_JOBS=3 npm test` = all 68
+  files green in 248 s. Wall time is bound by game timers, so the big wins are `test:fast` / `test:changed` and section 2 "Next".
+- Details in `docs/reports/dev-efficiency.md`.
 
 **Next (proposed, needs the server owners).**
 1. `GK_TIME_SCALE` (GK_DEBUG only): one factor applied to item durations, craft times, telegraphs and grace timers in server.js,
@@ -80,7 +84,7 @@ alphabetical order, printed every line of every file, and had no notion of flaky
 
 ## 3. Merge conflicts in game.js / server.js
 
-**Measured.** game.js has 107 tagged blocks in 8 522 lines; the blocks with the most churn are PANEL, MATCH, BOTS*, ACT5*, KNOWLEDGE,
+**Measured.** the repo has 132 tagged blocks (game.js 9 012 lines); the blocks with the most churn are PANEL, MATCH, BOTS*, ACT5*, KNOWLEDGE,
 PERF2, JUMP. client/** is already served (`/client/**.js`, traversal-safe, covered by security.test.js), so prerequisite 1 of
 QUALITY-PLAN 4.2 is done.
 

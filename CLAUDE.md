@@ -18,10 +18,10 @@ parallel in git worktrees. **Find code with `docs/MAP.md` + Grep, never by readi
 ## Test
 | command | what | time (16 cores, busy machine) |
 |---|---|---|
-| `npm run test:fast` | 14 pure/unit files, no server | ~7 s |
+| `npm run test:fast` | 19 pure/unit files, no server | ~7-9 s |
 | `npm run test:changed` | only files affected by your diff vs main (+ uncommitted) | depends |
-| `npm run test:server` | server integration + slow sims | ~90-120 s |
-| `npm test` | everything (unchanged default) | ~90-120 s |
+| `npm run test:server` | server integration + slow sims | ~1-2.5 min |
+| `npm test` | everything, 68 files (unchanged default) | 57 s idle, ~150 s busy, 248 s at GK_TEST_JOBS=3 |
 | `node tests/run.js bots vault` | files whose name contains a word | |
 | `npm run check` | `node --check` every .js + balanced block tags | ~3 s |
 - `-q` prints only failures. `--list` shows each file's tier and tags. `--changed --dry` shows the pick without running.
