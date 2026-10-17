@@ -390,6 +390,7 @@ function buildRam(K, ctx) {
       let dirty = false; bar.forEach(b => { if (b.shake > 0) { b.shake = Math.max(0, b.shake - dt); dirty = true; } }); if (dirty) layBarricade();
     },
   };
+  addExtras(K, grp, anchors, api, 'ram');   // VBX: the four extra stations of this type
   K.mergeStatics(grp); return { group: grp, anchors, api, tick: api.tick };
 }
 
@@ -482,6 +483,7 @@ function buildLocksmith(K, ctx) {
     },
   };
   api.setNoise(0);
+  addExtras(K, grp, anchors, api, 'locksmith');   // VBX: the four extra stations of this type
   K.mergeStatics(grp); return { group: grp, anchors, api, tick: api.tick };
 }
 
@@ -594,6 +596,7 @@ function buildCounting(K, ctx) {
     },
   };
   api.setMarket({}); api.setSacks(0, 3); api.setSacks(1, 3); api.setStrongbox(0.55);
+  addExtras(K, grp, anchors, api, 'counting');   // VBX: the four extra stations of this type
   K.mergeStatics(grp); return { group: grp, anchors, api, tick: api.tick };
 }
 
@@ -682,6 +685,7 @@ function buildKeystone(K, ctx) {
     },
   };
   api.setOrder([0, 1, 2, 3]); api.setResonance(0);
+  addExtras(K, grp, anchors, api, 'keystone');   // VBX: the four extra stations of this type
   K.mergeStatics(grp); return { group: grp, anchors, api, tick: api.tick };
 }
 // quads textured with one atlas cell each, additive, per-quad colour via vertex colours. flatFloor: lies on the floor; else faces +z (rotated by ry)
@@ -704,6 +708,223 @@ function makeGlyphQuads(K, atlas, n, size, place, upright = false) {
   for (let q = 0; q < n; q++) api.setGlyph(q, q);
   return api;
 }
+
+// ============ VBX-EXTRAS (docs/reports/vaultbreaker-depth.md): the four extra stations of every skin at XSPOTS S1..S4 ============
+// Statics go into Batches that mergeStatics bakes into the skin's ~6 material meshes (no new draw calls); movers are few small single-material meshes,
+// and every indicator lamp of a skin's extras is ONE instanced lamp row. Emissive / basic materials only, no lights. Each station group faces the room centre
+// (local -z toward the middle, like the wall stations' frame). The setters are cheap and idempotent; the client calls them from act5ui.js driveX.
+const XS = id => XSPOTS.find(s => s.id === id);
+const xStation = (THREE, grp, id) => { const s = XS(id); return station(THREE, grp, s.x, s.z, Math.atan2(s.x, s.z)); };
+const xWorld = (g, lx, ly, lz) => { const c = Math.cos(g.rotation.y), s = Math.sin(g.rotation.y); return [g.position.x + lx * c + lz * s, ly, g.position.z - lx * s + lz * c]; };   // a station-local point in the skin frame
+const drawN = (mesh, n, per) => mesh.geometry.setDrawRange(0, Math.max(0, n) * per);
+const vertsOf = grp => { const m = Object.values(grp.userData.meshes)[0]; return { m, n: m.geometry.attributes.position.count }; };
+function addExtras(K, grp, anchors, api, type) {
+  const X = EXTRAS[type](K, grp); Object.assign(api, X.api);
+  for (const s of XSPOTS) anchors[s.id] = A(s.x, s.z, 0.8);
+  const t0 = api.tick; api.tick = (dt, t) => { t0(dt, t); X.tick(dt, t); };
+}
+const EXTRAS = {
+  ram(K, grp) {
+    const THREE = K.THREE;
+    // S1 smithy: stone hearth with a coal bed, an anvil, a rack of forged ram heads
+    const g1 = xStation(THREE, grp, 'S1'), b1 = new K.Batch(0);
+    b1.box('darkStone', 1.3, 0.75, 0.9, -0.35, 0.375, 0.1, { r: 0.05 }); b1.box('stone', 1.1, 0.12, 0.7, -0.35, 0.78, 0.1, { r: 0.03, t: 0x9a8a80 });
+    b1.box('darkStone', 0.5, 1.6, 0.5, -0.75, 1.55, 0.3, { r: 0.04 }); b1.cyl('darkIron', 0.12, 0.16, 1.2, -0.75, 2.9, 0.3, { seg: 8 });   // chimney
+    b1.box('ink', 0.9, 0.06, 0.5, -0.35, 0.86, 0.1, { r: 0.01, ao: false });                                                             // the coal bed
+    b1.box('darkIron', 0.34, 0.5, 0.3, 0.75, 0.25, -0.05, { r: 0.03 }); b1.box('iron', 0.62, 0.2, 0.28, 0.75, 0.6, -0.05, { r: 0.04 }); b1.cone('iron', 0.1, 0.3, 1.13, 0.62, -0.05, { rz: -Math.PI / 2, seg: 8 });   // anvil
+    b1.cyl('wood', 0.025, 0.025, 0.42, 0.62, 0.74, 0.06, { rz: 1.3, seg: 6 }); b1.box('darkIron', 0.12, 0.08, 0.08, 0.44, 0.78, 0.06, { r: 0.01 });   // hammer
+    b1.box('darkWood', 1.0, 0.08, 0.36, 0.2, 1.45, 0.42, { r: 0.02 }); for (const sx of [-0.25, 0.65]) b1.box('darkWood', 0.06, 0.7, 0.06, sx, 1.1, 0.42, { r: 0.01 });   // the head rack
+    g1.add(b1.build('x-smithy'));
+    const hb = new K.Batch(1.5); for (const sx of [0.0, 0.42]) { hb.sph('iron', 0.16, sx, 1.62, 0.42, { sz: 0.8, ws: 12, hs: 8 }); hb.add('iron', K.torG(0.11, 0.035, 5, 10), sx - 0.13, 1.62, 0.36, { ry: Math.PI / 2 }); hb.add('iron', K.torG(0.11, 0.035, 5, 10), sx + 0.13, 1.62, 0.36, { ry: Math.PI / 2 }); }
+    const heads = hb.build('x-heads', true); g1.add(heads); const H1 = vertsOf(heads); H1.per = H1.n / 2;
+    const coal = new THREE.Sprite(K.glowMat(0xff6a20, 0.25)); coal.scale.set(1.3, 0.8, 1); coal.position.set(-0.35, 1.0, 0.1); g1.add(coal);
+    // S2 siege tower: four tall posts, braces, a ladder and a railed platform that looks over the vault door
+    const g2 = xStation(THREE, grp, 'S2'), b2 = new K.Batch(0), TH = 4.4;
+    for (const [px, pz] of [[-0.55, -0.45], [0.55, -0.45], [-0.55, 0.45], [0.55, 0.45]]) b2.box('darkWood', 0.16, TH, 0.16, px, TH / 2, pz, { r: 0.03 });
+    for (const y of [1.3, 2.7]) { b2.box('wood', 1.25, 0.1, 0.1, 0, y, -0.45, { r: 0.02 }); b2.box('wood', 1.25, 0.1, 0.1, 0, y, 0.45, { r: 0.02 }); b2.box('wood', 0.1, 0.1, 1.0, -0.55, y, 0, { r: 0.02 }); b2.box('wood', 0.1, 0.1, 1.0, 0.55, y, 0, { r: 0.02 }); }
+    for (const sx of [-1, 1]) b2.box('wood', 0.08, 1.75, 0.08, sx * 0.3, 2.0, 0.47, { rz: sx * 0.62, r: 0.015 });   // cross braces
+    for (const sx of [-0.2, 0.2]) b2.box('darkWood', 0.06, TH, 0.06, sx, TH / 2, -0.62, { r: 0.01 }); for (let i = 0; i < 12; i++) b2.box('wood', 0.42, 0.05, 0.05, 0, 0.3 + i * 0.35, -0.62, { r: 0.01 });   // the ladder
+    b2.box('darkWood', 1.4, 0.12, 1.2, 0, TH, 0, { r: 0.03 }); for (const [w, d, x, z] of [[1.4, 0.06, 0, 0.6], [1.4, 0.06, 0, -0.6], [0.06, 1.2, 0.7, 0], [0.06, 1.2, -0.7, 0]]) b2.box('wood', w, 0.06, d, x, TH + 0.55, z, { r: 0.01 });
+    for (const [x, z] of [[0.68, 0.58], [-0.68, 0.58], [0.68, -0.58], [-0.68, -0.58]]) b2.box('darkWood', 0.07, 0.6, 0.07, x, TH + 0.3, z, { r: 0.01 });
+    b2.box('cloth', 0.02, 0.5, 0.7, 0.72, TH + 1.0, 0.0, { t: 0xb3122b, r: 0.005 }); b2.box('darkWood', 0.04, 1.2, 0.04, 0.72, TH + 0.9, -0.36, { r: 0.01 });   // a pennant
+    g2.add(b2.build('x-tower'));
+    // S3 barricade workshop: a sawhorse and bench, the plank stock, the supply crate
+    const g3 = xStation(THREE, grp, 'S3'), b3 = new K.Batch(0);
+    b3.box('darkWood', 1.5, 0.08, 0.6, 0, 0.82, 0.25, { r: 0.02 }); for (const [x, z] of [[-0.65, 0.0], [0.65, 0.0], [-0.65, 0.5], [0.65, 0.5]]) b3.box('wood', 0.08, 0.8, 0.08, x, 0.4, z, { r: 0.01 });
+    for (const sx of [-1, 1]) { b3.box('wood', 0.07, 0.75, 0.07, sx * 0.3, 0.36, -0.45, { rz: sx * 0.25, r: 0.01 }); } b3.box('wood', 0.9, 0.09, 0.12, 0, 0.72, -0.45, { r: 0.02 });   // sawhorse
+    b3.box('iron', 0.55, 0.12, 0.012, 0.2, 0.92, 0.25, { ry: 0.3, r: 0.002 }); b3.box('darkWood', 0.16, 0.08, 0.05, -0.08, 0.93, 0.18, { ry: 0.3, r: 0.01 });   // a saw on the bench
+    g3.add(b3.build('x-workshop'));
+    const pb = new K.Batch(0.9); for (let i = 0; i < 3; i++) pb.box('wood', 1.3, 0.07, 0.24, 0, 0.9 + i * 0.075, 0.25 + (i - 1) * 0.04, { r: 0.015, t: 0xd8c0a0, ry: (i - 1) * 0.04 });
+    const planks = pb.build('x-planks', true); g3.add(planks); const P3 = vertsOf(planks); P3.per = P3.n / 3; drawN(P3.m, 0, P3.per);
+    const cb = new K.Batch(0); cb.box('wood', 0.6, 0.5, 0.5, 0.95, 0.25, -0.35, { r: 0.03 }); for (const y of [0.08, 0.42]) cb.box('darkWood', 0.62, 0.06, 0.52, 0.95, y, -0.35, { r: 0.01 });
+    const crate = cb.build('x-crate', true); crate.visible = false; g3.add(crate);
+    // S4 war drum: a framed drum and a hanging mallet that swings with the beat
+    const g4 = xStation(THREE, grp, 'S4'), b4 = new K.Batch(0);
+    b4.cyl('leather', 0.55, 0.55, 0.7, 0, 0.95, 0, { rx: Math.PI / 2, seg: 20, t: 0xb08060 }); for (const dz of [-0.36, 0.36]) b4.tor('darkIron', 0.56, 0.03, 0, 0.95, dz, { rs: 5, ts: 22 });
+    b4.cyl('cloth', 0.5, 0.5, 0.02, 0, 0.95, -0.37, { rx: Math.PI / 2, seg: 20, t: 0xf0e2c0 });
+    for (const sx of [-1, 1]) { b4.box('darkWood', 0.12, 1.9, 0.12, sx * 0.75, 0.95, 0, { r: 0.02 }); b4.box('darkWood', 0.45, 0.1, 0.5, sx * 0.75, 0.05, 0, { r: 0.02 }); }
+    b4.box('darkWood', 1.62, 0.12, 0.14, 0, 1.92, 0, { r: 0.02 });
+    g4.add(b4.build('x-drum'));
+    const mg = new THREE.Group(); mg.position.set(0.25, 1.85, -0.62); g4.add(mg); const mb = new K.Batch(1.4);
+    mb.cyl('wood', 0.025, 0.025, 0.8, 0, -0.4, 0, { seg: 6 }); mb.sph('darkWood', 0.09, 0, -0.82, 0, { ws: 8, hs: 6 }); mg.add(mb.build('x-mallet', true));
+    // one lamp row: 3 winch-wear lamps on the hearth, the tower beacon, 5 chant lamps on the drum frame
+    const lp = [[-0.6, 0.8, -0.36], [-0.35, 0.8, -0.36], [-0.1, 0.8, -0.36]].map(p => xWorld(g1, ...p)).concat([xWorld(g2, 0, TH + 0.25, -0.72)], [0, 1, 2, 3, 4].map(i => xWorld(g4, -0.4 + i * 0.2, 1.92, -0.09)));
+    const lamps = lampRow(K, grp, lp, 0.05, lp.map(() => 0x2a2018));
+    let chant = 0, beat = 0, forging = false, climb = false, sawing = 0;
+    return {
+      api: {
+        /** 0..2 forged heads on the rack */ setHeads(n) { drawN(H1.m, clamp(n | 0, 0, 2), H1.per); },
+        /** 0..3 winch wear: amber lamps on the hearth */ setWear(n) { for (let i = 0; i < 3; i++) lamps.set(i, i < n ? (n >= 2 ? 0xff5a2a : 0xffb030) : 0x2a2018); },
+        /** 0..3 planks stocked */ setPlanks(n) { drawN(P3.m, clamp(n | 0, 0, 3), P3.per); },
+        setCrate(on) { crate.visible = !!on; },
+        /** 0..5 chant: drum lamps; a rise swings the mallet */ setChant(n) { n = clamp(n | 0, 0, 5); if (n > chant) beat = 1; chant = n; for (let i = 0; i < 5; i++) lamps.set(4 + i, i < n ? (n >= 5 ? 0xff7a2a : 0xffc933) : 0x2a2018); },
+        setForging(on) { forging = !!on; }, setClimbing(on) { climb = !!on; lamps.set(3, climb ? 0xffd070 : 0x2a2018); }, setSawing(on) { sawing = on ? 1 : 0; },
+        drumBeat() { beat = 1; },
+      },
+      tick(dt, t) {
+        coal.material.opacity = (forging ? 0.75 : 0.22) * (0.85 + 0.15 * Math.sin(t * (forging ? 13 : 3)));
+        beat = Math.max(0, beat - dt * 3); mg.rotation.x = -0.7 * Math.sin(beat * Math.PI);
+        if (sawing) planks.position.x = Math.sin(t * 9) * 0.04; else if (planks.position.x) planks.position.x = 0;
+      },
+    };
+  },
+  locksmith(K, grp) {
+    const THREE = K.THREE;
+    // S1 key bench: a workbench with a vise and a small cutting wheel
+    const g1 = xStation(THREE, grp, 'S1'), b1 = new K.Batch(0);
+    b1.box('darkWood', 1.5, 0.1, 0.75, 0, 0.88, 0, { r: 0.02 }); for (const [x, z] of [[-0.66, -0.3], [0.66, -0.3], [-0.66, 0.3], [0.66, 0.3]]) b1.box('wood', 0.08, 0.86, 0.08, x, 0.43, z, { r: 0.01 });
+    b1.box('darkIron', 0.3, 0.2, 0.22, -0.35, 1.03, -0.1, { r: 0.02 }); b1.box('iron', 0.36, 0.06, 0.06, -0.35, 1.16, -0.2, { r: 0.01 }); b1.cyl('brass', 0.02, 0.02, 0.3, -0.35, 1.06, -0.32, { rz: Math.PI / 2, seg: 6 });
+    b1.cyl('stone', 0.2, 0.2, 0.06, 0.4, 1.15, 0, { rx: Math.PI / 2, seg: 18, t: 0xc0b8a8 }); b1.box('darkIron', 0.08, 0.26, 0.2, 0.4, 1.0, 0, { r: 0.01 });
+    for (let i = 0; i < 4; i++) b1.box('brass', 0.16, 0.02, 0.05, 0.05 + i * 0.05, 0.945, 0.2 - i * 0.04, { ry: 0.4 + i * 0.3, r: 0.005 });   // cut keys lying about
+    g1.add(b1.build('x-bench'));
+    // S2 practice board: an upright frame with five brass pins and a shear line
+    const g2 = xStation(THREE, grp, 'S2'), b2 = new K.Batch(0);
+    b2.box('darkWood', 1.3, 1.1, 0.12, 0, 1.35, 0, { r: 0.03 }); b2.box('brass', 1.15, 0.95, 0.04, 0, 1.35, -0.07, { r: 0.02, t: 0xc8a868 });
+    for (let i = 0; i < 5; i++) { b2.box('ink', 0.1, 0.55, 0.03, -0.44 + i * 0.22, 1.35, -0.1, { r: 0.008, ao: false }); b2.box('brass', 0.08, 0.16, 0.05, -0.44 + i * 0.22, 1.3 + ((i * 3) % 5) * 0.04, -0.12, { r: 0.01 }); }
+    b2.box('red', 1.05, 0.02, 0.02, 0, 1.47, -0.13, { r: 0.004 }); for (const sx of [-1, 1]) b2.box('darkWood', 0.1, 1.0, 0.3, sx * 0.55, 0.5, 0, { r: 0.02 });
+    g2.add(b2.build('x-board'));
+    // S3 felt table: a low table with a roll of green felt; the felt cover drapes over the tool rack while it is on
+    const g3 = xStation(THREE, grp, 'S3'), b3 = new K.Batch(0);
+    b3.box('darkWood', 1.2, 0.08, 0.7, 0, 0.72, 0, { r: 0.02 }); for (const [x, z] of [[-0.52, -0.28], [0.52, -0.28], [-0.52, 0.28], [0.52, 0.28]]) b3.box('wood', 0.07, 0.7, 0.07, x, 0.35, z, { r: 0.01 });
+    b3.cyl('cloth', 0.13, 0.13, 0.9, 0.0, 0.89, 0.15, { rz: Math.PI / 2, seg: 12, t: 0x3f7a4a }); for (let i = 0; i < 5; i++) b3.box('darkIron', 0.04, 0.3, 0.04, -0.4 + i * 0.12, 0.92, -0.18, { r: 0.008 });
+    g3.add(b3.build('x-felt'));
+    const fb = new K.Batch(0.9); fb.box('cloth', 0.8, 0.05, 0.42, -0.15, 1.08, -0.18, { t: 0x3f7a4a, r: 0.02 }); fb.box('cloth', 0.8, 0.3, 0.03, -0.15, 0.94, -0.39, { t: 0x356a40, r: 0.01 });
+    const cover = fb.build('x-cover', true); cover.visible = false; g3.add(cover);
+    // S4 the master safe: a heavy iron safe with three brass dials (one instanced mesh) and a handle
+    const g4 = xStation(THREE, grp, 'S4'), b4 = new K.Batch(0);
+    b4.box('darkIron', 1.1, 1.3, 0.9, 0, 0.75, 0.05, { r: 0.06 }); b4.box('iron', 0.95, 1.1, 0.06, 0, 0.78, -0.42, { r: 0.03 }); b4.box('darkIron', 1.2, 0.12, 1.0, 0, 0.06, 0.05, { r: 0.03 });
+    rivets(b4, [[-0.4, 1.25, -0.46], [0.4, 1.25, -0.46], [-0.4, 0.3, -0.46], [0.4, 0.3, -0.46]], 'brass', 0.03); b4.cyl('brass', 0.03, 0.03, 0.3, 0.32, 0.55, -0.5, { seg: 6 });
+    g4.add(b4.build('x-safe'));
+    const dg = new K.Batch(0).cyl('brass', 0.12, 0.12, 0.05, 0, 0, 0, { rx: Math.PI / 2, seg: 16 }).box('brass', 0.025, 0.09, 0.02, 0, 0.06, -0.03, { r: 0.004, ao: false, t: 0x302010 });
+    const dialG = dg.geometry(), dials = new THREE.InstancedMesh(dialG, K.mats.brass, 3); dials.instanceMatrix.setUsage(THREE.DynamicDrawUsage); g4.add(dials);
+    const dm = new THREE.Object3D(); let dialV = [0, 0, 0], dialA = [0, 0, 0];
+    const layDials = () => { for (let i = 0; i < 3; i++) { dm.position.set(-0.28 + i * 0.28, 1.0, -0.48); dm.rotation.set(0, 0, dialA[i]); dm.updateMatrix(); dials.setMatrixAt(i, dm.matrix); } dials.instanceMatrix.needsUpdate = true; };
+    layDials();
+    const lp = [xWorld(g4, -0.4, 1.33, -0.47), xWorld(g4, 0.4, 1.33, -0.47), xWorld(g3, 0.5, 0.95, -0.36)];   // shift change (amber), jammed (red), felt on (green)
+    const lamps = lampRow(K, grp, lp, 0.045, lp.map(() => 0x2a2018));
+    let shift = false, felt = false;
+    return {
+      api: {
+        setFelt(on) { felt = !!on; cover.visible = felt; lamps.set(2, felt ? 0x6fe08a : 0x2a2018); },
+        /** v: the three dial positions 0..5; jam: the safe has paid out twice this round */ setSafe(v, jam) { dialV = (v || [0, 0, 0]).slice(0, 3); lamps.set(1, jam ? 0xff3a2a : 0x2a2018); },
+        setShift(on) { shift = !!on; },
+      },
+      tick(dt, t) {
+        let moved = false; for (let i = 0; i < 3; i++) { const tgt = -(dialV[i] | 0) * TAU / 6; if (Math.abs(dialA[i] - tgt) > 1e-3) { dialA[i] = approach(dialA[i], tgt, 14, dt); moved = true; } } if (moved) layDials();
+        lamps.set(0, shift ? (Math.sin(t * 6) > 0 ? 0xffb030 : 0x5a3a10) : 0x2a2018);
+      },
+    };
+  },
+  counting(K, grp) {
+    const THREE = K.THREE;
+    // S1 coin belt: a short conveyor between two drums with a hopper; coins ride it (instanced), faster in the rush
+    const g1 = xStation(THREE, grp, 'S1'), b1 = new K.Batch(0);
+    b1.box('cloth', 1.6, 0.04, 0.42, 0, 0.84, 0, { t: 0x3a332c, r: 0.01 }); for (const sx of [-1, 1]) { b1.cyl('darkIron', 0.1, 0.1, 0.46, sx * 0.8, 0.8, 0, { rx: Math.PI / 2, seg: 12 }); b1.box('darkWood', 0.1, 0.8, 0.5, sx * 0.8, 0.4, 0, { r: 0.02 }); }
+    b1.box('darkWood', 1.7, 0.1, 0.06, 0, 0.88, -0.24, { r: 0.01 }); b1.box('darkWood', 1.7, 0.1, 0.06, 0, 0.88, 0.24, { r: 0.01 });
+    b1.lathe('brass', [[0.08, 0], [0.12, 0.05], [0.3, 0.35], [0.28, 0.36], [0.1, 0.07], [0.06, 0.02]], -0.7, 1.0, 0, { seg: 12 }); b1.box('wood', 0.4, 0.3, 0.4, 0.95, 0.6, 0.45, { r: 0.03 });   // hopper and a counted-coin box
+    g1.add(b1.build('x-belt'));
+    const coinG = K.cylG(0.07, 0.07, 0.02, 10), coins = new THREE.InstancedMesh(coinG, K.mats.brass, 6); coins.instanceMatrix.setUsage(THREE.DynamicDrawUsage); g1.add(coins);
+    const cm = new THREE.Object3D(); let beltT = 0;
+    // S2 auction block: a podium, a lectern with a gavel, and the lot on its pedestal
+    const g2 = xStation(THREE, grp, 'S2'), b2 = new K.Batch(0);
+    b2.cyl('darkWood', 0.7, 0.75, 0.3, 0, 0.15, 0.1, { seg: 14 }); b2.cyl('wood', 0.22, 0.26, 0.8, 0, 0.7, 0.1, { seg: 10 }); b2.box('red', 0.5, 0.04, 0.5, 0, 1.12, 0.1, { r: 0.01 });
+    b2.box('darkWood', 0.5, 1.05, 0.35, 0.65, 0.53, 0.35, { r: 0.03 }); b2.box('wood', 0.56, 0.06, 0.4, 0.65, 1.08, 0.33, { rx: 0.25, r: 0.01 }); b2.cyl('darkWood', 0.03, 0.03, 0.22, 0.6, 1.15, 0.3, { rz: Math.PI / 2, seg: 6 }); b2.cyl('darkWood', 0.06, 0.06, 0.12, 0.5, 1.15, 0.3, { seg: 8 });
+    g2.add(b2.build('x-auction'));
+    const lb = new K.Batch(1.2); lb.box('gold', 0.3, 0.22, 0.22, 0, 1.25, 0.1, { r: 0.04 }); lb.tor('gold', 0.09, 0.02, 0, 1.4, 0.1, { rs: 4, ts: 10 }); const lot = lb.build('x-lot', true); lot.visible = false; g2.add(lot);
+    // S3 ledger: a tall lectern with the great book
+    const g3 = xStation(THREE, grp, 'S3'), b3 = new K.Batch(0);
+    b3.box('darkWood', 0.5, 1.1, 0.4, 0, 0.55, 0.05, { r: 0.03 }); b3.box('wood', 0.8, 0.06, 0.6, 0, 1.15, 0, { rx: 0.3, r: 0.01 });
+    b3.box('red', 0.66, 0.08, 0.48, 0, 1.22, -0.02, { rx: 0.3, r: 0.01 }); b3.box('bone', 0.62, 0.04, 0.44, 0, 1.27, -0.03, { rx: 0.3, r: 0.006 }); b3.cyl('ink', 0.04, 0.05, 0.08, 0.36, 1.2, 0.18, { seg: 8 });
+    g3.add(b3.build('x-ledger'));
+    // S4 vault of IOUs: a pigeonhole cabinet, the open notes are paper slips in it
+    const g4 = xStation(THREE, grp, 'S4'), b4 = new K.Batch(0);
+    b4.box('darkWood', 1.2, 1.9, 0.5, 0, 0.95, 0.15, { r: 0.04 }); for (let r = 0; r < 4; r++) b4.box('wood', 1.1, 0.04, 0.42, 0, 0.5 + r * 0.35, 0.1, { r: 0.008 }); for (let c = 0; c < 3; c++) b4.box('wood', 0.04, 1.4, 0.42, -0.37 + c * 0.37, 1.05, 0.1, { r: 0.008 });
+    b4.box('brass', 0.5, 0.12, 0.03, 0, 1.82, -0.11, { r: 0.01 });
+    g4.add(b4.build('x-ious'));
+    const nb = new K.Batch(1.0); for (let i = 0; i < 8; i++) { const c = i % 4, r = Math.floor(i / 4); nb.box('bone', 0.2, 0.02, 0.28, -0.55 + c * 0.37 + 0.18, 0.55 + r * 0.35, 0.05, { rz: ((i * 7) % 5 - 2) * 0.05, r: 0.004 }); }
+    const notes = nb.build('x-notes', true); g4.add(notes); const N4 = vertsOf(notes); N4.per = N4.n / 8; drawN(N4.m, 0, N4.per);
+    const lp = [xWorld(g1, 0.8, 1.35, -0.3), xWorld(g3, 0.36, 1.32, 0.18)];   // rush (gold), a candle at the ledger while it is read
+    const lamps = lampRow(K, grp, lp, 0.045, lp.map(() => 0x2a2018));
+    let rush = false, reading = false;
+    return {
+      api: {
+        /** key: the item on the block (null: none), bid: the top bid */ setLot(key, bid) { lot.visible = !!key; lot.scale.setScalar(key ? 1 + Math.min(0.4, (bid | 0) / 300) : 1); },
+        setRush(on) { rush = !!on; }, setNotes(n) { drawN(N4.m, clamp(n | 0, 0, 8), N4.per); }, setLedger(on) { reading = !!on; },
+      },
+      tick(dt, t) {
+        beltT += dt * (rush ? 0.9 : 0.3);
+        for (let i = 0; i < 6; i++) { const f = (beltT + i / 6) % 1; cm.position.set(-0.7 + f * 1.4, 0.875, ((i * 5) % 3 - 1) * 0.1); cm.rotation.set(0, i, 0); cm.updateMatrix(); coins.setMatrixAt(i, cm.matrix); } coins.instanceMatrix.needsUpdate = true;
+        lamps.set(0, rush ? (Math.sin(t * 7) > 0 ? 0xffd24a : 0x6a4a10) : 0x2a2018); lamps.set(1, reading ? (Math.sin(t * 17) > -0.6 ? 0xffc060 : 0xc08030) : 0x2a2018);
+        if (lot.visible) lot.rotation.y = t * 0.6;
+      },
+    };
+  },
+  keystone(K, grp) {
+    const THREE = K.THREE, atlas = glyphAtlas(K);
+    // S1 carving altar: a stone block with a half-carved rune slab, chisel and mallet
+    const g1 = xStation(THREE, grp, 'S1'), b1 = new K.Batch(0);
+    b1.box('darkStone', 1.3, 0.85, 0.8, 0, 0.425, 0.05, { r: 0.05 }); b1.box('stone', 0.7, 0.9, 0.16, 0, 1.3, 0.12, { rx: -0.2, r: 0.03, t: 0xd0c8b8 });
+    b1.box('ink', 0.4, 0.5, 0.02, 0, 1.33, 0.03, { rx: -0.2, r: 0.005, ao: false }); b1.cyl('darkIron', 0.015, 0.02, 0.24, 0.45, 0.88, -0.1, { rz: 1.4, seg: 6 }); b1.cyl('wood', 0.05, 0.05, 0.14, -0.45, 0.9, -0.15, { rz: Math.PI / 2, seg: 8 });
+    g1.add(b1.build('x-carve'));
+    // S2 ritual circle: a short pedestal; four glyph plates (G1..G4) lie on the floor around it
+    const g2 = xStation(THREE, grp, 'S2'), b2 = new K.Batch(0), s2 = XS('S2');
+    b2.cyl('darkStone', 0.45, 0.55, 0.8, 0, 0.4, 0, { seg: 8 }); b2.cyl('stone', 0.5, 0.5, 0.1, 0, 0.85, 0, { seg: 8, t: 0xd0c8b8 }); b2.tor('brass', 0.42, 0.025, 0, 0.92, 0, { rx: Math.PI / 2, rs: 5, ts: 24 });
+    g2.add(b2.build('x-circle'));
+    const PL = [[0, -1.7], [1.7, 0], [0, 1.7], [-1.7, 0]];   // the plates G1..G4, skin frame offsets from S2 (world.js ACT_LOCAL.vb)
+    const pbB = new K.Batch(0); for (const [dx, dz] of PL) pbB.cyl('darkStone', 0.42, 0.45, 0.05, s2.x + dx, 0.025, s2.z + dz, { seg: 16 }); grp.add(pbB.build('x-plates'));
+    const plates = makeGlyphQuads(K, atlas, 4, 0.6, i => [s2.x + PL[i][0], 0.06, s2.z + PL[i][1], -Math.PI / 2, 0]); grp.add(plates.mesh);
+    // S3 offering bowl: a fluted pillar with a brass bowl
+    const g3 = xStation(THREE, grp, 'S3'), b3 = new K.Batch(0);
+    b3.cyl('stone', 0.32, 0.4, 0.95, 0, 0.475, 0, { seg: 10, t: 0xd0c8b8 }); b3.lathe('brass', [[0, 0], [0.22, 0.0], [0.42, 0.14], [0.5, 0.3], [0.47, 0.32], [0.38, 0.2], [0, 0.12]], 0, 0.95, 0, { seg: 18 });
+    g3.add(b3.build('x-bowl'));
+    const bowlGlow = new THREE.Sprite(K.glowMat(0xffc040, 0)); bowlGlow.scale.set(1.8, 1.8, 1); bowlGlow.position.set(0, 1.35, 0); bowlGlow.visible = false; g3.add(bowlGlow);
+    // S4 ley node: an obelisk on a ringed platform with a floating crystal that shows the holder and the surge
+    const g4 = xStation(THREE, grp, 'S4'), b4 = new K.Batch(0);
+    b4.cyl('darkStone', 1.0, 1.05, 0.08, 0, 0.04, 0, { seg: 24 }); b4.tor('stone', 1.6, 0.04, 0, 0.03, 0, { rx: Math.PI / 2, rs: 4, ts: 40 }); b4.cyl('stone', 0.18, 0.32, 1.5, 0, 0.8, 0, { seg: 4, ry: Math.PI / 4, t: 0xc8c0b0 });
+    g4.add(b4.build('x-node'));
+    const crysM = new THREE.MeshBasicMaterial({ color: 0x3a3060 }), crys = new THREE.Mesh(K.g('xocta', () => new THREE.OctahedronGeometry(0.22, 0)), crysM); crys.position.set(0, 1.95, 0); crys.scale.set(1, 1.6, 1); g4.add(crys);
+    let rite = null, ritePos = 0, riteOn = false, hold = 0, contested = false, surge = false, offering = false, showT = 0;
+    const DIM = 0x2a2418, C = new THREE.Color(), C2 = new THREE.Color();
+    for (let i = 0; i < 4; i++) { plates.setGlyph(i, i); plates.setGlyphColor(i, DIM); }
+    return {
+      api: {
+        /** show: the order (plate indexes) while it is shown, else null; pos: plates done; on: a rite is running */ setRite(show, pos, on) { if (show && !rite) showT = 0; rite = show ? show.slice() : null; ritePos = pos | 0; riteOn = !!on; },
+        setNode(held, cont) { hold = held ? 1 : 0; contested = !!cont; }, setSurge(on) { surge = !!on; }, setOffering(on) { offering = !!on; },
+      },
+      tick(dt, t) {
+        showT += dt;
+        for (let i = 0; i < 4; i++) {
+          let c = riteOn ? 0x4a3c20 : DIM;
+          if (rite) { const k = Math.floor(showT / 0.6) % 5, f = (showT % 0.6) / 0.6; if (k < 4 && rite[k] === i && f < 0.75) c = C.setRGB(1, 0.8, 0.35).getHex(); }   // the order plays plate by plate
+          plates.setGlyphColor(i, c);
+        }
+        const tgt = contested ? 0xff4a3a : hold ? (surge ? 0x9ff0ff : 0x60d0ff) : surge ? 0x6a5ab0 : 0x3a3060; crysM.color.lerp(C2.set(tgt), 1 - Math.exp(-6 * dt));
+        crys.rotation.y = t * (hold ? 1.6 : 0.4); crys.position.y = 1.95 + Math.sin(t * 1.3) * 0.06;
+        bowlGlow.visible = offering; if (offering) bowlGlow.material.opacity = 0.35 + 0.15 * Math.sin(t * 8);
+      },
+    };
+  },
+};
 
 // ============ coin heaps (ranked so that setDrawRange grows the pile coin by coin) ============
 function coinHeap(K, o) {

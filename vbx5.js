@@ -437,16 +437,17 @@
   const left = (until, now) => (until > now ? until : 0);
   function view(H, t, now) {
     const x = H.x && H.x.st[t]; if (!x) return null;
-    if (t === 'ram') { chantSettle(x, now); return { head: x.head, wear: x.wear, planks: x.planks, crate: x.crate, chant: x.chant }; }
-    if (t === 'locksmith') return { felt: left(x.felt, now), safe: x.safe.v.slice(), opened: x.opened, jam: x.opened >= K.SAFE_ROUND ? 1 : 0, shift: left(x.shiftUntil, now) };
+    const st = H.st[t], run = (st && st.ch ? st.ch.filter(c => c.ext).map(c => c.anchor) : []);   // stations with a running channel (the props animate)
+    if (t === 'ram') { chantSettle(x, now); return { head: x.head, wear: x.wear, planks: x.planks, crate: x.crate, chant: x.chant, run }; }
+    if (t === 'locksmith') return { felt: left(x.felt, now), safe: x.safe.v.slice(), opened: x.opened, jam: x.opened >= K.SAFE_ROUND ? 1 : 0, shift: left(x.shiftUntil, now), run };
     if (t === 'counting') {
       const L = x.lot;
       return { lot: L ? { key: L.key, name: L.name, seller: L.sname, sid: L.seller, bid: L.bid, next: L.by != null ? L.bid + K.BID_STEP : L.min, by: L.bname, bid0: L.by, until: L.until } : null,
-        rush: left(x.rushUntil, now), notes: H.x.debts.filter(d => d.owner == null).length, debts: H.x.debts.length };
+        rush: left(x.rushUntil, now), notes: H.x.debts.filter(d => d.owner == null).length, debts: H.x.debts.length, run };
     }
     const R = x.rite;
     return { rite: R ? { by: R.by, show: R.show > now ? R.target.slice() : null, showUntil: R.show, pos: R.seq.pos } : null,
-      node: { holder: x.node.holder, contested: !!x.node.contested }, surge: left(x.surgeUntil, now) };
+      node: { holder: x.node.holder, contested: !!x.node.contested }, surge: left(x.surgeUntil, now), run };
   }
   // my own part: the station progress, my round bonuses, my IOU
   function meX(H, t, id) {

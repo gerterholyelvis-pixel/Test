@@ -411,6 +411,13 @@
     roundHorn(out, t) { for (const [f, d, du] of [[196, 0, 0.5], [196, 0.6, 0.35], [294, 1.05, 1.5]]) { tone(out, 'sawtooth', f, t + d, du, 0.24, { a: 0.06 }); tone(out, 'sawtooth', f * 1.005, t + d, du, 0.16, { a: 0.06, det: 12 }); tone(out, 'square', f * 2, t + d, du, 0.05, { a: 0.08 }); noise(out, t + d, du * 0.8, 0.05, 'lowpass', 1200, 800, 0.7, { a: 0.05 }); } },   // 2-minute horn
     rekeyWarn(out, t) { for (let i = 0; i < 3; i++) { const tt = t + i * 0.2; tone(out, 'triangle', 330, tt, 0.14, 0.24, { f1: 300, a: 0.003 }); ping(out, tt, 660, 0.12, 0.2); } noise(out, t + 0.6, 0.3, 0.2, 'bandpass', 500, 1500, 1.5, { a: 0.1 }); tone(out, 'square', 140, t + 0.65, 0.3, 0.1, { f1: 240, a: 0.05 }); }
   });
+  // VBX-BEGIN: the vaultbreaker stations (vbx5.js): a war drum beat (opts.pitch rises with the chant) and the auctioneer's gavel
+  Object.assign(SND, {
+    drumBeat(out, t, o) { const p = num(o.pitch, 1); tone(out, 'sine', 72 * p, t, 0.32, 0.8, { f1: 44, a: 0.002 }); noise(out, t, 0.12, 0.4, 'lowpass', 700, 180, 0.8, { a: 0.001 }); tone(out, 'triangle', 150 * p, t, 0.06, 0.12, { f1: 90, a: 0.001 }); },
+    gavel(out, t) { for (let i = 0; i < 2; i++) { const tt = t + i * 0.16; noise(out, tt, 0.05, 0.5, 'bandpass', 1300, 700, 2, { a: 0.001 }); tone(out, 'sine', 210, tt, 0.09, 0.35, { f1: 120, a: 0.001 }); } },
+  });
+  Object.assign(GAP, { drumBeat: 0.12, gavel: 0.3 });
+  // VBX-END
   Object.assign(GAP, { pumpTick: 0.18, sentryShot: 0.09, lockpickClick: 0.05, coinCount: 0.04, captureTick: 0.1, timingHit: 0.08, timingMiss: 0.1, riskWarn: 0.25, raidAlarm: 1, vaultAlarm: 1, roundHorn: 2, doorBar: 0.15, doorLock: 0.15, wardenRoar: 1.5, rewardChime: 0.4, runeChime: 0.08, winchCreak: 0.3, coinPile: 0.4 });
   Object.assign(PRIORITY_LOW, { pumpTick: 1, captureTick: 1, lockpickClick: 1, coinCount: 1, riskWarn: 1 });
 
