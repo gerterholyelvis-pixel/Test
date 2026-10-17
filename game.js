@@ -5380,7 +5380,7 @@ function recycledFx(r) {
   });
 }
 // ---- workbench + knowledge tree (KNOWLEDGE-BEGIN, docs/KNOWLEDGE.md): one screen, opened with E at a workbench or at a knowledge tree. Left: the perk tree. Right: recipes by tier (and Reforge). ----
-function buildCraft() { KNOWUI.build(); recPn = craftPn; if (window.GKHOMEW) GKHOMEW.decorateCraft(craftPn); }   // ELIXIR: brew row
+function buildCraft() { KNOWUI.build(); recPn = craftPn; if (window.GKHOMEW) { GKHOMEW.decorateCraft(craftPn); const br = craftPn.body.nextSibling; if (br && br.querySelector && br.querySelector('[data-brew]')) br.classList.add('wb-brew'); } }   // ELIXIR: brew row
 function myKnowledge() { const mine = actors.get(me); return invStats(myInv, mine ? mine.goblin : 0, knowOv).knowledge; }
 function paintCraft() { if (craftPn) { KNOWUI.paint(); if (window.GKHOMEW) GKHOMEW.paintBrew(); } }
 const KNOWUI = (() => {

@@ -482,10 +482,12 @@ h3.st-h{margin-top:var(--s3)}
 @media (max-width:720px),(max-height:560px){body #roundHud .b{display:none!important}#gkLeft>div{min-width:0;font-size:var(--gk-fs-sm)!important;padding:5px 10px!important}#gkMM{top:60px!important;transform:scale(.7);transform-origin:top right}#rr{height:28px}}
 /* WBUI: the workbench / recycler screen (wbui.js). One layout for every station; the banner colour says where you are: gold workbench, ember Master Forge, blue home bench, green recycler, light-blue home recycler (50%), teal Grand Recycler (100%). */
 #gkCraft{--wbz:calc(1 + (var(--uis,1) - 1) * .4);zoom:var(--wbz)}   /* the other panels grow x1.5 at 1080p; this one only x1.2, it needs the room for its lists */
-#gkCraft>div{width:calc(min(1280px,96vw) / var(--wbz,1))!important;height:calc(min(94vh,980px) / var(--wbz,1));max-height:calc(94vh / var(--wbz,1));display:flex!important;flex-direction:column;overflow:hidden!important;padding:12px 18px 10px!important}
+#gkCraft>div{width:calc(min(1280px,96vw) / var(--wbz,1))!important;height:calc(min(94vh,980px) / var(--wbz,1));max-height:calc(94vh / var(--wbz,1));display:grid!important;grid-template-columns:auto minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto;overflow:hidden!important;padding:12px 18px 10px!important}
+#gkCraft .wb-brew{grid-row:2;grid-column:1;margin:8px 14px 0 0!important;padding:0!important;border:0!important;justify-content:flex-start!important;flex-wrap:nowrap!important}
+#gkCraft .wb-brew button{padding:4px 10px!important;font-size:14px!important}
 #gkCraft .ttl,#gkCraft .sub{display:none}
-#gkCraft .body{flex:1 1 auto;min-height:0;max-height:none!important;overflow:hidden!important;padding:0!important;display:flex;flex-direction:column}
-#gkCraft>div>div:last-child{margin-top:8px!important;flex:none}
+#gkCraft .body{grid-row:1;grid-column:1/-1;min-height:0;max-height:none!important;overflow:hidden!important;padding:0!important;display:flex;flex-direction:column}
+#gkCraft>div>div:last-child{grid-row:2;grid-column:2;margin-top:8px!important}
 #gkCraft .wb{--acc:#f5c451;--accl:rgba(245,196,81,.38);--accbg:rgba(245,196,81,.11);flex:1;min-height:0;display:flex;flex-direction:column;gap:8px;font-size:16px;color:var(--gk-txt)}
 #gkCraft .wb[data-st=master]{--acc:#ff7a2a;--accl:rgba(255,122,42,.5);--accbg:rgba(255,106,42,.15)}
 #gkCraft .wb[data-st=homebench]{--acc:#5fa8ff;--accl:rgba(95,168,255,.5);--accbg:rgba(95,168,255,.13)}
