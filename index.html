@@ -301,6 +301,11 @@ table.keys td:last-child{font-size:var(--t2);line-height:1.15;color:#d8d2bf}
 #qpips i.on{background:var(--gold);border-color:var(--gold2);box-shadow:0 0 10px var(--glow)}
 #qpips i.rdy{background:var(--teal);border-color:#aef6e6;box-shadow:0 0 10px rgba(56,214,180,.6)}
 @media (max-width:760px){#roll{flex-direction:column;gap:2vh}#wheelBox{--S:min(58vh,86vw)}#rside{width:min(440px,90vw);border-left:0;border-image:none;padding-left:0;text-align:center}#qpips{justify-content:center}}
+/* WHEELHOST-BEGIN: room for the host beside the wheel (menuhost.js); hidden on narrow screens */
+#host{position:absolute;left:-30%;top:0;width:130%;height:100%;pointer-events:none;z-index:2}
+@media (min-width:761px){#wheelBox{--S:min(86vh,calc((100vw - 12vw - min(380px,30vw)) / 1.3));margin-left:calc(var(--S)*.3)}#rside{width:min(380px,30vw)}}
+@media (max-width:760px){#host{display:none}}
+/* WHEELHOST-END */
 </style>
 <style>
 /* UI-SYSTEM (T14): one design language for the in-match HUD, every panel, tooltips, prompts and the other screens now being added (Elixir screen, room HUD, knowledge workbench).
@@ -869,7 +874,7 @@ h3.st-h{margin-top:var(--s3)}
 </div>
 
 <div id="roll">
- <div id="wheelBox"><canvas id="wheel"></canvas></div>
+ <div id="wheelBox"><canvas id="wheel"></canvas><canvas id="host"></canvas></div>
  <div id="rside">
   <div id="rolling">
    <p class="rk">The horde decides</p>
@@ -887,7 +892,7 @@ h3.st-h{margin-top:var(--s3)}
  </div>
 </div>
 
-<script src="/audio.js"></script><script src="/feel.js"></script><script src="/vfx.js"></script><script src="/hud5.js"></script><script src="/world.js"></script><script src="/halls.js"></script><script src="/affix.js"></script><script src="/mutators.js"></script><script src="/items.js"></script><script src="/combat4.js"></script><script src="/stats.js"></script><script src="/save.js"></script><script src="/statsui.js"></script><script src="/keep.js"></script><script src="/keepui.js"></script><script src="/icons.js"></script><script src="/homebase.js"></script><script src="/homeui.js"></script><script src="/wbui.js"></script><script src="/act5ui.js"></script><script src="/fskeep.js"></script><script src="/uiorg.js"></script>
+<script src="/audio.js"></script><script src="/feel.js"></script><script src="/vfx.js"></script><script src="/hud5.js"></script><script src="/world.js"></script><script src="/halls.js"></script><script src="/affix.js"></script><script src="/mutators.js"></script><script src="/items.js"></script><script src="/combat4.js"></script><script src="/stats.js"></script><script src="/save.js"></script><script src="/statsui.js"></script><script src="/keep.js"></script><script src="/keepui.js"></script><script src="/icons.js"></script><script src="/homebase.js"></script><script src="/homeui.js"></script><script src="/wbui.js"></script><script src="/act5ui.js"></script><script src="/fskeep.js"></script><script src="/uiorg.js"></script><script src="/menuhost.js"></script>
 
 <script type="module">
 import * as THREE from 'three';
