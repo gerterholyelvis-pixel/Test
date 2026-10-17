@@ -38,6 +38,8 @@ Not seen in the browser: the other tree types (they are tested through the serve
 ## Tests
 `tests/act5ui.test.js` (new): anchor tables, saw-tooth contract, pure option table, and 7 server plays (Well crank and needle press, Spring hold and stop, Memory show and input, Ram winch and needle, Keystone light, Vault scoop, coin sack speed). Changed: `rooms5art-wiring` (home anchors).
 
+`GK_TEST_JOBS=3 npm test` (after merging main with the bots work): all files pass except timing tests that fail only under load and pass alone (armour3, fun, elixir-home, bots-combat in different runs).
+
 ## Not done / notes
 - No chooser UI for which item to graft / feed: the Graft Bench takes the equipped weapon (or the first backpack gear with a reforged twin) and the Gambler's Root the lowest tier backpack gear; the prompt names the item.
 - Other players' homes show no upgrades (the server only tells the owner).
