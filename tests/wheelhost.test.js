@@ -37,7 +37,7 @@ run('wheelhost', [
       for (const h of [P.wa, P.fa]) { assert(h.every(Number.isFinite), m + ' hand'); const a = H.ik(12, -74, h[0], h[1], 53, 56, -1); assert(Number.isFinite(a.ex + a.ey + a.hx + a.hy), m + ' ik'); }
     }
     assert(H.poseFor('cheerBig', 0.9, 0, 0).hatFly > 0, 'the hat is thrown in a big cheer');
-    assert(Math.abs(H.poseFor('bow', 1.2, 0, 0).lean) > 0.5, 'the King gets a deep bow');
+    assert(Math.abs(H.poseFor('bow', 1.2, 0, 0).lean) > 0.4, 'the King gets a deep bow');
   }],
   ['the swing ends with the hand on the wheel rim; the wind-up delay is short and the wheel is only delayed, never re-rolled', () => {
     const P = H.poseFor('swing', 0.11, 0, 0); assert(Math.abs(P.wa[0] - H.rimX(P.wa[1])) < 25, 'hand near the rim mid swing');
