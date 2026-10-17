@@ -19,10 +19,10 @@ const equip = async (c, key) => { c.send({ give: key }); await c.until(x => x.st
         c.send({ tp: W.rc(0) }); c.send({ sel: door('0', '1') }); c.send({ bribe: 1 }); await sleep(300); eq(c.state.gold, 100, 'bribe is ignored'); eq(count(c, 'bribeFail'), 0);
         c.send({ atk: 1 }); await sleep(500); eq(count(c, 'bolt'), 0, 'no bolt without the rule'); await c.close();
       }],
-      ['doorclose off: a picked door is open for one round only', async () => {
+      ['doorclose off (the default, DOORS-PERSIST): a picked door stays open for good, no klaxon', async () => {
         const c = await connect(offShort.port); c.send({ tp: W.rc(0) }); const id = door('0', '1'); c.send({ sel: id });
         await c.until(x => x.state.round.n === 2 && x.state.open.includes(id), 4000, 'door open in round 2'); eq(c.state.openLeft, undefined);
-        await c.until(x => x.state.round.n === 3, 4000, 'round 3'); eq(c.state.open.length <= 1, true, 'not cumulative in round 3 (a round with no votes opens one random outer door, PACE)'); await c.close();
+        await c.until(x => x.state.round.n === 4, 6000, 'round 4'); assert(c.state.open.includes(id), 'still open in round 4: ' + c.state.open); assert(!c.msgs.some(m => m.klaxon), 'no klaxon'); await c.close();
       }],
       ['crown: stand on the dais, be hit and the count restarts, then you are crowned and the other goblin dies', async () => {
         const [a, b] = await pair(crown); eq(a.state.rules, ['crown']);

@@ -70,7 +70,7 @@ const runOne = (m, attempt) => new Promise(res => {
   let out = ''; const t0 = Date.now(), p = spawn(process.execPath, [path.join(__dirname, m.f)], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, GK_TEST_ATTEMPT: String(attempt) } });
   const kill = setTimeout(() => { out += '  FAIL  ' + m.f + ': timed out after ' + m.timeout / 1000 + ' s\n'; p.kill(); }, m.timeout);
   p.stdout.on('data', d => out += d); p.stderr.on('data', d => out += d);
-  p.on('exit', code => { clearTimeout(kill); res({ ...m, code: code === 0 ? 0 : 1, out, ms: Date.now() - t0 }); });
+  p.on('exit', code => { clearTimeout(kill); res({ ...m, code: code === 0 && !/^\s*FAIL\s/m.test(out) ? 0 : 1, out, ms: Date.now() - t0 }); });   // QA-FULL: a printed FAIL counts even when the file forgot to exit non-zero
 });
 // At most `jobs` files at once (optionally at most `tcap` @timing files at once). A failed @timing file is retried once, straight away
 // in a free slot, so the retry overlaps the tail of the run instead of adding to it.
