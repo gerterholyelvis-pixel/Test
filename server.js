@@ -1010,7 +1010,6 @@ function climbIdle(m, p, now) {   // botThink, idle: maybe start a perch; true w
     const d = Math.hypot(pr.x - p.x, pr.z - p.z), ux = (p.x - pr.x) / (d || 1), uz = (p.z - pr.z) / (d || 1), lx = pr.x + ux * (pr.r + 0.75), lz = pr.z + uz * (pr.r + 0.75);
     if (d < bd && roomKeyOf(lx, lz) === p.room && inBounds(lx, lz) && !WORLD.inProp(lx, lz, 0.5, m.layout, true) && pathOk(m, lx, lz, pr.x, pr.z, null, pr.h)) { bd = d; best = { pr, lx, lz }; }
   }
-  if (PERCH_MS && process.env.GK_PERCH_LOG) console.log('PERCH', p.id, p.room, best ? 'start' : 'none');
   if (!best) return false;
   b.perch ={ ...best, ph: 'go', t0: now, room: p.room }; return true;
 }
