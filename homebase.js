@@ -166,8 +166,11 @@
 
   // ---- balance helpers
   const baseIncomeMatch = (rounds, roundMs) => Math.floor(rounds * roundMs / 5000);
+  // QA-FULL: client prompt reach for the home props (p pump = elixir.js PUMP_RANGE 2.5, s screen, b lockbox crack), 0.2 m inside the server gate
+  const PROP_REACH = { p: 2.5, s: SCREEN_RANGE, b: CRACK_RANGE };
+  const inReach = (kind, d) => d <= (PROP_REACH[kind] || 0) - 0.2;
 
-  return { UPGRADES, ORDER, ACTIONS, SENTRY, SNARE, PAD, PICK_MS, CRACK_MS, CRACK_RANGE, SCREEN_RANGE, MSG_RATE, SENDS, SEND_IDS, TELEGRAPH_MS, MAX_ACTIVE_PER_ROOM, FIRST_SEND_ROUND,
+  return { PROP_REACH, inReach, UPGRADES, ORDER, ACTIONS, SENTRY, SNARE, PAD, PICK_MS, CRACK_MS, CRACK_RANGE, SCREEN_RANGE, MSG_RATE, SENDS, SEND_IDS, TELEGRAPH_MS, MAX_ACTIVE_PER_ROOM, FIRST_SEND_ROUND,
     treeCost, createHome, level, nextCost, buy, rearmSnare, buyAmmo, pumpLevel, benchParams, recyclerEff, lockboxSlots, lockLevel, hasPad, hasGuard, isOwner, canUseStation, canUseScreen,
     padHps, lockActive, startPick, cancelPick, pickProgress, hatchOk, onEnter, sentryShot, boxPut, boxTake, crackMs, startCrack, cancelCrack, finishCrack, dieHome,
     checkSend, makeSend, sendPhase, gasTicks, bellRevealed, panelFrozen, counteredByLeaving, baseIncomeMatch };
