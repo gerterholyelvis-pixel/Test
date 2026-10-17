@@ -40,7 +40,7 @@ function cached(key, file, type) {
   return e;
 }
 const missUntil = new Map();   // PERF4: url key -> time the remembered miss expires
-const CLIENT_JS = new Set(['game', 'menu', 'items', 'world', 'save', 'stats', 'statsui', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'wbui', 'act5ui', 'fskeep', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)
+const CLIENT_JS = new Set(['game', 'menu', 'items', 'world', 'save', 'stats', 'statsui', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'wbui', 'act5ui', 'fskeep', 'keep', 'keepui', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)   // KEEP: keep, keepui
 let CSP = '';
 function buildCsp() {   // the page has two inline scripts (importmap + module): allowed by hash, so no 'unsafe-inline' for scripts
   const page = cached('/index.html', path.join(ROOT_DIR, 'index.html'), 'text/html; charset=utf-8'), hashes = [];
@@ -80,6 +80,7 @@ function staticFor(url) {   // -> { body, type, cc } or null (404)
 const SEC_HEADERS = { 'x-content-type-options': 'nosniff', 'referrer-policy': 'same-origin' };
 const srv = http.createServer((q, r) => {
   try {
+    if (q.method === 'POST' && (q.url || '').split('?')[0] === '/keep') return KS5.http(q, r);   // KEEP: claim / sell / sync a signed stash (keepsrv.js)
     const e = q.method === 'GET' || q.method === 'HEAD' ? staticFor(q.url || '/') : null;
     if (!e) { r.writeHead(404, { ...SEC_HEADERS, 'content-type': 'text/plain' }); return r.end('Not found'); }
     r.writeHead(200, { ...SEC_HEADERS, 'content-type': e.type, 'cache-control': e.cc, 'content-security-policy': e.csp || CSP });
@@ -191,6 +192,7 @@ function findMatch(wins) {
 function leave(m, ws) { // remove a player from their match; empty matches disappear
   const gone = m.players.get(ws);
   if (!m.players.delete(ws)) return;
+  KS5.left(gone);   // KEEP: the stash lock goes with the goblin
   if (gone && gone.token) socTokens.delete(gone.token);   // ROBUST: a player who left for good can never resume, free the token now
   m.dirty = true;
   if (gone && m.sel[gone.room] != null && ![...m.players.values()].some(q => q.room === gone.room)) { delete m.sel[gone.room]; if (m.selBy) delete m.selBy[gone.room]; broadcastRound(m); } // an empty room's door vote no longer counts
@@ -445,6 +447,7 @@ function endMatch(m, winner) {   // once per match: {matchEnd:{winner, top, long
   const run = places.filter(r => r.place > 1).sort((a, b) => b.secs - a.secs || a.place - b.place)[0] || null;   // longest survivor besides the winner (who survived by definition)
   const w = places[0] || null, msg = JSON.stringify({ matchEnd: { ...(m.timeLimit ? { timeLimit: 1 } : null), ...(m.crownWin ? { crown: 1 } : null), ...(m.decision ? { decision: m.decision } : null), winner: w && { id: w.id, name: w.name, goblin: w.goblin, bot: w.bot, kills: w.kills }, top, longest: run, places, size: places.length, stats: statBlocks(m, order) } });   // STATS: stats = { playerId: block } for the human players
   bcast(m, msg);
+  KS5.ended(m, winner);   // KEEP: survivors who did not win get the small consolation
   if (!m.specs.size && !humans(m)) matches.delete(m.id);
 }
 // FUN-END
@@ -711,7 +714,7 @@ function win(ws, p) { // everything carried goes home with the winner, nothing i
   const m = p.match; if (p.dead || !m) return;
   const items = allItems(p.inv);
   p.dead = true; p.diedAt = Date.now(); endMatch(m, p); leave(m, ws);
-  sendTo(ws, { won: { st: statBlock(m, p), items, gold: p.gold, parts: p.parts, ctoken: makeToken({ c: p.charId, g: p.goblin, w: Math.min(9999, p.wins + 1), n: p.name }) } });   // SECURITY: signed character token
+  sendTo(ws, { won: { st: statBlock(m, p), items, gold: p.gold, parts: p.parts, keep: KS5.won(m, p, items), ctoken: makeToken({ c: p.charId, g: p.goblin, w: Math.min(9999, p.wins + 1), n: p.name }) } });   // SECURITY: signed character token
 }
 
 // JUMP-BEGIN (server side: the jump is cosmetic; movement, walls and attack ranges stay 2D)
@@ -2103,6 +2106,7 @@ function startMatch(m) {   // close the queue match, give everyone their own out
   }
   { const seen = new Set(); for (const p of m.players.values()) { let n = p.name || 'Goblin'; if (seen.has(n.toLowerCase())) { const free = BOT_NAMES.filter(b => !seen.has(b.toLowerCase())); n = free.length ? free[Math.floor(Math.random() * free.length)] : n + ' ' + p.id; } p.name = n; seen.add(n.toLowerCase()); } }   // unique names inside a match
   fillWithBots(m);
+  KS5.start(m);   // KEEP: the brought loadout and bank go on now (they are at stake from here)
   const players = [...m.players.values()].map(pub);
   for (const [ws, p] of m.players) {
     sendTo(ws, { you: p.id, chests: m.chests, chestKeys: m.chestKeys, layout: m.layout, mystery: m.mystery, shops: m.shops, drops: m.drops, ...roundState(m), match: matchInfo(m), players,
@@ -2158,6 +2162,7 @@ function socWelcome(m, ws, p) {   // full resync: the welcome fields of startMat
   if (m.phase === 'play') sendTo(ws, { board: { left: matchInfo(m).alive, rows: boardRows(m) } });
   if (m.phase === 'countdown') sendTo(ws, { countdown: { at: m.goAt, now: Date.now() } });
   A5.welcome(m, ws, p);   // ACT5: trees, the room's activity state, the crown
+  KS5.resume(ws, p);   // KEEP
 }
 function socEmote(m, ws, p, n, now) {   // {emote:n}: relayed to everyone else (specs included), at most one per second per player
   if (!Number.isInteger(n) || n < 0 || n >= EMOTES || p.dc || m.phase === 'queue' || now - (p.emoteAt || 0) < EMOTE_MS) return;
@@ -2170,6 +2175,9 @@ setInterval(() => { for (const [t, p] of socTokens) if (p.dead || !p.match || !p
 // ACT5-BEGIN (the activity rooms: act5.js glue for activity.js, rooms5-trees.js, vb5.js, vault5.js; docs/reports/special-rooms-server.md)
 const A5 = require('./act5.js')({ G, DBG, rule, bcast, sendTo, sendInv, sendGold, sendParts, giveItem, recalc, place, die, addDrop, broadcastRound, sendBoard, isOpen, VAULT, eatBrain, srvT, T0, newId: () => nextId++, equip, newBrain, npcFight, stepTo, clampIn });
 // ACT5-END
+// KEEP-BEGIN (what a winner keeps: keep.js rules, keepsrv.js tokens / store / POST /keep; docs/reports/keep-on-win.md)
+const KS5 = require('./keepsrv.js')({ G, sign, b64u, DBG, sendTo, recalc, isHum, statBlock, matches, originOk, ipOf, fs, path });
+// KEEP-END
 wss.on('connection', (ws, req) => {
   { const ip = ipOf(req); ipCount.set(ip, (ipCount.get(ip) || 0) + 1); ws.once('close', () => { const n = (ipCount.get(ip) || 1) - 1; if (n > 0) ipCount.set(ip, n); else ipCount.delete(ip); }); }   // SECURITY: per-IP socket count
   ws.on('error', () => {});
@@ -2189,7 +2197,7 @@ wss.on('connection', (ws, req) => {
   if (!m) { sendTo(ws, { busy: 1 }); return ws.close(); }
   const id = nextId++, nq = cleanName(tokName != null ? tokName : q.get('name'));
   p = { id, wins, charId, ws, name: nq || BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)], ...spawn() }; equip(p, goblin); place(p, p.x, p.z);
-  p.match = m; m.players.set(ws, p); m.dirty = true; socToken(p); p.unverified = unverified; }
+  p.match = m; m.players.set(ws, p); m.dirty = true; socToken(p); p.unverified = unverified; KS5.join(ws, p, q, !!tok); /* KEEP */ }
   // SECURITY-END
   ws.on('error', () => {});
   if (resumed) socWelcome(m, ws, p); else { /* MATCH-BEGIN */ sendTo(ws, { queue: queueInfo(m), goblin, wins: p.wins, token: p.token, ...(DBG ? { dbg: 1 } : null), ...(p.unverified ? { unverified: 1 } : null) }); broadcastQueue(m, ws); if (m.players.size >= CAP) startMatch(m); /* MATCH-END */ }

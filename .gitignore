@@ -1,3 +1,5 @@
 node_modules
 .claude/worktrees/
 .gk-secret
+.gk-keep.json
+.gk-keep.json.tmp
