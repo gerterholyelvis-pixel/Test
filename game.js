@@ -2927,14 +2927,18 @@ const GA = (() => {
   }
   // T10 skin look: skin vertices are flagged by roughness 0.55 (the SK preset). A warm fresnel rim (colour set per room by GA.tick: warm in rooms, gold in the vault)
   // plus a fake subsurface scatter (the albedo bleeds red-orange at grazing angles, strongest where the surface is thin: the ears' emissive inner side).
-  A.U = { rim: { value: 1 }, rimCol: { value: new Col(0xffa86a) }, hull: true, vk: 0 };
+  A.U = { rim: { value: 1 }, rimCol: { value: new Col(0xffa86a) }, hull: true, vk: 0, sss: { value: new V3(1.9, 0.55, 0.3) }, rimK: { value: 1 } };
+  // GOBART12: per-type skin tuning, read by the one shared program through per-material uniforms: sss = the colour the albedo bleeds to at grazing angles, rimK = rim strength, wet = how glossy the
+  // skin is (bog goblin: wet sheen). Types not listed use the defaults.
+  A.TUNE = { 3: { sss: [0.55, 1.5, 1.45], rimK: 1.1 }, 4: { sss: [2.0, 1.25, 0.4], rimK: 1.15 }, 6: { sss: [0.9, 0.85, 0.7], rimK: 0.5 }, 7: { sss: [1.7, 0.8, 0.35], rimK: 0.8 }, 8: { sss: [2.3, 1.35, 0.3], rimK: 0.95 }, 9: { sss: [2.3, 0.4, 0.2], rimK: 1.0 },
+    10: { sss: [0.5, 1.5, 0.95], rimK: 1.25, wet: 0.9 }, 11: { sss: [1.55, 0.62, 0.3], rimK: 0.55 } };
   const SKIN_FRAG = `
     float skinF = (1.0 - smoothstep(0.0, 0.012, abs(vMat.x - 0.55))) * (1.0 - vMat.w) * uRim;
     if (skinF > 0.0) {
       float ndv = clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0);
       float fr = pow(1.0 - ndv, 2.4);
-      vec3 sss = diffuseColor.rgb * vec3(1.9, 0.55, 0.3) * (pow(1.0 - ndv, 1.4) * 0.22 + vMat.z * 0.5);
-      outgoingLight += skinF * (uRimCol * fr * 0.34 + sss * (0.35 + 0.65 * fr));
+      vec3 sss = diffuseColor.rgb * uSss * (pow(1.0 - ndv, 1.4) * 0.22 + vMat.z * 0.5);
+      outgoingLight += skinF * (uRimCol * fr * 0.34 * uRimK + sss * (0.35 + 0.65 * fr * uRimK));
     }
 `;
   // ---- the one material per type: vertex colours + per-vertex roughness / metalness / emissive / cloth mix, so a whole limb is one draw call
@@ -2942,15 +2946,17 @@ const GA = (() => {
     if (A.mats[type]) return A.mats[type];
     const m = new THREE.MeshPhysicalMaterial({ color: 0xffffff, vertexColors: true, map: clothTex(type), bumpMap: A.bump, bumpScale: 2.2, roughness: 1, metalness: 0, side: THREE.DoubleSide, envMapIntensity: 0.9, sheen: 0.3, sheenRoughness: 0.45, sheenColor: new Col(CFG[type].skin).lerp(new Col(0xfff2c0), 0.2) });
     m.customProgramCacheKey = () => 'goblin-uber';
+    const tune = A.TUNE[type] || {}; m.userData.uFlash = { value: 0 };   // GOBART12: hit flash (0..1), per material
     m.onBeforeCompile = sh => {
+      sh.uniforms.uSss = { value: new V3(...(tune.sss || [1.9, 0.55, 0.3])) }; sh.uniforms.uRimK = { value: tune.rimK ?? 1 }; sh.uniforms.uWet = { value: tune.wet || 0 }; sh.uniforms.uFlash = m.userData.uFlash;
       sh.vertexShader = sh.vertexShader.replace('void main() {', 'attribute vec4 aMat;\nvarying vec4 vMat;\nvoid main() {').replace('#include <color_vertex>', '#include <color_vertex>\n\tvMat = aMat;');
       sh.uniforms.uRimCol = A.U.rimCol; sh.uniforms.uRim = A.U.rim;   // T10: shared by every goblin material (one program); Low sets uRim to 0
-      sh.fragmentShader = sh.fragmentShader.replace('void main() {', 'varying vec4 vMat;\nuniform vec3 uRimCol;\nuniform float uRim;\nvoid main() {')
+      sh.fragmentShader = sh.fragmentShader.replace('void main() {', 'varying vec4 vMat;\nuniform vec3 uRimCol, uSss;\nuniform float uRim, uRimK, uWet, uFlash;\nvoid main() {')
         .replace('#include <opaque_fragment>', SKIN_FRAG + '#include <opaque_fragment>')
         .replace('#include <map_fragment>', '#ifdef USE_MAP\n\tdiffuseColor.rgb *= mix(vec3(1.0), texture2D(map, vMapUv).rgb, vMat.w);\n#endif')
-        .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = vMat.x;')
+        .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(vMat.x, 0.15, uWet * uRim * (1.0 - smoothstep(0.0, 0.012, abs(vMat.x - 0.55))) * (1.0 - vMat.w));')
         .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = vMat.y;')
-        .replace('#include <emissivemap_fragment>', 'totalEmissiveRadiance = diffuseColor.rgb * vMat.z;')
+        .replace('#include <emissivemap_fragment>', 'totalEmissiveRadiance = diffuseColor.rgb * vMat.z + vec3(1.0, 0.5, 0.38) * uFlash;')
         .replace('#include <normal_fragment_maps>', THREE.ShaderChunk.normal_fragment_maps.replace('dHdxy_fwd()', 'dHdxy_fwd() * (1.0 - vMat.w * 0.75) * (1.0 - vMat.y)'));
     };
     return A.mats[type] = m;
@@ -2960,13 +2966,13 @@ const GA = (() => {
   A.skinPatch = (m, key) => {
     const frag = SKIN_FRAG.replace(/float skinF = .*;/, 'float skinF = uRim;').replace(/vMat\.z/g, '0.0');
     m.customProgramCacheKey = () => key;
-    m.onBeforeCompile = sh => { sh.uniforms.uRimCol = A.U.rimCol; sh.uniforms.uRim = A.U.rim; sh.fragmentShader = sh.fragmentShader.replace('void main() {', 'uniform vec3 uRimCol;\nuniform float uRim;\nvoid main() {').replace('#include <opaque_fragment>', frag + '#include <opaque_fragment>'); };
+    m.onBeforeCompile = sh => { sh.uniforms.uRimCol = A.U.rimCol; sh.uniforms.uRim = A.U.rim; sh.uniforms.uSss = A.U.sss; sh.uniforms.uRimK = A.U.rimK; sh.fragmentShader = sh.fragmentShader.replace('void main() {', 'uniform vec3 uRimCol, uSss;\nuniform float uRim, uRimK;\nvoid main() {').replace('#include <opaque_fragment>', frag + '#include <opaque_fragment>'); };
     return m;
   };
   // per-goblin variation: a clone of the type's material with a slight colour multiplier (same shader program, same geometry), so no two goblins of a type are the same shade
   function uberVar(type) {
     const base = uber(type), m = base.clone(), k = type >= 3 ? 0.5 : 1, r = () => Math.random() - 0.5;
-    m.onBeforeCompile = base.onBeforeCompile; m.customProgramCacheKey = base.customProgramCacheKey;
+    m.userData = { uFlash: { value: 0 } }; m.onBeforeCompile = function (sh, r) { base.onBeforeCompile.call(this, sh, r); sh.uniforms.uFlash = m.userData.uFlash; }; m.customProgramCacheKey = base.customProgramCacheKey;   // GOBART12: own flash uniform per goblin
     const v = 0.95 + r() * 0.14 * k, warm = r() * 0.3 * k;   // brightness and a warm (yellow-olive) to cool (blue-green) swing
     m.color.setRGB(v * (1 + warm * 0.55), v * (1 + warm * 0.1), v * (1 - warm * 0.8)); return m;
   }
@@ -3077,8 +3083,8 @@ function gaBody(B, type, b, SC, SB) {   // nude torso: hunched back, pot belly, 
     B.es(s * 0.2 * b, 0.34, 0.265 * b, 0.016, 0.016, 0.01, 0x2a1410, DK);                  // belly freckle
   }
 }
-function gaHand(B, s, b, SC, claw, L) {   // big three-fingered hand curled round the weapon axis (origin = wrist, weapon passes through (0,-0.03,0.05))
-  B.push([0, -0.28, 0], [0, 0, 0], [s, 1, 1]);
+function gaHand(B, s, b, SC, claw, L, hs = 1) {   // big three-fingered hand curled round the weapon axis (origin = wrist, weapon passes through (0,-0.03,0.05)); hs scales it about that grip point (GOBART12)
+  B.push([0, -0.31 + 0.03 * hs, 0.05 - 0.05 * hs], [0, 0, 0], [s * hs, hs, hs]);
   B.e(0, 0.03, 0.045, 0.085 * b * L, 0.06, 0.08, SC, SK);                                // palm
   B.e(0.0, 0.07, 0.0, 0.05, 0.04, 0.045, SC, SK);                                       // wrist cuff
   const R = 0.056, cy = -0.03;
@@ -3117,7 +3123,7 @@ function gaHead(B, type, b) {
   if (type !== 4) B.k(0, -0.0, 0.23, 0.03, 0.09, 2.4, 0, SC, SK);                              // chin spike
   // tusks (underbite): two curved tapered tubes
   for (const s of [-1, 1]) {
-    const tl = type === 2 ? 1.35 : type === 0 ? 0.8 : 1;
+    const tl = GX_TUSK[type] ?? (type === 2 ? 1.35 : type === 0 ? 0.8 : 1);
     B.tube([[s * 0.085, 0.085, 0.255], [s * 0.095, 0.125, 0.29], [s * 0.088, 0.175 * tl, 0.285], [s * 0.075, 0.2 + 0.05 * tl, 0.265]], 0.03, 0.002, type === 3 ? 0xd8c8a0 : 0xe8dcb4, BN, { rad: 7, segs: 12 });
     B.k(s * 0.155, 0.125, 0.225, 0.016, 0.055, -0.15, s * 0.5, 0xe4d8b0, BN);               // small side fang
     B.e(s * 0.17, 0.165, 0.2, 0.075, 0.05, 0.06, face, SK);                                  // cheek bone
@@ -3535,6 +3541,10 @@ const A_EARS = {};
   const GX_EAR = { 5: { x: 0.25, ry: 0.2, rz: 0.85 }, 6: { x: 0.27, ry: 0.95, rz: -0.05 }, 8: { x: 0.27, ry: 0.35, rz: -0.25 }, 10: { x: 0.3, ry: 0.25, rz: 0.3 }, 11: { x: 0.26, ry: 0.55, rz: 0.2 } };
   const GX_EYE = { 5: [0xfff27a, 0x3ad06a], 6: [0xe4ff9a, 0x8aff2a], 7: [0xffe9a0, 0xffa020], 8: [0xd8f6ff, 0x5ac8ff], 9: [0xffa080, 0xff2a10], 10: [0xffc45a, 0xff7a00], 11: [0xfff4c0, 0xff5a00] };
   const gxEye = (type, i, def) => GX_EYE[type] ? GX_EYE[type][i] : def;
+  // GOBART12: palette identity (art bible: greens, a teal wizard, a pale-gold king, one rust goblin). Shaman = dusty ochre, berserker = darker flushed olive (not the miner's colour), miner = grey soot olive, hobgoblin = a
+  // deeper brick (the old orange read as plastic). Face tables: the scout's eyes go wide and bright, the shaman's heavy-lidded. Hands are bigger on the brutes.
+  Object.assign(CFG[8], { skin: 0xa3a05a }); Object.assign(CFG[9], { skin: 0x76903a }); Object.assign(CFG[7], { skin: 0x6f8c58 }); Object.assign(CFG[11], { skin: 0xa05c38 });
+  Object.assign(GAT[5], { drop: 0.2, tilt: 0.0 }); Object.assign(GAT[9], { hand: 1.22 }); Object.assign(GAT[11], { hand: 1.1 }); Object.assign(GAT[2], { hand: 1.12 }); GOB_TAGY[10] = 2.3;   // (taller reeds on the bog goblin: tag above them)
   const feather = (B, x, y, z, rx, rz, len, col) => { B.add(A.g.sph, { p: [x, y, z], s: [0.032, len, 0.008], r: [rx, 0, rz], c: col, m: HR }); B.tube([[x, y - len, z], [x, y + len * 0.9, z]].map(([px, py, pz]) => { const dy = py - y; return [px - Math.sin(rz) * dy, y + Math.cos(rx) * Math.cos(rz) * dy, pz + Math.sin(rx) * Math.cos(rz) * dy]; }), 0.007, 0.003, 0xe8e0c8, BN, { rad: 4 }); };
   function gxFeet(B, type, b, SC, toes) {   // true when this type has its own feet (otherwise boots)
     if (type === 5 || type === 6 || type === 8) {   // bare, wrapped feet (scout and sneak) or bare with a bead anklet (shaman)
@@ -3609,11 +3619,31 @@ const A_EARS = {};
       B.add(new THREE.LatheGeometry([new THREE.Vector2(0.395 * b, -0.33), new THREE.Vector2(0.385 * b, -0.27)], 40), { p: [0, 0, 0.02], s: [1, 1, 0.95], c: 0x9a1a1a, m: CL });
       bandAt(B, 0.14, 0.33 * b, 0.04, 0x9a1a1a, CL); B.box(-0.12 * b, -0.02, 0.3 * b, 0.06, 0.26, 0.015, 0x9a1a1a, CL, { r: [0.12, -0.3, 0.05] });
       B.box(0, 0.36, 0.31 * b, 0.025, 0.36, 0.02, 0x9a1a1a, CL);
-      for (const s of [-1, 1]) { const px = s * 0.41 * b;   // layered lacquered shoulder guards
-        for (let r = 0; r < 3; r++) { B.add(new THREE.SphereGeometry(1, 18, 8, 0, TAU, 0, Math.PI * 0.45), { p: [px + s * r * 0.03, 0.58 - r * 0.06, 0], r: [0, 0, -s * (0.35 + r * 0.15)], s: [0.17, 0.11, 0.17], c: r % 2 ? 0x4a1a1a : 0x6a2222, m: LT }); B.tor(px + s * r * 0.03, 0.58 - r * 0.06, 0, 0.17, 0.008, Math.PI / 2, 0, -s * (0.35 + r * 0.15), 0xc9a24a, MT); } }
+      for (const s of [-1, 1]) { const px = s * 0.37 * b;   // layered lacquered shoulder guards (GOBART12: tucked in and steeper so they hug the shoulder instead of sticking out as a bar, also under armour)
+        for (let r = 0; r < 3; r++) { B.add(new THREE.SphereGeometry(1, 18, 8, 0, TAU, 0, Math.PI * 0.45), { p: [px + s * r * 0.022, 0.57 - r * 0.055, 0], r: [0, 0, -s * (0.45 + r * 0.17)], s: [0.145, 0.1, 0.145], c: r % 2 ? 0x4a1a1a : 0x6a2222, m: LT }); B.tor(px + s * r * 0.022, 0.57 - r * 0.055, 0, 0.145, 0.008, Math.PI / 2, 0, -s * (0.45 + r * 0.17), 0xc9a24a, MT); } }
     }
   }
+  // GOBART12 faces: the shared head had no readable mouth (the nose hid it), so every type got a mouth line and eyebrows with its own expression. Helpers: fz = skin surface z on the front of the head at (x, y).
+  const fz = (x, y, w = 0.3) => 0.29 * Math.sqrt(Math.max(0.02, 1 - (x / w) ** 2 - ((y - 0.22) / 0.275) ** 2)) + 0.012;
+  const mouthZ = (x, y, w = 0.3) => Math.max(0.115 + 0.19 * Math.sqrt(Math.max(0, 1 - (x / (0.205 * w / 0.3)) ** 2 - ((y - 0.075) / 0.1) ** 2)), Math.sqrt(Math.max(0, 1 - (x / 0.115) ** 2)) * 0.318, fz(x, y, w) * 0.99) + 0.006;
+  const GX_MOUTH = { 0: { sm: 0.03, w: 0.15 }, 1: { sm: -0.004, w: 0.14 }, 2: { sm: -0.03, w: 0.18 }, 4: { sm: 0.028, w: 0.15, smug: 1 }, 5: { sm: 0.04, w: 0.15 }, 7: { sm: -0.014, w: 0.14 }, 8: { sm: 0.022, w: 0.11 },
+    9: { sm: -0.03, w: 0.175, open: 0.05 }, 10: { sm: 0.038, w: 0.22 }, 11: { sm: -0.032, w: 0.16 } };
+  const GX_BROW = { 1: [0x1c1a10, 0.016], 2: [0x1a140c, 0.03], 3: [0xeeeae0, 0.03], 4: [0xe8e4d8, 0.034], 5: [0x6a4a26, 0.016], 7: [0xb9b4a6, 0.036], 9: [0x2a1410, 0.03], 11: [0x14100e, 0.02] };
+  const GX_TUSK = { 5: 0.85, 7: 1.05, 8: 1.0, 9: 1.35, 10: 0.7, 11: 1.2 };   // tusk length by type (default 1; the big goblin 1.35, the small one 0.8)
+  function gxFace(B, type) {
+    const P = GAT[type], w = type === 2 ? 0.34 : 0.3, M = GX_MOUTH[type];
+    if (M) {
+      const y0 = 0.116, dark = type === 9 ? 0x1a0508 : 0x2a1010, n = 11, line = (yy, sm, rr) => { const pts = []; for (let i = 0; i < n; i++) { const u = i / (n - 1) * 2 - 1, x = u * M.w, y = yy + sm * (u * u - 0.25) + (M.smug ? u * 0.012 : 0); pts.push([x, y, mouthZ(x, y, w) + 0.002]); } B.tube(pts, rr, rr * 0.8, dark, DK, { rad: 5, segs: 16 }); };
+      line(y0 + (M.open || 0) / 2, M.sm, 0.0085); if (M.open) { line(y0 - M.open / 2, M.sm * 0.6, 0.0085); B.e(0, y0 - 0.004, mouthZ(0.09, y0, w) - 0.012, M.w * 0.8, M.open * 0.5, 0.012, 0x14040a, DK);
+        for (const s of [-1, 1]) for (let i = 0; i < 4; i++) { const x = s * (0.06 + i * 0.03); B.k(x, y0 + M.open / 2 - 0.002, mouthZ(x, y0, w) - 0.004, 0.008, -0.026, 0, 0, 0xe4d8b0, BN); B.k(x * 0.96, y0 - M.open / 2 + 0.002, mouthZ(x, y0, w) - 0.004, 0.008, 0.022, 0, 0, 0xd8ccA0, BN); } }
+    }
+    if (type === 5) for (let i = 0; i < 6; i++) { const x = (i - 2.5) * 0.04, y = 0.2 + (i % 2) * 0.022; B.es(x, y, fz(x, y) * 0.99 + 0.012, 0.007, 0.007, 0.004, 0x4a6a24, DK); }   // scout: freckles across the nose
+    if (type === 8) for (const s of [-1, 1]) for (let i = 0; i < 4; i++) { const x = s * (0.12 + i * 0.014), y = 0.175 - i * 0.025; B.es(x, y, fz(x, y) + 0.003, 0.012, 0.012, 0.005, i % 2 ? 0xd9a021 : 0x9a4a1a, DK); }   // shaman: ochre and rust dots under the eyes
+    const hb = GX_BROW[type];
+    if (hb) for (const s of [-1, 1]) { const a = P.tilt * 0.9, pts = [[s * 0.035, 0.335 - a * 0.1, 0.27], [s * 0.1, 0.34 + a * 0.02, 0.265], [s * 0.19, 0.325 + a * 0.12, 0.2]].map(([x, y, z]) => [x * 1.02, y + 0.022, z + 0.032]); B.tube(pts, hb[1], hb[1] * 0.55, hb[0], HR, { rad: 6, segs: 10 }); }
+  }
   function gxHeadGear(B, type, b) {   // head space: centre (0, 0.22, 0), top ~0.5, face front z ~0.29, eyes at y 0.25
+    gxFace(B, type);
     const top = z => 0.22 + 0.27 * Math.sqrt(Math.max(0, 1 - (z / 0.3) * (z / 0.3)));
     if (type === 5) {   // scout: leather headband, two tall feathers, a bone toggle
       B.add(new THREE.TorusGeometry(0.27, 0.026, 8, 30), { p: [0, 0.36, -0.01], r: [Math.PI / 2 + 0.2, 0, 0], c: 0x6a4626, m: LT });
@@ -3643,17 +3673,19 @@ const A_EARS = {};
       B.add(A.g.box, { p: [0, 0.36, 0.26], r: [-0.4, 0, 0], s: [0.12, 0.022, 0.008], c: 0xf0ead8, m: DK });
     }
     if (type === 9) {   // berserker: tall red mohawk, red paint across the brow, a nose ring
-      for (let i = 0; i < 11; i++) { const z = 0.2 - i * 0.05; B.k(0, top(z) - 0.03, z, 0.04, 0.26 - Math.abs(i - 4) * 0.018, -(i - 4) * 0.08, 0, i % 2 ? 0xc0201a : 0xe0401a, HR); }
+      for (let i = 0; i < 12; i++) { const z = 0.22 - i * 0.045, h = 0.36 - Math.abs(i - 4.5) * 0.026 + (i % 3) * 0.02; B.k(0, top(z) - 0.03, z, 0.052, h, -(i - 4.5) * 0.09, 0, i % 2 ? 0xc0201a : 0xe0401a, HR); }   // GOBART12: taller, fatter mohawk: reads from the front at 20 m
+      for (const s of [-1, 1]) for (let i = 0; i < 3; i++) { const x = s * (0.1 + i * 0.03), y = 0.19 - i * 0.035; B.es(x, y, fz(x, y) + 0.004, 0.012, 0.034, 0.007, 0xb3122b, DK, { r: [0.1, -s * Math.atan2(x, fz(x, y)) * 0.9, s * 0.15] }); }   // war paint dripping down the cheeks
+      B.tube([[-0.2, 0.4, fz(-0.2, 0.4) - 0.01], [-0.15, 0.345, fz(-0.15, 0.345) + 0.004], [-0.1, 0.305, fz(-0.1, 0.305) + 0.004]], 0.009, 0.007, 0xd9a0a0, SK, { rad: 5 });   // a brow scar
       B.add(A.g.box, { p: [0, 0.34, 0.25], r: [-0.35, 0, 0], s: [0.34, 0.05, 0.008], c: 0xb3122b, m: DK });
       for (const s of [-1, 1]) for (let i = 0; i < 2; i++) B.add(A.g.box, { p: [s * (0.2 + i * 0.015), 0.12 + i * 0.04, 0.2], r: [0, -s * 0.7, s * 0.35], s: [0.08, 0.016, 0.008], c: 0xb3122b, m: DK });
       B.tor(0.0, 0.06, 0.375, 0.032, 0.008, 0, 0, 0, 0xc9c9c9, MT);
     }
     if (type === 10) {   // bog goblin: frog brow bumps over the eyes, lily-pad hat, reeds, moss
       for (const s of [-1, 1]) B.e(s * 0.13, 0.31, 0.15, 0.09, 0.07, 0.08, skinFn(CFG[type].skin, { tint: 0x1a4030 }), SK);
-      B.add(new THREE.CylinderGeometry(0.3, 0.3, 0.018, 22, 1, false, 0.35, TAU - 0.7), { p: [0.03, top(0) + 0.0, -0.02], r: [-0.12, 0.4, 0.12], c: 0x5a9a3a, m: CL, uv: 1 });
+      B.add(new THREE.CylinderGeometry(0.37, 0.37, 0.02, 24, 1, false, 0.35, TAU - 0.7), { p: [0.03, top(0) + 0.0, -0.02], r: [-0.12, 0.4, 0.12], c: 0x5a9a3a, m: CL, uv: 1 });
       B.tube([[0.03, top(0) + 0.01, -0.02], [0.16, top(0) + 0.0, 0.08], [0.25, top(0) - 0.02, 0.15]], 0.006, 0.004, 0x3a6a2a, CL, { rad: 4 });
-      for (const [x, z, h, rz] of [[-0.1, -0.1, 0.26, 0.25], [-0.04, -0.14, 0.32, 0.1], [0.06, -0.12, 0.22, -0.2]]) { B.k(x, top(z) - 0.02, z, 0.012, h, -0.2, rz, 0x6a8a3a, HR); }
-      B.es(-0.05, top(-0.14) + 0.28, -0.18, 0.02, 0.06, 0.02, 0x6a4a2a, HR);   // cattail head
+      for (const [x, z, h, rz] of [[-0.1, -0.1, 0.34, 0.25], [-0.04, -0.14, 0.44, 0.1], [0.06, -0.12, 0.3, -0.2], [0.14, -0.06, 0.26, -0.45]]) { B.k(x, top(z) - 0.02, z, 0.014, h, -0.2, rz, 0x6a8a3a, HR); }
+      B.es(-0.05, top(-0.14) + 0.4, -0.18, 0.024, 0.075, 0.024, 0x6a4a2a, HR);   // cattail head
       for (const [x, y, z] of [[0.2, 0.4, -0.1], [-0.22, 0.38, -0.08], [0.0, 0.42, -0.2]]) B.es(x, y, z, 0.06, 0.035, 0.06, mossC[(x * 10 | 0) & 3], HR);
     }
     if (type === 11) {   // hobgoblin: swept-back horns, a black topknot with a gold ring, heavy brows
@@ -3661,7 +3693,11 @@ const A_EARS = {};
         B.tube([[s * 0.04, 0.35, 0.27], [s * 0.12, 0.37, 0.25], [s * 0.21, 0.34, 0.17]], 0.035, 0.015, 0x1a1414, HR, { rad: 6 }); }
       B.tube([[0, top(-0.12) - 0.02, -0.12], [0, top(-0.12) + 0.12, -0.14], [0, top(-0.12) + 0.14, -0.22], [0, 0.42, -0.36], [0, 0.18, -0.4]], 0.07, 0.02, 0x1a1414, HR, { rad: 8, segs: 24 });
       B.tor(0, top(-0.12) + 0.08, -0.14, 0.05, 0.014, Math.PI / 2, 0, 0, 0xffc933, GD);
+      for (const s of [-1, 1]) B.tube([[s * 0.03, 0.15, 0.335], [s * 0.1, 0.135, 0.3], [s * 0.17, 0.08, 0.26], [s * 0.2, -0.04, 0.22], [s * 0.2, -0.17, 0.2]], 0.017, 0.004, 0x1a1414, HR, { rad: 5, segs: 14 });   // GOBART12: a long drooping moustache
+      B.tube([[0, 0.03, 0.22], [0, -0.05, 0.25], [0, -0.16, 0.22]], 0.026, 0.005, 0x1a1414, HR, { rad: 5 });   // and a thin goatee
+      B.tube([[0.15, 0.37, 0.15], [0.17, 0.3, 0.17], [0.18, 0.2, 0.17]].map(([x, y]) => [x, y, fz(x, y) + 0.003]), 0.008, 0.006, 0xd0907a, SK, { rad: 5 });   // an old duelling scar
     }
+    if (type === 10) B.e(0, -0.03, 0.17, 0.12, 0.085, 0.1, skinFn(CFG[10].skin, { belly: true }), SK);   // GOBART12 bog goblin: a pale throat sac under the chin
   }
   function gxArm(B, type, s, b, part) {   // arm gear: 'sh' upper arm (origin shoulder), 'el' forearm + hand (origin elbow)
     if (part !== 'el') { if (type === 11) B.tube([[0, 0.0, 0], [0, -0.15, 0.01], [0, -0.3, 0]], 0.085 * b, 0.07 * b, 0x2e2238, CL, { rad: 10 }); if (type === 7) B.tor(0, -0.27, 0, 0.068 * b, 0.022, Math.PI / 2, 0, 0, 0x8a6a4a, CL); return; }
@@ -3671,6 +3707,49 @@ const A_EARS = {};
     if (type === 11) { B.lathe([[0.06, -0.08], [0.078, -0.1], [0.08, -0.22], [0.064, -0.24]].map(([x, y]) => [x * b, y]), 16, 0x6a2a2a, LT); B.tor(0, -0.1, 0, 0.078 * b, 0.01, Math.PI / 2, 0, 0, 0xc9a24a, MT); }
     if (type === 10) B.es(0, -0.1, -0.05, 0.05, 0.03, 0.04, mossC[1], HR);
   }
+  // GOBART12: per-type motion. A.anim does the shared base pose, A.gxAnim (called at its end) adds each type's own weight and habits on top, so every goblin idles, walks, runs, swings and dies differently.
+  // bob = hip bounce, sway = roll, twist = torso twist, arm = arm swing, lean = constant forward lean (rad), crouch = body lowered (rig units * scale), ant / lun = swing wind-up / lunge strength.
+  const GXM = {
+    0: { bob: 1.25, sway: 1.15, twist: 1.1, arm: 1.15, ant: 0.8, lun: 1.1, fidget: 0.04 }, 1: {}, 2: { bob: 0.85, sway: 1.3, twist: 0.8, arm: 0.85, lean: 0.03, ant: 1.5, lun: 1.3, breath: 1.2 },
+    3: { bob: 0.35, sway: 0.55, twist: 0.5, arm: 0.45, ant: 0.5, lun: 0.6, lean: -0.03, rock: 0.04 }, 4: { bob: 0.65, sway: 0.6, twist: 0.6, arm: 0.65, ant: 1.2, lun: 0.9, lean: -0.05, chest: 0.07 },
+    5: { bob: 1.4, sway: 0.7, twist: 0.9, arm: 1.25, lean: 0.04, ant: 0.7, lun: 1.3, scan: 0.38, spring: 0.014 }, 6: { bob: 0.55, sway: 0.5, twist: 0.6, arm: 0.5, lean: 0.1, crouch: 0.07, ant: 0.6, lun: 1.4, scan: 0.12 },
+    7: { bob: 1.0, sway: 1.4, twist: 0.9, arm: 0.9, lean: 0.02, ant: 1.2, lun: 1.2, tap: 0.28 }, 8: { bob: 0.55, sway: 0.8, twist: 0.8, arm: 0.55, ant: 1.0, lun: 0.8, rock: 0.05, nod: 0.1 },
+    9: { bob: 1.1, sway: 1.35, twist: 1.5, arm: 1.4, lean: 0.07, ant: 1.6, lun: 1.6, heave: 0.035, jitter: 0.03 }, 10: { bob: 1.7, sway: 1.5, twist: 0.7, arm: 0.7, crouch: 0.03, ant: 0.5, lun: 1.2, puff: 0.05 },
+    11: { bob: 0.4, sway: 0.35, twist: 0.5, arm: 0.5, lean: -0.03, ant: 0.9, lun: 0.9, stiff: 1 },
+  };
+  A.gxAnim = (a, u, t, walk, id, ant, lun, f) => {
+    const m = GXM[u.type]; if (!m) return;
+    const ph = a.phase, S = Math.sin(ph), S2 = Math.abs(S), sc = SCALE[u.type], idle = 1 - walk, rig = u.rig, hd = u.head, A0 = u.arms[0], A1 = u.arms[1], k = (x, d) => x === undefined ? d : x;
+    rig.position.y += -0.115 * sc * S2 * S2 * walk * (k(m.bob, 1) - 1) - (m.crouch || 0) * sc - 0.05 * sc * ant * (k(m.ant, 1) - 1) + (m.spring ? Math.abs(Math.sin(t * 3.2 + id)) * m.spring * sc * idle : 0);
+    rig.rotation.z += S * 0.075 * walk * (k(m.sway, 1) - 1) + (m.rock ? Math.sin(t * 0.9 + id) * m.rock * idle : 0) - (m.stiff ? Math.sin(t * 0.7 + id * 2.1) * 0.012 * idle : 0);
+    rig.rotation.x += (m.lean || 0) * (0.5 + 0.5 * walk) + lun * 0.16 * (k(m.lun, 1) - 1) - ant * 0.1 * (k(m.ant, 1) - 1);
+    u.torso.rotation.y += S * 0.14 * walk * (k(m.twist, 1) - 1);
+    if (m.chest) u.torso.rotation.x -= m.chest;
+    const b = u.torso.scale; if (m.heave) { b.y *= 1 + m.heave * Math.sin(t * 5.2 + id) * idle; b.x *= 1 + m.heave * 0.5 * Math.sin(t * 5.2 + id) * idle; } if (m.puff) { const p = Math.sin(t * 2.6 + id); b.y *= 1 + m.puff * p; b.x *= 1 - m.puff * 0.6 * p; b.z *= 1 - m.puff * 0.6 * p; } if (m.breath) { b.y *= 1 + 0.012 * m.breath * Math.sin(t * 1.5 + id); }
+    A0.rotation.x += -S * 0.6 * walk * (k(m.arm, 1) - 1); if (u.type < 3) A1.rotation.x += S * 0.3 * walk * (k(m.arm, 1) - 1);
+    if (m.jitter) { A0.rotation.z += Math.sin(t * 7.3 + id) * m.jitter * idle; hd.rotation.z += Math.sin(t * 9.1 + id) * m.jitter * 0.5; }
+    if (m.scan) hd.rotation.y += Math.sin(t * 1.9 + id) * m.scan * idle * Math.sin(t * 0.5 + id * 3);   // the scout looks about in bursts
+    if (m.nod) hd.rotation.x += Math.sin(t * 0.9 + id) * m.nod * idle;
+    if (m.stiff) hd.rotation.y -= Math.sin(t * 0.8 + id) * 0.15 * idle;
+    if (m.tap) u.legs[1].rotation.x += Math.max(0, Math.sin(t * 4.5 + id)) * m.tap * idle * Math.sin(t * 0.4 + id * 2) ** 2;   // the miner taps a foot when kept waiting
+    if (m.fidget) hd.rotation.z += Math.sin(t * 5.3 + id) * m.fidget * idle;
+    if (lun > 0.05 && m.lun) { const d = (m.lun - 1) * 0.3 * lun; u.legs[0].rotation.x += d; u.legs[1].rotation.x -= d; }
+  };
+  // death variants (called from A.tick for each corpse after the shared slump): each type falls its own way
+  A.gxDeath = (c, u, g, t, k1, k2, fade) => {
+    if (u.mat) u.mat.userData.uFlash.value = 0.95 * (1 - sstep(0, 0.3, t));   // the killing blow flashes white-hot
+    const ty = u.type, lat = c.side;
+    if (ty === 2) { g.rotation.z = lat * 1.55 * Math.pow(sstep(0.5, 1.4, t), 2); g.position.y = 0.12 * sstep(0.5, 1.4, t); }   // the brute goes down late and heavy
+    else if (ty === 3) { u.rig.scale.y *= 1 - 0.3 * k1; g.rotation.z *= 0.7; }   // the wizard's robe puddles
+    else if (ty === 4) { u.legs[0].rotation.x = -1.4 * k1; u.legs[1].rotation.x = -1.3 * k1; g.rotation.z = 0; g.rotation.x = 0.95 * k2 * k2; g.position.y = 0.1 * k2; }   // the king kneels, then topples forward
+    else if (ty === 5) { g.rotation.y += lat * 2.6 * k1 * (1 - k2 * 0.5); }   // the scout spins as it falls
+    else if (ty === 6) { u.torso.rotation.x = u.hunch + 1.25 * k1; u.legs[0].rotation.x = -1.6 * k1; u.legs[1].rotation.x = -1.5 * k1; u.rig.position.y = -0.4 * k1; }   // the sneak crumples into a crouch
+    else if (ty === 7) { g.rotation.z = 0; g.rotation.x = -1.3 * k2 * k2; u.torso.rotation.x = u.hunch - 0.3 * k1; u.head.rotation.x = -0.4 * k1; }   // the miner drops onto his back (and the pick)
+    else if (ty === 8) { g.rotation.z = 0; g.rotation.x = -1.25 * k2 * k2; u.arms[0].rotation.z = -(0.6 + 0.8 * k2); u.arms[1].rotation.z = 0.6 + 0.8 * k2; u.torso.rotation.x = u.hunch - 0.25 * k1; }   // the shaman arches back, arms flung wide
+    else if (ty === 9) { g.rotation.z = 0; g.rotation.x = 1.45 * Math.pow(sstep(0.45, 1.2, t), 2); g.position.y = 0.1 * sstep(0.45, 1.2, t); }   // the berserker face-plants late
+    else if (ty === 10) { u.rig.scale.y *= 1 - 0.28 * k2; u.rig.scale.x *= 1 + 0.2 * k2; u.rig.scale.z *= 1 + 0.2 * k2; g.rotation.z = lat * 1.55 * k2 * k2; }   // the bog goblin flops flat
+    else if (ty === 11) { u.legs[0].rotation.x = -0.1 * k1; u.legs[1].rotation.x = -0.05 * k1; u.torso.rotation.x = u.hunch + 0.1 * k1; g.rotation.z = 0; g.rotation.x = 1.5 * Math.pow(sstep(0.3, 1.1, t), 2); }   // stiff as a plank
+  };
   // GOBTYPES-END
   // ---- assemble one goblin
   function buildGoblin(type, demo) {
@@ -3688,7 +3767,7 @@ const A_EARS = {};
       const sh = new THREE.Group(); sh.position.set(s * 0.35 * b, 1.0, 0); sh.name = s < 0 ? 'armL' : 'armR'; rig.add(sh); u.arms.push(sh);
       bake(sh, type, 'sh' + s, B => { B.push([0, 0, 0], [0, 0, 0], [s, 1, 1]); B.e(0, 0, 0, 0.1 * b * L, 0.09, 0.1 * b * L, SC, SK); B.tube([[0, 0.02, 0], [0, -0.15, 0.012], [0, -0.3, 0]], 0.072 * b * L, 0.056 * b * L, SC, SK, { rad: 9, bulge: 0.12 }); gaArmGear(B, type, s, b, 'sh'); gxArm(B, type, s, b, 'sh'); B.pop(); });
       const el = new THREE.Group(); el.position.set(0, -0.3, 0); sh.add(el); sh.userData.el = el;
-      bake(el, type, 'el' + s, B => { B.push([0, 0, 0], [0, 0, 0], [s, 1, 1]); B.e(0, 0, -0.005, 0.062 * L * b, 0.056, 0.06 * L * b, SC, SK); B.tube([[0, 0, 0], [0, -0.14, 0.012], [0, -0.28, 0]], 0.058 * b * L, 0.044, SC, SK, { rad: 8, bulge: 0.1 }); gaArmGear(B, type, s, b, 'el'); gxArm(B, type, s, b, 'el'); gaHand(B, 1, b, SC, claw, L); if (type === 4 && s > 0) { B.tor(0.0, -0.325, 0.05, 0.034, 0.009, Math.PI / 2, 0, 0, 0xffc933, GD); B.es(0.0, -0.325, 0.088, 0.014, 0.014, 0.01, 0xff3355, GEM); } B.pop(); });
+      bake(el, type, 'el' + s, B => { B.push([0, 0, 0], [0, 0, 0], [s, 1, 1]); B.e(0, 0, -0.005, 0.062 * L * b, 0.056, 0.06 * L * b, SC, SK); B.tube([[0, 0, 0], [0, -0.14, 0.012], [0, -0.28, 0]], 0.058 * b * L, 0.044, SC, SK, { rad: 8, bulge: 0.1 }); gaArmGear(B, type, s, b, 'el'); gxArm(B, type, s, b, 'el'); gaHand(B, 1, b, SC, claw, L, P.hand || 1); if (type === 4 && s > 0) { B.tor(0.0, -0.325, 0.05, 0.034, 0.009, Math.PI / 2, 0, 0, 0xffc933, GD); B.es(0.0, -0.325, 0.088, 0.014, 0.014, 0.01, 0xff3355, GEM); } B.pop(); });
       const hand = new THREE.Group(); hand.name = 'hand'; hand.position.set(0, -0.28, 0); el.add(hand); el.userData.hand = hand; if (s > 0) u.hand = hand;
     }
     u.armL = u.arms[0]; u.armR = u.arms[1]; u.legL = u.legs[0]; u.legR = u.legs[1];
@@ -3799,6 +3878,8 @@ const A_EARS = {};
     if (u.halo) u.halo.material.rotation = t * 0.18;
     u.spin.forEach((m, i) => m.rotation.y = t * (1 + i * 0.2));
     u.glows.forEach((s, i) => s.material.opacity = (s.userData.op ?? 0.75) * (0.85 + 0.15 * Math.sin(t * 3 + i)));
+    A.gxAnim(a, u, t, walk, id, ant, lun, f);   // GOBART12: per-type weight and habits
+    if (u.mat) u.mat.userData.uFlash.value = a.hitT > 0 ? 0.85 * Math.pow(Math.min(1, a.hitT / CB.HIT), 1.6) : 0;   // GOBART12: hit flash
   };
   // ---- death slump: a killed goblin buckles at the knees, folds forward, topples and fades (the actor itself is already gone)
   A.die = a => {
@@ -3818,6 +3899,7 @@ const A_EARS = {};
       for (const s of [-1, 1]) { const ear = s < 0 ? u.earL : u.earR; ear.rotation.z = ear.userData.base.z - s * 0.55 * k1; ear.rotation.x = 0; }
       g.rotation.z = c.side * 1.5 * k2 * k2; g.position.y = 0.12 * k2;
       if (u.cape) u.cape.rotation.x = 0.05 + 0.5 * k1;
+      A.gxDeath(c, u, g, t, k1, k2, fade);   // GOBART12: each type falls its own way
       for (const s of u.glows) s.material.opacity *= 1 - fade; if (u.sparks) u.sparks.material.opacity *= 1 - fade; if (u.halo) u.halo.material.opacity = 0;
       if (t > 2.3) { dropGoblin(g); A.corpses.splice(i, 1); }
     }
