@@ -27,7 +27,7 @@ const keys = type => Object.values(G.ITEMS).filter(i => !i.up && i.type === type
         eq(tables.vbs.rows.map(r => r.id), VB.TYPES, 'vaultbreakers');
         eq(tables.upgrades.rows.length, Object.values(HB.UPGRADES).reduce((s, u) => s + u.levels.length, 0), 'upgrade levels');
         eq(tables.sends.rows.length, HB.SEND_IDS.length, 'sends');
-        eq(tables.arena.rows.length, 25); eq(tables.attached.rows.length, 16);
+        eq(tables.arena.rows.length, 25); eq(tables.attached.rows.length, WORLD.NATT);
         eq(tables.pump.rows.length, 3, 'pump levels');
       }],
       ['weapon, armour, goblin and recipe numbers match the modules', () => {
@@ -43,7 +43,7 @@ const keys = type => Object.values(G.ITEMS).filter(i => !i.up && i.type === type
         assert(Math.abs(sum(tables.weapons.rows, 'chest') - 100) < 0.5, 'chest pool'); assert(Math.abs(sum(tables.weapons.rows, 'shop') + sum(tables.armour.rows, 'shop') - 100) < 0.5, 'merchant pool');
         eq(sum(tables.mystery.rows, 'odds'), 100, 'mystery'); assert(Math.abs(sum(tables.enemies.rows, 'w') - 100) < 0.5, 'enemy weights');
         const present = tables.trees.rows.reduce((s, r) => s + cv(r.present), 0); assert(Math.abs(present - 400) < 2, 'four trees per match, got ' + present);
-        for (const id of [...Array(16).keys()].filter(i => i % 2)) { const r = tables.attached.rows[id]; assert(Math.abs(['forge', 'grand', 'chest', 'mystery', 'merchant'].reduce((s, k) => s + cv(r[k]), 0) - 100) < 0.5, 'loot room ' + id); }
+        for (const id of WORLD.LOOT_IDS) { const r = tables.attached.rows[id]; assert(Math.abs(['forge', 'grand', 'chest', 'mystery', 'merchant'].reduce((s, k) => s + cv(r[k]), 0) - 100) < 0.5, 'loot room ' + id); }
       }],
       ['constants read out of server.js agree with the shared modules', () => {
         eq(GI.srvConst('ROUND_MS'), EX.ROUND_MS, 'round length'); eq(GI.srvConst('SUDDEN_ROUND'), V5.K.SUDDEN_ROUND, 'sudden death round'); eq(GI.srvConst('MAX_ROUND'), V5.K.MAX_ROUND, 'last round'); eq(V5.K.MAX_ROUND, EX.MATCH_ROUNDS, 'rounds');

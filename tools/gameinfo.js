@@ -139,7 +139,7 @@ const knowTiers = G.KNOWLEDGE_TIERS.map((k, i) => ({ id: 'tier' + (i + 1), tier:
 const reforge = [0, 1, 2, 3, 4, 5].map(t => ({ id: 'ref' + t, tier: G.TIER_NAMES[t], tierN: t, weapon: parts({ metal: 2 + t }), armour: parts({ metal: 1 + t, leather: 1 }) }));
 
 // ---------------------------------------------------------------- rooms
-const names16 = WORLD.CHEST.map(c => c.id);
+const names16 = WORLD.CHEST.map(c => c.id);   // every attached room id (20)
 function simLayout(n) {   // run the real randomLayout n times with a fixed seed: odds of each room type per attached room id
   const r = rng(12345), cnt = names16.map(() => ({}));
   for (let i = 0; i < n; i++) { const l = G.randomLayout(r); l.forEach((t, id) => { cnt[id][t] = (cnt[id][t] || 0) + 1; }); }
@@ -148,13 +148,13 @@ function simLayout(n) {   // run the real randomLayout n times with a fixed seed
 const SIM_N = 20000, layoutOdds = simLayout(SIM_N);
 const attached = WORLD.CHEST.map(c => {
   const o = layoutOdds[c.id], types = Object.keys(o).sort((a, b) => o[b] - o[a]);
-  return { id: 'c' + c.id, key: 'c' + c.id, parent: c.parent, side: c.side, kind: c.home ? 'Home' : 'Loot room', size: c.size + ' x ' + c.size, spawn: c.home ? 'spawn slot ' + c.id / 2 : '', odds: c.home ? '' : types.map(t => t + ' ' + o[t] + '%').join(', '),
+  return { id: 'c' + c.id, key: 'c' + c.id, parent: c.parent, side: c.side + ' ' + c.pos, kind: c.home ? 'Home' : 'Loot room', size: c.size + ' x ' + c.size, spawn: c.home ? 'spawn slot ' + WORLD.HOME_IDS.indexOf(c.id) : '', odds: c.home ? '' : types.map(t => t + ' ' + o[t] + '%').join(', '),
     forge: c.home ? '' : bar(o.forge || 0, 50), grand: c.home ? '' : bar(o.grand || 0, 50), chest: c.home ? '' : bar(o.chest || 0, 50), mystery: c.home ? '' : bar(o.mystery || 0, 50), merchant: c.home ? '' : bar(o.merchant || 0, 50) };
 });
 const arena = WORLD.ROOMS.filter(r => r.i != null).map(r => {
-  const a = WORLD.CHEST.find(c => c.parent === r.i);
+  const as = WORLD.CHEST.filter(c => c.parent === r.i);   // a corner cell has two
   return { id: 'r' + r.i, i: r.i, col: WORLD.colOf(r.i), row: WORLD.rowOf(r.i), kind: { vault: 'THE VAULT', tree: 'Tree room', vb: 'Vaultbreaker', arena: 'Plain hall' }[r.kind], size: R(r.hw * 2, 2) + ' x ' + R(r.hd * 2, 2) + ' m',
-    doors: (WORLD.ROOM_DOORS[r.key] || []).length, attached: a ? 'c' + a.id + ' (' + a.side + ', ' + (a.home ? 'home' : 'loot') + ')' : '' };
+    doors: (WORLD.ROOM_DOORS[r.key] || []).length, attached: as.map(a => 'c' + a.id + ' (' + a.side + ', ' + (a.home ? 'home' : 'loot') + ')').join(', ') };
 });
 const mystery = [['weapon', 'A random weapon from the weapon drop pool', 1], ['armour', 'A random armour from the armour drop pool', 1], ['enemy', 'A guarded room: one enemy goblin attacks, drops loot', 1],
   ['stations', 'Two of recycler, knowledge tree, workbench', 1], ['gold', 'Gold pile ' + goldRange[0] + ' to ' + goldRange[1] + ' (steps of 10)', 1], ['plushie', 'A Goblin Plushie (throwable lure)', 1]].map(([k, d, w]) => ({ id: 'my-' + k, kind: k, what: d, odds: bar(R(100 * w / mysteryKinds, 2), 20) }));
@@ -362,10 +362,10 @@ S_.knowledge = [
   kv('Where knowledge comes from', [['Brain eaten', '5% of the dead goblin\'s knowledge, plus 1 point'], ['Tree rooms', 'at most ' + ACT.C.TREE_KNOW_ROUND + ' a round and ' + ACT.C.TREE_KNOW_MATCH + ' a match per goblin (Elder Seed and goblin brains do not count)'], ['Brain Jar', 'item: +' + I['x:jar'].n + ' knowledge'], ['Scholar\'s Charm', '+' + pc(G.charmEff('c:scholar', 'know') - 1) + ' from brains and jars'], ['Vault treasury', '+' + VKV.TREASURY_KNOW + ' per round inside'], ['Distill (elixir)', '+' + EX.DISTILL_KNOWLEDGE + ' for ' + EX.SINKS.distill + ' elixir']]),
 ];
 S_.rooms = [
-  p('The arena is a ' + WORLD.N + ' x ' + WORLD.N + ' grid of ' + WORLD.NARENA + ' rooms with the vault in the middle, ringed by ' + WORLD.TREE_CELLS.length + ' tree rooms and ' + Object.keys(WORLD.VB_CELLS).length + ' vaultbreakers. ' + WORLD.NATT + ' more rooms are attached around the edge: ' + WORLD.HOME_IDS.length + ' homes and ' + WORLD.LOOT_IDS.length + ' loot rooms. Odds for loot rooms come from running the real layout roll ' + SIM_N + ' times.'),
+  p('The arena is a ' + WORLD.N + ' x ' + WORLD.N + ' grid of ' + WORLD.NARENA + ' rooms with the vault in the middle, ringed by ' + WORLD.TREE_CELLS.length + ' tree rooms and ' + Object.keys(WORLD.VB_CELLS).length + ' vaultbreakers. ' + WORLD.NATT + ' more rooms are attached around the edge, ' + WORLD.NSIDE + ' along each side (numbered 1 to ' + WORLD.NSIDE + '; a corner cell has one on each outward side): ' + WORLD.HOME_IDS.length + ' homes and ' + WORLD.LOOT_IDS.length + ' loot rooms. Odds for loot rooms come from running the real layout roll ' + SIM_N + ' times.'),
   tbl('arena', 'Arena rooms', 'Index = column + 5 x row. Sizes are interior metres.', [['i', 'Room', 1], ['col', 'Column', 1], ['row', 'Row', 1], ['kind', 'Kind'], ['size', 'Size'], ['doors', 'Doors', 1], ['attached', 'Attached room']], arena),
-  tbl('attached', 'Attached rooms', 'Homes are spawn rooms; each loot room is a Master Forge, Grand Recycler, chest, mystery or merchant room.', [['key', 'Room', 0, 'name'], ['parent', 'Arena cell', 1], ['side', 'Side'], ['kind', 'Kind'], ['size', 'Size m'], ['spawn', 'Spawn'], ['forge', 'Forge %', 1], ['grand', 'Grand Recycler %', 1], ['chest', 'Chest %', 1], ['mystery', 'Mystery %', 1], ['merchant', 'Merchant %', 1]], attached),
-  kv('How the layout is rolled', [['Homes', 'all even attached rooms (' + WORLD.HOME_IDS.length + ')'], ['Master Forge and Grand Recycler', 'one each, on opposite sides of the arena'], ['Other loot rooms', lootRoll.map(([t, w]) => t + ' ' + w + '%').join(', ')], ['Guarantee', 'at least one merchant']]),
+  tbl('attached', 'Attached rooms', 'Homes are spawn rooms; each loot room is a Master Forge, Grand Recycler, chest, mystery or merchant room.', [['key', 'Room', 0, 'name'], ['parent', 'Arena cell', 1], ['side', 'Side, position'], ['kind', 'Kind'], ['size', 'Size m'], ['spawn', 'Spawn'], ['forge', 'Forge %', 1], ['grand', 'Grand Recycler %', 1], ['chest', 'Chest %', 1], ['mystery', 'Mystery %', 1], ['merchant', 'Merchant %', 1]], attached),
+  kv('How the layout is rolled', [['Homes', 'positions ' + WORLD.HOME_POS.join(' and ') + ' of every side (' + WORLD.HOME_IDS.length + ')'], ['Master Forge and Grand Recycler', 'one each, on opposite sides of the arena, at a random loot position'], ['Other loot rooms', lootRoll.map(([t, w]) => t + ' ' + w + '%').join(', ')], ['Guarantee', 'at least one merchant']]),
   tbl('mystery', 'Inside a mystery room', 'One of six kinds, equal odds.', [['kind', 'Contents', 0, 'name'], ['what', 'What'], ['odds', 'Odds %', 1]], mystery),
   tbl('enemies', 'Mystery room enemies', 'Weights add to ' + enemyTot + ' and are relative. "Of all mystery rooms" multiplies by the 1-in-6 enemy roll.', [['name', 'Enemy', 0, 'name'], ['w', 'Share of enemy rooms %', 1], ['ownOdds', 'Of all mystery rooms %', 1], ['hp', 'HP', 1], ['dmg', 'Damage', 1], ['cd', 'Cooldown ms', 1], ['dps', 'DPS', 1], ['speed', 'Speed m/s', 1], ['loot', 'Drops']], enemies),
 ];
