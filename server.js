@@ -830,10 +830,14 @@ function c5Tick(m, now) {   // 20 Hz: a held guard drains stamina (and runs out)
 function guard6(m, p, t, d, foeReach, now) {   // BOTS6 fight tick: hold the guard up against a swing the foe has started (some raise it in the parry window, some early), drop it after; a winded bot rests out of reach. true = this tick is spent
   const b = p.brain, c = c5Of(p), L = b.L6 || {}, sw = t.c4sw, T = srvT(), face = () => mv(m, p, p.x, p.z, yawTo(p, t.x, t.z), now);
   if (!C5.guardOf(p.inv.weapon)) return false;
-  if (p.guard) { if ((!sw || sw.done || T > sw.end + 60) && now - p.guard.at > 220 || now - p.guard.at > 1500) c5Lower(m, p, now); else { face(); return true; } }
-  if (sw && !sw.done && sw.kind === 'melee' && d <= foeReach + 0.3 && T < sw.at && b.g5sw !== sw) {
-    b.g5sw = sw; const lead = rnd(70, 230);   // one decision per swing: the lower the level, the earlier (blocks, rarely parries) and the less often
-    if (Math.random() < (L.dodge != null ? L.dodge : 0.5) * (0.35 + 0.4 * (b.caution || 0.5)) && !isDazed(p, now)) b.g5at = { at: sw.at - lead, sw };
+  const fcb = G.combat(t.inv && t.inv.weapon), live = !!sw && !sw.done && sw.kind === 'melee', dodge = (L.dodge != null ? L.dodge : 0.5) * (0.6 + 0.4 * (b.caution || 0));
+  if (p.guard) { if ((live ? T <= sw.end + 60 : now - p.guard.at < 650) && now - p.guard.at < 1500) { face(); return true; } c5Lower(m, p, now); }
+  if (d <= foeReach + 0.3 && !fcb.ranged && !isDazed(p, now)) {   // one decision per foe swing: when he swings (then timed for the parry window, some early), or when he is about to be ready again (a block stance)
+    const key = live ? sw : (t.atkAt || 0);
+    if (b.g5k !== key && (live ? T < sw.at : BG.readyIn(now, t.atkAt, fcb.cd || 600) <= 150)) {
+      b.g5k = key;
+      if (Math.random() < dodge * (live ? 1 : 0.9)) { if (live) b.g5at = { at: sw.at - rnd(70, 230), sw }; else { c5Guard(m, p, true, now); if (p.guard) { C5STAT.botGuards++; face(); return true; } } }
+    }
   }
   if (b.g5at && b.g5at.sw.done) b.g5at = null;
   if (b.g5at && srvT() >= b.g5at.at) { b.g5at = null; c5Guard(m, p, true, now); if (p.guard) { C5STAT.botGuards++; face(); return true; } }

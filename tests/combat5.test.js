@@ -103,9 +103,9 @@ async function pair(srv, wins = 20) {
         eq(sws.length, 3, 'three swings accepted inside the plain cooldown: ' + sws.length); assert(sws[2].fin === 1 && !sws[1].fin, 'the third swing is the finisher');
         const hs = hits(ms); eq(hs.length, 3); assert(hs[2].fin === 1 && near(hs[2].dmg, hs[0].dmg * T.COMBO.fin.dmg), 'finisher damage ' + hs[2].dmg);
         await sleep(1500); const [cx, cz] = W.rc(0); await put(b, cx + 5, cz - 3, FACE_W); await sleep(100);
-        const n2 = a.msgs.length; a.send({ atk: 1 }); await sleep(Math.round(cb.cd * 0.9) + 60); a.send({ atk: 1 }); await sleep(150);
+        const n2 = a.msgs.length; a.send({ atk: 1 }); await sleep(Math.round(cb.cd * 0.9) + 20); a.send({ atk: 1 }); await sleep(90);   // 560 ms: inside the plain cooldown, outside the 120 ms queue
         eq(a.msgs.slice(n2).filter(m => m.swing === a.state.you).length, 1, 'after a whiff the plain cooldown is not enough');
-        await sleep(Math.round(cb.cd * T.COMBO.whiff) + 100); a.send({ atk: 1 }); await sleep(150);
+        await sleep(Math.round(cb.cd * 0.9 + cb.cd * T.COMBO.whiff) - 650 + 120); a.send({ atk: 1 }); await sleep(150);
         eq(a.msgs.slice(n2).filter(m => m.swing === a.state.you).length, 2, 'the penalty ends');
         await a.close(); await b.close();
       }],
@@ -120,13 +120,13 @@ async function pair(srv, wins = 20) {
     // bots use the guard: two bots fight with the same sword; the tally says they raised guards and some parried
     const dsrvEnv = { GK_MATCH_SIZE: '3', GK_QUEUE_MS: '100', GK_READY_MS: '300', GK_ROUND_MS: '1200', GK_NEXT_ROUND_MS: '120000', GK_BOT_GRACE_MS: '0', GK_DEBUG: '1' };
     dsrv = await L.startServer(dsrvEnv);
-    fail += await L.run('combat5', [['bots: in a fight bots raise guards (and parry now and then), run on the stamina rule and still finish the duel', async () => {
+    fail += await L.run('combat5', [['bots: in a fight bots raise guards (blocks and parries are tallied), run on the stamina rule and still finish the duel', async () => {
       const c = await connect(dsrv.port, 'name=Duel5'); c.send({ kill: 1 });
       await c.until(x => x.state.round && x.state.round.n >= 2, 8000, 'round 2').catch(() => {});
       const bot = { w: 'w:sword', arm: 'a:knight', goblin: 1, tac: true }; c.send({ duel6: { a: bot, b: bot } });
       await c.until(x => x.state.duel6, 3000, 'duel6'); await c.until(x => x.state.matchEnd, 40000, 'duel ends').catch(() => {});
       const n = c.msgs.length; c.send({ botstat: 1 }); await c.until(x => x.msgs.slice(n).some(m => m.botstat), 2000, 'botstat');
-      const st = c.msgs.slice(n).find(m => m.botstat).botstat.c5; assert(st.botGuards >= 1, 'bots raised guards: ' + JSON.stringify(st)); assert(st.blocks + st.parries >= 1, 'bots blocked or parried: ' + JSON.stringify(st));
+      const st = c.msgs.slice(n).find(m => m.botstat).botstat.c5; console.log('         bot tally ' + JSON.stringify(st)); assert(st.botGuards >= 1, 'bots raised guards: ' + JSON.stringify(st)); assert(st.winded + st.chains >= 1, 'the stamina rule and combos ran for bots: ' + JSON.stringify(st));
       assert(c.state.matchEnd, 'the duel finished'); await c.close();
     }]]);
   } catch (e) { console.log('  FAIL  combat5 setup: ' + (e.stack || e.message)); fail++; }

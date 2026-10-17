@@ -25,7 +25,8 @@ const reachOn = (x, y) => x.range + (x.ranged && !x.bolt ? 0 : y.hitR - G.HIT_R)
 // one fight -> { win: 1 if A wins, t: ms, hpLeft: fraction of the winner's health }
 function duel(A, B, rnd, opt = {}) {
   const abil = opt.abil !== false && !!G.ABIL, D = abil ? G.ABIL.DASH : null, H = abil ? G.ABIL.HEAVY : null;
-  const mk = K => ({ ...K, hp: K.max, next: 0, hurt: -1e9, rg: 0, bl: null, dashAt: -1e9, iUntil: -1e9, back: ROOM_FREE, charge: -1, stun: -1e9, sw: false });
+  const C5 = opt.c5 !== false && G.COMBAT5 ? require('../combat5.js').of(G) : null;   // COMBAT5: stamina, combo chains and whiff recovery (the guard is not modelled here: both sides would only trade it)
+  const mk = K => ({ ...K, c5: C5 ? C5.state() : null, hp: K.max, next: 0, hurt: -1e9, rg: 0, bl: null, dashAt: -1e9, iUntil: -1e9, back: ROOM_FREE, charge: -1, stun: -1e9, sw: false });
   const a = mk(A), b = mk(B); let d = opt.d0 || START_D;
   a.next = Math.round(rnd() * 300); b.next = Math.round(rnd() * 300);
   const hit = (x, y, t, base, melee, isBleed, mul = 1) => {   // the server's hitTarget order: dash i-frames, dodge/backstab/rage/thick hide, cap, health, thorns
@@ -63,17 +64,21 @@ function duel(A, B, rnd, opt = {}) {
       if (x.charge >= 0) {
         if (t - x.charge < H.chargeMs) continue;
         x.charge = -1; x.next = t + Math.round(x.cd * H.cdMul);
-        if (d <= reach && rnd() >= MISS) { const dm = hit(x, y, t, x.dmg, true, false, x.heavy.mult); if (dm > 0) { y.stun = t + H.staggerMs; y.charge = -1; } }
+        const h5 = C5 ? C5.pre(x.c5, t, x.cd, x.key, 1, true) : null; if (h5 && h5.cdMul !== 1) x.next += Math.round(x.cd * (h5.cdMul - 1));
+        let hl = 0; if (d <= reach && rnd() >= MISS) { const dm = hit(x, y, t, x.dmg, true, false, x.heavy.mult * (h5 ? h5.dmgMul : 1)); if (dm > 0) { hl = 1; y.stun = t + H.staggerMs; y.charge = -1; } }
+        if (h5) x.next += C5.post(x.c5, x.key, x.cd, h5.idx, hl, 'e');
         if (y.hp <= 0) return { win: x === a ? 1 : 0, t, hpLeft: x.hp / x.max };
         continue;
       }
       if (t >= x.next && d <= reach) {
         x.next = t + x.cd;
-        let p = 1 - MISS; if (x.bolt) p *= Math.max(0.4, Math.min(1, 1.2 - d / 10)); const pb = x.ranged && !x.bolt && G.POINT_BLANK && d < G.POINT_BLANK.r ? G.POINT_BLANK.mul : 1;
+        const r5 = C5 ? C5.pre(x.c5, t, x.cd, x.key, 0, !x.ranged) : null; if (r5 && r5.cdMul !== 1) x.next = t + Math.round(x.cd * r5.cdMul);
+        let p = 1 - MISS, landed = 0; if (x.bolt) p *= Math.max(0.4, Math.min(1, 1.2 - d / 10)); const pb = x.ranged && !x.bolt && G.POINT_BLANK && d < G.POINT_BLANK.r ? G.POINT_BLANK.mul : 1;
         if (rnd() < p) {
-          const hp0 = y.hp, dm = hit(x, y, t, x.dmg, !x.ranged, false, pb);
+          const hp0 = y.hp, dm = hit(x, y, t, x.dmg, !x.ranged, false, pb * (r5 ? r5.dmgMul : 1)); landed = dm > 0 ? 1 : 0;
           if (dm > 0 && x.bleed && y.hp > 0 && y.hp < hp0) y.bl = { by: x, dmg: x.bleed[0], left: x.bleed[1], next: t + 1000 };
         }
+        if (r5 && !x.ranged) x.next += C5.post(x.c5, x.key, x.cd, r5.idx, landed, 'e');
         if (y.hp <= 0) return { win: x === a ? 1 : 0, t, hpLeft: x.hp / x.max };
       }
       if (x.hp < x.max && t - x.hurt >= G.COMBAT.regenIdle * x.regen.idle && t - x.rg >= G.COMBAT.regenEvery * x.regen.every) { x.rg = t; x.hp = Math.min(x.max, x.hp + G.COMBAT.regenAmt); }

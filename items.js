@@ -435,21 +435,21 @@
   //         blockPerDmg (stamina a block costs per point of damage x the attacker's drain), windedCd / windedDmg (a swing with too little stamina), parryRefund (back to the parrier) / parryDrain (off the attacker)
   //   COMBO a landed blow followed within windowMs of the swing's own cooldown by another chains: the next swing recovers `fast` x (famFast per family), the third is a FINISHER (fin.dmg, fin.stag, then
   //         recover x fin.recover). A melee swing that hits nothing costs `whiff` x cooldown of extra recovery. A blocked or parried blow breaks the chain.
-  //   GUARD hold to guard (F, or the right mouse button with a weapon that has no heavy blow): cone (deg) in front, raiseCd between raises (tap-spam proof), parryStag / breakStag ms, brkDmg (damage x when the stamina runs out),
+  //   GUARD hold to guard (X, or the right mouse button with a weapon that has no heavy blow): cone (deg) in front, raiseCd between raises (tap-spam proof), parryStag / breakStag ms, brkDmg (damage x when the stamina runs out),
   //         slack (ms, latency allowance on a parry window), move (walk x), rip (riposte after a parry)
   //   FAM   per weapon family: cost (stamina per swing), blk (damage x while blocking with it, null = cannot guard), par (parry window ms, 0 = cannot parry), drain (stamina its blows cost a blocker)
   //   RULES spear punishes an approach (the foe closed `dist` m within `ms` ms: x`mul`), cleaveBane (families that take extra from sweeping blows: cleave >= 2)
   const COMBAT5 = {
     STA: { max: 100, regen: 26, delay: 650, heavy: 22, dash: 18, dashMin: 8, heavyMin: 12, guardRaise: 6, guardHold: 7, guardMin: 6, blockPerDmg: 0.8, windedCd: 1.25, windedDmg: 0.85, parryRefund: 14, parryDrain: 14 },
-    COMBO: { windowMs: 450, fast: 0.85, famFast: { dagger: 0.78, whip: 0.9 }, fin: { dmg: 1.2, stag: 160, recover: 1.2 }, whiff: 0.35 },
+    COMBO: { windowMs: 450, fast: 0.8, famFast: { dagger: 0.72, whip: 0.88 }, fin: { dmg: 1.2, stag: 160, recover: 1.2 }, whiff: 0.3 },
     GUARD: { cone: 75, raiseCd: 450, parryStag: 520, breakStag: 420, brkDmg: 0.85, slack: 60, move: 0.55, rip: { ms: 1500, mul: 1.25 } },
     FAM: {
-      fist: { cost: 5, blk: 0.6, par: 220, drain: 1 }, sword: { cost: 8, blk: 0.4, par: 240, drain: 1 }, dagger: { cost: 6, blk: 0.65, par: 280, drain: 0.7 },
-      spear: { cost: 9, blk: 0.45, par: 220, drain: 1 }, axe: { cost: 12, blk: 0.45, par: 200, drain: 1.5 }, mace: { cost: 12, blk: 0.5, par: 200, drain: 1.2 },
-      club: { cost: 11, blk: 0.5, par: 200, drain: 1.1 }, flail: { cost: 13, blk: 0.55, par: 180, drain: 1.3 }, hammer: { cost: 17, blk: 0.6, par: 0, drain: 2 },
-      halberd: { cost: 15, blk: 0.4, par: 190, drain: 1.3 }, whip: { cost: 7, blk: 0.7, par: 0, drain: 0.6 }, staff: { cost: 8, blk: 0.6, par: 220, drain: 0.8 },
-      scepter: { cost: 7, blk: 0.6, par: 220, drain: 0.8 }, wand: { cost: 6, blk: 0.7, par: 0, drain: 0.7 },
-      bow: { cost: 7, blk: null, par: 0, drain: 0.6 }, crossbow: { cost: 8, blk: null, par: 0, drain: 0.7 }, sling: { cost: 6, blk: null, par: 0, drain: 0.5 },
+      fist: { cost: 5, blk: 0.6, par: 220, drain: 1 }, sword: { cost: 8, blk: 0.4, par: 240, drain: 1 }, dagger: { cost: 7, blk: 0.65, par: 280, drain: 0.7 },
+      spear: { cost: 9, blk: 0.45, par: 220, drain: 1 }, axe: { cost: 10, blk: 0.45, par: 200, drain: 1.5 }, mace: { cost: 9, blk: 0.5, par: 200, drain: 1.2 },
+      club: { cost: 8, blk: 0.5, par: 200, drain: 1.1 }, flail: { cost: 10, blk: 0.55, par: 180, drain: 1.3 }, hammer: { cost: 13, blk: 0.6, par: 0, drain: 2 },
+      halberd: { cost: 11, blk: 0.4, par: 190, drain: 1.3 }, whip: { cost: 7, blk: 0.7, par: 0, drain: 0.6 }, staff: { cost: 8, blk: 0.6, par: 220, drain: 0.8 },
+      scepter: { cost: 8, blk: 0.6, par: 220, drain: 0.8 }, wand: { cost: 8, blk: 0.7, par: 0, drain: 0.7 },
+      bow: { cost: 9, blk: null, par: 0, drain: 0.6 }, crossbow: { cost: 9, blk: null, par: 0, drain: 0.7 }, sling: { cost: 7, blk: null, par: 0, drain: 0.5 },
     },
     RULES: { spearApproach: { mul: 1.25, dist: 1.2, ms: 350 }, cleaveBane: { dagger: 1.15, whip: 1.1 } },
     COUNTER: [   // [family, what it beats, what beats it] (the Codex shows these rows)
@@ -465,7 +465,7 @@
     ],
     TEXT: [   // what the Codex and the how-to show
       ['Stamina', 'Swings, dashes, heavy blows and holding a guard spend stamina (100, it refills quickly once you stop for a moment). At zero you can still swing, but slower and 15 % weaker, and you cannot dash or guard: spam is costly, never impossible.'],
-      ['Guard and parry', 'Hold F (or the right mouse button with a weapon that has no heavy blow) to guard: blows from the front are cut by your weapon family (sword to 40 %, dagger to 65 %, hammer to 60 %). Raise it just before a blow lands (about a quarter second) to PARRY: no damage, the attacker reels for half a second and you riposte for +25 %. Each block costs stamina; run dry and the guard breaks.'],
+      ['Guard and parry', 'Hold X (or the right mouse button with a weapon that has no heavy blow) to guard: blows from the front are cut by your weapon family (sword to 40 %, dagger to 65 %, hammer to 60 %). Raise it just before a blow lands (about a quarter second) to PARRY: no damage, the attacker reels for half a second and you riposte for +25 %. Each block costs stamina; run dry and the guard breaks.'],
       ['Combos', 'Land a blow and strike again right away: the next swing comes sooner, the third is a finisher (+20 % damage, a short stagger) with a longer recovery. A swing that hits nothing costs extra recovery, and a blocked blow breaks the chain.'],
     ],
   };

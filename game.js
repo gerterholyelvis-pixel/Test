@@ -8652,7 +8652,7 @@ const ABIL5 = (() => {
 })();
 GK.abil = ABIL5;
 // ABILITY-END
-// COMBAT5-BEGIN (client side of combat5.js; docs/reports/combat-5.md): stamina bar, hold F (or the right mouse button without a heavy blow) to guard, the same chain / whiff / winded
+// COMBAT5-BEGIN (client side of combat5.js; docs/reports/combat-5.md): stamina bar, hold X (or the right mouse button without a heavy blow) to guard, the same chain / whiff / winded
 // rules as the server on my own clock (so the cooldown I see is the cooldown the server enforces), block / parry / guard-break / finisher cues and the heavy-blow telegraph
 const C5c = { x: null, c: null, g: false, offAt: -1e9, sw: null, glow: new Map(), bar: null, fill: null, vig: null, lastW: -1, lastCls: '' };
 const c5X = () => { if (!C5c.x) { const C = window.GKC5, G = itemsData(); if (!C || !G || !G.COMBAT5) return null; C5c.x = C.of(G); C5c.c = C5c.x.state(); } return C5c.x; };
@@ -8738,8 +8738,8 @@ GK.c5 = {
   },
   state: C5c,
 };
-addEventListener('keydown', e => { if (e.code === 'KeyF' && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && !(e.target && /INPUT|TEXTAREA/.test(e.target.tagName))) c5Raise(); });
-addEventListener('keyup', e => { if (e.code === 'KeyF') c5Lower(true); });
+addEventListener('keydown', e => { if (e.code === 'KeyX' && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && !(e.target && /INPUT|TEXTAREA/.test(e.target.tagName))) c5Raise(); });
+addEventListener('keyup', e => { if (e.code === 'KeyX') c5Lower(true); });
 canvas.addEventListener('mousedown', e => { if (e.button === 2 && invReady && !itemsData().ABIL.heavyFor(myInv.weapon)) c5Raise(); });   // weapons without a heavy blow use the right button for the guard
 addEventListener('mouseup', e => { if (e.button === 2) c5Lower(true); });
 addEventListener('blur', () => c5Lower(true));
