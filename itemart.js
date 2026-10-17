@@ -1328,11 +1328,12 @@ function bake(renderer, opts = {}) {
       } catch (e) { console.warn('[GKART] bake aborted', e); i = q.length; }
       renderer.setRenderTarget(prevRT); renderer.setClearColor(prevCol, prevA); renderer.toneMapping = prevTM; renderer.info.autoReset = prevAuto; renderer.xr.enabled = prevXR;
       if (done.length) window.dispatchEvent(new CustomEvent('gkart-icons', { detail: { keys: done } }));
-      { const d = performance.now() - t0; stepStat.ms += d; stepStat.max = Math.max(stepStat.max, d); stepStat.n++; }
+      { const d = performance.now() - t0; stepStat.ms += d; stepStat.max = Math.max(stepStat.max, d); stepStat.n++; try { if (window.GK && GK.perf5) GK.perf5.mark('icon', d); } catch (e) {} }   // PERF5: long-frame mark
       if (i < q.length) schedule(); else check();
     };
     function schedule() {   // priority icons (inventory/hotbar) use short timer gaps; the rest wait for idle time between frames
       if (timer || closed || i >= q.length) return;
+      if (i >= nPri && opts.hold && opts.hold()) { timer = setTimeout(() => { timer = 0; schedule(); }, 500); return; }   // PERF5: the game holds the non-priority icons while a match is being played (a bake step is a 50 to 300 ms stall)
       if (i >= nPri && typeof requestIdleCallback === 'function') timer = requestIdleCallback(dl => { timer = 0; step(Math.min(budget, Math.max(4, dl.timeRemaining()))); }, { timeout: 1500 });
       else timer = setTimeout(() => { timer = 0; step(budget); }, i === 0 ? (opts.delay ?? 0) : gap);
     }

@@ -14,7 +14,7 @@ const ROOT = path.resolve(arg('root', path.join(__dirname, '..'))), PRESETS = St
 const FRAMES = +arg('frames', 150), SOAK = +arg('soak', 0), SHOTS = arg('shots', ''), OUT = arg('out', ''), BUDGET = !!arg('budget', false), W = +arg('w', 1600), H = +arg('h', 900);
 const EDGE = ['C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe', 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', '/usr/bin/google-chrome', '/usr/bin/chromium'];
 const BROWSER = process.env.CHROME || EDGE.find(p => fs.existsSync(p));
-const PROFILE = !!arg('profile', false), ATTRIB = !!arg('attrib', false);
+const PROFILE = !!arg('profile', false), ATTRIB = !!arg('attrib', false), Q = String(arg('q', ''));   // --q '&perf5=0': extra query for A/B runs
 const BUDGETS = { low: { calls: 300, cpu: 8 }, high: { calls: 600 } };
 const get = url => new Promise((res, rej) => http.get(url, r => { let b = ''; r.on('data', d => b += d); r.on('end', () => res(b)); }).on('error', rej));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -29,9 +29,12 @@ const PROBE = `(() => {
   addEventListener('gkart-baked', () => { pf.baked = performance.now(); });
   const raf = window.requestAnimationFrame.bind(window), now = () => performance.now();
   const close = () => { if (pf.cur) pf.rows.push(pf.cur); pf.cur = null; };
+  // PERF5: long-frame causes. GK.perf5.mark(name, ms) (game code: room builds, goblin builds, icon bake steps, batch growth...) lands on the frame it ran in (or the gap before it)
+  pf.gap = []; pf.mark = (k, ms) => { if (!pf.on) return; (pf.cur ? (pf.cur.marks || (pf.cur.marks = [])) : pf.gap).push(k + ' ' + ms.toFixed(0)); };
+  const infoNow = () => { const r = window.GK && GK.renderer; if (!r) return [0, 0, 0]; const i = r.info; return [i.programs ? i.programs.length : 0, i.memory.textures, i.memory.geometries]; };
   window.requestAnimationFrame = cb => raf(ts => {
     if (ts !== pf.ts) {   // first callback of a new frame
-      if (pf.on) { close(); const r = window.GK && GK.renderer; pf.cur = { ts, cpu: 0, rcpu: 0, calls: 0, tris: 0, passes: 0, heap: performance.memory ? performance.memory.usedJSHeapSize : 0 }; }
+      if (pf.on) { close(); const r = window.GK && GK.renderer, inf = infoNow(); pf.cur = { ts, cpu: 0, rcpu: 0, calls: 0, tris: 0, passes: 0, heap: performance.memory ? performance.memory.usedJSHeapSize : 0, prog: inf[0], tex: inf[1], geo: inf[2], marks: pf.gap.length ? pf.gap.splice(0) : null }; }
       pf.ts = ts; pf.wrap();
     }
     const t0 = now(); try { cb(ts); } finally { if (pf.cur) pf.cur.cpu += now() - t0; }
@@ -58,7 +61,18 @@ const PROBE = `(() => {
     for (let i = 1; i < R.length; i++) iv.push(R[i].ts - R[i - 1].ts);
     iv.sort((a, b) => a - b); const cpu = R.map(r => r.cpu).sort((a, b) => a - b);
     let grow = 0; for (let i = 1; i < R.length; i++) { const d = R[i].heap - R[i - 1].heap; if (d > 0) grow += d; }
-    return { n: R.length, calls: Math.round(m('calls')), tris: Math.round(m('tris')), passes: +m('passes').toFixed(1), cpu: +m('cpu').toFixed(2), cpuP95: +(cpu[Math.floor(cpu.length * 0.95)] || 0).toFixed(2), rcpu: +m('rcpu').toFixed(2),
+    const long = [], why = {};   // PERF5: frames whose interval is over 25 ms, with what changed in them (new shader programs, texture / geometry uploads, a GC drop, game marks)
+    for (let i = 1; i < R.length; i++) {
+      const dt = R[i].ts - R[i - 1].ts; if (dt <= 25) continue;
+      const a = R[i - 1], b = R[i], c = [];   // the frame drawn at a.ts took until b.ts
+      if (b.prog > a.prog) c.push('programs+' + (b.prog - a.prog)); if (b.tex > a.tex) c.push('textures+' + (b.tex - a.tex)); if (b.geo - a.geo > 2) c.push('geometries+' + (b.geo - a.geo));
+      if (b.heap < a.heap - 2097152) c.push('gc-' + ((a.heap - b.heap) / 1048576).toFixed(0) + 'MB');
+      for (const m of (a.marks || []).concat(b.marks || [])) c.push(m);
+      if (a.cpu > 25) c.push('cpu ' + a.cpu.toFixed(0));
+      long.push(dt.toFixed(0) + 'ms ' + (c.join(', ') || '?'));
+      for (const k of c.length ? c : ['?']) { const w = k.split(/[ +-]/)[0]; why[w] = (why[w] || 0) + 1; }
+    }
+    return { long: long.length, longList: long.slice(0, 40), longWhy: why, n: R.length, calls: Math.round(m('calls')), tris: Math.round(m('tris')), passes: +m('passes').toFixed(1), cpu: +m('cpu').toFixed(2), cpuP95: +(cpu[Math.floor(cpu.length * 0.95)] || 0).toFixed(2), rcpu: +m('rcpu').toFixed(2),
       ms: +(iv.reduce((s, v) => s + v, 0) / Math.max(1, iv.length)).toFixed(2), p95: +(iv[Math.floor(iv.length * 0.95)] || 0).toFixed(1), max: +(iv[iv.length - 1] || 0).toFixed(1), heapKB: +(grow / Math.max(1, R.length - 1) / 1024).toFixed(1) };
   };
 })();`;
@@ -112,7 +126,7 @@ async function main() {
   const results = { browser: path.basename(BROWSER), root: ROOT, w: W, h: H, gpu: null, load: null, views: {}, soak: null, errors: logs };
   const startMatch = async gfx => {
     await send('Page.addScriptToEvaluateOnNewDocument', { source: "try{localStorage.setItem('gk.settings', JSON.stringify({ gfx: '" + gfx + "', fx: " + (gfx !== 'low') + ", tags: true }))}catch(e){}" });
-    const t0 = Date.now(); await send('Page.navigate', { url: base + '/?offline=1&debug=1' });
+    const t0 = Date.now(); await send('Page.navigate', { url: base + '/?offline=1&debug=1' + Q });
     for (let i = 0; i < 100; i++) { if (await ev('!!(window.GK && GK.renderer && GK.menu)').catch(() => false)) break; await sleep(100); }
     const menuMs = Date.now() - t0;
     if (!results.gpu) results.gpu = await ev(`(()=>{const g=GK.renderer.getContext(),e=g.getExtension('WEBGL_debug_renderer_info');return e?g.getParameter(e.UNMASKED_RENDERER_WEBGL):'?'})()`);
@@ -126,7 +140,7 @@ async function main() {
       if (/"m":"play"/.test(s) && /"l":false/.test(s)) { if (!goMs) goMs = Date.now() - t1; if (/"p":0/.test(s)) break; }
       await sleep(250);
     }
-    const goAt = Date.now(); let bakeWait = 0; for (let i = 0; i < 160; i++) { if (await ev('__pf.baked > 0')) break; await sleep(250); bakeWait = Date.now() - goAt; }   // the item icon bake runs after GO (main thread): measure after it
+    const goAt = Date.now(); let bakeWait = 0; for (let i = 0; i < 160; i++) { if (await ev('__pf.baked > 0 || !!(GK.perf5 && GK.perf5.on && i > 6)')) break;   /* PERF5 holds the non-priority icons during play */ await sleep(250); bakeWait = Date.now() - goAt; }   // the item icon bake runs after GO (main thread): measure after it
     await sleep(1500);
     const longs = await ev('__lt.slice()');
     return { menuMs, goMs, bakeWait, longTasks: longs.filter(x => x > 50), longMax: Math.max(0, ...longs) };

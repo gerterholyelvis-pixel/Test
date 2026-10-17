@@ -45,6 +45,7 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'hi
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.15;
+if (!/[?&](perf5=0|shadercheck=1)/.test(location.search)) renderer.debug.checkShaderErrors = false;   // PERF5: no blocking info-log read per program on first use (and no D3D X4122 precision notes as console warnings); ?shadercheck=1 brings it back
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.body.prepend(renderer.domElement);
 // PERF: three renders transparent double-sided materials in two passes and sets needsUpdate on both, so every such object re-hashed its shader program key twice per frame. Materials that do not write depth do not need the split.
@@ -1696,7 +1697,7 @@ const mk = MY.mk = (p, geo, mat, x = 0, y = 0, z = 0, sx = 1, sy = sx, sz = sx, 
 const grp = MY.grp = (p, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) => { const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.set(rx, ry, rz); p.add(g); return g; };
 const dyn = MY.dyn = o => { o.userData.dyn = true; return o; };
 const mc = {};
-const MM = MY.MM = (c, o = {}) => { const k = c + '|' + JSON.stringify(o); return mc[k] || (mc[k] = M(c, o)); };
+const MM = MY.MM = (c, o = {}) => { const k = c + '|' + JSON.stringify(o, (n, v) => v && v.isTexture ? v.uuid : v); return mc[k] || (mc[k] = M(c, o)); };   // PERF5: a texture in the key is its uuid (stringifying it serialised the whole canvas to a data URL, ~170 ms per call)
 const bmc = {};
 const BM = MY.BM = (c, op = 1, add = false, map = null) => { const k = c + '|' + op + '|' + add + '|' + (map ? map.uuid : ''); return bmc[k] || (bmc[k] = new THREE.MeshBasicMaterial({ color: c, opacity: op, transparent: add || op < 1, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending, depthWrite: !add && op >= 1, side: add ? THREE.DoubleSide : THREE.FrontSide, toneMapped: false, fog: false, map })); };
 const gsm = {};
@@ -4452,7 +4453,7 @@ const handleMsg0 = d => {
     let a = actors.get(p.id);
     if (a && a.goblin !== p.goblin) { dropGoblin(a.group); actors.delete(p.id); a = null; }
     if (!a) {
-      const group = buildGoblin(p.goblin); scene.add(group); if (p.npc) { npcLook(group, p.npc); GK.fun && GK.fun.hideDecoy(p.x, p.z); }   // BOTS: bots look like normal goblins; mystery enemies get a hostile tint (and the troll is big)
+      const p5g = performance.now(), group = buildGoblin(p.goblin); if (GK.perf5) GK.perf5.mark('goblin', performance.now() - p5g); scene.add(group);   // PERF5: long-frame mark if (p.npc) { npcLook(group, p.npc); GK.fun && GK.fun.hideDecoy(p.x, p.z); }   // BOTS: bots look like normal goblins; mystery enemies get a hostile tint (and the troll is big)
       a = { group, goblin: p.goblin, x: p.x, z: p.z, yaw: p.yaw, phase: Math.random() * 6, speed: 0, seq: p.seq };
       actors.set(p.id, a);
       if (p.id === me) spawned = false;
@@ -5248,6 +5249,7 @@ function merchantHoverTick() {
   lootPromptTick();
   if (GK.mode !== 'play' || invOpen || shopOpen || !inside || !spawned || !T.length) { if (hoverRoom >= 0) setHover(-1); return; }
   if (PERF2_ON && !perf2HoverNear(T)) { setHover(-1); return; }   // PERF2: nothing within 20 m, so the ray cannot reach (it is 7 m long): skip the raycast over every merchant, recycler and workbench model
+  if (GK.perf5 && GK.perf5.hoverSkip(T)) return;   // PERF5: the hover ray (2 to 4 ms next to the home stations) runs on every 3rd frame, and only when the view moved
   cam.updateMatrixWorld(); ray.setFromCamera({ x: 0, y: 0 }, cam); ray.far = 7;
   const hit = ray.intersectObjects(T, true)[0]; let id = -1, kind = '';
   if (hit) { for (let o = hit.object; o; o = o.parent) { const u = o.userData; if (!u || u.roomId == null) continue; id = u.roomId; kind = u.station === 'recycler' ? 'r' : u.station === 'workbench' ? 'w' : u.station === 'knowledge' ? 'k' : u.station === 'screen' ? 's' : u.station === 'pump' ? 'p' : u.station === 'box' ? 'b' : 'm'; break; } }
@@ -5833,7 +5835,7 @@ function renderWorld(t) {
   else renderer.render(scene, cam);
   renderer.toneMapping = tm; renderer.toneMappingExposure = te;
   fxCullEnd();
-  if (PERF4.on) { if (P4B.on) p4bFind(); else p4mTick(); }   // PERF4: room interior merge (discovery, 1.5 ms of merging, rolling check)
+  if (PERF4.on) { const p5t = performance.now(); if (P4B.on) p4bFind(); else p4mTick(); const p5d = performance.now() - p5t; if (p5d > 4) PERF5.mark('batch', p5d); }   // PERF4: room interior merge (discovery, 1.5 ms of merging, rolling check); PERF5: long-frame mark
   PERF4.frameEnd();   // PERF4: GK.perfProbe (dev only; a no-op otherwise)
 }
 // keypad screens and other status displays pulse gently (found by their material signature, the builders stay untouched)
@@ -6580,7 +6582,8 @@ function p4bEligible(o) {
 function p4bKey(o) { const g = o.geometry; return o.material.uuid + '|' + o.renderOrder + '|' + !!g.index + '|' + Object.keys(g.attributes).sort().map(n => n + g.attributes[n].itemSize + g.attributes[n].array.constructor.name + g.attributes[n].normalized).join(); }
 function p4bBatch(key, o, nv, ni) {   // one batch per material, render order and vertex layout; sized for what it holds (grown by doubling)
   let b = P4B.batches.get(key); if (b) return b;
-  const bm = new THREE.BatchedMesh(16, Math.max(256, nv * 2), Math.max(512, ni * 2), o.material);
+  const h = P4B.hint && P4B.hint.get(key);   // PERF5: sized by the loading step's count of everything this batch will hold (growing by doubling copied and re-uploaded the whole buffer each time)
+  const bm = h ? new THREE.BatchedMesh(h.n + 8, Math.max(256, Math.ceil(h.nv * 1.15) + 512), Math.max(512, Math.ceil(h.ni * 1.15) + 1024), o.material) : new THREE.BatchedMesh(16, Math.max(256, nv * 2), Math.max(512, ni * 2), o.material);
   bm.name = 'perf4Batch'; bm.frustumCulled = false; bm.perObjectFrustumCulled = true; bm.sortObjects = !!o.material.transparent; bm.renderOrder = o.renderOrder; bm.matrixAutoUpdate = false; bm.visible = false;
   b = { key, mat: o.material, bm, geo: new Map(), ready: false, srcs: new Set(), nvis: 0 }; P4B.batches.set(key, b); P4B.pending++;
   return b;
@@ -6634,6 +6637,7 @@ function p4bFind() {   // rolling discovery (3 top-level objects per frame, more
       }
     }
   }
+  if (GK.perf5 && GK.perf5.on) { GK.perf5.batchCompile(); return; }   // PERF5: one compile for all new batches, in the game view's tone mapping / target (was: the menu's ACES state, so every batch recompiled on its first draw)
   for (const b of P4B.batches.values()) if (!b.ready && !b.compiling && b.srcs.size) {   // compile in the background, then swap the originals out
     b.compiling = true; const done = () => { if (b.ready) return; b.ready = true; P4B.pending--; P4B.ready++; scene.add(b.bm); for (const s of b.srcs) if (s.o.layers.mask === 1) s.o.layers.set(P4B.LAYER); };
     try { if (renderer.compileAsync) renderer.compileAsync(b.bm, cam, scene).then(done, done); else done(); } catch (e) { done(); }
@@ -6666,6 +6670,195 @@ function p4bSync() {   // right before drawing: the mirror follows its originals
 }
 GK.perf4.batch = P4B;
 // PERF4-END
+// PERF5-BEGIN client performance pass 5 (docs/reports/perf-5.md). ?perf5=0 switches the pass off, for before / after measurements.
+// 1. Matrix walk. three walks every one of the ~9000 scene nodes each frame in scene.updateMatrixWorld (about 2.5 ms on Low in the vault) although ~8800 of them sit in frozen
+//    room roots that almost never change. A frozen top-level object is now walked only when something inside it changed: Object3D.updateMatrix (the only way a frozen
+//    node's matrix changes: PERF4's watcher, door code, builders) and Object3D.add flag the node's top-level ancestor dirty; a root is "static" once a walk found no node in it
+//    that still recomposes itself every frame. Culled (hidden) frozen roots catch up every 4th frame and on the frame they become visible. A rolling full walk of 4 roots per
+//    frame (every root about every 2.5 s) is the safety net for anything that bypasses both hooks.
+const PERF5 = { on: PERF4.on && !/[?&]perf5=0/.test(location.search), n: 0, roll: 0, skipped: 0, walked: 0 };
+GK.perf5 = PERF5;
+const p5Root = o => { let r = o; while (r.parent && r.parent !== scene) r = r.parent; return r.parent === scene ? r : null; };
+const p5Mark = o => { let r = o; while (r.parent && r.parent !== scene) r = r.parent; if (r.parent === scene) r._p5d = true; };
+function p5Static(root) {   // no node under root recomposes its matrix every frame (and no camera rides along)
+  const st = [root];
+  while (st.length) { const o = st.pop(); if (o.matrixAutoUpdate || o.isCamera) return false; const ch = o.children; for (let i = 0; i < ch.length; i++) st.push(ch[i]); }
+  return true;
+}
+function p5Watch() {   // PERF4's watcher, but a node whose room is culled this frame is only looked at every 4th frame (it is caught up the moment the room is drawn again)
+  const W = PERF4.watch, n = PERF5.n;
+  for (let i = 0; i < W.length; i++) {
+    const e = W[i], o = e.o; if (o.matrixAutoUpdate) continue;
+    let r = e.r; if (r === undefined) r = e.r = p5Root(o) || null;
+    if (r && !r.visible && ((n + i) & 3)) continue;
+    const p = o.position, q = o.quaternion, s = o.scale;
+    if (p.x !== e.px || p.y !== e.py || p.z !== e.pz || q.x !== e.qx || q.y !== e.qy || q.z !== e.qz || q.w !== e.qw || s.x !== e.sx || s.y !== e.sy || s.z !== e.sz) {
+      e.px = p.x; e.py = p.y; e.pz = p.z; e.qx = q.x; e.qy = q.y; e.qz = q.z; e.qw = q.w; e.sx = s.x; e.sy = s.y; e.sz = s.z; o.updateMatrix();
+    }
+  }
+  const ch = scene.children, cn = ch.length;
+  for (let k = 0; k < 8 && cn; k++) { const o = ch[PERF4.si++ % cn]; if (o.matrixAutoUpdate === false && !o.isLight && !o.isCamera) perf4Scan(o); }
+  const now = performance.now();
+  if (now > PERF4.pruneAt) {
+    PERF4.pruneAt = now + 3000; let j = 0;
+    for (let i = 0; i < W.length; i++) { const r = p5Root(W[i].o); if (r) { W[i].r = r; W[j++] = W[i]; } else W[i].o._p4w = false; }
+    W.length = j;
+  }
+}
+function p5Walk(umw) {
+  if (scene.matrixWorldNeedsUpdate) { umw.call(scene, false); return; }
+  const ch = scene.children, cn = ch.length, n = ++PERF5.n; let sk = 0;
+  const r0 = PERF5.roll % Math.max(1, cn), r1 = r0 + 4; PERF5.roll = r1;
+  for (let i = 0; i < cn; i++) {
+    const o = ch[i], roll = (i >= r0 && i < r1) || i + cn < r1;
+    if (!roll && o.matrixAutoUpdate === false) {
+      if (o._p5s === true && !o._p5d) { sk++; continue; }   // static and untouched since its last walk
+      if (!o.visible && ((n + i) & 3)) { sk++; continue; }   // culled: catch up later
+    }
+    o.updateMatrixWorld(false);
+    if (o.matrixAutoUpdate === false) { if (o._p5d === 2) o._p5s = false; else if (o._p5s !== true && ((n + i) & 15) === 0) o._p5s = p5Static(o); o._p5d = false; }   // new parts: look again later (PERF4's scan freezes them within a second)
+  }
+  PERF5.skipped = sk; PERF5.walked = cn - sk;
+}
+if (PERF5.on) {
+  const O3 = THREE.Object3D.prototype, um = O3.updateMatrix, ad = O3.add, umw = O3.updateMatrixWorld;
+  O3.updateMatrix = function () { um.call(this); if (this.matrixAutoUpdate === false) p5Mark(this); };
+  O3.add = function () { const r = ad.apply(this, arguments); if (this !== scene) { let t = this; while (t.parent && t.parent !== scene) t = t.parent; if (t.parent === scene) t._p5d = 2; } else for (let i = 0; i < arguments.length; i++) if (arguments[i]) arguments[i]._p5s = false; return r; };
+  scene.updateMatrixWorld = function (force) { if (force) { perf4Tick(); umw.call(this, true); } else { p5Watch(); p5Walk(umw); } if (P4B.on) p4bSync(); else p4mCheckDrawn(); };
+}
+{ const H = { x: NaN, y: 0, z: 0, qx: 0, qy: 0, qz: 0, qw: 0, n: 0, T: null, k: 0 };   // hover ray throttle: skipped while the camera pose and the target list are unchanged (re-checked every 20 frames), else on every 3rd frame
+  PERF5.hoverSkip = T => {
+    if (!PERF5.on) return false; const p = cam.position, q = cam.quaternion; H.k++;
+    const same = p.x === H.x && p.y === H.y && p.z === H.z && q.x === H.qx && q.y === H.qy && q.z === H.qz && q.w === H.qw && T === H.T && T.length === H.n;
+    if (same ? H.k < 20 : H.k < 3) return true;
+    H.k = 0; H.x = p.x; H.y = p.y; H.z = p.z; H.qx = q.x; H.qy = q.y; H.qz = q.z; H.qw = q.w; H.T = T; H.n = T.length; return false;
+  }; }
+// 2. Long-frame marks for tools/perfbench.js (window.__pf exists only under the bench): room builds, goblin builds, icon bake steps, batch work.
+PERF5.mark = (k, ms) => { const pf = window.__pf; if (pf && pf.on && ms > 1) pf.mark(k, ms); };
+// 3. Shader programs. On the iGPU (ANGLE / D3D11) linking one program blocks for 50 to 200 ms, and three links on first draw: the first world frame after GO stalled for
+//    seconds, and every lazily built room stalled again. Programs are now compiled ahead with KHR_parallel_shader_compile (renderer.compileAsync), in the game view's own
+//    state: Neutral tone mapping, and on Medium+ the composer's HDR target (no tone mapping, linear output). PERF4's batches were compiled in the menu's ACES state, so each
+//    one compiled a second time, synchronously, on its first draw.
+function p5ViewState(fn) {
+  const tm = renderer.toneMapping, te = renderer.toneMappingExposure, rt = renderer.getRenderTarget();
+  renderer.toneMapping = FX_TONE; renderer.toneMappingExposure = FX_EXPOSURE;
+  if (fx && GK.settings.fx && fxQ().post) renderer.setRenderTarget(fx.composer.readBuffer);
+  try { return fn(); } finally { renderer.setRenderTarget(rt); renderer.toneMapping = tm; renderer.toneMappingExposure = te; }
+}
+function p5Compile(obj) { try { return p5ViewState(() => renderer.compileAsync(obj, cam, scene)); } catch (e) { console.warn('precompile skipped', e); return Promise.resolve(); } }
+PERF5.batchCompile = () => {   // every new PERF4 batch in one compile (one light gather over the scene), then swapped in
+  const list = []; for (const b of P4B.batches.values()) if (!b.ready && !b.compiling && b.srcs.size) list.push(b);
+  if (!list.length) return;
+  const g = new THREE.Group(); for (const b of list) { b.compiling = true; g.add(b.bm); }
+  const done = () => { for (const b of list) { if (b.ready) continue; b.ready = true; P4B.pending--; P4B.ready++; scene.add(b.bm); for (const s of b.srcs) if (s.o.layers.mask === 1) s.o.layers.set(P4B.LAYER); } };
+  p5Compile(g).then(done, done);
+};
+PERF5.hidden = new Set();
+PERF5.fresh = w => {   // a room built during play is drawn once its programs are ready (shared programs: the same frame; new ones: a few frames later, instead of a multi-second stall)
+  if (!w || !PERF5.on || GK.mode !== 'play' || P5P.state === 'run' || !renderer.extensions.has('KHR_parallel_shader_compile')) return;
+  w.visible = false; PERF5.hidden.add(w);
+  const show = () => { if (!PERF5.hidden.delete(w)) return; if (w.parent) w.visible = true; };
+  p5Compile(w).then(show, show); setTimeout(show, 2500);
+};
+function p5Proxies(root) {   // one stand-in object per (material, object kind, vertex layout): compiling 10 000 objects one by one costs a long task of its own
+  const g = new THREE.Group(), seen = new Set();
+  root.traverse(o => {
+    if (o.isBatchedMesh || !(o.isMesh || o.isPoints || o.isLine || o.isSprite) || P4B.src.has(o)) return;   // a batched original is drawn by its batch
+    const mats = Array.isArray(o.material) ? o.material : [o.material], ga = o.geometry && o.geometry.attributes ? Object.keys(o.geometry.attributes).sort().join() + '|' + Object.keys(o.geometry.morphAttributes || {}).join() : '';
+    for (const m of mats) {
+      if (!m) continue; const k = m.uuid + '|' + o.type + '|' + ga + '|' + (o.isInstancedMesh && !!o.instanceColor); if (seen.has(k)) continue; seen.add(k);
+      let p; try {
+        if (o.isInstancedMesh) { p = new THREE.InstancedMesh(o.geometry, m, 1); if (o.instanceColor) p.instanceColor = o.instanceColor; }
+        else if (o.isSprite) p = new THREE.Sprite(m); else if (o.isPoints) p = new THREE.Points(o.geometry, m); else if (o.isLine) p = o.isLineSegments ? new THREE.LineSegments(o.geometry, m) : new THREE.Line(o.geometry, m);
+        else if (o.isSkinnedMesh) continue; else { p = new THREE.Mesh(o.geometry, m); p.morphTargetInfluences = o.morphTargetInfluences; }
+      } catch (e) { continue; }
+      p.receiveShadow = o.receiveShadow; g.add(p);
+    }
+  });
+  return g;
+}
+function p5PostProxies() {   // the composer passes' own shader materials (bloom mips, AO, final grade)
+  const g = new THREE.Group(), q = new THREE.PlaneGeometry(2, 2), seen = new Set();
+  if (!fx || !fx.composer) return g;
+  const add = m => { if (m && m.isMaterial && !seen.has(m)) { seen.add(m); g.add(new THREE.Mesh(q, m)); } };
+  for (const p of fx.composer.passes) for (const k of Object.keys(p)) { const v = p[k]; if (Array.isArray(v)) v.forEach(add); else if (v && v.isMaterial) add(v); else if (v && v._mesh && v._mesh.material) add(v._mesh.material); }
+  return g;
+}
+// 4. Loading step (between the match forming and the 3-2-1). First every program of the scene as it stands (world shells, doors, chest rooms, goblins) is compiled in
+//    parallel; then the rooms that used to be built lazily during play (ROOMART dressing, ROOMS5ART homes / trees / vaultbreakers / vault, about 2.5 s of building) are
+//    built nearest to the own home first, one room per slice between menu frames, each followed by an async compile of what it added; then every top-level object is
+//    room-classified, PERF4's watcher and batches pick everything up, the textures are uploaded a few per slice, and a last sweep compiles anything left. The ready signal
+//    waits for it (at most ~6.5 s after the match formed; the server starts the countdown after 8 s anyway); whatever is left finishes during the countdown.
+function p5BatchHints() {   // what each PERF4 batch will hold once every room exists: vertices / indices of its distinct geometries and its instance count
+  const H = new Map();
+  for (const o of scene.children) {
+    if (o.matrixAutoUpdate !== false || o.isLight || o.isBatchedMesh) continue;
+    const cls = fxCull.cls.get(o); if (!cls || !cls.length) continue;
+    o.traverse(c => {
+      if (!p4bEligible(c)) return; const k = p4bKey(c), g = c.geometry; let h = H.get(k); if (!h) H.set(k, h = { nv: 0, ni: 0, n: 0, g: new Set() });
+      if (!h.g.has(g.uuid)) { h.g.add(g.uuid); h.nv += g.attributes.position.count; h.ni += g.index ? g.index.count : 0; }
+      h.n += c.isInstancedMesh ? c.count : 1;
+    });
+  }
+  P4B.hint = H;
+}
+const P5P = { state: 'idle', t0: 0, ms: {}, phase: '', promise: null, programs: 0, rooms: 0 };
+PERF5.load = P5P;
+PERF5.prep = () => {
+  if (!PERF5.on) return Promise.resolve();
+  if (P5P.promise) return P5P.promise;
+  P5P.state = 'run'; P5P.t0 = performance.now(); P5P.ms = {};
+  P5P.promise = new Promise(resolve => {
+    const home = GK.myHome || WORLD.VAULT_KEY, phases = ['scene', 'rooms', 'classify', 'batch', 'textures', 'compile'], waits = [], done = new WeakSet();
+    let ph = 0, ci = 0, bs = -1, tex = null, ti = 0, pt = performance.now();
+    const next = () => { P5P.ms[phases[ph]] = Math.round(performance.now() - pt); pt = performance.now(); ph++; ci = 0; };
+    const finish = () => { P5P.ms.total = Math.round(performance.now() - P5P.t0); P5P.state = 'done'; P5P.phase = 'done'; P5P.programs = renderer.info.programs ? renderer.info.programs.length : 0; resolve(); };
+    const fresh = () => {   // compile (async) whatever top-level objects were added since the last call
+      const g = new THREE.Group(); for (const o of scene.children) if (!done.has(o)) { done.add(o); const p = p5Proxies(o); while (p.children.length) g.add(p.children[0]); }
+      if (g.children.length) waits.push(p5Compile(g));
+    };
+    const slice = () => {
+      const t0 = performance.now();
+      try {
+        while (ph < phases.length - 1 && performance.now() - t0 < 10) {
+          P5P.phase = phases[ph];
+          if (ph === 0) { fresh(); if (fx && fx.composer && GK.settings.fx && fxQ().post) waits.push(p5Compile(p5PostProxies())); next(); break; }
+          else if (ph === 1) {   // one room per slice (10 to 200 ms each): the ROOMART dressing first (small), then the art rooms by door hops from the own home
+            if (ROOMART.step(home)) { P5P.rooms++; fresh(); break; }
+            const h = R5.hopsFrom(home), k = R5.pending().sort((a, b) => (h[a] === undefined ? 99 : h[a]) - (h[b] === undefined ? 99 : h[b]))[0];
+            if (k) { R5.make(k); P5P.rooms++; fresh(); break; }
+            next();
+          } else if (ph === 2) {   // the room culler's verdict per top-level object (a bounding box over every vertex: done now, not in the first frames)
+            const ch = scene.children;
+            for (; ci < ch.length && performance.now() - t0 < 10; ci++) { const o = ch[ci]; if (!fxCull.cls.has(o)) { const k = fxClassify(o); if (k !== undefined) fxCull.cls.set(o, k); } if (PERF4.on && o.matrixAutoUpdate === false && !o.isLight && !o.isCamera) perf4Scan(o); }
+            if (ci >= ch.length) next();
+          } else if (ph === 3) {   // PERF4 batching: one full pass of its discovery over the scene (the batches compile themselves, PERF5.batchCompile)
+            if (!P4B.on) { next(); continue; }
+            if (bs < 0) { bs = P4B.si; p5BatchHints(); }
+            p4bFind();
+            if (P4B.si - bs >= scene.children.length) next();
+          } else if (ph === 4) {   // texture uploads, a few per slice
+            if (!tex) { const s = new Set(); scene.traverse(o => { const ms = Array.isArray(o.material) ? o.material : o.material ? [o.material] : []; for (const m of ms) { for (const k in m) { const v = m[k]; if (v && v.isTexture && !v.isRenderTargetTexture && !v.isCubeTexture && v.image) s.add(v); } if (m.uniforms) for (const k in m.uniforms) { const v = m.uniforms[k] && m.uniforms[k].value; if (v && v.isTexture && !v.isRenderTargetTexture && v.image) s.add(v); } } }); tex = [...s]; }
+            for (; ti < tex.length && performance.now() - t0 < 10; ti++) try { renderer.initTexture(tex[ti]); } catch (e) {}
+            if (ti >= tex.length) next();
+          }
+        }
+      } catch (e) { console.warn('loading step', phases[ph], e); ph = phases.length - 1; }
+      if (ph < phases.length - 1) { setTimeout(slice, 0); return; }
+      P5P.phase = 'compile'; fresh();
+      const w = () => { const p = P4B.on ? [...P4B.batches.values()].some(b => !b.ready) : false; if (p && performance.now() - P5P.t0 < 15000) setTimeout(w, 50); else { next(); finish(); } };   // the batches swap in once compiled
+      Promise.all(waits).then(w, w);
+    };
+    setTimeout(slice, 0);
+  });
+  return P5P.promise;
+};
+PERF5.gate = (go, cap = 6500) => {   // run go once the loading step is done (or cap ms after it began)
+  if (!PERF5.on) { go(); return; }
+  let fired = false; const fire = () => { if (fired) return; fired = true; go(); };
+  PERF5.prep().then(fire, fire); setTimeout(fire, Math.max(0, cap - (performance.now() - P5P.t0)));
+};
+// PERF5-END
 // FX-END
 // ROOMART-BEGIN (room art: floor trims, skirting caps, ceiling beams, wall seams, door hazard stripes, goblin graffiti decals, scattered props, vault treasure dressing, chest/mystery/merchant mood accents.
 // Visual only, no collision, no new lights. Per room the geometry is baked into a few merged static meshes (vertex-coloured solid, gold, ceiling, alpha decals, emissive accents) so the FX room culling handles them.
@@ -7338,6 +7531,7 @@ const ROOMART = (() => {
   const hopsFrom = from => { const h = { [from]: 0 }, q = [from]; for (let i = 0; i < q.length; i++) for (const k of ADJ[q[i]] || []) if (h[k] === undefined) { h[k] = h[q[i]] + 1; q.push(k); } return h; };
   const stale = key => key[0] === 'c' ? attSig.get(key) !== sigOf(CHEST_ROOMS[+key.slice(1)]) : !built.has(key);
   function runOne(key) {
+    const p5t = performance.now();   // PERF5: long-frame marks
     try {
       if (key[0] === 'c') {
         const cr = CHEST_ROOMS[+key.slice(1)]; dispose(key); attSig.set(key, sigOf(cr));
@@ -7350,6 +7544,7 @@ const ROOMART = (() => {
         if (vault) { built.get(key).push(vaultFloor()); vaultGlints(r.piles); }
       }
     } catch (e) { console.warn('roomart room skipped', key, e); if (!built.has(key)) built.set(key, []); }
+    finally { if (GK.perf5) GK.perf5.mark('roomart', performance.now() - p5t); }   // PERF5
   }
   let queueOn = false, anchor = WORLD.VAULT_KEY, nearKey = null;
   function pump() {
@@ -7372,7 +7567,8 @@ const ROOMART = (() => {
     const k0 = nearKey || WORLD.VAULT_KEY; nearKey = null; near(k0);   // a new layout: the rooms around the camera now, the rest in idle time
     if (typeof fxCull !== 'undefined') fxCull.cls = new WeakMap();
   }
-  return { story, init() { try { build(); layoutHooks.push(() => { try { build(); } catch (e) { console.warn('roomart layout skipped', e); } }); } catch (e) { console.warn('roomart skipped', e); } }, built, glints, near, pending: () => ALL.filter(stale).length };
+  return { story, init() { try { build(); layoutHooks.push(() => { try { build(); } catch (e) { console.warn('roomart layout skipped', e); } }); } catch (e) { console.warn('roomart skipped', e); } }, built, glints, near, pending: () => ALL.filter(stale).length,
+    step(from) { const h = hopsFrom(from || anchor), k = ALL.filter(stale).sort((a, b) => (h[a] === undefined ? 99 : h[a]) - (h[b] === undefined ? 99 : h[b]))[0]; if (!k) return false; runOne(k); return true; } };   // PERF5: the loading step builds every room before GO
 })();
 ROOMART.init(); GK.roomart = ROOMART;   // test hook: ROOMART.story = room key -> [x, z, theme] of its story corner
 // ROOMART-END
@@ -7463,6 +7659,7 @@ const R5 = (() => {
     try { const e = BUILD[kindOfKey(k)](k); if (!e) failed.add(k); else { entries.set(k, e); applyState(e); } }
     catch (x) { console.warn('room art skipped', k, x); failed.add(k); }
     stats.built++; stats.last = performance.now() - t0; stats.ms += stats.last;
+    if (GK.perf5) { GK.perf5.mark('r5room', stats.last); GK.perf5.fresh(entries.get(k) && entries.get(k).wrap); }   // PERF5: long-frame marks; a room built after GO is compiled before it is shown
   }
   // ---- server state to art (cheap, idempotent setters)
   function applyState(e) {
@@ -8248,7 +8445,8 @@ function mqBegin(offlineMode) {   // the match formed and the world is built: wa
   if (MQ.began) return; MQ.began = true; GK.locked = true;
   if (GK.menu && GK.menu.queueDone) GK.menu.queueDone();
   const go = () => { mqEnterWorld(); setTimeout(() => { net.send({ ready: 1 }); if (offlineMode) mqCountdown({ at: Date.now() + 3000, now: Date.now() }); }, 350); };
-  if (GK.menu && GK.menu.whenRevealed) GK.menu.whenRevealed(go, 7000, 1500); else go();
+  PERF5.prep(); const gated = () => PERF5.gate(go);   // PERF5: the loading step (rooms built, programs compiled) runs behind the wheel; ready waits for it (capped)
+  if (GK.menu && GK.menu.whenRevealed) GK.menu.whenRevealed(gated, 7000, 1500); else gated();
 }
 function mqEl() {
   if (MQ.el) return MQ.el;
@@ -8883,7 +9081,7 @@ window.GKACT5 = (() => {
   return { pre, onMsg, key: e => press(e.code), prompt: () => cur && !cur.busy ? cur.acts[0].label + (cur.acts[0].hold ? ' (hold)' : '') : '', apply, rooms, A, pulsed: id => !!(A.pulse && A.pulse.until > performance.now() && A.pulse.ids.has(id)), recompute, cur: () => cur };
 })();
 // ACT5UI-END
-if (window.GKART) requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => GKART.bake(renderer, { priority: () => { const v = myInv || {}; return [v.weapon, v.armor].concat(v.quick || [], v.backpack || [], (window.GKITEMS && GKITEMS.START || []).flatMap(g => [g.weapon, g.armor])).filter(k => typeof k === 'string'); } }), 600)));   // ITEMART: bake the inventory icons in small batches once the first frame is up
+if (window.GKART) requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => GKART.bake(renderer, { hold: () => !!(GK.perf5 && GK.perf5.on) && GK.mode === 'play' && !GK.locked && !(GK.panelOpen && GK.panelOpen()), priority: () => { const v = myInv || {}; return [v.weapon, v.armor].concat(v.quick || [], v.backpack || [], (window.GKITEMS && GKITEMS.START || []).flatMap(g => [g.weapon, g.armor])).filter(k => typeof k === 'string'); } }), 600)));   // ITEMART: bake the inventory icons in small batches once the first frame is up
 window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw, pitch) { P.x = x; P.z = z; P.yaw = yaw; P.pitch = pitch || 0; spawned = true; }, toggleOverview() { inside = !inside; }, build: buildGoblin };
 })();
 
