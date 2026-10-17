@@ -6,11 +6,11 @@
 const fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..');
 const rd = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
-const SOURCES = ['items.js', 'world.js', 'elixir.js', 'homebase.js', 'activity.js', 'rooms5-trees.js', 'vb5.js', 'vbx5.js', 'vault5.js', 'server.js', 'tools/gameinfo.js', 'tools/gameinfo.template.html'];
+const SOURCES = ['items.js', 'world.js', 'halls.js', 'elixir.js', 'homebase.js', 'activity.js', 'rooms5-trees.js', 'vb5.js', 'vbx5.js', 'vault5.js', 'server.js', 'tools/gameinfo.js', 'tools/gameinfo.template.html'];
 const OUT = path.join(ROOT, 'docs', 'game-info.html');
 function srcHash() { const h = require('crypto').createHash('sha1'); for (const f of SOURCES) h.update(rd(f).replace(/\r\n?/g, '\n')); return h.digest('hex').slice(0, 8); }   // line-ending independent
 const G = require('../items.js'), WORLD = require('../world.js'), EX = require('../elixir.js'), HB = require('../homebase.js');
-const ACT = require('../activity.js'), T5 = require('../rooms5-trees.js'), VB = require('../vb5.js'), V5 = require('../vault5.js'), VBX = require('../vbx5.js');
+const HALLS = require('../halls.js'), ACT = require('../activity.js'), T5 = require('../rooms5-trees.js'), VB = require('../vb5.js'), V5 = require('../vault5.js'), VBX = require('../vbx5.js');
 const SRC = { server: rd('server.js'), items: rd('items.js') };
 
 // ---------------------------------------------------------------- read constants out of server.js (it cannot be required: it starts listening)
@@ -156,6 +156,7 @@ const arena = WORLD.ROOMS.filter(r => r.i != null).map(r => {
   return { id: 'r' + r.i, i: r.i, col: WORLD.colOf(r.i), row: WORLD.rowOf(r.i), kind: { vault: 'THE VAULT', tree: 'Tree room', vb: 'Vaultbreaker', arena: 'Plain hall' }[r.kind], size: R(r.hw * 2, 2) + ' x ' + R(r.hd * 2, 2) + ' m',
     doors: (WORLD.ROOM_DOORS[r.key] || []).length, attached: as.map(a => 'c' + a.id + ' (' + a.side + ', ' + (a.home ? 'home' : 'loot') + ')').join(', ') };
 });
+const hallRows = WORLD.HALL_CELLS.map(i => { const sp = WORLD.hallSpots(i), home = WORLD.hallIsHome(i); return { id: 'hall-' + i, i, theme: WORLD.HALL_THEME[i][0].toUpperCase() + WORLD.HALL_THEME[i].slice(1), kind: home ? 'Safe hall behind a home' : 'Fighting hall', things: sp.map(x => HALLS.LABEL[x.kind].replace(/^(Open|Search|Rummage through|Fish out|Drink from|Ladle some|Sharpen|Read) (the |your )?/, '')).join(', '), guard: home ? '' : HALLS.CFG.GUARDS + ' of 8 per match' }; });
 const mystery = [['weapon', 'A random weapon from the weapon drop pool', 1], ['armour', 'A random armour from the armour drop pool', 1], ['enemy', 'A guarded room: one enemy goblin attacks, drops loot', 1],
   ['stations', 'Two of recycler, knowledge tree, workbench', 1], ['gold', 'Gold pile ' + goldRange[0] + ' to ' + goldRange[1] + ' (steps of 10)', 1], ['plushie', 'A Goblin Plushie (throwable lure)', 1]].map(([k, d, w]) => ({ id: 'my-' + k, kind: k, what: d, odds: bar(R(100 * w / mysteryKinds, 2), 20) }));
 const enemyTot = enemyW.reduce((s, e) => s + e[1], 0);
@@ -369,6 +370,8 @@ S_.rooms = [
   tbl('attached', 'Attached rooms', 'Homes are spawn rooms; each loot room is a Master Forge, Grand Recycler, chest, mystery or merchant room.', [['key', 'Room', 0, 'name'], ['parent', 'Arena cell', 1], ['side', 'Side, position'], ['kind', 'Kind'], ['size', 'Size m'], ['spawn', 'Spawn'], ['forge', 'Forge %', 1], ['grand', 'Grand Recycler %', 1], ['chest', 'Chest %', 1], ['mystery', 'Mystery %', 1], ['merchant', 'Merchant %', 1]], attached),
   kv('How the layout is rolled', [['Homes', 'positions ' + WORLD.HOME_POS.join(' and ') + ' of every side (' + WORLD.HOME_IDS.length + ')'], ['Master Forge and Grand Recycler', 'one each, on opposite sides of the arena, at a random loot position'], ['Other loot rooms', lootRoll.map(([t, w]) => t + ' ' + w + '%').join(', ')], ['Guarantee', 'at least one merchant']]),
   tbl('mystery', 'Inside a mystery room', 'One of six kinds, equal odds.', [['kind', 'Contents', 0, 'name'], ['what', 'What'], ['odds', 'Odds %', 1]], mystery),
+  tbl('halls', 'The 16 outer halls', 'Each hall has a theme and a few things to use. Hold E at a container to search it (' + S(HALLS.CFG.SEARCH_MS) + ', the starter cache ' + S(HALLS.CFG.CACHE_MS) + '); moving or being hit stops the search.', [['i', 'Hall', 1], ['theme', 'Theme'], ['kind', 'Kind'], ['things', 'Things to use'], ['guard', 'Guarded']], hallRows),
+  kv('Hall rules', [['Starter cache and notice board', 'only in the 8 halls behind a home: one starter cache per goblin (' + HALLS.PROFILES.cache[0].gold.join(' to ') + ' gold, ' + HALLS.PROFILES.cache[0].parts[0] + ' parts, 1 utility item), the board names the 3 goblins with the most kills'], ['Restock', 'a searched container is empty for ' + S(HALLS.CFG.RESTOCK_MS) + ' for everybody; some start empty each match'], ['Caps per goblin', HALLS.CFG.PER_ROUND + ' searches a round; ' + HALLS.CFG.GOLD_MATCH + ' gold, ' + HALLS.CFG.PARTS_MATCH + ' parts and ' + HALLS.CFG.ITEMS_MATCH + ' items a match'], ['Heal font and stew pot', '+' + HALLS.CFG.FONT_HEAL + ' health, recharge ' + S(HALLS.CFG.STATION_CD.font) + ' (not in sudden death)'], ['Whetstone', '+' + Math.round((HALLS.CFG.WHET_MUL - 1) * 100) + '% weapon damage for ' + S(HALLS.CFG.WHET_MS) + ', once every ' + S(HALLS.CFG.WHET_CD) + ' per goblin'], ['Guards', HALLS.CFG.GUARDS + ' fighting halls a match have a weak enemy (' + HALLS.CFG.GUARD_KINDS.join(' or ') + ') that wakes when someone walks in; it drops loot like a mystery room enemy']]),
   tbl('enemies', 'Mystery room enemies', 'Weights add to ' + enemyTot + ' and are relative. "Of all mystery rooms" multiplies by the 1-in-6 enemy roll.', [['name', 'Enemy', 0, 'name'], ['w', 'Share of enemy rooms %', 1], ['ownOdds', 'Of all mystery rooms %', 1], ['hp', 'HP', 1], ['dmg', 'Damage', 1], ['cd', 'Cooldown ms', 1], ['dps', 'DPS', 1], ['speed', 'Speed m/s', 1], ['loot', 'Drops']], enemies),
 ];
 // VARIETY: item affixes and match mutators (affix.js, mutators.js)

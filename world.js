@@ -109,7 +109,7 @@
   // x offset of the wall map (-dx) and the door control panel (+dx) on an arena room's north wall: 5.3 m, 7.9 m in the vault-wide rooms (they clear the door keypads and the vault door's panels)
   const panelDX = i => roomW(i) > W ? 7.9 : 5.3;
   // a random spawn point inside a room (arena index or any room key), keeping a 3 m margin to the walls
-  const randomPoint = (k, rnd = Math.random) => { const r = roomRect(k) || ROOMS[0]; return [r.cx + (rnd() - 0.5) * (2 * r.hw - 6), r.cz + (rnd() - 0.5) * (2 * r.hd - 6)]; };
+  const randomPoint = (k, rnd = Math.random) => { const r = roomRect(k) || ROOMS[0]; let x, z; for (let t = 0; t < 30; t++) { x = r.cx + (rnd() - 0.5) * (2 * r.hw - 6); z = r.cz + (rnd() - 0.5) * (2 * r.hd - 6); if (!inProp(x, z, 0.7, null)) break; } return [x, z]; };   // HALLS: never inside a furniture footprint (the themed halls have pieces in the middle)
   // attached room local frame (+z toward its doorway, origin = room centre) -> world
   const attLocal = (c, lx, lz) => { const ry = Math.atan2(-c.dx, -c.dz), cs = Math.cos(ry), sn = Math.sin(ry); return [c.cx + lx * cs + lz * sn, c.cz - lx * sn + lz * cs]; };
   // HOME_LAYOUT: where the home furniture stands in the home's local frame (game.js builds the station hit-kits there; rooms5art-home.js draws its bench and recycler at the same spots). [x, z, rotY]
@@ -181,6 +181,62 @@
     if (z < 0 && hz + z < 3.4 + r && Math.abs(Math.abs(x) - panelDX(i)) < 1.7 + r) return false;   // north wall panels
     return true;
   };
+  // ===== HALLS (docs/reports/halls-fill.md): the 16 plain halls of the outer ring get a theme with solid furniture and a few interactive spots (searchable containers, minor stations).
+  // The plan depends only on the cell (client and server agree); what the spots hold and which halls are guarded is rolled per match (halls.js, server).
+  // The door lanes (the cross from every door to the middle of the room, 2.35 m each side: a goblin walks it with room to spare) and the middle stay free: furniture stands against the walls or in the four diagonal quadrants.
+  // 8 halls open onto a home (the "safe" halls: starter cache + notice board), the other 8 (corners and middles) are the fighting halls. Themes come in 180-degree pairs (cell i and 24 - i).
+  const HALL_THEME = { 1: 'kitchen', 23: 'kitchen', 3: 'library', 21: 'library', 9: 'shrine', 15: 'shrine', 19: 'workshop', 5: 'workshop', 0: 'armoury', 24: 'armoury', 4: 'barracks', 20: 'barracks', 2: 'den', 22: 'den', 10: 'cistern', 14: 'cistern' };
+  const HALL_CELLS = Object.keys(HALL_THEME).map(Number).sort((a, b) => a - b);
+  const hallIsHome = i => HALL_THEME[i] !== undefined && ATT[i].some(a => a.home);   // the hall a home opens onto
+  const HP = { bunk: [1.0, 0.5, 'wall'], locker: [0.5, 0.38, 'wall'], shelf: [1.1, 0.3, 'wall'], rack: [0.9, 0.3, 'wall'], altar: [0.9, 0.5, 'wall'], bench: [1.2, 0.55, 'wall'], board: [0.6, 0.15, 'wall'], cabinet: [0.6, 0.38, 'wall'],
+    table: [1.4, 0.75, 'mid'], round: [0.95, 0.95, 'mid'], desk: [0.8, 0.5, 'mid'], font: [0.75, 0.75, 'mid'], pool: [1.7, 1.2, 'mid'], stand: [0.4, 0.4, 'any'], cauldron: [0.65, 0.65, 'any'], grind: [0.5, 0.5, 'any'], cashbox: [0.45, 0.45, 'any'], bin: [0.6, 0.5, 'any'] };   // piece: [half width, half depth, where it stands]
+  const THEME_PLAN = {   // [piece, spot kind | undefined] in placement priority; a piece that finds no room is skipped
+    barracks: [['bunk'], ['bunk'], ['locker', 'locker'], ['rack'], ['stand']],
+    armoury: [['rack', 'rack'], ['rack'], ['stand'], ['stand'], ['grind', 'whet']],
+    kitchen: [['table'], ['cauldron', 'stew'], ['cabinet', 'larder'], ['shelf']],
+    library: [['shelf'], ['shelf'], ['desk'], ['cabinet', 'tomes'], ['stand']],
+    den: [['round'], ['cashbox', 'cashbox'], ['shelf'], ['stand']],
+    shrine: [['altar'], ['font', 'font'], ['stand'], ['stand'], ['cashbox', 'offering']],
+    workshop: [['bench'], ['grind', 'whet'], ['bin', 'parts'], ['shelf']],
+    cistern: [['pool'], ['bin', 'sunk'], ['font', 'font'], ['shelf']],
+  };
+  const CONT_KINDS = ['cache', 'locker', 'rack', 'larder', 'tomes', 'cashbox', 'parts', 'sunk', 'offering'], STATION_KINDS = ['font', 'stew', 'whet', 'board'];
+  const HALLPLAN = new Map();   // cell -> pieces in room-local coordinates
+  const hallPlan = (i, loc) => {   // loc: the circles already standing in the hall (story corner, crates); the new ones are pushed to it
+    const theme = HALL_THEME[i], rng = mul(hashStr('hall:' + i)), hx0 = halfX(i), hz0 = halfZ(i), plan = THEME_PLAN[theme].map(x => x.slice()), pieces = [];
+    if (hallIsHome(i)) { const f = plan.find(x => x[1] && CONT_KINDS.includes(x[1])); if (f) f[1] = 'cache'; plan.push(['board', 'board']); }
+    const shuf = a => { for (let k = a.length - 1; k > 0; k--) { const j = (rng() * (k + 1)) | 0; [a[k], a[j]] = [a[j], a[k]]; } return a; };
+    const taken = loc.slice();
+    plan.map((x, n) => [x, n]).sort((a, b) => (HP[b[0][0]][2] === 'wall' ? 2 : 0) + (b[0][1] ? 1 : 0) - (HP[a[0][0]][2] === 'wall' ? 2 : 0) - (a[0][1] ? 1 : 0) || a[1] - b[1]).forEach(([[h, sk], n]) => {   // wall pieces first (the ones with a spot before the others), then the rest
+      const [phx, phz, cls] = HP[h], cands = [];
+      if (cls !== 'mid') for (let w = 0; w < 4; w++) for (let t = -6.3; t <= 6.31; t += 0.7) {
+        const o = 0.05 + phz; let x, z, yaw, fx = phx, fz = phz;
+        if (w === 0) { x = t; z = -(hz0 - o); yaw = 0; } else if (w === 1) { x = t; z = hz0 - o; yaw = Math.PI; } else if (w === 2) { x = -(hx0 - o); z = t; yaw = Math.PI / 2; fx = phz; fz = phx; } else { x = hx0 - o; z = t; yaw = -Math.PI / 2; fx = phz; fz = phx; }
+        cands.push({ x, z, yaw, fx, fz });
+      }
+      const mids = []; for (const x of [-5.4, -4.8, -4.2, -3.6, -3.0, 3.0, 3.6, 4.2, 4.8, 5.4]) for (const z of [-5.4, -4.8, -4.2, -3.6, -3.0, 3.0, 3.6, 4.2, 4.8, 5.4]) for (const q of [0, 1]) mids.push({ x, z, yaw: q ? Math.PI / 2 : 0, fx: q ? phz : phx, fz: q ? phx : phz });
+      for (const c of (cls === 'any' ? shuf(mids).concat(shuf(cands)) : shuf(cands).concat(shuf(mids)))) {   // wall pieces try the walls first, then the open floor (drawn as an island); 'any' pieces prefer the open floor and leave the walls to the others
+        const cs = rectCircles('hall:' + h, c.x, c.z, c.fx, c.fz);
+        if (!cs.every(q => clearOK(i, q.x, q.z, q.r) && Math.abs(q.x) > 2.35 + q.r && Math.abs(q.z) > 2.35 + q.r && Math.abs(q.x) + q.r <= hx0 + 0.01 && Math.abs(q.z) + q.r <= hz0 + 0.01 && [hx0 - Math.abs(q.x) - q.r, hz0 - Math.abs(q.z) - q.r].every(w => w < 0.35 || w >= 1.0) && !taken.some(o => { const g = Math.hypot(o.x - q.x, o.z - q.z) - o.r - q.r; return g < 0.05 || (g > 0.35 && g < 1.0); }))) continue;   // gaps between props are either closed (<= 0.35 m) or wide enough to walk through (>= 1 m)
+        for (const q of cs) { q.piece = h; q.art = true; loc.push(q); taken.push(q); }   // piece: the hall furniture name (h is the prop's top height, set by climbTag)
+        pieces.push({ h, x: c.x, z: c.z, yaw: c.yaw, hx: c.fx, hz: c.fz, spot: sk ? { id: i + ':' + n, kind: sk } : null }); break;
+      }
+    });
+    HALLPLAN.set(i, pieces); return pieces;
+  };
+  const hallPieces = i => { if (HALL_THEME[i] === undefined) return []; if (!HALLPLAN.has(i)) solidsOf(String(i), ''); const [cx, cz] = rc(i); return HALLPLAN.get(i).map(p => ({ ...p, x: p.x + cx, z: p.z + cz })); };   // world coordinates
+  const hallSpots = i => hallPieces(i).filter(p => p.spot).map(p => {
+    const all = solidsOf(String(i), ''), [cx, cz] = rc(i), hw = halfX(i) - 0.6, r = Math.max(p.hx, p.hz);
+    // the goblin stands in front of the piece (+z turned by yaw); when something blocks that, the first free spot around it (45 degree steps) within reach
+    let sx = p.x, sz = p.z;
+    for (const [da, dist] of [[0, 0], [0.785, 0], [-0.785, 0], [1.57, 0.1], [-1.57, 0.1], [2.36, 0.2], [-2.36, 0.2], [3.14, 0.3], [0.4, 0.3], [-0.4, 0.3], [1.2, 0.4], [-1.2, 0.4], [2.0, 0.5], [-2.0, 0.5]]) {
+      const a = p.yaw + da, d = (da === 0 ? (Math.abs(Math.sin(p.yaw)) > 0.5 ? p.hx : p.hz) + 0.75 : r + 0.7 + dist), x = p.x + Math.sin(a) * d, z = p.z + Math.cos(a) * d;
+      if (Math.abs(x - cx) > hw || Math.abs(z - cz) > hw || all.some(q => Math.hypot(q.x - x, q.z - z) < q.r + 0.6)) continue;
+      sx = x; sz = z; break;
+    }
+    return { id: p.spot.id, cell: i, key: String(i), kind: p.spot.kind, role: STATION_KINDS.includes(p.spot.kind) ? 'station' : 'cont', x: +p.x.toFixed(3), z: +p.z.toFixed(3), r: +r.toFixed(2), yaw: p.yaw, sx: +sx.toFixed(3), sz: +sz.toFixed(3) };
+  });
+  const allHallSpots = () => { const out = []; for (const i of HALL_CELLS) out.push(...hallSpots(i)); return out; };
   const cache = new Map();
   // one big crate in a corner (sz = +1: a south corner, as in v1; -1: a north corner), sometimes a small one beside it along that wall (the footprints stay circles)
   const cornerStack = (key, i, sx, out, tag, sz = 1, swap = false) => {
@@ -216,6 +272,7 @@
           for (const [dx, dz] of [[1.0, 1.35], [1.55, 0.85]]) loc.push({ k: 'sbarrel', x: st.x + st.sx * dx, z: st.z + st.sz * dz, r: 0.38 });
           for (const q of [-1, 1]) loc.push({ k: 'tbarrel', x: st.x - st.sx * q * 0.16, z: st.z - st.sz * q * 0.16, r: 0.36 });   // the tipped barrel lies along the diagonal toward the room centre
         }
+        if (HALL_THEME[i] !== undefined) { const base = loc.filter(p => p.art || clearOK(i, p.x, p.z, p.r)); loc.length = 0; loc.push(...base); hallPlan(i, loc); }   // HALLS: themed furniture and spots, placed around what already stands (props that would be dropped do not count)
       }
       for (const p of loc) if (p.art || p.k === 'ped' || clearOK(i, p.x, p.z, p.r)) out.push({ ...p, x: p.x + cx, z: p.z + cz });
     } else {
@@ -342,7 +399,7 @@
   const obstaclesIn = (key, m) => solidsOf(key, key[0] === 'c' ? typeOf(m && m.layout, +key.slice(1)) : treeTypeOf(m, key) || treeTypeOf(m && m.layout, key));   // bot steering: the room's prop circles {x,z,r}
   const api = { CLIMB, groundY, vstep, climbPush, climbFrame, blocksAt, topAt, TERRAIN, obstaclesIn, solidsOf, storyOf, slide, inProp, segBlocked, allProps, propsAt, rectsAt, PILLARS, PILLAR_D, RELIC, SCALE, W, V, H, T, CS, HS, N, NARENA, NATT, COLW, ROWD, COLX, ROWZ, EDGE, HALF, LIM,
     VAULT, VAULT_KEY, TREE_CELLS, VB_CELLS, HOME_IDS, LOOT_IDS, NSIDE, SIDE_ORDER, SIDE_CELLS, HOME_POS, attachedSide, attachedPos, attachedId, attachedOf, isHomeKey, colOf, rowOf, roomW, roomD, rc, gi, roomAt, inGrid, kindOf, CHEST, chestKey, roomKeyOf, panelOffsets, panelDX, randomPoint,
-    ROOMS, roomRect, DOORS, WALLS, ROOM_DOORS, HATCHES, alwaysOpen, attachedAt, homeOf, attLocal, HOME_LAYOUT, LOOT_LAYOUT, HOME_SOLIDS, HOME_K, TREE_SOLIDS, VB_SOLIDS, VB_SCALE, COFFERS, rectCircles, treeKind, treeTypeOf, ACT_LOCAL, vbRot, actAnchors, actKind };
+    ROOMS, roomRect, DOORS, WALLS, ROOM_DOORS, HATCHES, alwaysOpen, attachedAt, homeOf, attLocal, HOME_LAYOUT, LOOT_LAYOUT, HOME_SOLIDS, HOME_K, TREE_SOLIDS, VB_SOLIDS, VB_SCALE, COFFERS, rectCircles, treeKind, treeTypeOf, ACT_LOCAL, vbRot, actAnchors, actKind, HALL_THEME, HALL_CELLS, hallIsHome, hallPieces, hallSpots, allHallSpots, HP, CONT_KINDS, STATION_KINDS };
   root.GKWORLD = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

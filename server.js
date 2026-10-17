@@ -40,7 +40,7 @@ function cached(key, file, type) {
   return e;
 }
 const missUntil = new Map();   // PERF4: url key -> time the remembered miss expires
-const CLIENT_JS = new Set(['game', 'menu', 'items', 'combat4', 'affix', 'mutators', 'world', 'save', 'stats', 'statsui', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'wbui', 'act5ui', 'fskeep', 'keep', 'keepui', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)   // KEEP: keep, keepui
+const CLIENT_JS = new Set(['game', 'menu', 'items', 'combat4', 'affix', 'mutators', 'world', 'save', 'stats', 'statsui', 'icons', 'audio', 'feel', 'itemart', 'vfx', 'hud5', 'iconworker', 'elixir', 'homebase', 'homeui', 'wbui', 'act5ui', 'halls', 'fskeep', 'keep', 'keepui', 'rooms5art-home', 'rooms5art-trees-a', 'rooms5art-trees-b', 'rooms5art-vault']);   // ROOMS5ART: the room art modules (hyphenated names)   // KEEP: keep, keepui
 let CSP = '';
 function buildCsp() {   // the page has two inline scripts (importmap + module): allowed by hash, so no 'unsafe-inline' for scripts
   const page = cached('/index.html', path.join(ROOT_DIR, 'index.html'), 'text/html; charset=utf-8'), hashes = [];
@@ -171,6 +171,7 @@ function newMatch() {
   m.shops = m.layout.map(x => x === 'merchant' ? GKITEMS.randomShop() : null);   // each merchant's 5 items with gold prices, rolled once per match
   m.mystery = m.layout.map(x => x === 'mystery' ? (DBG && process.env.GK_ENEMY && NPC[process.env.GK_ENEMY] ? { kind: 'enemy', enemy: process.env.GK_ENEMY } : GKITEMS.randomMystery()) : null);   // GK_ENEMY (GK_DEBUG only): every mystery room holds this enemy   // what is inside each mystery room, rolled once per match // weapon index per chest room
   lootInit(m);   // LOOT: vault relic, shop base prices, lures
+  H5.init(m);   // HALLS: containers, stations and events of the plain halls (halls5.js)
   A5.init(m);   // ACT5: tree roll, vaultbreaker layout, the activity rooms' state (act5.js)
   matches.set(m.id, m); return m;
 }
@@ -218,6 +219,7 @@ function tickAll() { // steps every match (scheduled by the TICK block below)
     c4Tick(m, now);   // COMBAT4: open swing windows, projectiles in flight
     ruleTick(m, now);   // RULES: experimental rules (no-op unless GK_RULES is set)
     guardTick(m, now);   // DOORGUARD: nobody stays locked in a room, nobody stays stuck inside a prop
+    H5.tick(m, now);   // HALLS: searches and restocks
     A5.tick(m, now);   // ACT5: tree rooms, vaultbreakers, the vault (10 Hz inside)
     elixirTick(m, now);   // ELIXIR: pumps, home security, sendables, bots at home
     if (!m.started) m.endsAt = now + m.dur;   // round 1 waits until someone has left the wheel and entered the rooms
@@ -422,6 +424,7 @@ function die(ws, p) { // a dead player drops everything where they fell and leav
   const m = p.match; if (p.dead || !m) return;
   if (p.npc) return dieNpc(m, p);
   craftCancel(p, 'dead');   // STATIONS: a running craft is refunded before the death pile is made
+  H5.death(m, p);   // HALLS: a search stops
   A5.death(m, p);   // ACT5: the claim, carried sack or bucket, blessing and channels are lost
   const items = allItems(p.inv), brain = G.brainKey(p.stats.knowledge); // the brain carries the victim's CURRENT knowledge
   m.deaths = (m.deaths || 0) + 1; p.dead = true; p.diedAt = Date.now(); m.dead.push(p);
@@ -772,6 +775,7 @@ function hitTarget(m, ws, p, tws, t, dmg, now, wname, opts) {   // damage, hit b
   { const behind = (p.x - t.x) * -Math.sin(t.yaw || 0) + (p.z - t.z) * -Math.cos(t.yaw || 0) < -0.3 * Math.hypot(p.x - t.x, p.z - t.z);   // GOBTYPES: type perks (dodge, backstab, rage, thick hide)
     const r = G.goblinHit({ goblin: p.goblin, hp: p.stats ? p.stats.health : 0, max: p.stats ? p.stats.maxHealth : 0, npc: p.npc }, { goblin: t.goblin, npc: t.npc }, dmg, { melee: !!(opts && opts.melee), behind });
     if (r.dodged) { bcast(m, { dodge: { from: p.id, to: t.id } }); return; } dmg = r.dmg; if (r.backstab || r.rage) cue = r.backstab ? { bs: 1 } : { rage: 1 }; }
+  dmg = H5.hitMul(p, dmg, now);   // HALLS: a whetstone's edge
   dmg = NX.hit(m, p, t, dmg);   // NPCX: the shieldbearer takes little from the front
   dmg = A5.hitMul(m, p, t, dmg, wname, opts);   // ACT5: Fury blessing, Hollow Oak ambush
   if (opts && opts.base) dmg = G.capHit(opts.base, dmg, t);   // BALANCE-3: one blow never carries more than x1.75 of its weapon damage (items.js DMG_CAP)
@@ -779,6 +783,7 @@ function hitTarget(m, ws, p, tws, t, dmg, now, wname, opts) {   // damage, hit b
   if (hp <= 0 && !t.npc && !t.swUsed && G.hasPerk(t.perks, 'secondwind')) { hp = 1; t.swUsed = true; sendTo(t.ws, { secondWind: 1 }); }   // KNOWLEDGE: Second Wind
   statHit(p, t, t.stats.health - hp);   // STATS
   t.stats.health = hp; t.hurtAt = now; t.hitBy = p.id; m.dirty = true;   // hitBy: a bot notices whoever hurt it at once
+  H5.hurt(m, t);   // HALLS: a hit breaks a search
   A5.hurt(m, t, p);   // ACT5: a hit breaks channels and drops carried sacks / buckets
   bcast(m, { hit: { from: p.id, to: t.id, dmg, hp, max: t.stats.maxHealth, dead: hp <= 0, ...(opts && opts.bleed ? { bleed: 1 } : null), ...cue, ...(opts && opts.hg ? { hg: 1 } : null), ...(opts && opts.heavy ? { heavy: 1 } : null), ...(opts && opts.c4x ? opts.c4x : null) } });   // COMBAT4: c4x = { sq, st, kb, blk, k } (swing id, stagger ms, knockback, blocked, projectile kind)
   const th = opts && opts.melee && hp > 0 && !p.dead ? G.armorThorns(t.inv && t.inv.armor) + A5.reflect(m, t, dmg) : 0;   /* ACT5: + the Thorns blessing */   // ARMOUR-3: thorns hurt a melee attacker (never lethal, so no kill bookkeeping is needed)
@@ -1121,7 +1126,14 @@ function spawnNpc(m, id) {   // FUN: the enemy of mystery room c<id> appears whe
     place(p, c.cx, c.cz); p.home = [c.cx, c.cz]; p.brain = newBrain(p, S.speed); p.brain.react = S.react; m.players.set(key, p);
   }
 }
-function noteRoom(m, p, prev) { if (p.room !== prev && !p.npc) A5.room(m, p, prev); /* ACT5 */ if (p.room !== prev && !p.npc && p.entered) { const mm = /^c(\d+)$/.exec(p.room); if (mm) spawnNpc(m, +mm[1]); } }
+// HALLS: a weak enemy (the mystery-room kinds) guarding a plain hall; it appears when a goblin first walks in and stays in the hall (loot as a mystery enemy)
+function spawnGuard(m, cell, kind, x, z) {
+  if (m.phase !== 'play' || !NPC[kind]) return;
+  m.dirty = true; const S = NPC[kind], key = { readyState: 0, npc: true }, p = { id: nextId++, wins: 0, ws: null, key, npc: kind, name: S.name, match: m, box: -1, yaw: 0, ready: true, entered: true, npcDmg: S.dmg, npcCd: S.cd };
+  equip(p, S.look); p.inv.weapon = S.weapon; p.inv.armor = null; recalc(p); p.stats.maxHealth = S.hp; p.stats.health = S.hp; p.stats.attack = S.dmg; p.gear = { weapon: S.name + "'s weapon", armor: 'None' };
+  place(p, x, z); p.home = [x, z]; p.brain = newBrain(p, S.speed); p.brain.react = S.react; m.players.set(key, p);
+}
+function noteRoom(m, p, prev) { if (p.room !== prev && !p.npc) { A5.room(m, p, prev); H5.room(m, p, prev); } /* ACT5, HALLS */ if (p.room !== prev && !p.npc && p.entered) { const mm = /^c(\d+)$/.exec(p.room); if (mm) spawnNpc(m, +mm[1]); } }
 function npcLoot(kind) {
   const S = NPC[kind], out = [];
   if (!S.loot[0]) return out;   // ELIXIR: rats carry nothing
@@ -1704,6 +1716,22 @@ function bot5Stat(m) {   // GK_DEBUG {bot5:1}: this match's bot stats for tests/
     crafted: S.crafted, recycled: S.recycled, brewed: S.brewed, rested: S.rested, bribes: S.bribes, coop: S.coop, lockpicks: S.lockpicks, vaultPicks: S.vaultPicks, stuck: S.stuck, hardStuck: S.hardStuck, rekey: S.rekey, vaultOpen: S.vOpen == null ? null : S.vOpen,
     left: Object.keys(S.left).length, bots: Object.keys(S.seen).length, alive: bots.filter(q => !q.dead).length, visits: S.visits, leaveWhy: S.leaveWhy, trees: m.trees, vbLayout: m.vb, claims, lab: lab ? { id: lab.id, room: lab.room, goal: lab.brain.g5 ? lab.brain.g5.room : null, know: lab.stats.knowledge, gold: lab.gold, pack: lab.inv.backpack.filter(Boolean) } : null, rewards: m.act ? Object.fromEntries(Object.entries(m.act.log).map(([k, v]) => [k, v.n])) : {}, f5: BS.f5 || null, sweeps: BS.n, sweepMean: BS.n ? BS.sum / BS.n : 0, b6: B6 ? bot6Stat(m) : null };   // BOTS6
 }
+// HALLS-BOT: an idle bot in a plain hall walks to a container or station in reach and uses it through H5.act (the rules and caps of a human apply; ~one search per 10 s at most)
+function hallBot(m, p, now, dt) {
+  const b = p.brain, h = b.h5s || (b.h5s = { id: null, until: 0, next: now + 3000 });
+  if (p.hs) { idleLook(m, p, now); return true; }   // searching: hold still (moving breaks it)
+  if (m.sudden || b.tgt || !/^\d+$/.test(p.room || '') || (!h.id && now < b.idleUntil)) return false;   // not while it looks around after arriving (or a test holds it still)
+  if (!h.id) {
+    if (now < h.next) return false; h.next = now + 2500;
+    if (Math.random() > 0.7) return false;
+    const sp = H5.botPick(m, p, now); if (!sp) return false;
+    h.id = sp.id; h.until = now + 9000;
+  }
+  const sp = H5.BYID.get(h.id);
+  if (!sp || sp.key !== p.room || now > h.until) { h.id = null; h.next = now + 6000; return false; }
+  if (Math.hypot(p.x - sp.x, p.z - sp.z) <= sp.r + 1.0) { H5.act(m, p, { s: sp.id, v: 'use' }, now); h.id = null; h.next = now + 8000; return true; }
+  stepTo(m, p, sp.sx, sp.sz, dt, now); return true;
+}
 // BOTS5-END
 // BOTS6-BEGIN (docs/reports/bots6.md): stronger, more human bots. Pure decisions live in botgoals.js (LEVELS, fightPlan, useNow, targetAdj, claimNow, danger,
 // sendPick, ...); this block gathers what the bot KNOWS (what it saw, heard, or what every player is told: swings, tosses, traps, telegraphs, the crown) and acts
@@ -2042,6 +2070,7 @@ function botThink(m, p, now, dt) {
     if (b.cross) b.speed = sprintOf(p);   // AI: sprint between rooms
     follow(m, p, dt, now); if (!b.route.length) b.idleUntil = Math.max(b.idleUntil, now + rnd(500, 2200)); return;   // arrived: look around a moment
   }
+  if (bot && hallBot(m, p, now, dt)) return;   // HALLS: an idle bot in a plain hall searches what is in reach
   const looting = now >= b.lootOff;
   if (looting && lootNearby(m, p, dt, now)) { b.lootAt = now; return; }
   if (relicGoal(m, p, dt, now)) { b.lootAt = now; return; }   // LOOT
@@ -2330,7 +2359,7 @@ function botLab(m, ws, p, cmd) {   // GK_DEBUG only, for tests. 'station': make 
     const c = WORLD.CHEST[L0]; bot.brain.route = []; bot.brain.done = {}; bot.brain.idleUntil = 0; bot.brain.mode = ''; place(bot, c.cx, c.cz); m.dirty = true; BS.rec = 0; BS.cra = 0;
   } else if (cmd && Array.isArray(cmd.near) && bot) {   // {near:[x,z]} one bot; {near:[x,z], all:1} every living bot in a small grid, or on a ring of radius `ring` around the point
     const bots = cmd.all ? [...m.players.values()].filter(q => q.bot && !q.dead) : [bot], r = +cmd.ring > 0 ? +cmd.ring : 0;
-    bots.forEach((q, i) => { const a = 2 * Math.PI * i / bots.length; place(q, cmd.near[0] + (r ? Math.cos(a) * r : (i % 3) * 0.8), cmd.near[1] + (r ? Math.sin(a) * r : Math.floor(i / 3) * 0.8)); q.brain.route = []; q.brain.idleUntil = Date.now() + 60000; q.brain.mode = ''; q.roomAt = 0; q.brain.tgt = null; q.brain.search = null; q.brain.scan = null; q.brain.waitUntil = 0; q.brain.pauseUntil = 0;
+    bots.forEach((q, i) => { const a = 2 * Math.PI * i / bots.length; place(q, cmd.near[0] + (r ? Math.cos(a) * r : (i % 3) * 0.8), cmd.near[1] + (r ? Math.sin(a) * r : Math.floor(i / 3) * 0.8)); q.brain.route = []; q.brain.idleUntil = Date.now() + (cmd.hallGo ? 0 : 60000); if (cmd.hallGo) q.brain.h5s = { id: null, until: 0, next: 0 }; q.brain.mode = '';   /* HALLS test hook: {near, hallGo:1} lets the bot act at once */ q.roomAt = 0; q.brain.tgt = null; q.brain.search = null; q.brain.scan = null; q.brain.waitUntil = 0; q.brain.pauseUntil = 0;
       if (typeof cmd.yaw === 'number') q.yaw = cmd.yaw; else if (r) q.yaw = yawTo(q, cmd.near[0], cmd.near[1]);   // ring bots face the middle unless {yaw} says otherwise
       q.brain.scanAt = typeof cmd.scanAfter === 'number' ? Date.now() + cmd.scanAfter : 0; q.sd = true; if (cmd.wpn === 'none' || (typeof cmd.wpn === 'string' && G.ITEMS[cmd.wpn])) { q.inv.weapon = cmd.wpn === 'none' ? null : cmd.wpn; recalc(q); } }); m.dirty = true;   // wpn: give the bot that weapon ('none': unarmed, 1 damage, keeps a test human alive). roomAt 0: they count as long-time residents. scanAfter: ms before the idle bot first looks around
   }
@@ -2679,6 +2708,7 @@ function socClose(m, ws, p) {   // socket closed: true when the close was handle
   if (p.kicked) return false;   // SECURITY: a kicked player leaves at once, no grace period
   if (p.dead || m.ended || m.phase === 'queue' || !m.players.has(ws)) return false;
   p.dc = Date.now(); p.ready = true; m.dirty = true;   // frozen in the world, still alive for bots and the win rule; a loading match does not wait for him
+  H5.death(m, p);   // HALLS
   A5.dc(m, p);   // ACT5: his channels stop; he does not count on the dais or in a capture zone while away
   return true;
 }
@@ -2698,6 +2728,7 @@ function socWelcome(m, ws, p) {   // full resync: the welcome fields of startMat
   sendTo(ws, { inv: p.inv }); sendGold(p); sendParts(p); sendTo(ws, { perks: p.perks || [] });   // KNOWLEDGE
   if (m.phase === 'play') sendTo(ws, { board: { left: matchInfo(m).alive, rows: boardRows(m) } });
   if (m.phase === 'countdown') sendTo(ws, { countdown: { at: m.goAt, now: Date.now() } });
+  H5.welcome(m, ws, p);   // HALLS
   A5.welcome(m, ws, p);   // ACT5: trees, the room's activity state, the crown
   KS5.resume(ws, p);   // KEEP
 }
@@ -2710,6 +2741,7 @@ function socEmote(m, ws, p, n, now) {   // {emote:n}: relayed to everyone else (
 setInterval(() => { for (const [t, p] of socTokens) if (p.dead || !p.match || !p.match.players.has(p.ws) || matches.get(p.match.id) !== p.match) socTokens.delete(t); }, 60000).unref();   // ROBUST: also forget the tokens of a match that was closed (lifetime, repeated errors)
 // SOCIAL-END
 // ACT5-BEGIN (the activity rooms: act5.js glue for activity.js, rooms5-trees.js, vb5.js, vault5.js; docs/reports/special-rooms-server.md)
+const H5 = require('./halls5.js')({ G, DBG, sendTo, bcast, sendGold, sendParts, giveItem, addDrop, spawnGuard });   // HALLS (halls5.js)
 const A5 = require('./act5.js')({ G, DBG, rule, bcast, sendTo, sendInv, sendGold, sendParts, giveItem, recalc, place, die, addDrop, broadcastRound, sendBoard, isOpen, VAULT, eatBrain, srvT, T0, newId: () => nextId++, equip, newBrain, npcFight, stepTo, clampIn });
 // ACT5-END
 const NX = NPCX({ NPC, WORLD, equip, recalc, place, newBrain, newId: () => nextId++, bcast, sendTo, sendGold, stepTo, clampIn, face, G });   // NPCX
@@ -2762,6 +2794,7 @@ wss.on('connection', (ws, req) => {
     if (Array.isArray(d.m) && (d.m.length === 3 || d.m.length === 4) && d.m.every(v => typeof v === 'number' && Number.isFinite(v))) { applyMove(m, ws, p, d.m[0], d.m[1], d.m[2], now, d.m[3]); if (p.c4sw) c4Eval(p.c4sw);   // COMBAT4: a fresh pose during the active window is checked at once
     } else if (typeof d.ping === 'number' && Number.isFinite(d.ping)) { sendTo(ws, { pong: d.ping, t: srvT() });
     } else if (d.emote !== undefined) { socEmote(m, ws, p, d.emote, now);   // SOCIAL
+    } else if (d.hall !== undefined) { H5.act(m, p, d.hall, now);   // HALLS: {hall:{s,v}} search a container / use a station
     } else if (d.act !== undefined) { A5.act(m, p, d.act, now);   // ACT5: an activity verb {act:{r,a,v,x?}}
     } else if (typeof d.lat === 'number' && Number.isFinite(d.lat)) { p.lat = Math.max(0, Math.min(1000, d.lat));   // ACT5: smoothed latency for the timing presses
     } else if (dbg && d.actDbg) { A5.debug(m, p, d.actDbg);   // ACT5 test hook

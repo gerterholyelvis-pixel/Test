@@ -4195,6 +4195,7 @@ function makeNet(opts) {   // opts.goblin: play this goblin type (a saved charac
     send(m) {
       if (typeof m.ping === 'number') net.onmessage && net.onmessage({ pong: m.ping, t: Math.round(performance.now()) });
       if (m.atk === 1) simAtk(m);
+      if (m.hall && window.GKHALL) GKHALL.sim(m.hall);   // HALLS: the offline demo searches without a server
       if (typeof m.use === 'string' && meP) simUse(m.use);   // ITEMS2
       if (m.dbgFF === 1 && SIM_DBG && rs.started) { rs.endsAt = Math.min(rs.endsAt, performance.now() + 10000); emitRound(); }   // DEV: same rule as server.js dbgFF
       if (m.enter === 1 && !rs.started) { rs.started = true; rs.goAt = performance.now(); rs.endsAt = performance.now() + rs.dur; botPlan(); emitRound(); }
@@ -4463,6 +4464,7 @@ const handleMsg0 = d => {
   if (d.round || d.sel || d.open) applyRound(d);
   if (window.GKHUD5) GKHUD5.onMsg(d);   // HUD5: round banners, crown panel, tints, activity arc
   if (window.GKACT5) GKACT5.onMsg(d);   // ACT5UI: room state for the art and the prompts, toasts, fails
+  if (window.GKHALL) GKHALL.onMsg(d);   // HALLS: container / station state, search progress, loot toasts
   if (d.exitHint) toastMsg('No way out: a door unlocks in ' + Math.ceil((+d.exitHint.ms || 5000) / 1000) + ' s', false, 2600);   // DOORGUARD
   if (d.exitOpen != null) toastMsg('A door unlocks', true, 1800);   // DOORGUARD
   if (!d.players) return;
@@ -5120,7 +5122,7 @@ addEventListener('keydown', e => {
     return;
   }
   if (e.code === 'KeyE' && !invOpen) { if (GK.locked) return;   // one interact key: control panel, then merchant / station, then a loot pile underfoot
-    if (cpInteract() || (window.GKACT5 && GKACT5.key(e)) || stationInteract()) return;   // ACT5UI: an anchor of a tree room / vaultbreaker / the vault comes after the door panel
+    if (cpInteract() || (window.GKACT5 && GKACT5.key(e)) || (window.GKHALL && GKHALL.key(e)) || stationInteract()) return;   // ACT5UI: an anchor of a tree room / vaultbreaker / the vault comes after the door panel
     if (nearestPile()) openStation('loot', nearestPile().id); else net.send({ claim: 1 });   // chest / mystery room contents
     return;
   }
@@ -7158,8 +7160,159 @@ const ROOMART = (() => {
   const wbox = (a, r, w, t0, t1, y0, y1, o0, o1, col) => { const [x, z] = wp(r, w, (t0 + t1) / 2, (o0 + o1) / 2); put(a, BOXG, x, (y0 + y1) / 2, z, 0, YAW[w], 0, t1 - t0, y1 - y0, o1 - o0, col); };
   const pickSeg = (list, rnd) => { const tot = list.reduce((s, q) => s + q[1] - q[0], 0); if (tot <= 0) return null; let k = rnd() * tot; for (const q of list) { const l = q[1] - q[0]; if (k < l) return q[0] + k; k -= l; } return list[0][0]; };
 
+  // ---- HALLS (docs/reports/halls-fill.md): themed furniture of the 16 plain outer halls. world.js hallPieces() says what stands where (the same footprints are solid), this draws it into the room's own merged meshes
+  // (solid vertex-coloured, gold, embers) plus one small water mesh in the halls that have a pool or a font. Pieces are authored in their own frame: x along the width, +z toward the room, y up.
+  const waterM = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.06, metalness: 0.25, envMapIntensity: 1.5, emissive: 0x0a2a3a, emissiveIntensity: 0.6, side: THREE.DoubleSide });
+  const HALL_PAL = {   // wood, dark (iron / dark wood), cloth, cloth2 (accent cloth), stone, rug
+    barracks: { wood: 0x7a5a3a, dark: 0x40362c, cloth: 0x6b7a5a, cloth2: 0x8a4a3a, stone: 0x9a9a96, rug: 0x555e4a },
+    armoury: { wood: 0x6a4a30, dark: 0x3a4048, cloth: 0x5a6a80, cloth2: 0xa04030, stone: 0x8c9096, rug: 0x4a4e58 },
+    kitchen: { wood: 0x9a6a40, dark: 0x44362a, cloth: 0xc8a070, cloth2: 0xb5653f, stone: 0xb8b0a0, rug: 0xb5653f },
+    library: { wood: 0x6a4430, dark: 0x33241c, cloth: 0x7a3b3b, cloth2: 0x3b4f7a, stone: 0x9a948a, rug: 0x7a3b3b },
+    den: { wood: 0x5a3a28, dark: 0x2c2018, cloth: 0x2f6b4a, cloth2: 0x8a2a2a, stone: 0x8a8478, rug: 0x6a2a30 },
+    shrine: { wood: 0x8a7a68, dark: 0x4a4258, cloth: 0x6a4a9a, cloth2: 0xcaa84a, stone: 0xd8d2dc, rug: 0x6a4a9a },
+    workshop: { wood: 0x8a6038, dark: 0x3c3a38, cloth: 0xc07a30, cloth2: 0x555a60, stone: 0x8a8884, rug: 0x6a5a48 },
+    cistern: { wood: 0x5a5048, dark: 0x2c3438, cloth: 0x3e7f86, cloth2: 0x5f9a8a, stone: 0x7e8c88, rug: 0x3a5558 },
+  };
+  const BOOKC = [0x8a3a3a, 0x3a5a8a, 0x3a7a4a, 0x8a6a2a, 0x6a3a7a, 0xb09a6a, 0x5a4a3a];
+  function hallDress(r, A, rnd) {
+    const cell = +r.key, theme = WORLD.HALL_THEME[cell], P = HALL_PAL[theme], S = A.S, Gd = A.G, Em = A.M, Wt = A.W, spots = new Map(WORLD.hallSpots(cell).map(s => [s.id, s]));
+    const c = (hex, a = 0.07) => cv(hex, rnd, a);
+    let rugDone = false, bannerDone = false; const GC = new THREE.Color(0xd9a93a);
+    for (const p of WORLD.hallPieces(cell)) {
+      const [phx, phz, cls] = WORLD.HP[p.h], x = p.x - r.cx, z = p.z - r.cz, yaw = p.yaw, sp = p.spot && spots.get(p.spot.id), kind = sp && sp.kind;
+      const L = (lx, lz) => { const [a, b] = rot(lx, lz, yaw); return [x + a, z + b]; };
+      const bx = (acc, lx, ly, lz, sx, sy, sz, col, rz = 0) => { const [a, b] = L(lx, lz); put(acc, BOXG, a, ly, b, 0, yaw, rz, sx, sy, sz, col); };
+      const cy = (acc, lx, ly, lz, rad, h, col, geo = CYLG) => { const [a, b] = L(lx, lz); put(acc, geo, a, ly, b, 0, yaw, 0, rad, h, rad, col); };
+      const sph = (acc, lx, ly, lz, sx, sy, sz, col) => { const [a, b] = L(lx, lz); put(acc, SPHG, a, ly, b, 0, yaw, 0, sx, sy, sz, col); };
+      const ember = (lx, ly, lz, s = 0.05) => sph(Em, lx, ly, lz, s, s * 1.4, s, WHITE);
+      const gold = (lx, ly, lz, sx, sy, sz) => bx(Gd, lx, ly, lz, sx, sy, sz, GC);
+      if (cls === 'mid' && !rugDone && ['kitchen', 'library', 'shrine', 'den'].includes(theme) && p.h !== 'pool') {   // one rug under the centrepiece
+        rugDone = true;
+        if (theme === 'library' || theme === 'shrine') { const rad = Math.max(phx, phz) + 0.9; cy(S, 0, 0.011, 0, rad, 0.012, c(P.rug, 0.03)); cy(S, 0, 0.014, 0, rad - 0.18, 0.012, c(P.cloth2, 0.03)); cy(S, 0, 0.017, 0, rad - 0.34, 0.012, c(P.rug, 0.03)); }
+        else { bx(S, 0, 0.011, 0, phx * 2 + 1.1, 0.012, phz * 2 + 1.1, c(P.rug, 0.03)); bx(S, 0, 0.014, 0, phx * 2 + 0.8, 0.012, phz * 2 + 0.8, c(P.cloth2, 0.03)); bx(S, 0, 0.017, 0, phx * 2 + 0.55, 0.012, phz * 2 + 0.55, c(P.rug, 0.03)); }
+      }
+      const nearWall = Math.min(r.hx - Math.abs(x), r.hz - Math.abs(z)) < phz + 0.3;   // false: the piece stands on the open floor as an island (a shelf then holds books on both faces, a bench has no pegboard)
+      if (cls === 'wall' && !bannerDone && p.h !== 'board' && nearWall) {   // one banner in the hall's colour on the wall above its first wall piece: the hall's identity from across the room
+        bannerDone = true; bx(S, 0, 3.6, -phz - 0.03, 1.1, 2.1, 0.03, c(P.cloth, 0.04)); bx(S, 0, 4.35, -phz - 0.015, 1.1, 0.12, 0.02, c(P.cloth2, 0.04)); bx(S, 0, 2.85, -phz - 0.015, 1.1, 0.12, 0.02, c(P.cloth2, 0.04)); bx(S, 0, 4.78, -phz - 0.02, 1.3, 0.06, 0.06, c(P.dark)); bx(Gd, 0, 3.6, -phz - 0.005, 0.3, 0.3, 0.02, GC, PI / 4);
+      }
+      switch (p.h === 'cabinet' && theme === 'library' ? 'shelf' : p.h) {   // the library's cabinet is a bookcase
+        case 'bunk':
+          for (const sx of [-1, 1]) for (const sz of [-1, 1]) bx(S, sx * (phx - 0.05), 0.88, sz * (phz - 0.05), 0.07, 1.76, 0.07, c(P.dark));
+          for (const y of [0.4, 1.2]) {
+            bx(S, 0, y, 0, phx * 2 - 0.06, 0.08, phz * 2 - 0.1, c(P.wood)); bx(S, 0.05, y + 0.1, 0, phx * 2 - 0.22, 0.13, phz * 2 - 0.22, c(P.cloth)); bx(S, 0.5, y + 0.18, 0, 0.9, 0.04, phz * 2 - 0.2, c(P.cloth2)); bx(S, -phx + 0.33, y + 0.2, 0, 0.36, 0.1, 0.3, c(0xe8e2d0, 0.03));
+          }
+          break;
+        case 'shelf': {
+          for (const sx of [-1, 1]) bx(S, sx * (phx - 0.03), 0.95, 0, 0.06, 1.9, phz * 2, c(P.wood));
+          bx(S, 0, 0.95, nearWall ? -phz + 0.02 : 0, phx * 2, 1.9, 0.04, c(P.dark));
+          const ys = [0.12, 0.62, 1.12, 1.62, 1.9]; ys.forEach(y => bx(S, 0, y, 0, phx * 2, 0.05, phz * 2, c(P.wood)));
+          for (let row = 0; row < (nearWall ? 3 : 6); row++) {   // on the open floor the stock stands on both faces
+            const y0 = ys[row % 3] + 0.025, zo = nearWall ? -0.02 : row >= 3 ? 0.1 : -0.1, dep = nearWall ? 0.22 : 0.14; let cur = -phx + 0.12;
+            while (cur < phx - 0.16) {
+              if (theme === 'library') { const w = 0.06 + rnd() * 0.1, h = 0.22 + rnd() * 0.18; bx(S, cur + w / 2, y0 + h / 2, zo, w, h, dep, c(BOOKC[(rnd() * BOOKC.length) | 0], 0.1)); cur += w + 0.012; }
+              else if (theme === 'kitchen') { if (rnd() < 0.5) { cy(S, cur + 0.1, y0 + 0.11, zo + 0.02, 0.09, 0.22, c(0xb09a6a, 0.1)); cur += 0.24; } else { cy(S, cur + 0.14, y0 + 0.03, zo + 0.02, 0.14, 0.03, c(0xe8e2d0, 0.03)); cy(S, cur + 0.14, y0 + 0.07, zo + 0.02, 0.14, 0.03, c(0xdad4c2, 0.03)); cur += 0.34; } }
+              else if (theme === 'den') { const col = rnd() < 0.5 ? 0x2f5a3a : 0x6a4a2a; cy(S, cur + 0.06, y0 + 0.15, zo + 0.02, 0.05, 0.3, c(col, 0.1)); cy(S, cur + 0.06, y0 + 0.34, zo + 0.02, 0.02, 0.08, c(col, 0.1)); cur += 0.17; }
+              else if (theme === 'workshop') { bx(S, cur + 0.14, y0 + 0.1, zo + 0.02, 0.26, 0.2, dep + 0.08, c(rnd() < 0.5 ? P.cloth : P.cloth2, 0.1)); cur += 0.34; }
+              else { cy(S, cur + 0.12, y0 + 0.14, zo + 0.02, 0.12, 0.28, c(rnd() < 0.5 ? P.wood : P.cloth, 0.12)); cur += 0.3; }
+            }
+          }
+          break;
+        }
+        case 'rack': {
+          for (const sx of [-1, 1]) bx(S, sx * (phx - 0.05), 0.75, -phz + 0.1, 0.07, 1.5, 0.07, c(P.dark));
+          for (const y of [0.8, 1.25]) bx(S, 0, y, -phz + 0.1, phx * 2, 0.05, 0.06, c(P.dark));
+          for (let i = 0; i < 5; i++) {
+            const lx = -phx + 0.25 + i * (phx * 2 - 0.5) / 4, lean = (rnd() - 0.5) * 0.18, sword = i % 3 !== 1;
+            bx(S, lx, 1.0, -phz + 0.18, sword ? 0.06 : 0.09, 1.3, 0.02, c(P.dark === 0x3a4048 ? 0x9aa2aa : 0x8a929a, 0.06), lean);
+            bx(S, lx, 0.52, -phz + 0.18, 0.04, 0.34, 0.04, c(P.wood), lean); bx(S, lx, 0.67, -phz + 0.18, 0.2, 0.035, 0.04, c(P.dark), lean);
+          }
+          break;
+        }
+        case 'altar':
+          bx(S, 0, 0.45, 0, phx * 2, 0.9, phz * 2, c(P.stone, 0.04)); bx(S, 0, 0.95, 0, phx * 2 + 0.1, 0.1, phz * 2 + 0.1, c(P.stone, 0.04)); bx(S, 0, 1.005, 0, 0.7, 0.02, phz * 2 + 0.12, c(P.cloth, 0.03)); bx(S, 0, 1.012, 0, 0.12, 0.02, phz * 2 + 0.13, c(P.cloth2, 0.03));
+          for (const sx of [-1, 1]) { cy(S, sx * 0.55, 1.2, 0, 0.045, 0.3, c(0xe8e2d0, 0.03)); ember(sx * 0.55, 1.4, 0, 0.045); }
+          break;
+        case 'bench':
+          bx(S, 0, 0.88, 0, phx * 2, 0.1, phz * 2, c(P.wood)); bx(S, 0, 0.3, 0, phx * 2 - 0.2, 0.06, phz * 2 - 0.14, c(P.wood));
+          for (const sx of [-1, 1]) for (const sz of [-1, 1]) bx(S, sx * (phx - 0.1), 0.44, sz * (phz - 0.08), 0.1, 0.88, 0.1, c(P.dark));
+          bx(S, -0.8, 1.02, 0.05, 0.22, 0.2, 0.26, c(P.cloth2)); bx(S, -0.8, 1.16, 0.05, 0.1, 0.08, 0.3, c(P.dark)); bx(S, 0.3, 0.96, 0.1, 0.26, 0.06, 0.08, c(P.dark)); bx(S, 0.8, 0.95, -0.1, 0.18, 0.04, 0.3, c(P.cloth));
+          if (nearWall) {
+            bx(S, 0, 1.65, -phz + 0.03, phx * 2, 0.9, 0.04, c(P.dark));
+            for (let i = 0; i < 5; i++) bx(S, -phx + 0.3 + i * 0.45, 1.6 + (rnd() - 0.5) * 0.3, -phz + 0.07, 0.05 + rnd() * 0.05, 0.3 + rnd() * 0.2, 0.03, c(0x9aa2aa, 0.08));
+          }
+          break;
+        case 'board':
+          bx(S, 0, 1.55, -phz + 0.04, phx * 2, 0.95, 0.06, c(P.wood)); bx(S, 0, 1.55, -phz + 0.075, phx * 2 - 0.12, 0.83, 0.02, c(0xb48a5a, 0.05));
+          for (let i = 0; i < 6; i++) { const px = -phx + 0.25 + (i % 3) * 0.42 + (rnd() - 0.5) * 0.08, py = 1.35 + ((i / 3) | 0) * 0.42 + (rnd() - 0.5) * 0.05; bx(S, px, py, -phz + 0.1, 0.24, 0.3, 0.01, c(i === 0 ? 0xe4d8b0 : 0xeee8d8, 0.04), (rnd() - 0.5) * 0.2); bx(S, px, py + 0.11, -phz + 0.11, 0.03, 0.03, 0.02, c(0xa02820, 0.05)); }
+          bx(S, 0, 2.2, -phz + 0.06, phx * 2 + 0.1, 0.1, 0.1, c(P.dark));
+          break;
+        case 'cabinet':
+          bx(S, 0, 0.75, 0, phx * 2, 1.5, phz * 2, c(P.wood)); bx(S, 0, 1.54, 0, phx * 2 + 0.08, 0.06, phz * 2 + 0.08, c(P.dark)); bx(S, 0, 0.75, phz + 0.005, 0.025, 1.4, 0.01, c(P.dark));
+          for (const sx of [-1, 1]) { bx(S, sx * 0.4, 0.8, phz + 0.005, 0.42, 1.3, 0.01, c(P.wood, 0.1)); gold(sx * 0.07, 0.8, phz + 0.03, 0.03, 0.12, 0.03); }
+          break;
+        case 'table':
+          bx(S, 0, 0.85, 0, phx * 2, 0.1, phz * 2, c(P.wood)); bx(S, 0, 0.78, 0, phx * 2 - 0.1, 0.06, phz * 2 - 0.1, c(P.dark));
+          for (const sx of [-1, 1]) for (const sz of [-1, 1]) bx(S, sx * (phx - 0.18), 0.4, sz * (phz - 0.18), 0.13, 0.8, 0.13, c(P.dark));
+          for (let i = 0; i < 6; i++) { const q = i % 3 - 1, s2 = i < 3 ? -1 : 1; cy(S, q * 0.85 + (rnd() - 0.5) * 0.1, 0.915, s2 * 0.42, 0.13, 0.025, c(0xeee8d8, 0.04)); if (rnd() < 0.6) cy(S, q * 0.85 + 0.05, 0.95, s2 * 0.42, 0.05, 0.05, c(P.cloth2)); }
+          bx(S, 0.2, 0.93, 0, 0.3, 0.07, 0.18, c(0xc8a060, 0.08)); cy(S, -1.0, 0.99, 0.05, 0.06, 0.14, c(0xb09a6a));
+          break;
+        case 'round':
+          cy(S, 0, 0.78, 0, phx, 0.12, c(P.wood)); cy(S, 0, 0.845, 0, phx - 0.09, 0.02, c(P.cloth, 0.04)); cy(S, 0, 0.39, 0, 0.26, 0.78, c(P.dark)); cy(S, 0, 0.04, 0, 0.5, 0.08, c(P.dark));
+          for (let i = 0; i < 6; i++) { const a = i * 1.05 + rnd(), d = 0.35 + rnd() * 0.35; cy(S, Math.cos(a) * d, 0.87, Math.sin(a) * d, 0.055, 0.025, c([P.cloth2, 0xe8e2d0, 0x2a2a2e][i % 3], 0.05)); }
+          for (let i = 0; i < 3; i++) bx(S, -0.4 + i * 0.35, 0.86, 0.45, 0.14, 0.01, 0.2, c(0xeee8d8, 0.03), (rnd() - 0.5) * 0.7);
+          for (let i = 0; i < 4; i++) cy(Gd, 0.35 + (rnd() - 0.5) * 0.1, 0.875 + i * 0.022, -0.35, 0.06, 0.02, GC);
+          break;
+        case 'desk':
+          bx(S, 0, 0.78, 0, phx * 2, 0.08, phz * 2, c(P.wood)); for (const sx of [-1, 1]) bx(S, sx * (phx - 0.05), 0.37, 0, 0.08, 0.74, phz * 2 - 0.06, c(P.dark));
+          bx(S, -0.2, 0.84, 0.05, 0.5, 0.04, 0.34, c(0xe6dcc0, 0.04)); bx(S, -0.2, 0.86, 0.05, 0.02, 0.04, 0.34, c(P.cloth)); cy(S, 0.45, 0.88, -0.1, 0.045, 0.1, c(0x20242a)); cy(S, 0.58, 0.9, 0.1, 0.035, 0.18, c(0xe8e2d0, 0.03)); ember(0.58, 1.02, 0.1, 0.035);
+          break;
+        case 'font': {
+          cy(S, 0, 0.25, 0, phx, 0.5, c(P.stone, 0.04)); cy(S, 0, 0.55, 0, phx + 0.05, 0.08, c(P.stone, 0.04)); cy(Wt, 0, 0.52, 0, phx - 0.12, 0.02, c(0x4aa8c8, 0.04));
+          cy(S, 0, 0.6, 0, 0.13, 1.1, c(P.stone, 0.04)); cy(S, 0, 1.17, 0, 0.27, 0.08, c(P.stone, 0.04)); cy(Wt, 0, 1.22, 0, 0.22, 0.02, c(0x6ac4e0, 0.04)); sph(Wt, 0, 1.3, 0, 0.1, 0.12, 0.1, c(0x8adcf0, 0.04));
+          break;
+        }
+        case 'pool':
+          for (const sz of [-1, 1]) bx(S, 0, 0.2, sz * (phz - 0.12), phx * 2 + 0.1, 0.4, 0.24, c(P.stone, 0.05));
+          for (const sx of [-1, 1]) bx(S, sx * (phx - 0.12), 0.2, 0, 0.24, 0.4, phz * 2 - 0.24, c(P.stone, 0.05));
+          bx(Wt, 0, 0.3, 0, phx * 2 - 0.22, 0.02, phz * 2 - 0.22, c(0x2a8fa8, 0.05)); bx(S, 0, 0.1, 0, phx * 2 - 0.22, 0.2, phz * 2 - 0.22, c(P.dark));
+          cy(S, -phx + 0.5, 3.25, -phz + 0.2, 0.12, 6.5, c(P.dark)); cy(S, -phx + 0.5, 0.45, -phz + 0.2, 0.17, 0.1, c(P.cloth2));
+          break;
+        case 'stand':
+          if (theme === 'library') { cy(S, 0, 0.04, 0, 0.26, 0.08, c(P.dark)); cy(S, 0, 0.5, 0, 0.03, 0.9, c(P.wood)); sph(S, 0, 1.02, 0, 0.3, 0.3, 0.3, c(P.cloth, 0.03)); bx(S, 0, 1.02, 0, 0.64, 0.025, 0.04, c(0xc8b070), 0.5); }
+          else if (theme === 'shrine') { cy(S, 0, 0.04, 0, 0.24, 0.08, c(P.dark)); cy(S, 0, 0.7, 0, 0.03, 1.4, c(P.dark)); cy(S, 0, 1.42, 0, 0.17, 0.03, c(P.dark)); for (const k of [-1, 0, 1]) { cy(S, k * 0.09, 1.56, k ? 0.03 : -0.06, 0.032, 0.22, c(0xe8e2d0, 0.03)); ember(k * 0.09, 1.7, k ? 0.03 : -0.06, 0.04); } }
+          else if (theme === 'den') { cy(S, 0, 0.45, 0, 0.36, 0.9, c(P.wood)); for (const y of [0.2, 0.7]) cy(S, 0, y, 0, 0.375, 0.05, c(P.dark)); cy(S, 0, 0.91, 0, 0.33, 0.02, c(P.dark)); }
+          else { cy(S, 0, 0.04, 0, 0.3, 0.08, c(P.wood)); cy(S, 0, 0.8, 0, 0.04, 1.5, c(P.dark)); bx(S, 0, 1.25, 0, 0.5, 0.6, 0.28, c(0x8a929a, 0.06)); bx(S, 0, 1.5, 0, 0.8, 0.08, 0.1, c(P.dark)); sph(S, 0, 1.72, 0, 0.16, 0.18, 0.16, c(0x8a929a, 0.06)); bx(S, 0, 1.25, 0.16, 0.3, 0.3, 0.02, c(P.cloth2)); }
+          break;
+        case 'cauldron':
+          for (let i = 0; i < 3; i++) { const a = i * 2.1; bx(S, Math.cos(a) * 0.4, 0.15, Math.sin(a) * 0.4, 0.08, 0.3, 0.08, c(P.dark)); }
+          sph(S, 0, 0.68, 0, 0.58, 0.46, 0.58, c(0x2c2e32, 0.05)); cy(S, 0, 0.9, 0, 0.58, 0.06, c(0x3c3e44, 0.05)); cy(S, 0, 0.935, 0, 0.5, 0.02, c(0x7a8a30, 0.08));
+          bx(S, 0, 0.08, 0, 0.7, 0.1, 0.1, c(P.wood)); bx(S, 0, 0.12, 0, 0.1, 0.1, 0.7, c(P.wood)); ember(0, 0.17, 0, 0.16);
+          break;
+        case 'grind':
+          for (const sx of [-1, 1]) bx(S, sx * 0.3, 0.45, 0, 0.06, 0.9, 0.5, c(P.wood)); bx(S, 0, 0.25, 0, 0.66, 0.05, 0.05, c(P.dark));
+          { const [a, b] = L(0, 0); put(S, CYLG, a, 0.8, b, 0, yaw, PI / 2, 0.36, 0.12, 0.36, c(P.stone, 0.05)); }
+          bx(S, 0, 0.1, 0.1, 0.5, 0.04, 0.18, c(P.wood)); bx(S, 0.0, 1.0, 0.0, 0.5, 0.025, 0.08, c(0x9aa2aa, 0.05), 0.3);
+          break;
+        case 'cashbox':
+          cy(S, 0, 0.25, 0, 0.3, 0.5, c(P.wood)); bx(S, 0, 0.64, 0, 0.58, 0.28, 0.4, c(P.dark)); bx(S, 0, 0.8, 0, 0.6, 0.04, 0.42, c(P.dark)); gold(0, 0.67, 0.21, 0.08, 0.1, 0.03); gold(0, 0.6, 0, 0.62, 0.025, 0.02);
+          for (let i = 0; i < 4; i++) cy(Gd, 0.38 + (rnd() - 0.5) * 0.3, 0.012, 0.2 + (rnd() - 0.5) * 0.3, 0.055, 0.02, GC);
+          break;
+        case 'bin':
+          if (kind === 'sunk') { cy(Wt, 0, 0.012, 0, 0.95, 0.02, c(0x2a8fa8, 0.05)); bx(S, 0, 0.3, 0, phx * 2 - 0.1, 0.55, phz * 2 - 0.1, c(P.wood), 0.12); bx(S, 0, 0.3, 0, phx * 2 - 0.02, 0.08, phz * 2 - 0.02, c(P.dark), 0.12); gold(0.1, 0.6, 0, 0.3, 0.05, 0.2); }
+          else {
+            for (const sz of [-1, 1]) bx(S, 0, 0.25, sz * (phz - 0.025), phx * 2, 0.5, 0.05, c(P.wood));
+            for (const sx of [-1, 1]) bx(S, sx * (phx - 0.025), 0.25, 0, 0.05, 0.5, phz * 2, c(P.wood)); bx(S, 0, 0.04, 0, phx * 2, 0.06, phz * 2, c(P.dark));
+            if (kind === 'parts') { for (let i = 0; i < 5; i++) cy(S, (rnd() - 0.5) * 0.7, 0.3 + (i % 2) * 0.04, (rnd() - 0.5) * 0.5, 0.13 + rnd() * 0.04, 0.04, c(0x8a929a, 0.1)); bx(S, 0, 0.45, 0, 0.8, 0.05, 0.1, c(P.wood), 0.3); }
+            else { bx(S, -0.1, 0.35, 0, 0.7, 0.3, 0.55, c(P.cloth, 0.05)); sph(S, 0.2, 0.42, 0.05, 0.22, 0.14, 0.2, c(0xb09a6a, 0.08)); gold(0.25, 0.58, 0.05, 0.1, 0.03, 0.1); }
+          }
+          break;
+        default: break;
+      }
+    }
+  }
+
   function buildRoom(r) {
-    const rnd = mul(hashStr('roomart:' + r.key)), S = new Acc(r.R), G = new Acc(r.R), C = new Acc(r.R), D = new Acc(r.R), E = new Acc(r.R), A = { S, G, C, M: E };
+    const rnd = mul(hashStr('roomart:' + r.key)), S = new Acc(r.R), G = new Acc(r.R), C = new Acc(r.R), D = new Acc(r.R), E = new Acc(r.R), Wt = new Acc(r.R), A = { S, G, C, M: E, W: Wt };
     const big = r.vault, hx = r.hx, hz = r.hz;
     // 1. skirting cap, floor trim lines, safety corner squares
     const acc = r.kind === 'grid' && !big ? accOf(r.key) : null;   // ROOMID paint colour (null: vault, chest rooms)
@@ -7234,6 +7387,8 @@ const ROOMART = (() => {
       for (let i = 0; i < nCoins; i++) { const p = wallSpot(0.4); if (p) coinScatter(A, p[0], p[1], 8 + ((rnd() * 14) | 0), 0.38, rnd); }
       for (let i = 0; i < nChains; i++) { const p = rnd() < 0.5 ? cornerSpot(0.15) : wallSpot(0.15); if (p) chain(A, p[0], p[1], 1.0 + rnd() * 2.2, rnd); }
     }
+    // 5c. HALLS: the themed furniture of the 16 plain outer halls (world.js hallPieces: the same footprints are solid)
+    if (r.kind === 'grid' && !big && WORLD.HALL_THEME[+r.key] !== undefined) hallDress(r, A, mul(hashStr('halldress:' + r.key)));
     // 6. graffiti on the walls (never over door gaps, the north wall's map/control panels, or each other) and a floor arrow toward the vault
     const marks = [], kinds = ['gob', 'gob', 'crown', 'tally', 'scr', 'mine', 'king', 'kingme', 'kingme', 'face', 'face', 'warr'];
     const nG = r.kind === 'chest' ? 2 : big ? 3 : 3 + ((rnd() * 3) | 0), up = new V3(0, 1, 0);
@@ -7316,7 +7471,7 @@ const ROOMART = (() => {
     }
     if (r.kind === 'chest') { moodAccents(r, E, S, C, rnd); outerDress(r, A, D, mul(hashStr('roomart4:' + r.key))); }
     const out = [], add = (acc, mat, isCeil, name) => { if (!acc.cnt) return; const m = new THREE.Mesh(acc.geometry(), mat); m.name = name; m.matrixAutoUpdate = false; m.updateMatrix(); scene.add(m); out.push(m); if (isCeil) ceilings.push(m); };
-    add(S, solidM, false, 'roomartSolid'); add(G, goldVM, false, 'roomartGold'); add(C, solidM, true, 'roomartCeil'); add(D, decalM, false, 'roomartDecal'); add(E, r.kind === 'chest' ? (moodM[r.type] || solidM) : emberM, false, 'roomartMood');
+    add(S, solidM, false, 'roomartSolid'); add(G, goldVM, false, 'roomartGold'); add(C, solidM, true, 'roomartCeil'); add(D, decalM, false, 'roomartDecal'); add(E, r.kind === 'chest' ? (moodM[r.type] || solidM) : emberM, false, 'roomartMood'); add(Wt, waterM, false, 'roomartWater');
     if (r.kind === 'chest' && r.type === 'merchant') { const bm = makeBoard(r); scene.add(bm); out.push(bm); }   // price board with the real prices
     return out;
   }
@@ -9288,6 +9443,81 @@ window.GKACT5 = (() => {
   return { pre, onMsg, key: e => press(e.code), prompt: () => cur && !cur.busy ? cur.acts[0].label + (cur.acts[0].hold ? ' (hold)' : '') : '', apply, rooms, A, hiddenAt: (x, z) => { if (!A.hidden || !A.hidden.length) return false; const k = W.roomKeyOf(x, z); return A.hidden.includes(k) && roomKeyAt(P.x, P.z) !== k; }, pulsed: id => !!(A.pulse && A.pulse.until > performance.now() && A.pulse.ids.has(id)), recompute, cur: () => cur };
 })();
 // ACT5UI-END
+// HALLS-BEGIN (docs/reports/halls-fill.md): the human side of the plain halls. World.js says where the spots are, halls5.js (server) judges; this shows the E prompt of the nearest spot in reach, sends
+// {hall:{s,v:'use'|'stop'}} (hold E to search, release to stop), a small progress bar, toasts and sounds from the existing names. No lights, nothing per frame.
+window.GKHALL = (() => {
+  const W = WORLD, HL = window.GKHALLS || { LABEL: {}, CFG: { SEARCH_MS: 2600, REACH_PAD: 1.4, WHET_MS: 20000, WHET_CD: 60000 } };
+  const cd = {}, took = new Set(), cache = {}, FAIL = { far: 'Too far away', busy: 'Someone is already at it', cool: 'Not yet', cap: 'You have found enough here for now', taken: 'You already took it', full: 'You are not hurt', state: 'Not now', room: 'Not here' };
+  let me = null, cur = null, holding = null, whetUntil = 0, whetCd = 0;
+  const now = () => performance.now();
+  const spotsOf = key => cache[key] || (cache[key] = /^\d+$/.test(key) && W.HALL_THEME[+key] !== undefined ? W.hallSpots(+key) : []);
+  const snd2 = (n, o) => { try { window.GKAUDIO && GKAUDIO.play(n, o); } catch (e) {} };
+  const mmss = ms => { const s = Math.ceil(ms / 1000); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+  function state(sp) {   // { ok, text }: can I use it now, and what the prompt says
+    const L = HL.LABEL[sp.kind] || 'Use', left = (cd[sp.id] || 0) - now();
+    if (sp.kind === 'board') return { ok: true, text: L };
+    if (sp.kind === 'whet') return whetCd > now() ? { ok: false, text: 'Your edge is still sharp' } : { ok: true, text: L + ' (hold)' };
+    if (sp.kind === 'cache') return took.has(sp.id) ? { ok: false, text: 'You emptied the starter cache' } : { ok: true, text: L + ' (hold)' };
+    if (left > 0) return { ok: false, text: sp.role === 'cont' ? 'Empty, restocks in ' + mmss(left) : 'Recharging, ready in ' + mmss(left) };
+    return { ok: true, text: L + (sp.role === 'cont' || sp.kind === 'font' || sp.kind === 'stew' ? ' (hold)' : '') };
+  }
+  function recompute() {
+    cur = null;
+    if (GK.mode !== 'play' || !spawned || invOpen || shopOpen || GK.locked) return;
+    let best = null, bd = 1e9;
+    const fx0 = -Math.sin(P.yaw), fz0 = -Math.cos(P.yaw);   // prefer what I am looking at: distance minus a bonus for facing it, nothing behind me
+    for (const sp of spotsOf(roomKeyAt(P.x, P.z))) { const d = Math.hypot(P.x - sp.x, P.z - sp.z); if (d > sp.r + HL.CFG.REACH_PAD) continue; const dot = d > 0.05 ? ((sp.x - P.x) * fx0 + (sp.z - P.z) * fz0) / d : 1; if (dot < -0.2) continue; const sc = d - 1.2 * dot; if (sc < bd) { bd = sc; best = sp; } }
+    cur = best;
+  }
+  setInterval(recompute, 120);
+  const bar = document.createElement('div');
+  bar.style.cssText = 'position:fixed;left:50%;top:calc(50% + 44px);width:132px;height:6px;margin-left:-66px;z-index:26;border-radius:4px;background:rgba(10,8,6,.7);border:1px solid rgba(255,215,94,.55);display:none;pointer-events:none';
+  bar.innerHTML = '<div style="height:100%;width:0;background:#ffd75e;border-radius:3px"></div>'; document.body.appendChild(bar);
+  setInterval(() => { if (!me) { if (bar.style.display !== 'none') bar.style.display = 'none'; return; } bar.style.display = 'block'; bar.firstChild.style.width = Math.min(100, (now() - me.t0) / me.ms * 100) + '%'; }, 50);
+  function key(e) {
+    if (e.code !== 'KeyE' || !cur || e.repeat) return false;
+    if (me) return true;
+    const st = state(cur); if (!st.ok) { toastMsg(st.text, false, 1300); snd2('deny'); return true; }
+    net.send({ hall: { s: cur.id, v: 'use' } });
+    if (cur.kind !== 'board') holding = cur.id;
+    return true;
+  }
+  function release() { if (holding) { net.send({ hall: { s: holding, v: 'stop' } }); holding = null; } }
+  addEventListener('keyup', e => { if (e.code === 'KeyE') release(); });
+  addEventListener('blur', release);
+  const partName = { wood: 'wood', metal: 'metal', leather: 'leather', cloth: 'cloth', bone: 'bone', string: 'string' };
+  function fx(f) {
+    if (f.k === 'loot') {
+      const t = []; if (f.gold) t.push('+' + f.gold + ' gold'); for (const k in f.parts || {}) t.push('+' + f.parts[k] + ' ' + (partName[k] || k)); for (const k of f.items || []) t.push(itemName(k));
+      toastMsg(t.length ? t.join('   ') : 'Nothing but dust', !!t.length, 2200); snd2(f.gold ? 'coins' : 'chest'); if ((f.items || []).length) setTimeout(() => snd2('pickup'), 300); if (f.kind === 'cache') took.add(f.id);
+    } else if (f.k === 'heal') { toastMsg('+' + f.hp + ' health', true, 1600); snd2('drink'); }
+    else if (f.k === 'whet') { whetUntil = now() + f.ms; whetCd = now() + (HL.CFG.WHET_CD || 60000); toastMsg('Your weapon is sharp: +12% damage for ' + Math.round(f.ms / 1000) + ' s', true, 2200); snd2('craft'); }
+    else if (f.k === 'board') { const r = (f.rows || []).map(x => x[0] + ' ' + x[1]).join('  ·  '); toastMsg('Most kills: ' + (r || 'nobody yet') + '   (' + (f.alive | 0) + ' alive)', true, 3200); snd2('bell', { vol: 0.5 }); }
+  }
+  function onMsg(d) {
+    if (d.matchStart || d.queue) { for (const k in cd) delete cd[k]; took.clear(); me = null; holding = null; whetUntil = whetCd = 0; }
+    if (d.hallS) { if (d.hallFull) for (const k in cd) delete cd[k]; for (const id in d.hallS) { if (d.hallS[id] > 0) cd[id] = now() + d.hallS[id]; else delete cd[id]; } }
+    if (d.hallMe !== undefined) { me = d.hallMe ? { id: d.hallMe.id, t0: now(), ms: d.hallMe.ms } : null; if (me) snd2('uiClick', { vol: 0.35 }); }
+    if (d.hallFx) { me = null; fx(d.hallFx); }
+    if (d.hallFail) { if (d.hallFail === 'taken' && cur) took.add(cur.id); toastMsg(FAIL[d.hallFail] || 'Not now', false, 1500); snd2('deny'); }
+    if (d.matchEnd) { me = null; }
+  }
+  function sim(h) {   // the offline demo: the same flow without a server (4 s restock, no caps)
+    if (!h || !cur) return;
+    if (h.v === 'stop') { clearTimeout(sim.t); me = null; return; }
+    if (h.v !== 'use' || me) return;
+    if (cur.kind === 'board') return onMsg({ hallFx: { k: 'board', rows: [['You', 0]], alive: 8 } });
+    const ms = cur.kind === 'cache' ? 1600 : cur.role === 'cont' ? 2600 : 1800, id = cur.id, kind = cur.kind;
+    onMsg({ hallMe: { id, ms } });
+    sim.t = setTimeout(() => {
+      if (kind === 'font' || kind === 'stew') { onMsg({ hallFx: { k: 'heal', hp: 22 }, hallS: { [id]: 30000 } }); }
+      else if (kind === 'whet') onMsg({ hallFx: { k: 'whet', ms: 20000 } });
+      else onMsg({ hallFx: { k: 'loot', id, kind, gold: 10 + ((Math.random() * 12) | 0), parts: { wood: 1 }, items: [] }, ...(kind === 'cache' ? null : { hallS: { [id]: 20000 } }) });
+    }, ms);
+  }
+  return { key, onMsg, sim, prompt: () => cur && !me ? state(cur).text : '', cur: () => cur, cd, me: () => me, spotsOf };
+})();
+// HALLS-END
 if (window.GKART) requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => GKART.bake(renderer, { hold: () => !!(GK.perf5 && GK.perf5.on) && GK.mode === 'play' && !GK.locked && !(GK.panelOpen && GK.panelOpen()), priority: () => { const v = myInv || {}; return [v.weapon, v.armor].concat(v.quick || [], v.backpack || [], (window.GKITEMS && GKITEMS.START || []).flatMap(g => [g.weapon, g.armor])).filter(k => typeof k === 'string'); } }), 600)));   // ITEMART: bake the inventory icons in small batches once the first frame is up
 window.__gk = { P, actors, doors, info: renderer.info, scene, setView(x, z, yaw, pitch) { P.x = x; P.z = z; P.yaw = yaw; P.pitch = pitch || 0; spawned = true; }, toggleOverview() { inside = !inside; }, build: buildGoblin };
 })();

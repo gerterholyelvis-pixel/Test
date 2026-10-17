@@ -65,7 +65,8 @@
     if (A.cpAim) return GK.cpAimOpen && GK.cpAimOpen() ? '' : 'Select door';   // DOORS-PERSIST: an open door needs no vote
     const h = A.hover();
     if (h && h.room >= 0) return h.kind === 'r' ? ((GK.layout || [])[h.room] === 'grand' ? 'Use the Grand Recycler' : 'Use recycler') : h.kind === 'w' ? ((GK.layout || [])[h.room] === 'forge' ? 'Use the Master Forge' : 'Use crafting bench') : h.kind === 'k' ? 'Study the knowledge tree' : h.kind === 's' ? 'Open the Elixir Screen' : h.kind === 'p' ? 'Collect elixir from the pump' : h.kind === 'b' ? (GK.myHome === 'c' + h.room ? 'Your lockbox' : 'Crack the lockbox') : 'Trade with merchant';
-    { const ap = window.GKACT5 && GKACT5.prompt(); if (ap) return ap; }   // ACT5UI: the anchor of a tree room / vaultbreaker / the vault in reach
+    { const ap = window.GKACT5 && GKACT5.prompt(); if (ap) return ap; }
+    { const hp = window.GKHALL && GKHALL.prompt(); if (hp) return hp; }   // HALLS: the container / station in reach   // ACT5UI: the anchor of a tree room / vaultbreaker / the vault in reach
     if (A.nearestPile()) return 'Loot bag';
     const key = A.roomKeyAt(A.P.x, A.P.z);
     if (key && key[0] === 'c') {
